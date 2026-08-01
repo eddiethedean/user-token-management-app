@@ -7,7 +7,7 @@
     {% if invitation %}<p class="muted">Complete your profile for <strong>{{ invitation.email_original }}</strong>.</p>{% endif %}
     {% if error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
     {% if invitation %}
-    <form action="/invitations/accept" method="post" class="stack-form">
+    <form action="invitations/accept" method="post" class="stack-form">
       <input type="hidden" name="token" value="{{ token }}">
       <label for="full_name">Full name</label>
       <input id="full_name" name="full_name" value="{{ full_name or '' }}" autocomplete="name" maxlength="160" required autofocus>
@@ -19,9 +19,8 @@
       <button class="button button-primary button-wide" type="submit">Create account</button>
     </form>
     {% else %}
-      <a class="button button-secondary button-wide" href="/login">Return to sign in</a>
+      <a class="button button-secondary button-wide" href="login">Return to sign in</a>
     {% endif %}
   </div>
 </section>
 {% endblock %}
-

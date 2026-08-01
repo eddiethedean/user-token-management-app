@@ -58,4 +58,3 @@ def decode_access_token(token: str, settings: Settings) -> dict[str, Any]:
     if not isinstance(payload.get("sub"), str) or not isinstance(payload.get("sid"), str):
         raise AccessTokenError("Malformed access token")
     return payload
-

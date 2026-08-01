@@ -1,10 +1,10 @@
 <div id="profile-form-region">
   {% if success %}<div class="alert alert-success" role="status">{{ success }}</div>{% endif %}
   <form
-    action="/profile"
+    action="profile"
     method="post"
     class="stack-form"
-    hx-post="/profile"
+    hx-post="profile"
     hx-target="#profile-form-region"
     hx-swap="outerHTML"
   >
@@ -19,4 +19,3 @@
     <div class="form-actions"><button class="button button-primary" type="submit">Save changes</button><span class="htmx-indicator">Saving…</span></div>
   </form>
 </div>
-

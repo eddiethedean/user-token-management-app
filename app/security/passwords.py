@@ -9,7 +9,6 @@ from pwdlib import PasswordHash
 
 from app.config import Settings
 
-
 COMMON_PASSWORDS = {
     "123456789012345",
     "correcthorsebatterystaple",
@@ -95,4 +94,3 @@ class PasswordService:
 def _b64decode(value: str) -> bytes:
     padding = "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode(value + padding)
-

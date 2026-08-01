@@ -19,8 +19,7 @@
       <div><dt>Created</dt><dd>{{ current_user.created_at.strftime('%b %d, %Y') }}</dd></div>
       <div><dt>Last sign-in</dt><dd>{{ current_user.last_login_at.strftime('%b %d, %Y %H:%M') if current_user.last_login_at else 'First session' }}</dd></div>
     </dl>
-    <a class="button button-secondary button-wide" href="/security">Review account security</a>
+    <a class="button button-secondary button-wide" href="security">Review account security</a>
   </aside>
 </div>
 {% endblock %}
-

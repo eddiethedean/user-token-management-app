@@ -1,20 +1,20 @@
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-import uuid
+from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import SessionLocal, create_schema
 from app.dependencies import clear_auth_cookies, set_auth_cookies
 from app.routes.api import router as api_router
 from app.routes.web import router as web_router
+from app.routing import app_path
 from app.services.auth import ensure_default_roles
-
 
 settings = get_settings()
 
@@ -42,7 +42,7 @@ async def security_and_session_middleware(request: Request, call_next):
     response = await call_next(request)
     rotated = getattr(request.state, "rotated_tokens", None)
     if rotated:
-        set_auth_cookies(response, rotated, settings)
+        set_auth_cookies(response, rotated, settings, request)
     response.headers["X-Request-ID"] = request.state.request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
@@ -65,8 +65,10 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         next_path = request.url.path
         if request.url.query:
             next_path += f"?{request.url.query}"
-        response = RedirectResponse(f"/login?next={next_path}", status_code=303)
-        clear_auth_cookies(response, settings)
+        response = RedirectResponse(
+            app_path(request, f"/login?{urlencode({'next': next_path})}"), status_code=303
+        )
+        clear_auth_cookies(response, settings, request)
         if request.headers.get("HX-Request") == "true":
             response.headers["HX-Redirect"] = str(response.headers["location"])
         return response
@@ -86,8 +88,4 @@ app.include_router(api_router)
 app.include_router(web_router)
 
 static_directory = Path(__file__).parent / "static"
-if hasattr(app, "frontend"):
-    app.frontend("/assets", directory=static_directory, fallback=None)  # type: ignore[attr-defined]
-else:
-    app.mount("/assets", StaticFiles(directory=static_directory), name="assets")
-
+app.frontend("/assets", directory=static_directory, fallback=None)

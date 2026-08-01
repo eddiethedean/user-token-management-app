@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
@@ -43,7 +41,6 @@ from app.services.auth import (
 )
 from app.services.mailer import deliver_pending
 
-
 router = APIRouter(prefix="/api/v1")
 
 
@@ -74,7 +71,7 @@ def issue_token(
     except AuthenticationError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
     tokens = create_session(db, settings, user, request)
-    set_auth_cookies(response, tokens, settings)
+    set_auth_cookies(response, tokens, settings, request)
     return TokenResponse(access_token=tokens.access_token, expires_in=tokens.access_expires_in)
 
 
@@ -89,9 +86,9 @@ def refresh_token(
     try:
         tokens = rotate_session(db, settings, raw_refresh, request)
     except TokenFlowError as exc:
-        clear_auth_cookies(response, settings)
+        clear_auth_cookies(response, settings, request)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
-    set_auth_cookies(response, tokens, settings)
+    set_auth_cookies(response, tokens, settings, request)
     return TokenResponse(access_token=tokens.access_token, expires_in=tokens.access_expires_in)
 
 
@@ -105,7 +102,7 @@ async def logout(
 ) -> None:
     await _csrf_if_cookie(request, auth)
     revoke_session(db, auth.session, actor=auth.user, request=request)
-    clear_auth_cookies(response, settings)
+    clear_auth_cookies(response, settings, request)
 
 
 @router.post("/auth/logout-all", status_code=status.HTTP_204_NO_CONTENT)
@@ -118,9 +115,11 @@ async def logout_all(
 ) -> None:
     await _csrf_if_cookie(request, auth)
     revoke_all_sessions(db, auth.user)
-    record_event(db, "auth.sessions.revoked_all", request=request, actor=auth.user, target=auth.user)
+    record_event(
+        db, "auth.sessions.revoked_all", request=request, actor=auth.user, target=auth.user
+    )
     db.commit()
-    clear_auth_cookies(response, settings)
+    clear_auth_cookies(response, settings, request)
 
 
 @router.post("/auth/forgot-password", status_code=status.HTTP_202_ACCEPTED)
@@ -236,7 +235,9 @@ async def delete_session(
 def admin_users(
     _: AuthContext = Depends(require_admin), db: Session = Depends(get_db)
 ) -> list[UserView]:
-    return [UserView.from_user(user) for user in db.scalars(select(User).order_by(User.email)).all()]
+    return [
+        UserView.from_user(user) for user in db.scalars(select(User).order_by(User.email)).all()
+    ]
 
 
 @router.post("/admin/invitations", status_code=status.HTTP_201_CREATED)
@@ -289,7 +290,9 @@ async def admin_update_user(
         if len(roles) != len(set(payload.roles)):
             raise HTTPException(status_code=400, detail="One or more roles are invalid")
         if user.id == auth.user.id and "administrator" not in payload.roles:
-            raise HTTPException(status_code=400, detail="You cannot remove your own administrator role")
+            raise HTTPException(
+                status_code=400, detail="You cannot remove your own administrator role"
+            )
         user.roles = list(roles)
         user.security_version += 1
     record_event(
@@ -322,4 +325,3 @@ def admin_audit(
         }
         for event in events
     ]
-

@@ -4,9 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
+    <base href="{{ app_base_url }}/">
     <title>{% if page_title %}{{ page_title }} · {% endif %}{{ app_name }}</title>
-    <link rel="stylesheet" href="{{ request.url_for('assets', path='app.css') }}">
-    <script src="{{ request.url_for('assets', path='htmx.min.js') }}" defer></script>
+    <link rel="stylesheet" href="assets/app.css">
+    <script src="assets/htmx.min.js" defer></script>
   </head>
   <body>
     <div class="official-banner">
@@ -17,7 +18,7 @@
     </div>
     <header class="site-header">
       <div class="page-width header-inner">
-        <a class="brand" href="/" aria-label="{{ app_name }} home">
+        <a class="brand" href="." aria-label="{{ app_name }} home">
           <span class="brand-mark" aria-hidden="true">AR</span>
           <span>
             <strong>{{ app_name }}</strong>
@@ -31,7 +32,7 @@
               <strong>{{ current_user.full_name or current_user.email_original }}</strong>
               <small>{{ current_user.email_original }}</small>
             </span>
-            <form action="/logout" method="post">
+            <form action="logout" method="post">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button class="button button-quiet button-small" type="submit">Sign out</button>
             </form>
@@ -44,18 +45,18 @@
       <div class="page-width app-shell">
         <nav class="side-nav" aria-label="Account navigation">
           <p class="nav-label">Workspace</p>
-          <a class="nav-link {% if request.url.path == '/profile' %}active{% endif %}" href="/profile">
+          <a class="nav-link {% if request.url.path == '/profile' %}active{% endif %}" href="profile">
             <span aria-hidden="true">01</span> Profile
           </a>
-          <a class="nav-link {% if request.url.path == '/security' %}active{% endif %}" href="/security">
+          <a class="nav-link {% if request.url.path == '/security' %}active{% endif %}" href="security">
             <span aria-hidden="true">02</span> Security
           </a>
           {% if 'administrator' in current_user.role_names %}
             <p class="nav-label nav-label-spaced">Administration</p>
-            <a class="nav-link {% if request.url.path == '/admin/users' %}active{% endif %}" href="/admin/users">
+            <a class="nav-link {% if request.url.path == '/admin/users' %}active{% endif %}" href="admin/users">
               <span aria-hidden="true">03</span> Users
             </a>
-            <a class="nav-link {% if request.url.path == '/admin/audit' %}active{% endif %}" href="/admin/audit">
+            <a class="nav-link {% if request.url.path == '/admin/audit' %}active{% endif %}" href="admin/audit">
               <span aria-hidden="true">04</span> Audit log
             </a>
           {% endif %}
@@ -81,4 +82,3 @@
     </footer>
   </body>
 </html>
-

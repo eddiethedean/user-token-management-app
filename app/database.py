@@ -33,4 +33,3 @@ def create_schema() -> None:
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
-

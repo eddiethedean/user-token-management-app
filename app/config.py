@@ -5,7 +5,6 @@ from typing import Literal
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -31,7 +30,7 @@ class Settings(BaseSettings):
     refresh_token_hours: int = Field(default=8, ge=1, le=168)
     session_idle_minutes: int = Field(default=30, ge=5, le=1440)
     cookie_secure: bool = False
-    cookie_path: str = "/"
+    cookie_path: str = "auto"
 
     allowed_email_domains: str = ""
     email_backend: Literal["console", "smtp"] = "console"
@@ -59,6 +58,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
+        if self.cookie_path != "auto" and not self.cookie_path.startswith("/"):
+            raise ValueError("COOKIE_PATH must be 'auto' or an absolute path")
         if self.is_production:
             weak_markers = ("development-only", "replace-with")
             for name in ("jwt_secret", "session_pepper", "csrf_secret"):
@@ -77,4 +78,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

@@ -26,7 +26,9 @@ def deliver_pending(db: Session, settings: Settings, *, limit: int = 20) -> int:
         message.attempts += 1
         try:
             if settings.email_backend == "console":
-                print(f"\n--- EMAIL TO {message.recipient} ---\n{message.subject}\n\n{message.body_text}\n")
+                print(
+                    f"\n--- EMAIL TO {message.recipient} ---\n{message.subject}\n\n{message.body_text}\n"
+                )
             else:
                 _send_smtp(message, settings)
             message.sent_at = utcnow()
@@ -51,4 +53,3 @@ def _send_smtp(message: EmailOutbox, settings: Settings) -> None:
         if settings.smtp_username:
             client.login(settings.smtp_username, settings.smtp_password)
         client.send_message(email)
-

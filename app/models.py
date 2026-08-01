@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import enum
 import uuid
 from datetime import UTC, datetime
+from enum import StrEnum
 
 from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Table, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -18,7 +18,7 @@ def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-class UserStatus(str, enum.Enum):
+class UserStatus(StrEnum):
     ACTIVE = "active"
     DISABLED = "disabled"
     PENDING = "pending"
@@ -161,4 +161,6 @@ class EmailOutbox(Base):
 
 
 Index("ix_sessions_user_active", RefreshSession.user_id, RefreshSession.revoked_at)
-Index("ix_invitations_email_active", Invitation.email, Invitation.accepted_at, Invitation.revoked_at)
+Index(
+    "ix_invitations_email_active", Invitation.email, Invitation.accepted_at, Invitation.revoked_at
+)
