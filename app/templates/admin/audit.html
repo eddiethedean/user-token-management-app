@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Administration</p><h1>Audit activity</h1><p>Security-relevant actions recorded by the application.</p></div><span class="verification-badge">Latest 200 events</span></div>
+<section class="panel">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Target</th><th>Outcome</th><th>Request</th></tr></thead>
+      <tbody>{% for event in events %}<tr><td class="nowrap">{{ event.occurred_at.strftime('%Y-%m-%d %H:%M') }}</td><td><strong>{{ event.event_type }}</strong></td><td>{{ users[event.actor_user_id].email_original if event.actor_user_id and event.actor_user_id in users else 'System' }}</td><td>{{ users[event.target_user_id].email_original if event.target_user_id and event.target_user_id in users else '—' }}</td><td><span class="pill {% if event.outcome == 'success' %}pill-active{% else %}pill-muted{% endif %}">{{ event.outcome }}</span></td><td><code>{{ event.request_id[:8] }}</code></td></tr>{% else %}<tr><td colspan="6" class="empty-state">No audit events.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+

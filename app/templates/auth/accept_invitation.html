@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block auth_content %}
+<section class="center-card-wrap">
+  <div class="auth-card narrow-card">
+    <p class="eyebrow">Account invitation</p>
+    <h1>Create your account</h1>
+    {% if invitation %}<p class="muted">Complete your profile for <strong>{{ invitation.email_original }}</strong>.</p>{% endif %}
+    {% if error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
+    {% if invitation %}
+    <form action="/invitations/accept" method="post" class="stack-form">
+      <input type="hidden" name="token" value="{{ token }}">
+      <label for="full_name">Full name</label>
+      <input id="full_name" name="full_name" value="{{ full_name or '' }}" autocomplete="name" maxlength="160" required autofocus>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" minlength="15" required>
+      <p class="field-help">At least 15 characters. Avoid names, email terms, and common phrases.</p>
+      <label for="password_confirm">Confirm password</label>
+      <input id="password_confirm" name="password_confirm" type="password" autocomplete="new-password" minlength="15" required>
+      <button class="button button-primary button-wide" type="submit">Create account</button>
+    </form>
+    {% else %}
+      <a class="button button-secondary button-wide" href="/login">Return to sign in</a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}
+

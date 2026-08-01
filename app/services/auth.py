@@ -1,0 +1,350 @@
+from dataclasses import dataclass
+from datetime import timedelta
+
+from fastapi import Request
+from sqlalchemy import select, update
+from sqlalchemy.orm import Session
+
+from app.config import Settings
+from app.models import (
+    Invitation,
+    PasswordReset,
+    RefreshSession,
+    Role,
+    User,
+    UserStatus,
+    utcnow,
+)
+from app.security.email import normalize_email
+from app.security.passwords import PasswordService, validate_password
+from app.security.tokens import create_access_token, hash_token, random_token
+from app.services.audit import client_ip, record_event
+from app.services.mailer import queue_email
+
+
+class AuthenticationError(ValueError):
+    pass
+
+
+class AccountLockedError(AuthenticationError):
+    pass
+
+
+class TokenFlowError(ValueError):
+    pass
+
+
+@dataclass
+class SessionTokens:
+    access_token: str
+    access_expires_in: int
+    refresh_token: str
+    session: RefreshSession
+
+
+def ensure_default_roles(db: Session) -> None:
+    defaults = {
+        "user": "Standard account holder",
+        "administrator": "Can manage users, invitations, roles, and audit records",
+    }
+    existing = {role.name for role in db.scalars(select(Role)).all()}
+    for name, description in defaults.items():
+        if name not in existing:
+            db.add(Role(name=name, description=description))
+    db.commit()
+
+
+def authenticate_user(
+    db: Session,
+    settings: Settings,
+    email: str,
+    password: str,
+    request: Request | None = None,
+) -> User:
+    canonical, _ = normalize_email(email, settings)
+    user = db.scalar(select(User).where(User.email == canonical))
+    now = utcnow()
+    password_service = PasswordService(settings)
+    if user and user.locked_until and user.locked_until > now:
+        record_event(db, "auth.login", request=request, target=user, outcome="locked")
+        db.commit()
+        raise AccountLockedError("Unable to sign in with those credentials.")
+    valid = password_service.verify(password, user.password_hash if user else None)
+    if not user or not valid or not user.is_active or not user.email_verified_at:
+        if user:
+            user.failed_login_attempts += 1
+            if user.failed_login_attempts >= 5:
+                user.locked_until = now + timedelta(minutes=15)
+            record_event(db, "auth.login", request=request, target=user, outcome="failure")
+        db.commit()
+        raise AuthenticationError("Unable to sign in with those credentials.")
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    user.last_login_at = now
+    if user.password_hash and password_service.needs_rehash(user.password_hash):
+        user.password_hash = password_service.hash(password)
+    record_event(db, "auth.login", request=request, actor=user, target=user)
+    db.commit()
+    return user
+
+
+def create_session(
+    db: Session, settings: Settings, user: User, request: Request | None = None
+) -> SessionTokens:
+    now = utcnow()
+    raw_refresh = random_token()
+    session = RefreshSession(
+        user_id=user.id,
+        refresh_token_hash=hash_token(raw_refresh, settings.session_pepper),
+        csrf_token=random_token(24),
+        created_at=now,
+        last_seen_at=now,
+        idle_expires_at=now + timedelta(minutes=settings.session_idle_minutes),
+        absolute_expires_at=now + timedelta(hours=settings.refresh_token_hours),
+        user_agent=(request.headers.get("user-agent", "")[:500] if request else ""),
+        source_ip=client_ip(request),
+    )
+    db.add(session)
+    db.flush()
+    access_token, expires_in = create_access_token(user, session.id, settings)
+    record_event(db, "auth.session.created", request=request, actor=user, target=user)
+    db.commit()
+    return SessionTokens(access_token, expires_in, raw_refresh, session)
+
+
+def rotate_session(
+    db: Session, settings: Settings, raw_refresh: str, request: Request | None = None
+) -> SessionTokens:
+    now = utcnow()
+    token_hash = hash_token(raw_refresh, settings.session_pepper)
+    session = db.scalar(
+        select(RefreshSession).where(RefreshSession.refresh_token_hash == token_hash)
+    )
+    if (
+        not session
+        or session.revoked_at
+        or session.idle_expires_at <= now
+        or session.absolute_expires_at <= now
+        or not session.user.is_active
+    ):
+        raise TokenFlowError("Refresh session is invalid or expired.")
+    replacement = random_token()
+    session.refresh_token_hash = hash_token(replacement, settings.session_pepper)
+    session.last_seen_at = now
+    session.idle_expires_at = min(
+        now + timedelta(minutes=settings.session_idle_minutes), session.absolute_expires_at
+    )
+    access_token, expires_in = create_access_token(session.user, session.id, settings)
+    record_event(db, "auth.session.refreshed", request=request, actor=session.user, target=session.user)
+    db.commit()
+    return SessionTokens(access_token, expires_in, replacement, session)
+
+
+def revoke_session(
+    db: Session,
+    session: RefreshSession,
+    *,
+    actor: User,
+    request: Request | None = None,
+) -> None:
+    if not session.revoked_at:
+        session.revoked_at = utcnow()
+        record_event(db, "auth.session.revoked", request=request, actor=actor, target=session.user)
+        db.commit()
+
+
+def revoke_all_sessions(db: Session, user: User) -> None:
+    db.execute(
+        update(RefreshSession)
+        .where(RefreshSession.user_id == user.id, RefreshSession.revoked_at.is_(None))
+        .values(revoked_at=utcnow())
+    )
+
+
+def create_invitation(
+    db: Session,
+    settings: Settings,
+    *,
+    email: str,
+    role_name: str,
+    inviter: User,
+    request: Request | None = None,
+) -> tuple[Invitation, str]:
+    canonical, original = normalize_email(email, settings)
+    if db.scalar(select(User).where(User.email == canonical)):
+        raise ValueError("An account already exists for that email address.")
+    role = db.scalar(select(Role).where(Role.name == role_name))
+    if not role:
+        raise ValueError("Select a valid role.")
+    now = utcnow()
+    for prior in db.scalars(
+        select(Invitation).where(
+            Invitation.email == canonical,
+            Invitation.accepted_at.is_(None),
+            Invitation.revoked_at.is_(None),
+        )
+    ):
+        prior.revoked_at = now
+    raw_token = random_token()
+    invitation = Invitation(
+        email=canonical,
+        email_original=original,
+        token_hash=hash_token(raw_token, settings.session_pepper),
+        role_name=role_name,
+        invited_by_user_id=inviter.id,
+        created_at=now,
+        expires_at=now + timedelta(hours=48),
+    )
+    db.add(invitation)
+    accept_url = f"{settings.public_base_url.rstrip('/')}/invitations/accept?token={raw_token}"
+    queue_email(
+        db,
+        original,
+        f"Invitation to {settings.app_name}",
+        "You have been invited to an approved government application.\n\n"
+        f"Open this link on the approved network to continue:\n{accept_url}\n\n"
+        "This invitation expires in 48 hours. If you did not expect it, contact the service desk.",
+    )
+    record_event(
+        db,
+        "invitation.created",
+        request=request,
+        actor=inviter,
+        detail={"invitation_id": invitation.id, "role": role_name},
+    )
+    db.commit()
+    return invitation, raw_token
+
+
+def get_valid_invitation(db: Session, settings: Settings, raw_token: str) -> Invitation:
+    invitation = db.scalar(
+        select(Invitation).where(
+            Invitation.token_hash == hash_token(raw_token, settings.session_pepper)
+        )
+    )
+    now = utcnow()
+    if (
+        not invitation
+        or invitation.accepted_at
+        or invitation.revoked_at
+        or invitation.expires_at <= now
+    ):
+        raise TokenFlowError("That invitation is invalid or expired.")
+    return invitation
+
+
+def accept_invitation(
+    db: Session,
+    settings: Settings,
+    *,
+    raw_token: str,
+    password: str,
+    full_name: str,
+    request: Request | None = None,
+) -> User:
+    invitation = get_valid_invitation(db, settings, raw_token)
+    if db.scalar(select(User).where(User.email == invitation.email)):
+        raise TokenFlowError("An account already exists for that email address.")
+    validated = validate_password(password, email=invitation.email)
+    role = db.scalar(select(Role).where(Role.name == invitation.role_name))
+    user = User(
+        email=invitation.email,
+        email_original=invitation.email_original,
+        email_verified_at=utcnow(),
+        full_name=full_name.strip()[:160],
+        status=UserStatus.ACTIVE.value,
+        password_hash=PasswordService(settings).hash(validated),
+        password_changed_at=utcnow(),
+        roles=[role] if role else [],
+    )
+    db.add(user)
+    invitation.accepted_at = utcnow()
+    db.flush()
+    record_event(db, "invitation.accepted", request=request, actor=user, target=user)
+    db.commit()
+    return user
+
+
+def request_password_reset(
+    db: Session,
+    settings: Settings,
+    email: str,
+    request: Request | None = None,
+) -> None:
+    try:
+        canonical, _ = normalize_email(email, settings)
+    except ValueError:
+        return
+    user = db.scalar(select(User).where(User.email == canonical))
+    if not user or not user.is_active:
+        return
+    now = utcnow()
+    for prior in db.scalars(
+        select(PasswordReset).where(
+            PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None)
+        )
+    ):
+        prior.used_at = now
+    raw_token = random_token()
+    reset = PasswordReset(
+        user_id=user.id,
+        token_hash=hash_token(raw_token, settings.session_pepper),
+        created_at=now,
+        expires_at=now + timedelta(minutes=30),
+        requested_ip=client_ip(request),
+    )
+    db.add(reset)
+    reset_url = f"{settings.public_base_url.rstrip('/')}/password/reset?token={raw_token}"
+    queue_email(
+        db,
+        user.email_original,
+        f"Reset your {settings.app_name} password",
+        "A password reset was requested for your account.\n\n"
+        f"Open this link on the approved network to continue:\n{reset_url}\n\n"
+        "The link expires in 30 minutes. Opening it does not change your password. "
+        "If you did not request this, contact the service desk.",
+    )
+    record_event(db, "password.reset.requested", request=request, target=user)
+    db.commit()
+
+
+def get_valid_password_reset(db: Session, settings: Settings, raw_token: str) -> PasswordReset:
+    reset = db.scalar(
+        select(PasswordReset).where(
+            PasswordReset.token_hash == hash_token(raw_token, settings.session_pepper)
+        )
+    )
+    if not reset or reset.used_at or reset.expires_at <= utcnow() or not reset.user.is_active:
+        raise TokenFlowError("That password reset link is invalid or expired.")
+    return reset
+
+
+def complete_password_reset(
+    db: Session,
+    settings: Settings,
+    *,
+    raw_token: str,
+    password: str,
+    request: Request | None = None,
+) -> User:
+    reset = get_valid_password_reset(db, settings, raw_token)
+    validated = validate_password(password, email=reset.user.email)
+    user = reset.user
+    user.password_hash = PasswordService(settings).hash(validated)
+    user.password_changed_at = utcnow()
+    user.security_version += 1
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    reset.used_at = utcnow()
+    revoke_all_sessions(db, user)
+    record_event(db, "password.reset.completed", request=request, actor=user, target=user)
+    queue_email(
+        db,
+        user.email_original,
+        f"Your {settings.app_name} password was changed",
+        "Your password was changed and existing sessions were revoked. "
+        "If you did not perform this action, contact the service desk immediately.",
+    )
+    db.commit()
+    return user
+

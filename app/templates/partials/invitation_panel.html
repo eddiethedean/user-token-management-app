@@ -1,0 +1,18 @@
+<div id="invitation-panel" class="panel invite-panel">
+  <div class="panel-heading"><div><h2>Invite a user</h2><p>Send a single-use enrollment link.</p></div></div>
+  {% if error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
+  {% if success %}<div class="alert alert-success" role="status">{{ success }}</div>{% endif %}
+  <form action="/admin/invitations" method="post" class="stack-form" hx-post="/admin/invitations" hx-target="#invitation-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="invite_email">Government email</label><input id="invite_email" name="email" type="email" required>
+    <label for="invite_role">Initial role</label><select id="invite_role" name="role">{% for role in roles %}<option value="{{ role.name }}">{{ role.name | title }}</option>{% endfor %}</select>
+    <button class="button button-primary button-wide" type="submit">Send invitation</button>
+  </form>
+  <div class="pending-list">
+    <h3>Recent invitations</h3>
+    {% for invitation in invitations[:8] %}
+      <div class="pending-row"><div><strong>{{ invitation.email_original }}</strong><small>{{ invitation.role_name | title }} · {{ invitation.created_at.strftime('%b %d') }}</small></div><span class="pill {% if invitation.accepted_at %}pill-active{% elif invitation.revoked_at %}pill-muted{% else %}pill-pending{% endif %}">{{ 'accepted' if invitation.accepted_at else ('revoked' if invitation.revoked_at else 'pending') }}</span></div>
+    {% else %}<p class="empty-state">No invitations yet.</p>{% endfor %}
+  </div>
+</div>
+

@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">Administration</p><h1>Users and invitations</h1><p>Provision accounts, review status, and control application access.</p></div><span class="verification-badge"><span class="status-dot"></span>{{ users | length }} accounts</span></div>
+<div class="admin-layout">
+  <section class="panel panel-main">
+    <div class="panel-heading"><div><h2>Directory</h2><p>All application-managed identities.</p></div></div>
+    {% include "partials/user_table.html" %}
+  </section>
+  <aside>{% include "partials/invitation_panel.html" %}</aside>
+</div>
+{% endblock %}
+

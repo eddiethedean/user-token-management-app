@@ -1,0 +1,17 @@
+<div id="user-table" class="table-wrap">
+  <table>
+    <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last sign-in</th><th><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+      {% for user in users %}
+      <tr>
+        <td><div class="user-cell"><span class="mini-avatar">{{ (user.full_name or user.email_original)[0] | upper }}</span><span><strong>{{ user.full_name or 'Pending profile' }}</strong><small>{{ user.email_original }}</small></span></div></td>
+        <td>{{ user.role_names | join(', ') | title }}</td>
+        <td><span class="pill {% if user.status == 'active' %}pill-active{% else %}pill-muted{% endif %}">{{ user.status }}</span></td>
+        <td>{{ user.last_login_at.strftime('%b %d, %Y') if user.last_login_at else 'Never' }}</td>
+        <td>{% if user.id != auth.user.id %}<form action="/admin/users/{{ user.id }}/toggle" method="post" hx-post="/admin/users/{{ user.id }}/toggle" hx-target="#user-table" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-quiet button-small" type="submit">{{ 'Disable' if user.status == 'active' else 'Enable' }}</button></form>{% else %}<span class="muted">You</span>{% endif %}</td>
+      </tr>
+      {% else %}<tr><td colspan="5" class="empty-state">No users.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
