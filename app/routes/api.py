@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -81,13 +82,17 @@ def refresh_token(
     response: Response,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> TokenResponse:
+) -> TokenResponse | JSONResponse:
     raw_refresh = request.cookies.get(REFRESH_COOKIE, "")
     try:
         tokens = rotate_session(db, settings, raw_refresh, request)
     except TokenFlowError as exc:
-        clear_auth_cookies(response, settings, request)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        error_response = JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": str(exc)},
+        )
+        clear_auth_cookies(error_response, settings, request)
+        return error_response
     set_auth_cookies(response, tokens, settings, request)
     return TokenResponse(access_token=tokens.access_token, expires_in=tokens.access_expires_in)
 

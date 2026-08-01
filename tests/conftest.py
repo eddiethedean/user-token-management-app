@@ -60,3 +60,33 @@ def client() -> Generator[TestClient, None, None]:
     seed_admin()
     with TestClient(app, follow_redirects=False) as test_client:
         yield test_client
+
+
+@pytest.fixture()
+def make_user(client):
+    def factory(
+        email: str,
+        *,
+        password: str = "Aspen-Compass-64!River",
+        roles: tuple[str, ...] = ("user",),
+        status: str = UserStatus.ACTIVE.value,
+        verified: bool = True,
+    ) -> User:
+        with SessionLocal() as db:
+            assigned_roles = db.scalars(select(Role).where(Role.name.in_(roles))).all()
+            user = User(
+                email=email.casefold(),
+                email_original=email,
+                email_verified_at=utcnow() if verified else None,
+                full_name=email.partition("@")[0].replace(".", " ").title(),
+                status=status,
+                password_hash=PasswordService(get_settings()).hash(password),
+                password_changed_at=utcnow(),
+                roles=list(assigned_roles),
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            return user
+
+    return factory
