@@ -19,4 +19,3 @@ def normalize_email(raw_email: str, settings: Settings) -> tuple[str, str]:
     if allowlist and domain not in allowlist:
         raise EmailPolicyError("That email domain is not approved for this application.")
     return canonical, original
-

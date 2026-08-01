@@ -74,4 +74,3 @@ class InvitationRequest(BaseModel):
 class AdminUserUpdate(BaseModel):
     status: str | None = None
     roles: list[str] | None = None
-

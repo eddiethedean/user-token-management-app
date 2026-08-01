@@ -9,7 +9,6 @@ from pwdlib import PasswordHash
 
 from app.config import Settings
 
-
 COMMON_PASSWORDS = {
     "123456789012345",
     "correcthorsebatterystaple",
@@ -81,9 +80,9 @@ class PasswordService:
 
     def needs_rehash(self, password_hash: str) -> bool:
         if self.settings.password_hash_scheme == "argon2":
-            return not password_hash.startswith("$argon2") or self._argon2.check_needs_rehash(
-                password_hash
-            )
+            return not password_hash.startswith(
+                "$argon2"
+            ) or self._argon2.current_hasher.check_needs_rehash(password_hash)
         if not password_hash.startswith("pbkdf2_sha256$"):
             return True
         try:
@@ -95,4 +94,3 @@ class PasswordService:
 def _b64decode(value: str) -> bytes:
     padding = "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode(value + padding)
-

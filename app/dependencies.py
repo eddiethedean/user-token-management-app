@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.database import get_db
 from app.models import RefreshSession, User, utcnow
+from app.routing import cookie_path
 from app.security.tokens import AccessTokenError, decode_access_token, hash_token
 from app.services.auth import SessionTokens, TokenFlowError, rotate_session
-
 
 ACCESS_COOKIE = "access_registry_access"
 REFRESH_COOKIE = "access_registry_refresh"
@@ -95,12 +95,12 @@ def get_session_by_refresh_token(
     )
 
 
-def set_auth_cookies(response, tokens: SessionTokens, settings: Settings) -> None:
+def set_auth_cookies(response, tokens: SessionTokens, settings: Settings, request: Request) -> None:
     common = {
         "secure": settings.cookie_secure,
         "httponly": True,
         "samesite": "lax",
-        "path": settings.cookie_path,
+        "path": cookie_path(request, settings.cookie_path),
     }
     response.set_cookie(
         ACCESS_COOKIE,
@@ -116,7 +116,7 @@ def set_auth_cookies(response, tokens: SessionTokens, settings: Settings) -> Non
     )
 
 
-def clear_auth_cookies(response, settings: Settings) -> None:
-    response.delete_cookie(ACCESS_COOKIE, path=settings.cookie_path)
-    response.delete_cookie(REFRESH_COOKIE, path=settings.cookie_path)
-
+def clear_auth_cookies(response, settings: Settings, request: Request) -> None:
+    path = cookie_path(request, settings.cookie_path)
+    response.delete_cookie(ACCESS_COOKIE, path=path)
+    response.delete_cookie(REFRESH_COOKIE, path=path)

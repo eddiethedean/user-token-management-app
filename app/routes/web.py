@@ -1,6 +1,4 @@
-from urllib.parse import quote
-
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,6 +14,7 @@ from app.dependencies import (
     set_auth_cookies,
 )
 from app.models import AuditEvent, Invitation, RefreshSession, Role, User, UserStatus, utcnow
+from app.routing import app_path
 from app.security.csrf import require_csrf
 from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
 from app.services.audit import record_event
@@ -36,27 +35,34 @@ from app.services.auth import (
 from app.services.mailer import deliver_pending
 from app.templating import template_context, templates
 
-
 router = APIRouter(include_in_schema=False)
 
 
 def _safe_next(value: str) -> str:
-    return value if value.startswith("/") and not value.startswith("//") else "/profile"
+    is_local_path = (
+        value.startswith("/")
+        and not value.startswith("//")
+        and "\\" not in value
+        and not any(ord(character) < 32 for character in value)
+    )
+    return value if is_local_path else "/profile"
 
 
 @router.get("/", response_class=HTMLResponse)
-def home(auth: AuthContext | None = Depends(get_optional_auth)) -> RedirectResponse:
-    return RedirectResponse("/profile" if auth else "/login", status_code=303)
+def home(
+    request: Request, auth: AuthContext | None = Depends(get_optional_auth)
+) -> RedirectResponse:
+    return RedirectResponse(app_path(request, "/profile" if auth else "/login"), status_code=303)
 
 
-@router.get("/login", response_class=HTMLResponse)
+@router.get("/login", response_class=HTMLResponse, response_model=None)
 def login_page(
     request: Request,
     next: str = "/profile",
     auth: AuthContext | None = Depends(get_optional_auth),
 ) -> HTMLResponse | RedirectResponse:
     if auth:
-        return RedirectResponse(_safe_next(next), status_code=303)
+        return RedirectResponse(app_path(request, _safe_next(next)), status_code=303)
     return templates.TemplateResponse(
         request=request,
         name="auth/login.html",
@@ -64,7 +70,7 @@ def login_page(
     )
 
 
-@router.post("/login", response_class=HTMLResponse)
+@router.post("/login", response_class=HTMLResponse, response_model=None)
 def login_submit(
     request: Request,
     email: str = Form(),
@@ -89,8 +95,8 @@ def login_submit(
             ),
         )
     tokens = create_session(db, settings, user, request)
-    response = RedirectResponse(_safe_next(next), status_code=303)
-    set_auth_cookies(response, tokens, settings)
+    response = RedirectResponse(app_path(request, _safe_next(next)), status_code=303)
+    set_auth_cookies(response, tokens, settings, request)
     return response
 
 
@@ -103,8 +109,8 @@ async def logout_submit(
 ) -> RedirectResponse:
     await require_csrf(request, auth.session.csrf_token)
     revoke_session(db, auth.session, actor=auth.user, request=request)
-    response = RedirectResponse("/login", status_code=303)
-    clear_auth_cookies(response, settings)
+    response = RedirectResponse(app_path(request, "/login"), status_code=303)
+    clear_auth_cookies(response, settings, request)
     return response
 
 
@@ -159,7 +165,7 @@ def reset_page(
     )
 
 
-@router.post("/password/reset", response_class=HTMLResponse)
+@router.post("/password/reset", response_class=HTMLResponse, response_model=None)
 def reset_submit(
     request: Request,
     token: str = Form(),
@@ -177,7 +183,7 @@ def reset_submit(
                 db, settings, raw_token=token, password=password, request=request
             )
             deliver_pending(db, settings)
-            return RedirectResponse("/login?reset=complete", status_code=303)
+            return RedirectResponse(app_path(request, "/login?reset=complete"), status_code=303)
         except (TokenFlowError, PasswordPolicyError) as exc:
             error = str(exc)
     return templates.TemplateResponse(
@@ -217,7 +223,7 @@ def invitation_page(
     )
 
 
-@router.post("/invitations/accept", response_class=HTMLResponse)
+@router.post("/invitations/accept", response_class=HTMLResponse, response_model=None)
 def invitation_submit(
     request: Request,
     token: str = Form(),
@@ -241,7 +247,7 @@ def invitation_submit(
             full_name=full_name,
             request=request,
         )
-        return RedirectResponse("/login?invitation=accepted", status_code=303)
+        return RedirectResponse(app_path(request, "/login?invitation=accepted"), status_code=303)
     except (TokenFlowError, PasswordPolicyError) as exc:
         error = str(exc)
     return templates.TemplateResponse(
@@ -288,9 +294,7 @@ async def profile_submit(
     return templates.TemplateResponse(
         request=request,
         name="partials/profile_form.html",
-        context=template_context(
-            request, auth=auth, success="Your profile has been updated."
-        ),
+        context=template_context(request, auth=auth, success="Your profile has been updated."),
     )
 
 
@@ -465,7 +469,9 @@ async def toggle_user(
     if user.id == auth.user.id:
         raise HTTPException(status_code=400, detail="You cannot disable your own account")
     user.status = (
-        UserStatus.DISABLED.value if user.status == UserStatus.ACTIVE.value else UserStatus.ACTIVE.value
+        UserStatus.DISABLED.value
+        if user.status == UserStatus.ACTIVE.value
+        else UserStatus.ACTIVE.value
     )
     user.security_version += 1
     if not user.is_active:
@@ -502,4 +508,3 @@ def audit_page(
             request, auth=auth, page_title="Audit activity", events=events, users=users
         ),
     )
-

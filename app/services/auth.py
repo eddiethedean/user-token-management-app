@@ -135,7 +135,9 @@ def rotate_session(
         now + timedelta(minutes=settings.session_idle_minutes), session.absolute_expires_at
     )
     access_token, expires_in = create_access_token(session.user, session.id, settings)
-    record_event(db, "auth.session.refreshed", request=request, actor=session.user, target=session.user)
+    record_event(
+        db, "auth.session.refreshed", request=request, actor=session.user, target=session.user
+    )
     db.commit()
     return SessionTokens(access_token, expires_in, replacement, session)
 
@@ -347,4 +349,3 @@ def complete_password_reset(
     )
     db.commit()
     return user
-

@@ -22,11 +22,11 @@
       <div class="alert alert-success" role="status">Your password was reset. Sign in with the new password.</div>
     {% endif %}
     {% if error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
-    <form action="/login" method="post" class="stack-form">
+    <form action="login" method="post" class="stack-form">
       <input type="hidden" name="next" value="{{ next }}">
       <label for="email">Government email</label>
       <input id="email" name="email" type="email" autocomplete="username" value="{{ email or '' }}" required autofocus>
-      <div class="label-row"><label for="password">Password</label><a href="/password/forgot">Forgot password?</a></div>
+      <div class="label-row"><label for="password">Password</label><a href="password/forgot">Forgot password?</a></div>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
       <button class="button button-primary button-wide" type="submit">Sign in securely</button>
     </form>
@@ -34,4 +34,3 @@
   </div>
 </section>
 {% endblock %}
-
