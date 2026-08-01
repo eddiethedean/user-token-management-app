@@ -3,7 +3,9 @@ from urllib.parse import parse_qs, urlparse
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from starlette.responses import Response
 
+from app.config import get_settings
 from app.database import SessionLocal
 from app.main import app
 from app.models import EmailOutbox, Invitation, PasswordReset, RefreshSession, User
@@ -13,6 +15,39 @@ ADMIN_PASSWORD = "River-Lantern-94!Blue"
 USER_EMAIL = "analyst@example.gov"
 USER_PASSWORD = "Sable-Meadow-83!Cloud"
 NEW_PASSWORD = "Copper-Orbit-71!Forest"
+
+
+class ConnectProxySimulator:
+    """Model Connect's external prefix, path stripping, and base URL header."""
+
+    def __init__(self, application, prefix: str, origin: str) -> None:
+        self.application = application
+        self.prefix = prefix.rstrip("/")
+        self.base_url = f"{origin.rstrip('/')}{self.prefix}"
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.application(scope, receive, send)
+            return
+
+        external_path = scope["path"]
+        if external_path == self.prefix:
+            internal_path = "/"
+        elif external_path.startswith(f"{self.prefix}/"):
+            internal_path = external_path[len(self.prefix) :]
+        else:
+            await Response(status_code=404)(scope, receive, send)
+            return
+
+        proxied_scope = dict(scope)
+        proxied_scope["path"] = internal_path
+        proxied_scope["raw_path"] = internal_path.encode("utf-8")
+        headers = [
+            item for item in scope["headers"] if item[0].lower() != b"rstudio-connect-app-base-url"
+        ]
+        headers.append((b"rstudio-connect-app-base-url", self.base_url.encode("utf-8")))
+        proxied_scope["headers"] = headers
+        await self.application(proxied_scope, receive, send)
 
 
 def bearer(token: str) -> dict[str, str]:
@@ -147,6 +182,82 @@ def test_absolute_connect_base_url_is_reduced_to_its_mount_path(client) -> None:
     )
     assert response.status_code == 200
     assert '<base href="/content/access-registry/">' in response.text
+
+
+def test_connect_https_cookie_round_trip_refresh_csrf_and_logout(client) -> None:
+    prefix = "/content/2f3d74a6-access-registry"
+    origin = "https://connect.example.gov"
+    proxy = ConnectProxySimulator(app, prefix, origin)
+    settings = get_settings()
+    original_cookie_secure = settings.cookie_secure
+    settings.cookie_secure = True
+    try:
+        with TestClient(proxy, base_url=origin, follow_redirects=False) as connect_client:
+            signed_in = connect_client.post(
+                f"{prefix}/login",
+                data={
+                    "email": ADMIN_EMAIL,
+                    "password": ADMIN_PASSWORD,
+                    "next": "/profile",
+                },
+            )
+            assert signed_in.status_code == 303
+            assert signed_in.headers["location"] == f"{prefix}/profile"
+            auth_cookies = signed_in.headers.get_list("set-cookie")
+            assert len(auth_cookies) == 2
+            for cookie in auth_cookies:
+                assert f"Path={prefix}" in cookie
+                assert "HttpOnly" in cookie
+                assert "SameSite=lax" in cookie
+                assert "Secure" in cookie
+                assert "Domain=" not in cookie
+
+            profile = connect_client.get(f"{prefix}/profile")
+            assert profile.status_code == 200
+            csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', profile.text)
+            assert csrf_match is not None
+
+            connect_client.cookies.delete(
+                "access_registry_access",
+                domain="connect.example.gov",
+                path=prefix,
+            )
+            refreshed = connect_client.get(f"{prefix}/security")
+            assert refreshed.status_code == 200
+            refreshed_cookies = refreshed.headers.get_list("set-cookie")
+            assert len(refreshed_cookies) == 2
+            assert all(f"Path={prefix}" in cookie for cookie in refreshed_cookies)
+
+            csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', refreshed.text)
+            assert csrf_match is not None
+            signed_out = connect_client.post(
+                f"{prefix}/logout",
+                data={"csrf_token": csrf_match.group(1)},
+            )
+            assert signed_out.status_code == 303
+            assert signed_out.headers["location"] == f"{prefix}/login"
+            deleted_cookies = signed_out.headers.get_list("set-cookie")
+            assert len(deleted_cookies) == 2
+            assert all(f"Path={prefix}" in cookie for cookie in deleted_cookies)
+            assert all("Max-Age=0" in cookie for cookie in deleted_cookies)
+            assert (
+                connect_client.cookies.get(
+                    "access_registry_access",
+                    domain="connect.example.gov",
+                    path=prefix,
+                )
+                is None
+            )
+            assert (
+                connect_client.cookies.get(
+                    "access_registry_refresh",
+                    domain="connect.example.gov",
+                    path=prefix,
+                )
+                is None
+            )
+    finally:
+        settings.cookie_secure = original_cookie_secure
 
 
 def test_login_next_rejects_browser_normalized_external_paths(client) -> None:

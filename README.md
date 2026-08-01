@@ -63,6 +63,15 @@ Set `PUBLIC_BASE_URL` to the stable Connect content URL or vanity URL. The appli
 own authentication, so the content must be reachable without a Connect viewer login under the
 organization's approved Connect licensing and network configuration.
 
+Set these values in the Connect content environment:
+
+```text
+APP_ENV=production
+PUBLIC_BASE_URL=https://<connect-host>/<application-path>
+COOKIE_SECURE=true
+COOKIE_PATH=auto
+```
+
 Leave `COOKIE_PATH=auto` so authentication cookies are scoped at request time to the application URL
 on Connect, the dynamic proxied URL on Workbench, or `/` during ordinary local development. An
 explicit path remains available for unusual proxy configurations. Configure the remaining values
