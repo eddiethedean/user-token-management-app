@@ -17,9 +17,7 @@ USER_PASSWORD = "Sable-Meadow-83!Cloud"
 NEW_PASSWORD = "Copper-Orbit-71!Forest"
 
 
-class ConnectProxySimulator:
-    """Model Connect's external prefix, path stripping, and base URL header."""
-
+class PrefixStrippingProxySimulator:
     def __init__(self, application, prefix: str, origin: str) -> None:
         self.application = application
         self.prefix = prefix.rstrip("/")
@@ -42,12 +40,29 @@ class ConnectProxySimulator:
         proxied_scope = dict(scope)
         proxied_scope["path"] = internal_path
         proxied_scope["raw_path"] = internal_path.encode("utf-8")
+        self.configure_scope(proxied_scope)
+        await self.application(proxied_scope, receive, send)
+
+    def configure_scope(self, scope) -> None:
+        raise NotImplementedError
+
+
+class ConnectProxySimulator(PrefixStrippingProxySimulator):
+    """Model Connect's external prefix, path stripping, and base URL header."""
+
+    def configure_scope(self, scope) -> None:
         headers = [
             item for item in scope["headers"] if item[0].lower() != b"rstudio-connect-app-base-url"
         ]
         headers.append((b"rstudio-connect-app-base-url", self.base_url.encode("utf-8")))
-        proxied_scope["headers"] = headers
-        await self.application(proxied_scope, receive, send)
+        scope["headers"] = headers
+
+
+class WorkbenchProxySimulator(PrefixStrippingProxySimulator):
+    """Model Workbench's external prefix, path stripping, and ASGI root path."""
+
+    def configure_scope(self, scope) -> None:
+        scope["root_path"] = self.prefix
 
 
 def bearer(token: str) -> dict[str, str]:
@@ -252,6 +267,101 @@ def test_connect_https_cookie_round_trip_refresh_csrf_and_logout(client) -> None
                 connect_client.cookies.get(
                     "access_registry_refresh",
                     domain="connect.example.gov",
+                    path=prefix,
+                )
+                is None
+            )
+    finally:
+        settings.cookie_secure = original_cookie_secure
+
+
+def test_workbench_https_proxy_cookie_htmx_refresh_and_logout(client) -> None:
+    prefix = "/s/3a91f7c2/session/p/8000"
+    origin = "https://workbench.example.gov"
+    proxy = WorkbenchProxySimulator(app, prefix, origin)
+    settings = get_settings()
+    original_cookie_secure = settings.cookie_secure
+    settings.cookie_secure = True
+    try:
+        with TestClient(proxy, base_url=origin, follow_redirects=False) as workbench_client:
+            login_page = workbench_client.get(f"{prefix}/login")
+            assert login_page.status_code == 200
+            assert f'<base href="{prefix}/">' in login_page.text
+            assert workbench_client.get(f"{prefix}/assets/app.css").status_code == 200
+            assert workbench_client.get(f"{prefix}/assets/htmx.min.js").status_code == 200
+
+            signed_in = workbench_client.post(
+                f"{prefix}/login",
+                data={
+                    "email": ADMIN_EMAIL,
+                    "password": ADMIN_PASSWORD,
+                    "next": "/profile",
+                },
+            )
+            assert signed_in.status_code == 303
+            assert signed_in.headers["location"] == f"{prefix}/profile"
+            auth_cookies = signed_in.headers.get_list("set-cookie")
+            assert len(auth_cookies) == 2
+            for cookie in auth_cookies:
+                assert f"Path={prefix}" in cookie
+                assert "HttpOnly" in cookie
+                assert "SameSite=lax" in cookie
+                assert "Secure" in cookie
+                assert "Domain=" not in cookie
+
+            profile = workbench_client.get(f"{prefix}/profile")
+            assert profile.status_code == 200
+            csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', profile.text)
+            assert csrf_match is not None
+            updated = workbench_client.post(
+                f"{prefix}/profile",
+                data={
+                    "csrf_token": csrf_match.group(1),
+                    "full_name": "Workbench Administrator",
+                    "organization": "Development Environment",
+                    "job_title": "Developer",
+                    "phone": "",
+                },
+                headers={"HX-Request": "true"},
+            )
+            assert updated.status_code == 200
+            assert "Your profile has been updated" in updated.text
+
+            workbench_client.cookies.delete(
+                "access_registry_access",
+                domain="workbench.example.gov",
+                path=prefix,
+            )
+            refreshed = workbench_client.get(f"{prefix}/security")
+            assert refreshed.status_code == 200
+            refreshed_cookies = refreshed.headers.get_list("set-cookie")
+            assert len(refreshed_cookies) == 2
+            assert all(f"Path={prefix}" in cookie for cookie in refreshed_cookies)
+
+            csrf_match = re.search(r'name="csrf_token" value="([^"]+)"', refreshed.text)
+            assert csrf_match is not None
+            signed_out = workbench_client.post(
+                f"{prefix}/logout",
+                data={"csrf_token": csrf_match.group(1)},
+            )
+            assert signed_out.status_code == 303
+            assert signed_out.headers["location"] == f"{prefix}/login"
+            deleted_cookies = signed_out.headers.get_list("set-cookie")
+            assert len(deleted_cookies) == 2
+            assert all(f"Path={prefix}" in cookie for cookie in deleted_cookies)
+            assert all("Max-Age=0" in cookie for cookie in deleted_cookies)
+            assert (
+                workbench_client.cookies.get(
+                    "access_registry_access",
+                    domain="workbench.example.gov",
+                    path=prefix,
+                )
+                is None
+            )
+            assert (
+                workbench_client.cookies.get(
+                    "access_registry_refresh",
+                    domain="workbench.example.gov",
                     path=prefix,
                 )
                 is None
