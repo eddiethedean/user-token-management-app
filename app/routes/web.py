@@ -13,7 +13,16 @@ from app.dependencies import (
     require_auth,
     set_auth_cookies,
 )
-from app.models import AuditEvent, Invitation, RefreshSession, Role, User, UserStatus, utcnow
+from app.models import (
+    AuditEvent,
+    Invitation,
+    RefreshSession,
+    Role,
+    User,
+    UserSecret,
+    UserStatus,
+    utcnow,
+)
 from app.routing import app_path
 from app.security.csrf import require_csrf
 from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
@@ -40,6 +49,12 @@ from app.services.auth import (
 from app.services.directory import DirectoryUnavailableError, validate_directory_email
 from app.services.mailer import deliver_pending
 from app.services.rate_limit import check_rate_limit
+from app.services.secrets import (
+    delete_user_secret,
+    list_user_secrets,
+    require_secret_provider,
+    store_user_secret,
+)
 from app.templating import template_context, templates
 
 router = APIRouter(include_in_schema=False)
@@ -505,13 +520,20 @@ def security_page(
         .order_by(AuditEvent.occurred_at.desc())
         .limit(12)
     ).all()
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         request=request,
         name="profile/security.html",
         context=template_context(
-            request, auth=auth, page_title="Security", sessions=sessions, events=events
+            request,
+            auth=auth,
+            page_title="Security",
+            sessions=sessions,
+            secret_slots=list_user_secrets(db, auth.user),
+            events=events,
         ),
     )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @router.post("/security/password", response_class=HTMLResponse)
@@ -577,6 +599,88 @@ async def revoke_session_submit(
         name="partials/session_list.html",
         context=template_context(request, auth=auth, sessions=remaining),
     )
+
+
+@router.post("/security/secrets/{provider}", response_class=HTMLResponse)
+async def secret_submit(
+    provider: str,
+    request: Request,
+    token: str = Form(),
+    auth: AuthContext = Depends(require_auth),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> HTMLResponse:
+    await require_csrf(request, auth.session.csrf_token)
+    try:
+        specification = require_secret_provider(provider)
+        stored = store_user_secret(
+            db,
+            settings,
+            user=auth.user,
+            provider=provider,
+            token=token,
+            request=request,
+        )
+        error = ""
+    except ValueError as exc:
+        try:
+            specification = require_secret_provider(provider)
+        except ValueError as provider_exc:
+            raise HTTPException(
+                status_code=404, detail="API token provider not found"
+            ) from provider_exc
+        stored = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == auth.user.id,
+                UserSecret.provider == specification.name,
+            )
+        )
+        error = str(exc)
+    response = templates.TemplateResponse(
+        request=request,
+        name="partials/secret_token_slot.html",
+        status_code=400 if error else 200,
+        context=template_context(
+            request,
+            auth=auth,
+            provider=specification,
+            secret=stored,
+            error=error,
+            success=f"{specification.label} API token saved." if not error else "",
+        ),
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@router.post("/security/secrets/{provider}/delete", response_class=HTMLResponse)
+async def secret_delete_submit(
+    provider: str,
+    request: Request,
+    auth: AuthContext = Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    await require_csrf(request, auth.session.csrf_token)
+    try:
+        specification = require_secret_provider(provider)
+        deleted = delete_user_secret(db, user=auth.user, provider=provider, request=request)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="API token provider not found") from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="API token is not configured.")
+    response = templates.TemplateResponse(
+        request=request,
+        name="partials/secret_token_slot.html",
+        context=template_context(
+            request,
+            auth=auth,
+            provider=specification,
+            secret=None,
+            success=f"{specification.label} API token deleted.",
+        ),
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @router.get("/admin/users", response_class=HTMLResponse)

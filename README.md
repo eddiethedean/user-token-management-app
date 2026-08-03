@@ -20,6 +20,7 @@ invokes Node, npm, or a JavaScript build step.
 - Rotating, database-backed refresh sessions
 - Forgot/reset password flows designed for email link scanners
 - Self-service profile, password, and session management
+- Non-revealable, per-user Advana, ADE, and MSS API token storage
 - Administrator user, invitation, and role management
 - Structured security audit log
 - API and server-rendered HTMX interface
@@ -114,6 +115,8 @@ APP_ENV=production
 PUBLIC_BASE_URL=https://<connect-host>/<application-path>
 COOKIE_SECURE=true
 COOKIE_PATH=auto
+API_TOKEN_ENCRYPTION_KEYS={"v1":"<base64-encoded-32-byte-key>"}
+API_TOKEN_ACTIVE_KEY_ID=v1
 ```
 
 Leave `COOKIE_PATH=auto` so authentication cookies are scoped at request time to the application URL
@@ -157,6 +160,23 @@ python -m app serve --port 8050 --reload
 - The complete, research-backed decision register, assurance boundary, known gaps, and production
   gate are in [SECURITY.md](SECURITY.md). Read it before using the application with operational data.
 - Browser tokens are held in scoped `HttpOnly` cookies, never browser storage.
+- User API tokens are restricted to the Advana, ADE, and MSS provider slots. Each value is
+  encrypted with its own AES-256-GCM data key, the data key is wrapped by a separately configured
+  versioned master key, and neither the UI nor API offers plaintext retrieval. Keep old keys in
+  `API_TOKEN_ENCRYPTION_KEYS` for as long as any stored record references them.
+- "Owner-only" means the product authorizes only the owning user to create, replace, or delete a
+  token and never reveals its saved plaintext. It does not mean end-to-end encryption: the trusted
+  application process must decrypt a selected token to start an authorized run. Database-only
+  compromise is separated from the encryption keys; compromise of the application host and key
+  ring can expose every stored token.
+- `decrypt_user_secret_for_run()` is the internal execution-boundary hook. A future runner must pass
+  an explicit minimal child environment so it never inherits the API-token master-key ring. For
+  local Posit Connect execution, set `Applications.InheritSystemEnvVars=false` before enabling this
+  integration; inject only the chosen token into the child process, never command arguments.
+- Deleting a saved value removes this application's ciphertext but does not revoke the credential at
+  Advana, ADE, or MSS. Users must revoke or rotate a suspected credential with its issuing provider.
+  Prefer provider-supported OAuth, workload identity, or short-lived credentials over stored bearer
+  tokens when those mechanisms become available.
 - API clients receive access JWTs from `/api/v1/auth/token`.
 - Refresh, registration-verification, invitation, and reset tokens are random opaque values whose
   dedicated database columns store only keyed hashes. Capability URLs still appear in queued email
@@ -204,6 +224,13 @@ The detailed claim-to-source mapping is maintained in [SECURITY.md](SECURITY.md)
 - [OWASP SSRF Prevention](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html)
   supports a fixed approved directory endpoint, disabled redirects, controlled DNS, and network
   egress restrictions.
+- [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html) defines possession of a bearer token as
+  sufficient for use and requires protection from disclosure in storage and transit. NIST's
+  [GCM specification](https://doi.org/10.6028/NIST.SP.800-38D) supports authenticated encryption,
+  and [OWASP Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html)
+  supports least-privilege access, rotation, auditing, and controlled run-time delivery. Those
+  sources are mapped to the implemented API-token controls and residual risks in
+  [SD-24](SECURITY.md#sd-24--encrypt-user-owned-api-tokens-and-restrict-provider-slots).
 - [OWASP browser cookie tests](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/06-Session_Management_Testing/02-Testing_for_Cookies_Attributes)
   and [logout tests](https://owasp.org/www-project-web-security-testing-guide/stable/4-Web_Application_Security_Testing/06-Session_Management_Testing/06-Testing_for_Logout_Functionality)
   support verifying cookies and session termination with a real browser through the proxy.

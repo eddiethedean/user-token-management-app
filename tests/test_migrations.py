@@ -63,6 +63,7 @@ def test_existing_pre_alembic_schema_is_explicitly_adopted_then_upgraded(tmp_pat
     assert current_revision(adopted_engine) == head_revision()
     assert "registration_verifications" in inspect(adopted_engine).get_table_names()
     assert "rate_limit_buckets" in inspect(adopted_engine).get_table_names()
+    assert "user_secrets" in inspect(adopted_engine).get_table_names()
 
 
 def test_adoption_refuses_an_unknown_partial_schema(tmp_path) -> None:

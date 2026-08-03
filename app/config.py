@@ -1,3 +1,5 @@
+import base64
+import re
 from functools import lru_cache
 from ipaddress import ip_address
 from pathlib import Path
@@ -26,6 +28,10 @@ class Settings(BaseSettings):
     jwt_secret: str = "development-only-jwt-secret-change-me"
     session_pepper: str = "development-only-session-pepper-change-me"
     csrf_secret: str = "development-only-csrf-secret-change-me"
+    api_token_encryption_keys: dict[str, str] = Field(
+        default_factory=lambda: {"development-v1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}
+    )
+    api_token_active_key_id: str = "development-v1"
     jwt_issuer: str = "urn:access-registry:local"
     jwt_audience: str = "access-registry-api"
     access_token_minutes: int = Field(default=10, ge=1, le=60)
@@ -83,8 +89,35 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.app_env == "production"
 
+    @property
+    def api_token_key_ring(self) -> dict[str, bytes]:
+        keys: dict[str, bytes] = {}
+        for key_id, encoded in self.api_token_encryption_keys.items():
+            try:
+                decoded = base64.b64decode(encoded, altchars=b"-_", validate=True)
+            except (ValueError, TypeError) as exc:
+                raise ValueError(
+                    f"API_TOKEN_ENCRYPTION_KEYS entry {key_id!r} must be valid base64"
+                ) from exc
+            if len(decoded) != 32:
+                raise ValueError(
+                    f"API_TOKEN_ENCRYPTION_KEYS entry {key_id!r} must decode to 32 bytes"
+                )
+            keys[key_id] = decoded
+        return keys
+
     @model_validator(mode="after")
     def validate_production_settings(self) -> "Settings":
+        if not self.api_token_encryption_keys:
+            raise ValueError("API_TOKEN_ENCRYPTION_KEYS must contain at least one key")
+        if any(
+            not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", key_id)
+            for key_id in self.api_token_encryption_keys
+        ):
+            raise ValueError("API token encryption key IDs contain unsupported characters")
+        key_ring = self.api_token_key_ring
+        if self.api_token_active_key_id not in key_ring:
+            raise ValueError("API_TOKEN_ACTIVE_KEY_ID must identify a configured encryption key")
         if self.cookie_path != "auto" and not self.cookie_path.startswith("/"):
             raise ValueError("COOKIE_PATH must be 'auto' or an absolute path")
         try:
@@ -104,6 +137,10 @@ class Settings(BaseSettings):
                 value = getattr(self, name)
                 if len(value) < 32 or any(marker in value for marker in weak_markers):
                     raise ValueError(f"{name.upper()} must be a strong production secret")
+            if self.api_token_active_key_id.startswith("development-") or any(
+                not any(key) for key in key_ring.values()
+            ):
+                raise ValueError("API token encryption keys must be replaced in production")
             if not self.cookie_secure:
                 raise ValueError("COOKIE_SECURE must be true in production")
             if not self.email_domain_allowlist:

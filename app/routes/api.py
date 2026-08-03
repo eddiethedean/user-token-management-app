@@ -21,6 +21,8 @@ from app.schemas import (
     PasswordChange,
     ProfileUpdate,
     RegistrationRequest,
+    SecretSlotView,
+    SecretTokenRequest,
     SessionView,
     TokenRequest,
     TokenResponse,
@@ -51,6 +53,12 @@ from app.services.directory import (
 )
 from app.services.mailer import deliver_pending
 from app.services.rate_limit import check_rate_limit
+from app.services.secrets import (
+    delete_user_secret,
+    list_user_secrets,
+    require_secret_provider,
+    store_user_secret,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -270,6 +278,78 @@ async def change_password(
     revoke_all_sessions(db, auth.user)
     record_event(db, "password.changed", request=request, actor=auth.user, target=auth.user)
     db.commit()
+
+
+@router.get("/me/secrets", response_model=list[SecretSlotView])
+def get_secret_slots(
+    response: Response,
+    auth: AuthContext = Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> list[SecretSlotView]:
+    response.headers["Cache-Control"] = "no-store"
+    return [
+        SecretSlotView(
+            provider=provider.name,
+            label=provider.label,
+            environment_variable=provider.environment_variable,
+            configured=stored is not None,
+            updated_at=stored.updated_at if stored else None,
+            last_used_at=stored.last_used_at if stored else None,
+        )
+        for provider, stored in list_user_secrets(db, auth.user)
+    ]
+
+
+@router.put("/me/secrets/{provider}", response_model=SecretSlotView)
+async def put_secret(
+    provider: str,
+    payload: SecretTokenRequest,
+    request: Request,
+    response: Response,
+    auth: AuthContext = Depends(require_auth),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> SecretSlotView:
+    await _csrf_if_cookie(request, auth)
+    try:
+        specification = require_secret_provider(provider)
+        stored = store_user_secret(
+            db,
+            settings,
+            user=auth.user,
+            provider=provider,
+            token=payload.token,
+            request=request,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    response.headers["Cache-Control"] = "no-store"
+    return SecretSlotView(
+        provider=specification.name,
+        label=specification.label,
+        environment_variable=specification.environment_variable,
+        configured=True,
+        updated_at=stored.updated_at,
+        last_used_at=stored.last_used_at,
+    )
+
+
+@router.delete("/me/secrets/{provider}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_secret(
+    provider: str,
+    request: Request,
+    response: Response,
+    auth: AuthContext = Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> None:
+    await _csrf_if_cookie(request, auth)
+    try:
+        deleted = delete_user_secret(db, user=auth.user, provider=provider, request=request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="API token is not configured.")
+    response.headers["Cache-Control"] = "no-store"
 
 
 @router.get("/me/sessions", response_model=list[SessionView])

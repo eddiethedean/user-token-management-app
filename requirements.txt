@@ -1,4 +1,5 @@
 alembic>=1.16,<2
+cryptography>=46,<47
 email-validator>=2.2,<3
 fastapi>=0.138.2,<1
 httpx>=0.28,<1

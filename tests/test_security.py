@@ -252,6 +252,10 @@ def production_values(**updates) -> dict:
         "jwt_secret": "production-jwt-secret-that-is-at-least-thirty-two-bytes",
         "session_pepper": "production-pepper-that-is-at-least-thirty-two-bytes",
         "csrf_secret": "production-csrf-secret-that-is-at-least-thirty-two-bytes",
+        "api_token_encryption_keys": {
+            "production-v1": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
+        },
+        "api_token_active_key_id": "production-v1",
         "cookie_secure": True,
         "allowed_email_domains": "example.gov",
     }
@@ -269,6 +273,14 @@ def production_values(**updates) -> dict:
         {"allowed_email_domains": ""},
         {"email_backend": "smtp", "smtp_host": ""},
         {"cookie_path": "relative"},
+        {"api_token_encryption_keys": {}},
+        {"api_token_active_key_id": "missing"},
+        {
+            "api_token_encryption_keys": {
+                "development-v1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+            },
+            "api_token_active_key_id": "development-v1",
+        },
     ],
 )
 def test_production_configuration_rejects_unsafe_values(updates: dict) -> None:

@@ -4,7 +4,17 @@ import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Table, Text
+from sqlalchemy import (
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -182,6 +192,29 @@ class RateLimitBucket(Base):
     window_started_at: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
     count: Mapped[int] = mapped_column(Integer, default=1)
     expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class UserSecret(Base):
+    __tablename__ = "user_secrets"
+    __table_args__ = (
+        UniqueConstraint("user_id", "provider", name="uq_user_secrets_owner_provider"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[str] = mapped_column(String(32))
+    ciphertext: Mapped[str] = mapped_column(Text)
+    nonce: Mapped[str] = mapped_column(String(32))
+    encrypted_data_key: Mapped[str] = mapped_column(Text)
+    key_nonce: Mapped[str] = mapped_column(String(32))
+    master_key_id: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped[User] = relationship()
 
 
 Index("ix_sessions_user_active", RefreshSession.user_id, RefreshSession.revoked_at)

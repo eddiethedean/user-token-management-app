@@ -1,17 +1,25 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">Account protection</p><h1>Security</h1><p>Manage your password, sessions, and recent account activity.</p></div></div>
+<div class="page-heading"><div><p class="eyebrow">Account protection</p><h1>Security</h1><p>Manage your password, API tokens, sessions, and recent account activity.</p></div></div>
 <div class="security-stack">
   <section class="panel split-panel">
     <div><p class="section-number">01</p><h2>Change password</h2><p>Changing your password signs out every active session, including this one.</p></div>
     {% include "partials/password_form.html" %}
   </section>
   <section class="panel">
-    <div class="panel-heading"><div><p class="section-number">02</p><h2>Active sessions</h2><p>Revoke any browser or client you no longer recognize.</p></div><span class="count-badge">{{ sessions | length }}</span></div>
+    <div class="panel-heading"><div><p class="section-number">02</p><h2>API tokens</h2><p>Add only an approved service token. Saved values are encrypted and cannot be viewed again.</p></div></div>
+    <div class="secret-grid">
+      {% for provider, secret in secret_slots %}
+        {% include "partials/secret_token_slot.html" %}
+      {% endfor %}
+    </div>
+  </section>
+  <section class="panel">
+    <div class="panel-heading"><div><p class="section-number">03</p><h2>Active sessions</h2><p>Revoke any browser or client you no longer recognize.</p></div><span class="count-badge">{{ sessions | length }}</span></div>
     {% include "partials/session_list.html" %}
   </section>
   <section class="panel">
-    <div class="panel-heading"><div><p class="section-number">03</p><h2>Recent security activity</h2><p>Latest events associated with your account.</p></div></div>
+    <div class="panel-heading"><div><p class="section-number">04</p><h2>Recent security activity</h2><p>Latest events associated with your account.</p></div></div>
     <div class="event-list">
       {% for event in events %}
         <div class="event-row"><span class="event-icon" aria-hidden="true">•</span><div><strong>{{ event.event_type | replace('.', ' ') | title }}</strong><small>{{ event.occurred_at.strftime('%b %d, %Y at %H:%M') }} · {{ event.outcome }}</small></div></div>
@@ -20,4 +28,3 @@
   </section>
 </div>
 {% endblock %}
-

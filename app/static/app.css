@@ -317,6 +317,20 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .event-row strong, .event-row small { display: block; }
 .event-row strong { font-size: 0.73rem; }
 .event-row small { color: var(--muted); font-size: 0.65rem; }
+.secret-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.secret-card { min-width: 0; padding: 17px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255, 255, 255, 0.025); }
+.secret-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.secret-card-heading > div { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.secret-card-heading h3 { margin: 0 0 3px; font-size: 0.77rem; }
+.secret-card-heading .pill { flex: 0 0 auto; font-size: 0.54rem; white-space: nowrap; }
+.secret-card-heading code { display: block; max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.secret-provider-mark { width: 35px; height: 35px; display: grid; flex: 0 0 auto; place-items: center; border: 1px solid rgba(166, 167, 255, 0.25); border-radius: 10px; color: #d8d9ff; background: rgba(133, 135, 255, 0.13); font-size: 0.56rem; font-weight: 900; letter-spacing: 0.03em; }
+.secret-metadata { min-height: 39px; margin: 15px 0 12px; color: var(--muted); font-size: 0.66rem; }
+.secret-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+.secret-form input { min-width: 0; height: 34px; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 9px; color: var(--ink); background: rgba(6, 11, 24, 0.54); font-size: 0.68rem; }
+.secret-form input:focus { border-color: rgba(166, 167, 255, 0.72); outline: 0; box-shadow: 0 0 0 3px rgba(133, 135, 255, 0.14); }
+.secret-delete-form { margin-top: 8px; }
+.pill-muted { color: #a7b0c5; background: rgba(255, 255, 255, 0.04); border-color: var(--line); }
 
 .admin-layout { display: grid; grid-template-columns: minmax(0, 1.62fr) minmax(320px, 0.7fr); gap: 22px; align-items: start; }
 .invite-panel { padding: 26px; }
@@ -355,6 +369,7 @@ code { padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; colo
   .auth-layout { gap: 48px; }
   .trust-list { grid-template-columns: 1fr; max-width: 500px; }
   .trust-list > div { padding: 11px 13px; }
+  .secret-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 900px) {

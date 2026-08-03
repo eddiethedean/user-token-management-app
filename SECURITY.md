@@ -798,6 +798,71 @@ reviewed release. Do not treat this functional suite as penetration testing.
 - Posit's [Workbench reverse-proxy documentation](https://docs.posit.co/ide/server-pro/admin/access_and_security/running_with_a_proxy.html)
   specifies external host, protocol, and root-prefix behavior.
 
+### SD-24 — Encrypt user-owned API tokens and restrict provider slots
+
+**Status:** Storage and owner-management implemented; run-process isolation is a deployment and
+integration gap.
+
+**Decision:** Authenticated users may store at most one token for each explicitly supported provider:
+Advana, ADE, and MSS. Provider names and target environment-variable names are application constants,
+not user-controlled inputs. The UI and API expose configuration metadata but no plaintext retrieval
+operation. Replacing a token encrypts a new value in the same provider slot; deleting it removes the
+ciphertext. Administrators have no route that retrieves another user's token. Token format is checked
+only for surrounding whitespace and a bounded byte length; storage does not prove that a credential
+is valid, minimally scoped, unexpired, or unrevoked at its provider.
+
+Each token is encrypted with a random 256-bit data-encryption key using AES-256-GCM and fresh nonces.
+The data key is independently wrapped with the active key from `API_TOKEN_ENCRYPTION_KEYS`. Additional
+authenticated data binds both ciphertexts to the environment-independent format version, owner,
+secret record, and provider. The database stores the ciphertexts, nonces, and non-secret master-key
+identifier. Old master keys remain in the configured key ring while records reference them. Creation,
+replacement, deletion, and run-boundary use are audited without token material. Authenticated token
+pages and API responses set `Cache-Control: no-store`.
+
+**Research-backed rationale:**
+
+| Design choice | Security justification | Residual boundary |
+| --- | --- | --- |
+| Treat saved values as bearer capabilities | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-5) explains that any party possessing a bearer token can use it and identifies disclosure and replay as threats. This supports TLS, encrypted storage, non-reveal responses, and never placing values in URLs. | These controls do not narrow the privileges encoded by Advana, ADE, or MSS. Users must issue the least-privileged token at the provider. |
+| Exactly three provider slots, fixed environment-variable names, and owner-scoped queries | [OWASP Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#enforce-least-privileges) recommends least privilege, deny-by-default behavior, and permission checks on every request. An allowlist prevents users from inventing environment-variable names that could alter runner behavior; owner predicates prevent cross-user object access. | A compromised owner account can replace or delete that owner's tokens. The current AAL1-style authentication boundary may be insufficient for high-value credentials. |
+| Per-record AES-256-GCM with fresh 96-bit nonces and context-bound AAD | [NIST SP 800-38D](https://doi.org/10.6028/NIST.SP.800-38D) specifies GCM as authenticated encryption with associated data, and the [`cryptography` AES-GCM API](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM) requires a nonce never be reused with a key. Random per-record data keys and fresh nonces protect confidentiality and detect modification; AAD prevents valid ciphertext from being silently moved to a different owner, record, provider, or purpose. | Randomness and nonce uniqueness depend on the operating system CSPRNG. The deployed module and operational environment still need required FIPS evidence. |
+| Envelope encryption and a versioned key ring separate from the database and auth keys | [NIST SP 800-57 Part 1 Rev. 5](https://doi.org/10.6028/NIST.SP.800-57pt1r5) covers protection, lifecycle, cryptoperiods, backup, and recovery of keying material. [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-management) recommends storing keys separately from encrypted data and designing for rotation. The active key protects new data while retained key identifiers permit controlled migration and recovery. | The key ring is available to the FastAPI process. Database-only theft does not disclose plaintext, but application-host or key-ring compromise can. Loss of an old referenced key permanently loses the associated tokens. |
+| No plaintext read endpoint or UI reveal | GitHub's [Actions secrets REST API](https://docs.github.com/en/rest/actions/secrets) lists secret metadata without returning encrypted values. Following that pattern reduces routine exposure in browsers, support workflows, and admin tooling. | This is product-level non-disclosure, not end-to-end encryption. Privileged host operators and trusted application code remain in the security boundary. |
+| Metadata-only audit events and no-store responses | [OWASP Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#23-logging) says secrets must not be logged and recommends auditing who requested or used them. GitHub warns that [automatic redaction is not guaranteed](https://docs.github.com/en/actions/reference/security/secure-use#using-secrets), so correctness cannot depend on a masking heuristic. | Application, proxy, runner, artifact, exception, and crash-dump paths all require deployment testing. `no-store` controls caching; it cannot prevent a compromised browser or endpoint from reading a token while it is entered. |
+| Explicit delivery only at an authorized run boundary | OWASP describes controlled [secret consumption](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#25-secret-consumption) and warns that environment variables may leak through logs or dumps. Posit documents that local content processes [inherit server environment variables by default](https://docs.posit.co/connect/admin/process-management/#environment-variables). Therefore the runner must construct a minimal environment, exclude the master-key ring, and grant only selected provider values. | Code intentionally granted a bearer token can copy or transmit it. GitHub documents the analogous boundary: users able to modify workflow code can [extract configured secrets](https://docs.github.com/en/actions/reference/security/secure-use#considering-cross-repository-access). Network, filesystem, artifact, and log isolation reduce opportunities but cannot make an available bearer value unknowable to that code. |
+| Prefer short-lived credentials when providers support them | OWASP recommends limiting secret lifetime and automating rotation. GitHub's [OIDC guidance](https://docs.github.com/en/actions/concepts/security/openid-connect) uses short-lived, job-specific credentials instead of stored long-lived secrets; Posit similarly documents [process-lifetime API keys](https://docs.posit.co/connect/admin/content-management/api-keys/#automatic-provisioning). | Advana, ADE, and MSS integration currently accepts static user-supplied tokens. Provider-side OAuth, federation, scope, expiration, and revocation remain future integration work. |
+
+**Limitations and deployment controls:** The FastAPI process receives the master-key ring and can
+therefore decrypt all stored tokens; encryption primarily separates a database-only compromise from
+the key material. The current repository supplies an internal `decrypt_user_secret_for_run()` hook
+but does not yet contain an isolated run supervisor. Before connecting it to arbitrary run code,
+launch each run with an explicit minimal environment that excludes the master-key ring, inject only
+the selected user's selected provider values, prohibit secrets in command arguments and logs, and
+define process, filesystem, network, artifact, and crash-dump isolation. Code intentionally granted a
+token can still exfiltrate it, so authorization and approval must happen before each grant. Protect,
+back up, rotate, and test recovery of every production key separately from the database. Losing all
+copies of a referenced key makes its tokens unrecoverable; compromising the application host and key
+ring defeats database encryption. The all-zero development key is rejected in production. The exact
+deployed cryptographic module still requires organization-specific FIPS and authorization evidence.
+Deleting the local record does not revoke the token at its provider; suspected disclosure requires
+provider-side revocation or rotation. The JSON key-ring variable is itself a structured high-value
+secret and must never be logged; masking or redaction is not a substitute for preventing disclosure.
+
+**Evidence:**
+
+- [OWASP Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html)
+  covers least privilege, lifecycle metadata, rotation, revocation, auditing, run-time delivery, and
+  the fact that secrets must never enter logs.
+- [NIST SP 800-38D](https://doi.org/10.6028/NIST.SP.800-38D) specifies GCM authenticated encryption,
+  including IV uniqueness and authenticated additional data; [NIST SP 800-57 Part 1 Rev. 5](https://doi.org/10.6028/NIST.SP.800-57pt1r5)
+  supplies the key-management lifecycle basis.
+- The `cryptography` project's
+  [authenticated-encryption documentation](https://cryptography.io/en/stable/hazmat/primitives/aead/)
+  documents AES-GCM authenticated encryption and its nonce-uniqueness requirement.
+- [PostgreSQL pgcrypto security limitations](https://www.postgresql.org/docs/current/pgcrypto.html#PGCRYPTO-NOTES)
+  explain why cryptographic operations and key handling are kept in the application rather than the
+  database server.
+
 ## Production security gate
 
 Do not represent a deployment as production-ready until the system owner records evidence for every
@@ -819,6 +884,19 @@ authorization evidence.
       authentication, CAC validation, identity proofing, clearance, or authorization.
 - [ ] High-entropy, enclave-unique JWT and session secrets are injected from an approved store;
       access, audit, incident, and rotation procedures are recorded.
+- [ ] High-entropy API-token encryption keys are injected separately from JWT/session secrets; old
+      referenced key versions remain available, protected backups and recovery are tested, and the
+      exact cryptographic module and operational environment have the required validation evidence.
+- [ ] Before user API tokens reach run code, the run supervisor uses an explicit minimal environment
+      that cannot inherit the master-key ring, grants only selected provider slots, isolates users and
+      runs, redacts logs/artifacts, and records each use. Arbitrary granted code is treated as capable
+      of exfiltrating its token.
+- [ ] For local Posit Connect execution, `Applications.InheritSystemEnvVars=false` is set and verified;
+      the child receives no parent secrets except the explicitly selected provider token. Secret
+      values never enter command arguments, URLs, logs, artifacts, exception reports, or crash dumps.
+- [ ] Token-management authentication strength and any step-up/reauthentication requirement are
+      approved for the value of the stored credentials; provider-side issuance uses the minimum
+      possible scope and lifetime, and revocation/rotation procedures are tested.
 - [ ] **Code gap:** replace the six-entry password list and substring rule with an approved
       common/compromised/contextual-password blocklist, normalize password input consistently during
       verification, and add the related user guidance and visibility control.
@@ -891,3 +969,13 @@ These are the primary or recognized industry sources actually consulted for this
 31. [OWASP Web Security Testing Guide, Cookie Attributes](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/06-Session_Management_Testing/02-Testing_for_Cookies_Attributes)
 32. [OWASP Web Security Testing Guide, Logout Functionality](https://owasp.org/www-project-web-security-testing-guide/stable/4-Web_Application_Security_Testing/06-Session_Management_Testing/06-Testing_for_Logout_Functionality)
 33. [Playwright Python, BrowserContext](https://playwright.dev/python/docs/api/class-browsercontext)
+34. [NIST SP 800-38D, Galois/Counter Mode](https://csrc.nist.gov/pubs/sp/800/38/d/final)
+35. [NIST SP 800-57 Part 1 Rev. 5, Key Management](https://csrc.nist.gov/pubs/sp/800/57/pt1/r5/final)
+36. [OWASP Cryptographic Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html)
+37. [GitHub Actions, Secure Use](https://docs.github.com/en/actions/reference/security/secure-use)
+38. [GitHub Actions Secrets REST API](https://docs.github.com/en/rest/actions/secrets)
+39. [GitHub Actions, OpenID Connect](https://docs.github.com/en/actions/concepts/security/openid-connect)
+40. [Posit Connect, Process Management](https://docs.posit.co/connect/admin/process-management/)
+41. [Posit Connect, Automatic API-key Provisioning](https://docs.posit.co/connect/admin/content-management/api-keys/#automatic-provisioning)
+42. [`cryptography`, Authenticated Encryption](https://cryptography.io/en/stable/hazmat/primitives/aead/)
+43. [PostgreSQL `pgcrypto`, Security Limitations](https://www.postgresql.org/docs/current/pgcrypto.html#PGCRYPTO-NOTES)

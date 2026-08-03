@@ -71,6 +71,19 @@ class SessionView(BaseModel):
     current: bool
 
 
+class SecretTokenRequest(BaseModel):
+    token: str = Field(min_length=8, max_length=8192)
+
+
+class SecretSlotView(BaseModel):
+    provider: str
+    label: str
+    environment_variable: str
+    configured: bool
+    updated_at: datetime | None = None
+    last_used_at: datetime | None = None
+
+
 class InvitationRequest(BaseModel):
     email: EmailStr
     role: str = "user"

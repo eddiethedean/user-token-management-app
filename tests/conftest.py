@@ -15,6 +15,8 @@ os.environ.update(
         "JWT_SECRET": "test-jwt-secret-that-is-at-least-thirty-two-bytes",
         "SESSION_PEPPER": "test-session-pepper-that-is-at-least-thirty-two-bytes",
         "CSRF_SECRET": "test-csrf-secret-that-is-at-least-thirty-two-bytes",
+        "API_TOKEN_ENCRYPTION_KEYS": ('{"test-v1":"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="}'),
+        "API_TOKEN_ACTIVE_KEY_ID": "test-v1",
         "PASSWORD_HASH_SCHEME": "pbkdf2_sha256",
         "PBKDF2_ITERATIONS": "100000",
         "PUBLIC_BASE_URL": "https://registry.example.gov",
