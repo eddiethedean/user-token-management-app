@@ -3,16 +3,13 @@ import json
 from fastapi import Request
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models import AuditEvent, User
+from app.security.client import client_ip as resolve_client_ip
 
 
 def client_ip(request: Request | None) -> str:
-    if request is None:
-        return ""
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",", 1)[0].strip()[:64]
-    return (request.client.host if request.client else "")[:64]
+    return resolve_client_ip(request, get_settings())
 
 
 def record_event(

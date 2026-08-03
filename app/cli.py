@@ -6,8 +6,9 @@ import sys
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.database import SessionLocal, create_schema
+from app.database import SessionLocal
 from app.models import Role, User, UserStatus, utcnow
+from app.schema import assert_schema_current, current_revision, head_revision, upgrade_schema
 from app.security.email import normalize_email
 from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
 from app.server import run_server
@@ -15,18 +16,19 @@ from app.services.auth import ensure_default_roles
 from app.services.mailer import deliver_pending
 
 
-def create_admin(email: str) -> int:
+def create_admin(email: str, password: str | None = None) -> int:
     settings = get_settings()
-    create_schema()
+    assert_schema_current()
     with SessionLocal() as db:
         ensure_default_roles(db)
         canonical, original = normalize_email(email, settings)
         existing = db.scalar(select(User).where(User.email == canonical))
-        password = getpass.getpass("Password: ")
-        confirmation = getpass.getpass("Confirm password: ")
-        if password != confirmation:
-            print("Passwords do not match.", file=sys.stderr)
-            return 2
+        if password is None:
+            password = getpass.getpass("Password: ")
+            confirmation = getpass.getpass("Confirm password: ")
+            if password != confirmation:
+                print("Passwords do not match.", file=sys.stderr)
+                return 2
         try:
             validated = validate_password(password, email=canonical)
         except PasswordPolicyError as exc:
@@ -62,6 +64,17 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
     admin_parser = subparsers.add_parser("create-admin", help="Create or promote an administrator")
     admin_parser.add_argument("--email", required=True)
+    admin_parser.add_argument(
+        "--password-env",
+        help="Read the password from this environment variable instead of an interactive prompt",
+    )
+    migrate_parser = subparsers.add_parser("migrate", help="Upgrade the database schema to head")
+    migrate_parser.add_argument(
+        "--adopt-existing",
+        action="store_true",
+        help="Stamp a verified pre-Alembic Access Registry schema before upgrading",
+    )
+    subparsers.add_parser("schema-status", help="Show the current and expected schema revisions")
     subparsers.add_parser("send-email", help="Deliver queued email")
     serve_parser = subparsers.add_parser(
         "serve", help="Run locally or through the Posit Workbench proxy"
@@ -72,9 +85,21 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "create-admin":
-        raise SystemExit(create_admin(args.email))
+        password = None
+        if args.password_env:
+            password = os.environ.get(args.password_env)
+            if password is None:
+                print(f"Environment variable {args.password_env!r} is not set.", file=sys.stderr)
+                raise SystemExit(2)
+        raise SystemExit(create_admin(args.email, password=password))
+    if args.command == "migrate":
+        upgrade_schema(adopt_existing=args.adopt_existing)
+        print(f"Database schema upgraded to {head_revision()}.")
+    if args.command == "schema-status":
+        print(f"Current: {current_revision() or 'none'}")
+        print(f"Head:    {head_revision()}")
     if args.command == "send-email":
-        create_schema()
+        assert_schema_current()
         with SessionLocal() as db:
             delivered = deliver_pending(db, get_settings())
             print(f"Delivered {delivered} message(s).")

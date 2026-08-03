@@ -9,6 +9,7 @@
   --teal: #007d74;
   --teal-dark: #00645d;
   --teal-pale: #e2f4f1;
+  --amber: #a86208;
   --amber-pale: #fff2dc;
   --red: #b42318;
   --red-pale: #fef0ef;
@@ -132,6 +133,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .label-row label { margin: 0; }
 .label-row a { font-size: .74rem; }
 .card-footnote { margin: 22px 0 0; padding-top: 17px; border-top: 1px solid var(--line); color: var(--muted); font-size: .73rem; text-align: center; }
+.approval-steps { display: grid; gap: 12px; margin: 20px 0 24px; padding: 0; counter-reset: approval-step; list-style: none; }
+.approval-steps li { display: grid; grid-template-columns: 28px 1fr; gap: 2px 10px; align-items: start; counter-increment: approval-step; }
+.approval-steps li::before { width: 24px; height: 24px; display: grid; grid-row: 1 / span 2; place-items: center; border-radius: 50%; color: white; background: var(--teal); content: counter(approval-step); font-size: .7rem; font-weight: 800; }
+.approval-steps strong, .approval-steps span { display: block; }
+.approval-steps strong { color: var(--navy); font-size: .8rem; }
+.approval-steps span { color: var(--muted); font-size: .72rem; line-height: 1.45; }
+.approval-notice { margin: 16px 0 20px; padding: 13px 14px; border-left: 4px solid var(--amber); color: #69400d; background: var(--amber-pale); }
+.approval-notice strong { font-size: .8rem; }
+.approval-notice p { margin: 4px 0 0; font-size: .73rem; line-height: 1.45; }
 .center-card-wrap { min-height: 650px; display: grid; place-items: center; padding: 60px 20px; background: radial-gradient(circle at 20% 10%, #e4efef 0, transparent 34%), var(--wash); }
 .narrow-card { max-width: 480px; }
 .back-link { display: inline-block; margin-bottom: 22px; font-size: .78rem; font-weight: 700; text-decoration: none; }
@@ -170,6 +180,8 @@ tbody tr:hover { background: #fafcfc; }
 .user-cell strong, .user-cell small { display: block; }
 .user-cell strong { color: var(--ink); font-size: .77rem; }
 .user-cell small { color: var(--muted); font-size: .68rem; }
+.status-note { display: block; margin-top: 4px; color: var(--muted); font-size: .65rem; white-space: nowrap; }
+.table-actions { display: flex; gap: 6px; align-items: center; }
 .nowrap { white-space: nowrap; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .7rem; }
 .empty-state { padding: 20px 0; color: var(--muted); font-size: .8rem; text-align: center; }
