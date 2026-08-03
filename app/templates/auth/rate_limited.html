@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block auth_content %}
+<div class="center-card-wrap">
+  <section class="auth-card narrow-card">
+    <p class="eyebrow">Request throttled</p>
+    <h1>Try again shortly</h1>
+    <div class="alert alert-error" role="alert">Too many requests were received. No additional attempt was processed.</div>
+    <p class="muted">Wait approximately {{ retry_after }} seconds before trying again. If this continues, contact the application service desk.</p>
+    <a class="button button-secondary button-wide" href="login">Return to sign in</a>
+  </section>
+</div>
+{% endblock %}

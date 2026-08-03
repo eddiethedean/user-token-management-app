@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block auth_content %}
+<div class="center-card-wrap">
+  <section class="auth-card narrow-card">
+    <a class="back-link" href="login">← Back to sign in</a>
+    <p class="eyebrow">Request access</p>
+    <h1>Register your government email</h1>
+    <p class="muted">Registration does not grant immediate access. Complete both required steps below.</p>
+    <ol class="approval-steps">
+      <li><strong>Verify your email</strong><span>We send a link to the government address you provide. Use it to choose your password.</span></li>
+      <li><strong>Wait for administrator approval</strong><span>After verification, an administrator reviews your request. You cannot sign in until approval is granted.</span></li>
+    </ol>
+    {% if success %}
+      <div class="alert alert-success" role="status">{{ success }}</div>
+      <a class="button button-secondary button-wide" href="login">Return to sign in</a>
+    {% else %}
+      {% if error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
+      <form action="register" method="post" class="stack-form">
+        <label for="full_name">Full name</label>
+        <input id="full_name" name="full_name" type="text" autocomplete="name" maxlength="160" value="{{ full_name or '' }}" required>
+        <label for="email">Government email</label>
+        <input id="email" name="email" type="email" autocomplete="email" maxlength="320" value="{{ email or '' }}" required>
+        <p class="field-help">A verification link will be sent to this address. Password setup happens only after you open that link.</p>
+        <button class="button button-primary button-wide" type="submit">Send verification email</button>
+      </form>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

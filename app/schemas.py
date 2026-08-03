@@ -14,6 +14,11 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
+class RegistrationRequest(BaseModel):
+    email: EmailStr
+    full_name: str = Field(default="", max_length=160)
+
+
 class ProfileUpdate(BaseModel):
     full_name: str = Field(default="", max_length=160)
     organization: str = Field(default="", max_length=160)

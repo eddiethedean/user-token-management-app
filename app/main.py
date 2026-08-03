@@ -9,19 +9,22 @@ from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.config import get_settings
-from app.database import SessionLocal, create_schema
+from app.database import SessionLocal
 from app.dependencies import clear_auth_cookies, set_auth_cookies
 from app.routes.api import router as api_router
 from app.routes.web import router as web_router
-from app.routing import app_path
+from app.routing import WorkbenchPathMiddleware, app_path
+from app.schema import assert_schema_current
 from app.services.auth import ensure_default_roles
+from app.templating import template_context, templates
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    create_schema()
+    if settings.app_env != "test":
+        assert_schema_current()
     with SessionLocal() as db:
         ensure_default_roles(db)
     yield
@@ -34,6 +37,7 @@ app = FastAPI(
     redoc_url=None,
     lifespan=lifespan,
 )
+app.add_middleware(WorkbenchPathMiddleware)
 
 
 @app.middleware("http")
@@ -75,6 +79,18 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
     if exc.status_code == 403 and accepts_html:
         return JSONResponse(
             {"detail": "You do not have permission to perform this action."}, status_code=403
+        )
+    if exc.status_code == 429 and accepts_html:
+        return templates.TemplateResponse(
+            request=request,
+            name="auth/rate_limited.html",
+            status_code=429,
+            headers=exc.headers,
+            context=template_context(
+                request,
+                page_title="Too many requests",
+                retry_after=(exc.headers or {}).get("Retry-After", "60"),
+            ),
         )
     return await http_exception_handler(request, exc)
 

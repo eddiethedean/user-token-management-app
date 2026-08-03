@@ -1,6 +1,70 @@
-from urllib.parse import urlsplit
+import re
+from dataclasses import dataclass
+from urllib.parse import unquote, urlsplit
 
 from fastapi import Request
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+_PROXY_ROOT = re.compile(r"^/proxy/\d+(?P<mount>/.*)$")
+
+
+def _raw_path(path: str) -> bytes:
+    return path.encode("utf-8", errors="surrogatepass")
+
+
+def normalize_workbench_scope(scope: Scope) -> Scope:
+    """Normalize Workbench path forms while retaining the externally visible mount as root_path."""
+    path = str(scope.get("path") or "/")
+    root_path = str(scope.get("root_path") or "").rstrip("/")
+    changed = False
+
+    candidate = path.lstrip("/")
+    lowered = candidate.casefold()
+    if root_path and (
+        lowered.startswith("http%3a")
+        or lowered.startswith("https%3a")
+        or lowered.startswith("http://")
+        or lowered.startswith("https://")
+    ):
+        decoded = unquote(candidate)
+        parsed = urlsplit(decoded)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            path = parsed.path or "/"
+            if parsed.query:
+                scope = dict(scope)
+                scope["query_string"] = parsed.query.encode("utf-8")
+            changed = True
+
+    effective_root = root_path
+    if root_path and (path == root_path or path.startswith(f"{root_path}/")):
+        path = path[len(root_path) :] or "/"
+        changed = True
+    elif root_path:
+        proxy_match = _PROXY_ROOT.match(root_path)
+        if proxy_match:
+            mount = proxy_match.group("mount").rstrip("/")
+            if mount and (path == mount or path.startswith(f"{mount}/")):
+                path = path[len(mount) :] or "/"
+                effective_root = mount
+                changed = True
+
+    if not changed:
+        return scope
+    normalized = dict(scope)
+    normalized["path"] = path
+    normalized["raw_path"] = _raw_path(path)
+    normalized["root_path"] = effective_root
+    return normalized
+
+
+@dataclass
+class WorkbenchPathMiddleware:
+    app: ASGIApp
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") in {"http", "websocket"}:
+            scope = normalize_workbench_scope(scope)
+        await self.app(scope, receive, send)
 
 
 def _safe_base_path(value: str, *, allow_absolute_url: bool = False) -> str:

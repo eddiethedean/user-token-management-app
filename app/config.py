@@ -1,6 +1,8 @@
 from functools import lru_cache
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -31,6 +33,23 @@ class Settings(BaseSettings):
     session_idle_minutes: int = Field(default=30, ge=5, le=1440)
     cookie_secure: bool = False
     cookie_path: str = "auto"
+    trusted_proxy_ips: str = ""
+
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = Field(default=60, ge=10, le=3600)
+    rate_limit_login_per_source: int = Field(default=30, ge=1, le=1000)
+    rate_limit_login_per_account: int = Field(default=10, ge=1, le=1000)
+    rate_limit_registration_per_source: int = Field(default=10, ge=1, le=1000)
+    rate_limit_registration_per_account: int = Field(default=3, ge=1, le=1000)
+    rate_limit_reset_per_source: int = Field(default=10, ge=1, le=1000)
+    rate_limit_reset_per_account: int = Field(default=3, ge=1, le=1000)
+
+    directory_lookup_url: str = ""
+    directory_lookup_timeout_seconds: float = Field(default=5.0, ge=0.5, le=30)
+    directory_lookup_verify_tls: bool = True
+    directory_lookup_ca_bundle: str = ""
+    directory_lookup_required: bool = False
+    directory_lookup_bearer_token: str = ""
 
     allowed_email_domains: str = ""
     email_backend: Literal["console", "smtp"] = "console"
@@ -53,6 +72,14 @@ class Settings(BaseSettings):
         }
 
     @property
+    def trusted_proxy_ip_set(self) -> set[str]:
+        return {
+            str(ip_address(value.strip()))
+            for value in self.trusted_proxy_ips.split(",")
+            if value.strip()
+        }
+
+    @property
     def is_production(self) -> bool:
         return self.app_env == "production"
 
@@ -60,6 +87,17 @@ class Settings(BaseSettings):
     def validate_production_settings(self) -> "Settings":
         if self.cookie_path != "auto" and not self.cookie_path.startswith("/"):
             raise ValueError("COOKIE_PATH must be 'auto' or an absolute path")
+        try:
+            _ = self.trusted_proxy_ip_set
+        except ValueError as exc:
+            raise ValueError("TRUSTED_PROXY_IPS must contain only IP addresses") from exc
+        if self.directory_lookup_url:
+            parsed_directory_url = urlsplit(self.directory_lookup_url)
+            if (
+                parsed_directory_url.scheme not in {"http", "https"}
+                or not parsed_directory_url.netloc
+            ):
+                raise ValueError("DIRECTORY_LOOKUP_URL must be an absolute HTTP(S) URL")
         if self.is_production:
             weak_markers = ("development-only", "replace-with")
             for name in ("jwt_secret", "session_pepper", "csrf_secret"):
@@ -72,6 +110,10 @@ class Settings(BaseSettings):
                 raise ValueError("ALLOWED_EMAIL_DOMAINS must be configured in production")
             if self.email_backend == "smtp" and not self.smtp_host:
                 raise ValueError("SMTP_HOST is required when EMAIL_BACKEND=smtp")
+            if self.directory_lookup_url and not self.directory_lookup_url.startswith("https://"):
+                raise ValueError("DIRECTORY_LOOKUP_URL must use HTTPS in production")
+            if self.directory_lookup_url and not self.directory_lookup_verify_tls:
+                raise ValueError("DIRECTORY_LOOKUP_VERIFY_TLS must be true in production")
         return self
 
 

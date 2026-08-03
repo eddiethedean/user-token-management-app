@@ -113,6 +113,7 @@ def test_console_delivery_outputs_message_and_respects_limit(client, capsys) -> 
 
 
 def test_create_admin_validates_confirmation_and_password(client, monkeypatch, capsys) -> None:
+    monkeypatch.setattr("app.cli.assert_schema_current", lambda: None)
     responses = iter(["one-password-value", "different-password"])
     monkeypatch.setattr("app.cli.getpass.getpass", lambda prompt: next(responses))
     assert create_admin("new.admin@example.gov") == 2
@@ -125,6 +126,7 @@ def test_create_admin_validates_confirmation_and_password(client, monkeypatch, c
 
 
 def test_create_admin_creates_verified_administrator(client, monkeypatch, capsys) -> None:
+    monkeypatch.setattr("app.cli.assert_schema_current", lambda: None)
     password = "Harbor-Signal-73!North"
     responses = iter([password, password])
     monkeypatch.setattr("app.cli.getpass.getpass", lambda prompt: next(responses))

@@ -24,10 +24,41 @@ def test_custom_workbench_port_uses_rserver_url(monkeypatch) -> None:
     def fake_run(command, **options):
         assert command[-2:] == ["-l", "8050"]
         assert "shell" not in options
-        return CompletedProcess(command, 0, stdout="/s/session/p/8050\n", stderr="")
+        return CompletedProcess(
+            command,
+            0,
+            stdout="https://workbench.example.gov/s/session/p/30507931/\n",
+            stderr="",
+        )
 
     monkeypatch.setattr("app.server.subprocess.run", fake_run)
-    assert detect_root_path(8050) == "/s/session/p/8050"
+    assert detect_root_path(8050) == "/s/session/p/30507931"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "ftp://workbench.example.gov/s/session/p/1",
+        "https://user@workbench.example.gov/s/session/p/1",
+        "https://workbench.example.gov/s/session/p/1?next=/admin",
+        "https://workbench.example.gov/s/session/p/1#fragment",
+    ],
+)
+def test_unsafe_rserver_url_output_is_rejected(value: str) -> None:
+    with pytest.raises(RuntimeError, match="Invalid ASGI root path"):
+        _normalize_root_path(value, allow_absolute_url=True)
+
+
+def test_empty_rserver_url_output_is_rejected(monkeypatch) -> None:
+    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
+    monkeypatch.setenv("RS_SERVER_URL", "https://workbench.example.gov/s/session/")
+    monkeypatch.setattr(
+        "app.server.subprocess.run",
+        lambda *args, **kwargs: CompletedProcess(args, 0, stdout="\n", stderr=""),
+    )
+
+    with pytest.raises(RuntimeError, match="empty proxy root path"):
+        detect_root_path(8050)
 
 
 def test_invalid_workbench_root_path_is_rejected(monkeypatch) -> None:
