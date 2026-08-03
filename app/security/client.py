@@ -5,17 +5,27 @@ from fastapi import Request
 from app.config import Settings
 
 
-def client_ip(request: Request | None, settings: Settings) -> str:
-    """Return a normalized source address, trusting forwarding data only from configured proxies."""
+def direct_client_ip(request: Request | None) -> str:
     if request is None or request.client is None:
         return ""
     direct = request.client.host.strip()
     try:
-        normalized_direct = str(ip_address(direct))
+        return str(ip_address(direct))
     except ValueError:
-        normalized_direct = direct[:64]
+        return direct[:64]
 
-    if normalized_direct not in settings.trusted_proxy_ip_set:
+
+def is_trusted_direct_proxy(request: Request | None, settings: Settings) -> bool:
+    return direct_client_ip(request) in settings.trusted_proxy_ip_set
+
+
+def client_ip(request: Request | None, settings: Settings) -> str:
+    """Return a normalized source address, trusting forwarding data only from configured proxies."""
+    normalized_direct = direct_client_ip(request)
+    if not normalized_direct:
+        return ""
+
+    if not is_trusted_direct_proxy(request, settings):
         return normalized_direct
 
     forwarded = request.headers.get("x-forwarded-for", "")

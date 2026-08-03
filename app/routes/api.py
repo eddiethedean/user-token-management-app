@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -14,7 +14,7 @@ from app.dependencies import (
     require_auth,
     set_auth_cookies,
 )
-from app.models import AuditEvent, RefreshSession, Role, User, UserStatus, utcnow
+from app.models import AuditEvent, Invitation, RefreshSession, Role, User, UserStatus
 from app.schemas import (
     AdminUserUpdate,
     InvitationRequest,
@@ -29,12 +29,21 @@ from app.schemas import (
     UserView,
 )
 from app.security.csrf import require_csrf
-from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
+from app.security.passwords import PasswordPolicyError
+from app.services.accounts import (
+    CurrentPasswordError,
+    ProfileValues,
+    update_profile,
+)
+from app.services.accounts import (
+    change_password as change_account_password,
+)
 from app.services.audit import record_event
 from app.services.auth import (
     AuthenticationError,
     TokenFlowError,
     approve_self_registration,
+    authenticate_trusted_identity,
     authenticate_user,
     complete_password_reset,
     create_invitation,
@@ -43,6 +52,7 @@ from app.services.auth import (
     request_password_reset,
     request_self_registration,
     revoke_all_sessions,
+    revoke_invitation,
     revoke_session,
     rotate_session,
 )
@@ -51,7 +61,6 @@ from app.services.directory import (
     DirectoryUnavailableError,
     validate_directory_email,
 )
-from app.services.mailer import deliver_pending
 from app.services.rate_limit import check_rate_limit
 from app.services.secrets import (
     delete_user_secret,
@@ -106,7 +115,6 @@ async def register(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (DirectoryEligibilityError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    deliver_pending(db, settings)
     return {
         "message": (
             "If the address is eligible, a verification email has been sent. Email verification "
@@ -123,6 +131,8 @@ def issue_token(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
+    if settings.authentication_mode != "local_password":
+        raise HTTPException(status_code=403, detail="Password token issuance is disabled")
     check_rate_limit(
         db,
         settings,
@@ -136,6 +146,29 @@ def issue_token(
         user = authenticate_user(db, settings, str(payload.email), payload.password, request)
     except AuthenticationError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    tokens = create_session(db, settings, user, request)
+    set_auth_cookies(response, tokens, settings, request)
+    return TokenResponse(access_token=tokens.access_token, expires_in=tokens.access_expires_in)
+
+
+@router.post("/auth/federated", response_model=TokenResponse)
+def issue_federated_token(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> TokenResponse:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="federated_login",
+        source_limit=settings.rate_limit_login_per_source,
+    )
+    try:
+        user = authenticate_trusted_identity(db, settings, request)
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     tokens = create_session(db, settings, user, request)
     set_auth_cookies(response, tokens, settings, request)
     return TokenResponse(access_token=tokens.access_token, expires_in=tokens.access_expires_in)
@@ -209,7 +242,6 @@ def forgot_password(
         account_key=str(payload.email),
     )
     request_password_reset(db, settings, str(payload.email), request)
-    deliver_pending(db, settings)
     return {"message": "If an eligible account exists, instructions have been sent."}
 
 
@@ -233,7 +265,6 @@ def reset_password(
         )
     except (TokenFlowError, PasswordPolicyError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    deliver_pending(db, settings)
 
 
 @router.get("/me", response_model=UserView)
@@ -249,10 +280,12 @@ async def update_me(
     db: Session = Depends(get_db),
 ) -> UserView:
     await _csrf_if_cookie(request, auth)
-    for field, value in payload.model_dump().items():
-        setattr(auth.user, field, value.strip())
-    record_event(db, "profile.updated", request=request, actor=auth.user, target=auth.user)
-    db.commit()
+    update_profile(
+        db,
+        user=auth.user,
+        values=ProfileValues(**payload.model_dump()),
+        request=request,
+    )
     return UserView.from_user(auth.user)
 
 
@@ -265,19 +298,17 @@ async def change_password(
     settings: Settings = Depends(get_settings),
 ) -> None:
     await _csrf_if_cookie(request, auth)
-    passwords = PasswordService(settings)
-    if not passwords.verify(payload.current_password, auth.user.password_hash):
-        raise HTTPException(status_code=400, detail="Current password is incorrect.")
     try:
-        validated = validate_password(payload.new_password, email=auth.user.email)
-    except PasswordPolicyError as exc:
+        change_account_password(
+            db,
+            settings,
+            user=auth.user,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+            request=request,
+        )
+    except (CurrentPasswordError, PasswordPolicyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    auth.user.password_hash = passwords.hash(validated)
-    auth.user.password_changed_at = utcnow()
-    auth.user.security_version += 1
-    revoke_all_sessions(db, auth.user)
-    record_event(db, "password.changed", request=request, actor=auth.user, target=auth.user)
-    db.commit()
 
 
 @router.get("/me/secrets", response_model=list[SecretSlotView])
@@ -391,10 +422,30 @@ async def delete_session(
 
 @router.get("/admin/users", response_model=list[UserView])
 def admin_users(
-    _: AuthContext = Depends(require_admin), db: Session = Depends(get_db)
+    q: str = "",
+    status_filter: str = Query(default="", alias="status"),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    _: AuthContext = Depends(require_admin),
+    db: Session = Depends(get_db),
 ) -> list[UserView]:
+    statement = select(User)
+    cleaned_query = q.strip()[:160]
+    if cleaned_query:
+        pattern = f"%{cleaned_query}%"
+        statement = statement.where(
+            or_(
+                User.email.ilike(pattern),
+                User.email_original.ilike(pattern),
+                User.full_name.ilike(pattern),
+                User.organization.ilike(pattern),
+            )
+        )
+    if status_filter in {item.value for item in UserStatus}:
+        statement = statement.where(User.status == status_filter)
     return [
-        UserView.from_user(user) for user in db.scalars(select(User).order_by(User.email)).all()
+        UserView.from_user(user)
+        for user in db.scalars(statement.order_by(User.email).offset(offset).limit(limit)).all()
     ]
 
 
@@ -421,7 +472,6 @@ async def admin_invite(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (DirectoryEligibilityError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    deliver_pending(db, settings)
     return {"id": invitation.id, "status": "pending"}
 
 
@@ -480,6 +530,28 @@ async def admin_update_user(
     return UserView.from_user(user)
 
 
+@router.delete("/admin/invitations/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def admin_revoke_invitation(
+    invitation_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> None:
+    await _csrf_if_cookie(request, auth)
+    invitation = db.get(Invitation, invitation_id)
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    try:
+        revoke_invitation(
+            db,
+            invitation=invitation,
+            administrator=auth.user,
+            request=request,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/admin/users/{user_id}/approve", response_model=UserView)
 async def admin_approve_registration(
     user_id: str,
@@ -502,7 +574,6 @@ async def admin_approve_registration(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    deliver_pending(db, settings)
     return UserView.from_user(user)
 
 
@@ -528,15 +599,26 @@ async def admin_deny_registration(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    deliver_pending(db, settings)
     return UserView.from_user(user)
 
 
 @router.get("/admin/audit")
 def admin_audit(
-    _: AuthContext = Depends(require_admin), db: Session = Depends(get_db)
+    event_type: str = "",
+    outcome: str = "",
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+    _: AuthContext = Depends(require_admin),
+    db: Session = Depends(get_db),
 ) -> list[dict]:
-    events = db.scalars(select(AuditEvent).order_by(AuditEvent.occurred_at.desc()).limit(200)).all()
+    statement = select(AuditEvent)
+    if event_type.strip():
+        statement = statement.where(AuditEvent.event_type == event_type.strip()[:100])
+    if outcome.strip():
+        statement = statement.where(AuditEvent.outcome == outcome.strip()[:20])
+    events = db.scalars(
+        statement.order_by(AuditEvent.occurred_at.desc()).offset(offset).limit(limit)
+    ).all()
     return [
         {
             "id": event.id,

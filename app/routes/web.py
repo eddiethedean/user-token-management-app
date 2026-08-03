@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -21,17 +21,25 @@ from app.models import (
     User,
     UserSecret,
     UserStatus,
-    utcnow,
 )
 from app.routing import app_path
 from app.security.csrf import require_csrf
-from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
+from app.security.passwords import PasswordPolicyError
+from app.services.accounts import (
+    CurrentPasswordError,
+    ProfileValues,
+    update_profile,
+)
+from app.services.accounts import (
+    change_password as change_account_password,
+)
 from app.services.audit import record_event
 from app.services.auth import (
     AuthenticationError,
     TokenFlowError,
     accept_invitation,
     approve_self_registration,
+    authenticate_trusted_identity,
     authenticate_user,
     complete_password_reset,
     complete_self_registration,
@@ -44,10 +52,10 @@ from app.services.auth import (
     request_password_reset,
     request_self_registration,
     revoke_all_sessions,
+    revoke_invitation,
     revoke_session,
 )
 from app.services.directory import DirectoryUnavailableError, validate_directory_email
-from app.services.mailer import deliver_pending
 from app.services.rate_limit import check_rate_limit
 from app.services.secrets import (
     delete_user_secret,
@@ -58,6 +66,7 @@ from app.services.secrets import (
 from app.templating import template_context, templates
 
 router = APIRouter(include_in_schema=False)
+ADMIN_PAGE_SIZE = 50
 
 
 def _safe_next(value: str) -> str:
@@ -68,6 +77,40 @@ def _safe_next(value: str) -> str:
         and not any(ord(character) < 32 for character in value)
     )
     return value if is_local_path else "/profile"
+
+
+def _user_page(
+    db: Session, *, query: str = "", status_filter: str = "", page: int = 1
+) -> tuple[list[User], int, int]:
+    page = max(1, page)
+    statement = select(User)
+    count_statement = select(func.count()).select_from(User)
+    conditions = []
+    cleaned_query = query.strip()[:160]
+    if cleaned_query:
+        pattern = f"%{cleaned_query}%"
+        conditions.append(
+            or_(
+                User.email.ilike(pattern),
+                User.email_original.ilike(pattern),
+                User.full_name.ilike(pattern),
+                User.organization.ilike(pattern),
+            )
+        )
+    if status_filter in {item.value for item in UserStatus}:
+        conditions.append(User.status == status_filter)
+    if conditions:
+        statement = statement.where(*conditions)
+        count_statement = count_statement.where(*conditions)
+    total = int(db.scalar(count_statement) or 0)
+    page_count = max(1, (total + ADMIN_PAGE_SIZE - 1) // ADMIN_PAGE_SIZE)
+    page = min(page, page_count)
+    users = db.scalars(
+        statement.order_by(User.created_at.desc())
+        .offset((page - 1) * ADMIN_PAGE_SIZE)
+        .limit(ADMIN_PAGE_SIZE)
+    ).all()
+    return list(users), total, page
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -82,13 +125,19 @@ def login_page(
     request: Request,
     next: str = "/profile",
     auth: AuthContext | None = Depends(get_optional_auth),
+    settings: Settings = Depends(get_settings),
 ) -> HTMLResponse | RedirectResponse:
     if auth:
         return RedirectResponse(app_path(request, _safe_next(next)), status_code=303)
     return templates.TemplateResponse(
         request=request,
         name="auth/login.html",
-        context=template_context(request, page_title="Sign in", next=_safe_next(next)),
+        context=template_context(
+            request,
+            page_title="Sign in",
+            next=_safe_next(next),
+            federated_sign_in=settings.authentication_mode == "trusted_header",
+        ),
     )
 
 
@@ -101,6 +150,8 @@ def login_submit(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> HTMLResponse | RedirectResponse:
+    if settings.authentication_mode != "local_password":
+        raise HTTPException(status_code=403, detail="Password sign-in is disabled")
     check_rate_limit(
         db,
         settings,
@@ -125,6 +176,30 @@ def login_submit(
                 next=_safe_next(next),
             ),
         )
+    tokens = create_session(db, settings, user, request)
+    response = RedirectResponse(app_path(request, _safe_next(next)), status_code=303)
+    set_auth_cookies(response, tokens, settings, request)
+    return response
+
+
+@router.post("/login/federated", response_model=None)
+def federated_login_submit(
+    request: Request,
+    next: str = Form(default="/profile"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> RedirectResponse:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="federated_login",
+        source_limit=settings.rate_limit_login_per_source,
+    )
+    try:
+        user = authenticate_trusted_identity(db, settings, request)
+    except AuthenticationError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
     tokens = create_session(db, settings, user, request)
     response = RedirectResponse(app_path(request, _safe_next(next)), status_code=303)
     set_auth_cookies(response, tokens, settings, request)
@@ -166,7 +241,6 @@ async def registration_submit(
             full_name=full_name,
             request=request,
         )
-        deliver_pending(db, settings)
     except (ValueError, DirectoryUnavailableError) as exc:
         return templates.TemplateResponse(
             request=request,
@@ -252,7 +326,6 @@ def registration_verification_submit(
             password=password,
             request=request,
         )
-        deliver_pending(db, settings)
         return templates.TemplateResponse(
             request=request,
             name="auth/verify_registration.html",
@@ -322,7 +395,6 @@ def forgot_submit(
         account_key=email,
     )
     request_password_reset(db, settings, email, request)
-    deliver_pending(db, settings)
     return templates.TemplateResponse(
         request=request,
         name="auth/forgot_password.html",
@@ -380,7 +452,6 @@ def reset_submit(
             complete_password_reset(
                 db, settings, raw_token=token, password=password, request=request
             )
-            deliver_pending(db, settings)
             return RedirectResponse(app_path(request, "/login?reset=complete"), status_code=303)
         except (TokenFlowError, PasswordPolicyError) as exc:
             error = str(exc)
@@ -490,12 +561,17 @@ async def profile_submit(
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
     await require_csrf(request, auth.session.csrf_token)
-    auth.user.full_name = full_name.strip()[:160]
-    auth.user.organization = organization.strip()[:160]
-    auth.user.job_title = job_title.strip()[:160]
-    auth.user.phone = phone.strip()[:40]
-    record_event(db, "profile.updated", request=request, actor=auth.user, target=auth.user)
-    db.commit()
+    update_profile(
+        db,
+        user=auth.user,
+        values=ProfileValues(
+            full_name=full_name,
+            organization=organization,
+            job_title=job_title,
+            phone=phone,
+        ),
+        request=request,
+    )
     return templates.TemplateResponse(
         request=request,
         name="partials/profile_form.html",
@@ -548,21 +624,19 @@ async def password_change_submit(
 ) -> HTMLResponse:
     await require_csrf(request, auth.session.csrf_token)
     error = ""
-    passwords = PasswordService(settings)
-    if not passwords.verify(current_password, auth.user.password_hash):
-        error = "Current password is incorrect."
-    elif new_password != new_password_confirm:
+    if new_password != new_password_confirm:
         error = "New passwords do not match."
     else:
         try:
-            validated = validate_password(new_password, email=auth.user.email)
-            auth.user.password_hash = passwords.hash(validated)
-            auth.user.password_changed_at = utcnow()
-            auth.user.security_version += 1
-            revoke_all_sessions(db, auth.user)
-            record_event(db, "password.changed", request=request, actor=auth.user, target=auth.user)
-            db.commit()
-        except PasswordPolicyError as exc:
+            change_account_password(
+                db,
+                settings,
+                user=auth.user,
+                current_password=current_password,
+                new_password=new_password,
+                request=request,
+            )
+        except (CurrentPasswordError, PasswordPolicyError) as exc:
             error = str(exc)
     return templates.TemplateResponse(
         request=request,
@@ -686,10 +760,13 @@ async def secret_delete_submit(
 @router.get("/admin/users", response_class=HTMLResponse)
 def users_page(
     request: Request,
+    q: str = "",
+    status: str = "",
+    page: int = 1,
     auth: AuthContext = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
-    users = db.scalars(select(User).order_by(User.created_at.desc())).all()
+    users, total_users, current_page = _user_page(db, query=q, status_filter=status, page=page)
     invitations = db.scalars(
         select(Invitation).order_by(Invitation.created_at.desc()).limit(25)
     ).all()
@@ -702,6 +779,11 @@ def users_page(
             auth=auth,
             page_title="User administration",
             users=users,
+            total_users=total_users,
+            current_page=current_page,
+            page_count=max(1, (total_users + ADMIN_PAGE_SIZE - 1) // ADMIN_PAGE_SIZE),
+            user_query=q.strip()[:160],
+            status_filter=status if status in {item.value for item in UserStatus} else "",
             invitations=invitations,
             roles=roles,
         ),
@@ -730,7 +812,6 @@ async def invite_submit(
             inviter=auth.user,
             request=request,
         )
-        deliver_pending(db, settings)
     except (ValueError, DirectoryUnavailableError) as exc:
         error = str(exc)
         response_status = 503 if isinstance(exc, DirectoryUnavailableError) else 400
@@ -791,11 +872,54 @@ async def toggle_user(
         detail={"status": user.status},
     )
     db.commit()
-    users = db.scalars(select(User).order_by(User.created_at.desc())).all()
+    users, total_users, current_page = _user_page(db)
     return templates.TemplateResponse(
         request=request,
         name="partials/user_table.html",
-        context=template_context(request, auth=auth, users=users),
+        context=template_context(
+            request,
+            auth=auth,
+            users=users,
+            total_users=total_users,
+            current_page=current_page,
+            page_count=max(1, (total_users + ADMIN_PAGE_SIZE - 1) // ADMIN_PAGE_SIZE),
+        ),
+    )
+
+
+@router.post("/admin/invitations/{invitation_id}/revoke", response_class=HTMLResponse)
+async def revoke_invitation_submit(
+    invitation_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_admin),
+    db: Session = Depends(get_db),
+) -> HTMLResponse:
+    await require_csrf(request, auth.session.csrf_token)
+    invitation = db.get(Invitation, invitation_id)
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+    try:
+        revoke_invitation(
+            db,
+            invitation=invitation,
+            administrator=auth.user,
+            request=request,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    invitations = db.scalars(
+        select(Invitation).order_by(Invitation.created_at.desc()).limit(25)
+    ).all()
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/invitation_panel.html",
+        context=template_context(
+            request,
+            auth=auth,
+            invitations=invitations,
+            roles=db.scalars(select(Role).order_by(Role.name)).all(),
+            success=f"Invitation revoked for {invitation.email_original}.",
+        ),
     )
 
 
@@ -819,10 +943,9 @@ async def approve_registration_submit(
             administrator=auth.user,
             request=request,
         )
-        deliver_pending(db, settings)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    users = db.scalars(select(User).order_by(User.created_at.desc())).all()
+    users, total_users, current_page = _user_page(db)
     return templates.TemplateResponse(
         request=request,
         name="partials/user_table.html",
@@ -830,6 +953,9 @@ async def approve_registration_submit(
             request,
             auth=auth,
             users=users,
+            total_users=total_users,
+            current_page=current_page,
+            page_count=max(1, (total_users + ADMIN_PAGE_SIZE - 1) // ADMIN_PAGE_SIZE),
             success=f"Access approved for {user.email_original}.",
         ),
     )
@@ -855,10 +981,9 @@ async def deny_registration_submit(
             administrator=auth.user,
             request=request,
         )
-        deliver_pending(db, settings)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    users = db.scalars(select(User).order_by(User.created_at.desc())).all()
+    users, total_users, current_page = _user_page(db)
     return templates.TemplateResponse(
         request=request,
         name="partials/user_table.html",
@@ -866,6 +991,9 @@ async def deny_registration_submit(
             request,
             auth=auth,
             users=users,
+            total_users=total_users,
+            current_page=current_page,
+            page_count=max(1, (total_users + ADMIN_PAGE_SIZE - 1) // ADMIN_PAGE_SIZE),
             success=f"Registration denied for {user.email_original}.",
         ),
     )
@@ -874,15 +1002,56 @@ async def deny_registration_submit(
 @router.get("/admin/audit", response_class=HTMLResponse)
 def audit_page(
     request: Request,
+    event_type: str = "",
+    outcome: str = "",
+    page: int = 1,
     auth: AuthContext = Depends(require_admin),
     db: Session = Depends(get_db),
 ) -> HTMLResponse:
-    events = db.scalars(select(AuditEvent).order_by(AuditEvent.occurred_at.desc()).limit(200)).all()
-    users = {user.id: user for user in db.scalars(select(User)).all()}
+    page = max(1, page)
+    statement = select(AuditEvent)
+    count_statement = select(func.count()).select_from(AuditEvent)
+    conditions = []
+    cleaned_event_type = event_type.strip()[:100]
+    cleaned_outcome = outcome.strip()[:20]
+    if cleaned_event_type:
+        conditions.append(AuditEvent.event_type == cleaned_event_type)
+    if cleaned_outcome:
+        conditions.append(AuditEvent.outcome == cleaned_outcome)
+    if conditions:
+        statement = statement.where(*conditions)
+        count_statement = count_statement.where(*conditions)
+    total_events = int(db.scalar(count_statement) or 0)
+    page_count = max(1, (total_events + ADMIN_PAGE_SIZE - 1) // ADMIN_PAGE_SIZE)
+    page = min(page, page_count)
+    events = db.scalars(
+        statement.order_by(AuditEvent.occurred_at.desc())
+        .offset((page - 1) * ADMIN_PAGE_SIZE)
+        .limit(ADMIN_PAGE_SIZE)
+    ).all()
+    referenced_user_ids = {
+        user_id
+        for event in events
+        for user_id in (event.actor_user_id, event.target_user_id)
+        if user_id
+    }
+    users = {
+        user.id: user
+        for user in db.scalars(select(User).where(User.id.in_(referenced_user_ids))).all()
+    }
     return templates.TemplateResponse(
         request=request,
         name="admin/audit.html",
         context=template_context(
-            request, auth=auth, page_title="Audit activity", events=events, users=users
+            request,
+            auth=auth,
+            page_title="Audit activity",
+            events=events,
+            users=users,
+            total_events=total_events,
+            current_page=page,
+            page_count=page_count,
+            event_type_filter=cleaned_event_type,
+            outcome_filter=cleaned_outcome,
         ),
     )

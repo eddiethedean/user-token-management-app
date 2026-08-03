@@ -1,0 +1,239 @@
+import os
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
+from threading import Barrier, Lock
+
+import pytest
+from sqlalchemy import create_engine, func, select, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.config import get_settings
+from app.database import Base
+from app.models import (
+    EmailOutbox,
+    Invitation,
+    PasswordReset,
+    RefreshSession,
+    RefreshTokenHistory,
+    Role,
+    User,
+    UserStatus,
+    utcnow,
+)
+from app.security.passwords import PasswordService
+from app.security.tokens import hash_token, random_token
+from app.services.auth import (
+    TokenFlowError,
+    accept_invitation,
+    complete_password_reset,
+    create_invitation,
+    create_session,
+    ensure_default_roles,
+    rotate_session,
+)
+from app.services.mailer import deliver_pending_with_metrics, queue_email
+
+pytestmark = pytest.mark.postgres
+POSTGRES_TEST_DATABASE_URL = os.environ.get("POSTGRES_TEST_DATABASE_URL", "")
+
+
+@pytest.fixture(scope="module")
+def postgres_sessions():
+    if not POSTGRES_TEST_DATABASE_URL:
+        pytest.skip("Set POSTGRES_TEST_DATABASE_URL to run PostgreSQL concurrency tests")
+    pytest.importorskip("psycopg")
+    url = make_url(POSTGRES_TEST_DATABASE_URL)
+    if not url.drivername.startswith("postgresql"):
+        pytest.fail("POSTGRES_TEST_DATABASE_URL must use PostgreSQL")
+    if url.drivername == "postgresql":
+        url = url.set(drivername="postgresql+psycopg")
+    schema = f"access_registry_test_{uuid.uuid4().hex}"
+    admin_engine = create_engine(url)
+    with admin_engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with factory() as db:
+        ensure_default_roles(db)
+    try:
+        yield factory
+    finally:
+        engine.dispose()
+        with admin_engine.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        admin_engine.dispose()
+
+
+def _new_user(db: Session, email: str) -> User:
+    role = db.scalar(select(Role).where(Role.name == "user"))
+    settings = get_settings()
+    user = User(
+        email=email,
+        email_original=email,
+        email_verified_at=utcnow(),
+        status=UserStatus.ACTIVE.value,
+        password_hash=PasswordService(settings).hash("Initial-River-Password-71"),
+        password_changed_at=utcnow(),
+        roles=[role] if role else [],
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def _race(factory, operation):
+    barrier = Barrier(2)
+
+    def invoke():
+        barrier.wait()
+        with factory() as db:
+            try:
+                return operation(db)
+            except Exception as exc:  # Return both outcomes for exact assertions below.
+                return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        return list(executor.map(lambda _: invoke(), range(2)))
+
+
+def test_refresh_rotation_is_atomic_and_replay_revokes_family(postgres_sessions) -> None:
+    settings = get_settings()
+    with postgres_sessions() as db:
+        user = _new_user(db, f"refresh-{uuid.uuid4().hex}@example.gov")
+        tokens = create_session(db, settings, user)
+        session_id = tokens.session.id
+
+    outcomes = _race(
+        postgres_sessions,
+        lambda db: rotate_session(db, settings, tokens.refresh_token),
+    )
+    assert sum(not isinstance(item, Exception) for item in outcomes) == 1
+    assert sum(isinstance(item, TokenFlowError) for item in outcomes) == 1
+    with postgres_sessions() as db:
+        session = db.get(RefreshSession, session_id)
+        assert session is not None and session.revoked_at is not None
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(RefreshTokenHistory)
+                .where(RefreshTokenHistory.session_id == session_id)
+            )
+            == 1
+        )
+
+
+def test_invitation_acceptance_is_atomic(postgres_sessions) -> None:
+    settings = get_settings()
+    email = f"invite-{uuid.uuid4().hex}@example.gov"
+    with postgres_sessions() as db:
+        administrator = _new_user(db, f"admin-{uuid.uuid4().hex}@example.gov")
+        admin_role = db.scalar(select(Role).where(Role.name == "administrator"))
+        administrator.roles = [admin_role] if admin_role else []
+        db.commit()
+        invitation, raw_token = create_invitation(
+            db,
+            settings,
+            email=email,
+            role_name="user",
+            inviter=administrator,
+        )
+        invitation_id = invitation.id
+
+    outcomes = _race(
+        postgres_sessions,
+        lambda db: accept_invitation(
+            db,
+            settings,
+            raw_token=raw_token,
+            password="Accepted-Forest-Password-83",
+            full_name="Concurrent Invitee",
+        ),
+    )
+    assert sum(isinstance(item, User) for item in outcomes) == 1
+    assert sum(isinstance(item, TokenFlowError) for item in outcomes) == 1
+    with postgres_sessions() as db:
+        assert db.scalar(select(func.count()).select_from(User).where(User.email == email)) == 1
+        invitation = db.get(Invitation, invitation_id)
+        assert invitation is not None and invitation.accepted_at is not None
+
+
+def test_password_reset_consumption_is_atomic(postgres_sessions) -> None:
+    settings = get_settings()
+    first_password = "First-Reset-Password-81"
+    second_password = "Second-Reset-Password-92"
+    with postgres_sessions() as db:
+        user = _new_user(db, f"reset-{uuid.uuid4().hex}@example.gov")
+        user_id = user.id
+        raw_token = random_token()
+        reset = PasswordReset(
+            user_id=user.id,
+            token_hash=hash_token(raw_token, settings.session_pepper),
+            created_at=utcnow(),
+            expires_at=utcnow() + timedelta(hours=1),
+        )
+        db.add(reset)
+        db.commit()
+
+    passwords = iter((first_password, second_password))
+    assigned = [next(passwords), next(passwords)]
+    barrier = Barrier(2)
+
+    def invoke(password):
+        barrier.wait()
+        with postgres_sessions() as db:
+            try:
+                return complete_password_reset(
+                    db,
+                    settings,
+                    raw_token=raw_token,
+                    password=password,
+                )
+            except Exception as exc:
+                return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(invoke, assigned))
+    assert sum(isinstance(item, User) for item in outcomes) == 1
+    assert sum(isinstance(item, TokenFlowError) for item in outcomes) == 1
+    with postgres_sessions() as db:
+        user = db.get(User, user_id)
+        assert user is not None
+        verifier = PasswordService(settings)
+        assert sum(verifier.verify(password, user.password_hash) for password in assigned) == 1
+
+
+def test_email_workers_claim_each_message_once(postgres_sessions, monkeypatch) -> None:
+    settings = get_settings().model_copy(
+        update={"email_backend": "smtp", "smtp_host": "relay.example.gov"}
+    )
+    sends = 0
+    sends_lock = Lock()
+
+    def record_send(message, worker_settings) -> None:
+        nonlocal sends
+        assert worker_settings.email_backend == "smtp"
+        with sends_lock:
+            sends += 1
+
+    monkeypatch.setattr("app.services.mailer._send_smtp", record_send)
+    with postgres_sessions() as db:
+        message = queue_email(db, "worker-race@example.gov", "Notice", "Body")
+        db.commit()
+        message_id = message.id
+
+    outcomes = _race(
+        postgres_sessions,
+        lambda db: deliver_pending_with_metrics(db, settings, limit=1),
+    )
+    assert all(not isinstance(item, Exception) for item in outcomes)
+    assert sum(item.claimed for item in outcomes) == 1
+    assert sum(item.delivered for item in outcomes) == 1
+    assert sends == 1
+    with postgres_sessions() as db:
+        message = db.get(EmailOutbox, message_id)
+        assert message is not None and message.sent_at is not None
+        assert message.attempts == 1

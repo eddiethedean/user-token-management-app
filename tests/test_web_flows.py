@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse
 from sqlalchemy import select
 
 from app.database import SessionLocal
-from app.models import EmailOutbox, User, UserStatus
+from app.models import EmailOutbox, Invitation, User, UserStatus
 
 ADMIN_EMAIL = "admin@example.gov"
 ADMIN_PASSWORD = "River-Lantern-94!Blue"
@@ -203,6 +203,17 @@ def test_web_admin_invitation_toggle_audit_and_self_protection(client, make_user
     )
     assert valid_invite.status_code == 200
     assert "queued for delivery" in valid_invite.text
+    with SessionLocal() as db:
+        invitation = db.scalar(select(Invitation).where(Invitation.email == "new.user@example.gov"))
+        assert invitation is not None
+        invitation_id = invitation.id
+    revoked_invite = client.post(
+        f"/admin/invitations/{invitation_id}/revoke",
+        data={"csrf_token": csrf},
+        headers={"HX-Request": "true"},
+    )
+    assert revoked_invite.status_code == 200
+    assert "Invitation revoked" in revoked_invite.text
 
     disabled = client.post(
         f"/admin/users/{normal.id}/toggle",
@@ -231,6 +242,10 @@ def test_web_admin_invitation_toggle_audit_and_self_protection(client, make_user
     audit = client.get("/admin/audit")
     assert audit.status_code == 200
     assert "admin.user.status_changed" in audit.text
+    filtered = client.get("/admin/users", params={"q": "managed.user", "status": "active"})
+    assert filtered.status_code == 200
+    assert "managed.user@example.gov" in filtered.text
+    assert "1 matching accounts" in filtered.text
 
 
 def test_web_admin_pages_forbid_standard_user(client, make_user) -> None:

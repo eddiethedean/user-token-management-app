@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     api_token_active_key_id: str = "development-v1"
     jwt_issuer: str = "urn:access-registry:local"
     jwt_audience: str = "access-registry-api"
+    authentication_mode: Literal["local_password", "trusted_header"] = "local_password"
+    password_only_production_risk_accepted: bool = False
+    trusted_identity_header: str = "x-access-registry-user"
     access_token_minutes: int = Field(default=10, ge=1, le=60)
     refresh_token_hours: int = Field(default=8, ge=1, le=168)
     session_idle_minutes: int = Field(default=30, ge=5, le=1440)
@@ -59,6 +62,11 @@ class Settings(BaseSettings):
 
     allowed_email_domains: str = ""
     email_backend: Literal["console", "smtp"] = "console"
+    email_redact_sent_bodies: bool = False
+    email_max_attempts: int = Field(default=5, ge=1, le=20)
+    email_retry_base_seconds: int = Field(default=30, ge=1, le=3600)
+    email_retry_max_seconds: int = Field(default=3600, ge=1, le=86400)
+    email_claim_timeout_seconds: int = Field(default=300, ge=30, le=3600)
     email_from: str = "Access Registry <no-reply@example.gov>"
     smtp_host: str = ""
     smtp_port: int = 25
@@ -68,6 +76,7 @@ class Settings(BaseSettings):
 
     password_hash_scheme: Literal["argon2", "pbkdf2_sha256"] = "argon2"
     pbkdf2_iterations: int = Field(default=600_000, ge=100_000)
+    password_blocklist_path: str = ""
 
     @property
     def email_domain_allowlist(self) -> set[str]:
@@ -131,6 +140,10 @@ class Settings(BaseSettings):
                 or not parsed_directory_url.netloc
             ):
                 raise ValueError("DIRECTORY_LOOKUP_URL must be an absolute HTTP(S) URL")
+        if not re.fullmatch(r"[a-z0-9-]{1,64}", self.trusted_identity_header):
+            raise ValueError("TRUSTED_IDENTITY_HEADER must be a lowercase HTTP header name")
+        if self.trusted_identity_header in {"authorization", "cookie", "host"}:
+            raise ValueError("TRUSTED_IDENTITY_HEADER cannot use a reserved security header")
         if self.is_production:
             weak_markers = ("development-only", "replace-with")
             for name in ("jwt_secret", "session_pepper", "csrf_secret"):
@@ -145,12 +158,46 @@ class Settings(BaseSettings):
                 raise ValueError("COOKIE_SECURE must be true in production")
             if not self.email_domain_allowlist:
                 raise ValueError("ALLOWED_EMAIL_DOMAINS must be configured in production")
-            if self.email_backend == "smtp" and not self.smtp_host:
-                raise ValueError("SMTP_HOST is required when EMAIL_BACKEND=smtp")
+            parsed_public_url = urlsplit(self.public_base_url)
+            if (
+                parsed_public_url.scheme != "https"
+                or not parsed_public_url.netloc
+                or parsed_public_url.username
+                or parsed_public_url.password
+                or parsed_public_url.query
+                or parsed_public_url.fragment
+            ):
+                raise ValueError(
+                    "PUBLIC_BASE_URL must be an absolute HTTPS URL without credentials, query, or fragment"
+                )
+            if not self.database_url.startswith(("postgresql://", "postgresql+psycopg://")):
+                raise ValueError("DATABASE_URL must use PostgreSQL in production")
+            if self.email_backend != "smtp" or not self.smtp_host:
+                raise ValueError("Production email requires EMAIL_BACKEND=smtp and SMTP_HOST")
+            if not self.smtp_starttls:
+                raise ValueError("SMTP_STARTTLS must be true in production")
+            if self.authentication_mode == "local_password":
+                if not self.password_only_production_risk_accepted:
+                    raise ValueError(
+                        "Local-password production requires explicit password-only risk acceptance"
+                    )
+            elif not self.trusted_proxy_ip_set:
+                raise ValueError("Trusted-header authentication requires TRUSTED_PROXY_IPS")
             if self.directory_lookup_url and not self.directory_lookup_url.startswith("https://"):
                 raise ValueError("DIRECTORY_LOOKUP_URL must use HTTPS in production")
             if self.directory_lookup_url and not self.directory_lookup_verify_tls:
                 raise ValueError("DIRECTORY_LOOKUP_VERIFY_TLS must be true in production")
+            if not self.email_redact_sent_bodies:
+                raise ValueError("EMAIL_REDACT_SENT_BODIES must be true in production")
+            if self.email_retry_max_seconds < self.email_retry_base_seconds:
+                raise ValueError(
+                    "EMAIL_RETRY_MAX_SECONDS must be at least EMAIL_RETRY_BASE_SECONDS"
+                )
+            if not self.password_blocklist_path:
+                raise ValueError("PASSWORD_BLOCKLIST_PATH is required in production")
+            blocklist_path = Path(self.password_blocklist_path)
+            if not blocklist_path.is_file():
+                raise ValueError("PASSWORD_BLOCKLIST_PATH must identify a readable file")
         return self
 
 

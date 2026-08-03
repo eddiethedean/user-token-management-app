@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import jwt
 import pytest
@@ -88,6 +89,21 @@ def test_password_policy_normalizes_unicode() -> None:
     raw = "Long-River-Path-e\u0301"
     validated = validate_password(raw)
     assert validated == "Long-River-Path-é"
+
+
+def test_password_policy_uses_configured_offline_blocklist() -> None:
+    blocklist = Path(__file__).parent / "fixtures" / "password-blocklist.txt"
+    with pytest.raises(PasswordPolicyError, match="not common"):
+        validate_password(
+            "blocked-organization-passphrase",
+            blocklist_path=str(blocklist),
+        )
+
+
+def test_password_verification_normalizes_unicode() -> None:
+    service = PasswordService(settings())
+    encoded = service.hash("Long-River-Path-e\u0301")
+    assert service.verify("Long-River-Path-é", encoded)
 
 
 def test_pbkdf2_hashing_verification_and_rehash_detection() -> None:
@@ -258,6 +274,16 @@ def production_values(**updates) -> dict:
         "api_token_active_key_id": "production-v1",
         "cookie_secure": True,
         "allowed_email_domains": "example.gov",
+        "public_base_url": "https://registry.example.gov/access-registry",
+        "database_url": "postgresql+psycopg://registry@db.example.gov/registry",
+        "email_backend": "smtp",
+        "smtp_host": "relay.example.gov",
+        "smtp_starttls": True,
+        "email_redact_sent_bodies": True,
+        "password_only_production_risk_accepted": True,
+        "password_blocklist_path": str(
+            Path(__file__).parent / "fixtures" / "password-blocklist.txt"
+        ),
     }
     values.update(updates)
     return values
@@ -272,6 +298,19 @@ def production_values(**updates) -> dict:
         {"cookie_secure": False},
         {"allowed_email_domains": ""},
         {"email_backend": "smtp", "smtp_host": ""},
+        {"email_backend": "console"},
+        {"smtp_starttls": False},
+        {"database_url": "sqlite:///production.db"},
+        {"public_base_url": "http://registry.example.gov"},
+        {"public_base_url": "https://user:secret@registry.example.gov"},
+        {"password_only_production_risk_accepted": False},
+        {
+            "authentication_mode": "trusted_header",
+            "password_only_production_risk_accepted": False,
+            "trusted_proxy_ips": "",
+        },
+        {"email_redact_sent_bodies": False},
+        {"password_blocklist_path": ""},
         {"cookie_path": "relative"},
         {"api_token_encryption_keys": {}},
         {"api_token_active_key_id": "missing"},
@@ -289,9 +328,18 @@ def test_production_configuration_rejects_unsafe_values(updates: dict) -> None:
 
 
 def test_valid_production_configuration() -> None:
-    configured = Settings(
-        _env_file=None,
-        **production_values(email_backend="smtp", smtp_host="relay.example.gov"),
-    )
+    configured = Settings(_env_file=None, **production_values())
     assert configured.is_production
     assert configured.cookie_secure
+
+
+def test_valid_trusted_header_production_configuration() -> None:
+    configured = Settings(
+        _env_file=None,
+        **production_values(
+            authentication_mode="trusted_header",
+            password_only_production_risk_accepted=False,
+            trusted_proxy_ips="10.0.0.10,10.0.0.11",
+        ),
+    )
+    assert configured.authentication_mode == "trusted_header"

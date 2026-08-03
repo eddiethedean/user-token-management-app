@@ -1,3 +1,4 @@
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -7,18 +8,20 @@ from urllib.parse import urlencode
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy import text
 
 from app.config import get_settings
 from app.database import SessionLocal
 from app.dependencies import clear_auth_cookies, set_auth_cookies
 from app.routes.api import router as api_router
 from app.routes.web import router as web_router
-from app.routing import WorkbenchPathMiddleware, app_path
+from app.routing import WorkbenchPathMiddleware, app_base_url, app_path
 from app.schema import assert_schema_current
 from app.services.auth import ensure_default_roles
 from app.templating import template_context, templates
 
 settings = get_settings()
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -57,6 +60,8 @@ async def security_and_session_middleware(request: Request, call_next):
         "font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
         "form-action 'self'"
     )
+    if not str(request.scope.get("path", "")).startswith("/assets/"):
+        response.headers["Cache-Control"] = "no-store"
     if settings.is_production:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
@@ -66,7 +71,14 @@ async def security_and_session_middleware(request: Request, call_next):
 async def friendly_http_errors(request: Request, exc: HTTPException):
     accepts_html = "text/html" in request.headers.get("accept", "")
     if exc.status_code == 401 and accepts_html:
-        next_path = request.url.path
+        # Keep the return target app-local so app_path() adds the proxy mount exactly once.
+        # An outer middleware can still see the preserved Workbench prefix in scope["path"].
+        next_path = str(request.scope.get("path") or "/")
+        mount_path = app_base_url(request)
+        if mount_path and next_path == mount_path:
+            next_path = "/"
+        elif mount_path and next_path.startswith(f"{mount_path}/"):
+            next_path = next_path[len(mount_path) :]
         if request.url.query:
             next_path += f"?{request.url.query}"
         response = RedirectResponse(
@@ -98,6 +110,17 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
 @app.get("/health", include_in_schema=False)
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/ready", include_in_schema=False)
+def ready() -> JSONResponse:
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+    except Exception:
+        log.exception("Readiness database check failed")
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+    return JSONResponse({"status": "ready"})
 
 
 app.include_router(api_router)

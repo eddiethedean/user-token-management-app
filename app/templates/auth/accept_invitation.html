@@ -12,10 +12,10 @@
       <label for="full_name">Full name</label>
       <input id="full_name" name="full_name" value="{{ full_name or '' }}" autocomplete="name" maxlength="160" required autofocus>
       <label for="password">Password</label>
-      <input id="password" name="password" type="password" autocomplete="new-password" minlength="15" required>
+      <input id="password" name="password" type="password" autocomplete="new-password" minlength="15" required><button class="password-toggle" type="button" data-password-toggle="password" aria-pressed="false">Show password</button>
       <p class="field-help">At least 15 characters. Avoid names, email terms, and common phrases.</p>
       <label for="password_confirm">Confirm password</label>
-      <input id="password_confirm" name="password_confirm" type="password" autocomplete="new-password" minlength="15" required>
+      <input id="password_confirm" name="password_confirm" type="password" autocomplete="new-password" minlength="15" required><button class="password-toggle" type="button" data-password-toggle="password_confirm" aria-pressed="false">Show password</button>
       <button class="button button-primary button-wide" type="submit">Create account</button>
     </form>
     {% else %}

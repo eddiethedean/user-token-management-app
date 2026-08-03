@@ -4,6 +4,8 @@ import hmac
 import secrets
 import unicodedata
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
 from pwdlib import PasswordHash
 
@@ -23,15 +25,36 @@ class PasswordPolicyError(ValueError):
     pass
 
 
-def validate_password(password: str, *, email: str = "") -> str:
-    normalized = unicodedata.normalize("NFC", password)
+def normalize_password(password: str) -> str:
+    return unicodedata.normalize("NFC", password)
+
+
+@lru_cache(maxsize=8)
+def load_password_blocklist(path: str) -> frozenset[str]:
+    if not path:
+        return frozenset()
+    values = {
+        normalize_password(line.strip()).casefold()
+        for line in Path(path).read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    return frozenset(values)
+
+
+def validate_password(password: str, *, email: str = "", blocklist_path: str = "") -> str:
+    normalized = normalize_password(password)
     if len(normalized) < 15:
         raise PasswordPolicyError("Use at least 15 characters.")
     if len(normalized) > 128:
         raise PasswordPolicyError("Use no more than 128 characters.")
     lowered = normalized.casefold()
     local_part = email.partition("@")[0].casefold()
-    if lowered in COMMON_PASSWORDS or (local_part and local_part in lowered):
+    configured_blocklist = load_password_blocklist(blocklist_path)
+    if (
+        lowered in COMMON_PASSWORDS
+        or lowered in configured_blocklist
+        or (local_part and local_part in lowered)
+    ):
         raise PasswordPolicyError("Choose a password that is not common or based on your email.")
     return normalized
 
@@ -44,6 +67,7 @@ class PasswordService:
         self._argon2 = PasswordHash.recommended()
 
     def hash(self, password: str) -> str:
+        password = normalize_password(password)
         if self.settings.password_hash_scheme == "argon2":
             return self._argon2.hash(password)
         salt = secrets.token_bytes(16)
@@ -60,6 +84,7 @@ class PasswordService:
         )
 
     def verify(self, password: str, password_hash: str | None) -> bool:
+        password = normalize_password(password)
         if not password_hash:
             self._argon2.hash(password)
             return False

@@ -7,6 +7,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 HTMX_PATH = PROJECT_ROOT / "app" / "static" / "htmx.min.js"
 HTMX_VERSION = "2.0.10"
 HTMX_SHA256 = "71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de"
+APP_JS_PATH = PROJECT_ROOT / "app" / "static" / "app.js"
+APP_JS_VERSION = "20260803-1"
+APP_JS_SHA256 = "99d3f54014fb2d407fb9b252eeea9b479ff68f9fe4e711617c372e3fe5679625"
 
 
 class ScriptSourceParser(HTMLParser):
@@ -36,15 +39,24 @@ def test_vendored_htmx_has_the_reviewed_release_digest() -> None:
     assert hashlib.sha256(contents).hexdigest() == HTMX_SHA256
 
 
-def test_every_page_uses_one_pinned_same_origin_script(client) -> None:
-    expected_source = f"assets/htmx.min.js?v={HTMX_VERSION}"
+def test_local_application_script_has_reviewed_digest() -> None:
+    contents = APP_JS_PATH.read_bytes()
+    assert len(contents) == 468
+    assert hashlib.sha256(contents).hexdigest() == APP_JS_SHA256
+
+
+def test_every_page_uses_pinned_same_origin_scripts(client) -> None:
+    expected_sources = [
+        f"assets/htmx.min.js?v={HTMX_VERSION}",
+        f"assets/app.js?v={APP_JS_VERSION}",
+    ]
 
     for route in ("/login", "/register", "/password/forgot"):
         response = client.get(route)
         assert response.status_code == 200
         sources = script_sources(response.text)
 
-        assert sources == [expected_source]
+        assert sources == expected_sources
         assert '<meta name="htmx-config" content=\'{"includeIndicatorStyles":false}\'>' in (
             response.text
         )

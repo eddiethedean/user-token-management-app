@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from fastapi import Request
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -10,12 +11,14 @@ from app.models import (
     Invitation,
     PasswordReset,
     RefreshSession,
+    RefreshTokenHistory,
     RegistrationVerification,
     Role,
     User,
     UserStatus,
     utcnow,
 )
+from app.security.client import is_trusted_direct_proxy
 from app.security.email import normalize_email
 from app.security.passwords import PasswordService, validate_password
 from app.security.tokens import create_access_token, hash_token, random_token
@@ -95,6 +98,51 @@ def authenticate_user(
     if user.password_hash and password_service.needs_rehash(user.password_hash):
         user.password_hash = password_service.hash(password)
     record_event(db, "auth.login", request=request, actor=user, target=user)
+    db.commit()
+    return user
+
+
+def authenticate_trusted_identity(
+    db: Session,
+    settings: Settings,
+    request: Request,
+) -> User:
+    if settings.authentication_mode != "trusted_header":
+        raise AuthenticationError("Federated sign-in is not enabled.")
+    if not is_trusted_direct_proxy(request, settings):
+        record_event(db, "auth.federated", request=request, outcome="untrusted_proxy")
+        db.commit()
+        raise AuthenticationError("Federated identity could not be verified.")
+    header_name = settings.trusted_identity_header.encode("ascii")
+    raw_values = [
+        value
+        for name, value in request.scope.get("headers", [])
+        if bytes(name).lower() == header_name
+    ]
+    if len(raw_values) != 1:
+        record_event(db, "auth.federated", request=request, outcome="invalid_header")
+        db.commit()
+        raise AuthenticationError("Federated identity could not be verified.")
+    try:
+        asserted_email = bytes(raw_values[0]).decode("utf-8")
+        canonical, _ = normalize_email(asserted_email, settings)
+    except (UnicodeDecodeError, ValueError):
+        record_event(db, "auth.federated", request=request, outcome="invalid_identity")
+        db.commit()
+        raise AuthenticationError("Federated identity could not be verified.") from None
+    user = db.scalar(select(User).where(User.email == canonical))
+    if not user or not user.is_active or not user.email_verified_at:
+        record_event(
+            db,
+            "auth.federated",
+            request=request,
+            target=user,
+            outcome="ineligible_account",
+        )
+        db.commit()
+        raise AuthenticationError("Federated identity could not be verified.")
+    user.last_login_at = utcnow()
+    record_event(db, "auth.federated", request=request, actor=user, target=user)
     db.commit()
     return user
 
@@ -194,7 +242,9 @@ def complete_self_registration(
 ) -> User:
     verification = get_valid_registration_verification(db, settings, raw_token)
     user = verification.user
-    validated = validate_password(password, email=user.email)
+    validated = validate_password(
+        password, email=user.email, blocklist_path=settings.password_blocklist_path
+    )
     now = utcnow()
     consumed = db.execute(
         update(RegistrationVerification)
@@ -342,22 +392,53 @@ def rotate_session(
 ) -> SessionTokens:
     now = utcnow()
     token_hash = hash_token(raw_refresh, settings.session_pepper)
-    session = db.scalar(
-        select(RefreshSession).where(RefreshSession.refresh_token_hash == token_hash)
-    )
-    if (
-        not session
-        or session.revoked_at
-        or session.idle_expires_at <= now
-        or session.absolute_expires_at <= now
-        or not session.user.is_active
-    ):
-        raise TokenFlowError("Refresh session is invalid or expired.")
     replacement = random_token()
-    session.refresh_token_hash = hash_token(replacement, settings.session_pepper)
-    session.last_seen_at = now
+    replacement_hash = hash_token(replacement, settings.session_pepper)
+    rotated_id = db.scalar(
+        update(RefreshSession)
+        .where(
+            RefreshSession.refresh_token_hash == token_hash,
+            RefreshSession.revoked_at.is_(None),
+            RefreshSession.idle_expires_at > now,
+            RefreshSession.absolute_expires_at > now,
+        )
+        .values(
+            refresh_token_hash=replacement_hash,
+            last_seen_at=now,
+        )
+        .returning(RefreshSession.id)
+        .execution_options(synchronize_session=False)
+    )
+    if not rotated_id:
+        replayed = db.scalar(
+            select(RefreshTokenHistory).where(RefreshTokenHistory.token_hash == token_hash)
+        )
+        if replayed:
+            replayed.session.revoked_at = replayed.session.revoked_at or now
+            record_event(
+                db,
+                "auth.session.refresh_reuse",
+                request=request,
+                target=replayed.session.user,
+                outcome="denied",
+            )
+            db.commit()
+        else:
+            db.rollback()
+        raise TokenFlowError("Refresh session is invalid or expired.")
+    session = db.get(RefreshSession, rotated_id, populate_existing=True)
+    if not session or not session.user.is_active:
+        db.rollback()
+        raise TokenFlowError("Refresh session is invalid or expired.")
     session.idle_expires_at = min(
         now + timedelta(minutes=settings.session_idle_minutes), session.absolute_expires_at
+    )
+    db.add(
+        RefreshTokenHistory(
+            session_id=session.id,
+            token_hash=token_hash,
+            consumed_at=now,
+        )
     )
     access_token, expires_in = create_access_token(session.user, session.id, settings)
     record_event(
@@ -460,6 +541,26 @@ def get_valid_invitation(db: Session, settings: Settings, raw_token: str) -> Inv
     return invitation
 
 
+def revoke_invitation(
+    db: Session,
+    *,
+    invitation: Invitation,
+    administrator: User,
+    request: Request | None = None,
+) -> None:
+    if invitation.accepted_at or invitation.revoked_at:
+        raise ValueError("Only a pending invitation can be revoked.")
+    invitation.revoked_at = utcnow()
+    record_event(
+        db,
+        "invitation.revoked",
+        request=request,
+        actor=administrator,
+        detail={"invitation_id": invitation.id},
+    )
+    db.commit()
+
+
 def accept_invitation(
     db: Session,
     settings: Settings,
@@ -472,23 +573,46 @@ def accept_invitation(
     invitation = get_valid_invitation(db, settings, raw_token)
     if db.scalar(select(User).where(User.email == invitation.email)):
         raise TokenFlowError("An account already exists for that email address.")
-    validated = validate_password(password, email=invitation.email)
+    validated = validate_password(
+        password, email=invitation.email, blocklist_path=settings.password_blocklist_path
+    )
+    now = utcnow()
     role = db.scalar(select(Role).where(Role.name == invitation.role_name))
+    if not role:
+        raise TokenFlowError("The invitation role is no longer available.")
+    consumed = db.execute(
+        update(Invitation)
+        .where(
+            Invitation.id == invitation.id,
+            Invitation.token_hash == hash_token(raw_token, settings.session_pepper),
+            Invitation.accepted_at.is_(None),
+            Invitation.revoked_at.is_(None),
+            Invitation.expires_at > now,
+        )
+        .values(accepted_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    if consumed.rowcount != 1:
+        db.rollback()
+        raise TokenFlowError("That invitation is invalid or expired.")
     user = User(
         email=invitation.email,
         email_original=invitation.email_original,
-        email_verified_at=utcnow(),
+        email_verified_at=now,
         full_name=full_name.strip()[:160],
         status=UserStatus.ACTIVE.value,
         password_hash=PasswordService(settings).hash(validated),
-        password_changed_at=utcnow(),
-        roles=[role] if role else [],
+        password_changed_at=now,
+        roles=[role],
     )
     db.add(user)
-    invitation.accepted_at = utcnow()
-    db.flush()
-    record_event(db, "invitation.accepted", request=request, actor=user, target=user)
-    db.commit()
+    try:
+        db.flush()
+        record_event(db, "invitation.accepted", request=request, actor=user, target=user)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise TokenFlowError("That invitation is invalid or expired.") from exc
     return user
 
 
@@ -555,14 +679,35 @@ def complete_password_reset(
     request: Request | None = None,
 ) -> User:
     reset = get_valid_password_reset(db, settings, raw_token)
-    validated = validate_password(password, email=reset.user.email)
+    validated = validate_password(
+        password, email=reset.user.email, blocklist_path=settings.password_blocklist_path
+    )
     user = reset.user
+    now = utcnow()
+    consumed = db.execute(
+        update(PasswordReset)
+        .where(
+            PasswordReset.id == reset.id,
+            PasswordReset.token_hash == hash_token(raw_token, settings.session_pepper),
+            PasswordReset.used_at.is_(None),
+            PasswordReset.expires_at > now,
+        )
+        .values(used_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    if consumed.rowcount != 1:
+        db.rollback()
+        raise TokenFlowError("That password reset link is invalid or expired.")
     user.password_hash = PasswordService(settings).hash(validated)
-    user.password_changed_at = utcnow()
+    user.password_changed_at = now
     user.security_version += 1
     user.failed_login_attempts = 0
     user.locked_until = None
-    reset.used_at = utcnow()
+    db.execute(
+        update(PasswordReset)
+        .where(PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None))
+        .values(used_at=now)
+    )
     revoke_all_sessions(db, user)
     record_event(db, "password.reset.completed", request=request, actor=user, target=user)
     queue_email(

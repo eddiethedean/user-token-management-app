@@ -11,7 +11,7 @@
   <div class="pending-list">
     <h3>Recent invitations</h3>
     {% for invitation in invitations[:8] %}
-      <div class="pending-row"><div><strong>{{ invitation.email_original }}</strong><small>{{ invitation.role_name | title }} · {{ invitation.created_at.strftime('%b %d') }}</small></div><span class="pill {% if invitation.accepted_at %}pill-active{% elif invitation.revoked_at %}pill-muted{% else %}pill-pending{% endif %}">{{ 'accepted' if invitation.accepted_at else ('revoked' if invitation.revoked_at else 'pending') }}</span></div>
+      <div class="pending-row"><div><strong>{{ invitation.email_original }}</strong><small>{{ invitation.role_name | title }} · {{ invitation.created_at.strftime('%b %d') }}</small></div><div class="pending-actions"><span class="pill {% if invitation.accepted_at %}pill-active{% elif invitation.revoked_at %}pill-muted{% else %}pill-pending{% endif %}">{{ 'accepted' if invitation.accepted_at else ('revoked' if invitation.revoked_at else 'pending') }}</span>{% if not invitation.accepted_at and not invitation.revoked_at %}<form action="admin/invitations/{{ invitation.id }}/revoke" method="post" hx-post="admin/invitations/{{ invitation.id }}/revoke" hx-target="#invitation-panel" hx-swap="outerHTML" hx-confirm="Revoke the invitation for {{ invitation.email_original }}?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-danger button-small" type="submit">Revoke</button></form>{% endif %}</div></div>
     {% else %}<p class="empty-state">No invitations yet.</p>{% endfor %}
   </div>
 </div>

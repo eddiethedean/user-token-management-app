@@ -26,10 +26,10 @@
       <form action="registration/verify" method="post" class="stack-form">
         <input type="hidden" name="token" value="{{ token }}">
         <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="new-password" minlength="15" maxlength="128" required autofocus>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="15" maxlength="128" required autofocus><button class="password-toggle" type="button" data-password-toggle="password" aria-pressed="false">Show password</button>
         <p class="field-help">Use 15–128 characters. Password managers and long passphrases are supported.</p>
         <label for="password_confirm">Confirm password</label>
-        <input id="password_confirm" name="password_confirm" type="password" autocomplete="new-password" minlength="15" maxlength="128" required>
+        <input id="password_confirm" name="password_confirm" type="password" autocomplete="new-password" minlength="15" maxlength="128" required><button class="password-toggle" type="button" data-password-toggle="password_confirm" aria-pressed="false">Show password</button>
         <button class="button button-primary button-wide" type="submit">Verify email and submit for approval</button>
       </form>
     {% endif %}

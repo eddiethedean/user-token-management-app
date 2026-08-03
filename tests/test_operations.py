@@ -1,13 +1,14 @@
 import smtplib
+from datetime import timedelta
 
 from sqlalchemy import select
 
 from app.cli import create_admin, main
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import EmailOutbox, User
+from app.models import EmailDeliveryState, EmailOutbox, User, utcnow
 from app.security.passwords import PasswordService
-from app.services.mailer import deliver_pending, queue_email
+from app.services.mailer import DeliveryMetrics, deliver_pending, queue_email, retry_failed
 
 
 class RecordingSMTP:
@@ -50,6 +51,7 @@ def test_smtp_delivery_uses_tls_auth_and_marks_message_sent(client, monkeypatch)
             "smtp_username": "registry",
             "smtp_password": "relay-password",
             "email_from": "Registry <registry@example.gov>",
+            "email_redact_sent_bodies": True,
         }
     )
     with SessionLocal() as db:
@@ -71,6 +73,7 @@ def test_smtp_delivery_uses_tls_auth_and_marks_message_sent(client, monkeypatch)
         assert stored is not None
         assert stored.sent_at is not None
         assert stored.attempts == 1
+        assert stored.body_text == "[redacted after delivery]"
 
 
 def test_mail_failure_is_retried_then_quarantined(client, monkeypatch) -> None:
@@ -85,8 +88,13 @@ def test_mail_failure_is_retried_then_quarantined(client, monkeypatch) -> None:
         queued = queue_email(db, "recipient@example.gov", "Notice", "Body")
         db.commit()
         message_id = queued.id
-        for _ in range(5):
+        for attempt in range(5):
             assert deliver_pending(db, smtp_settings) == 0
+            if attempt < 4:
+                state = db.get(EmailDeliveryState, message_id)
+                assert state is not None
+                state.next_attempt_at = utcnow() - timedelta(seconds=1)
+                db.commit()
         assert deliver_pending(db, smtp_settings) == 0
 
     with SessionLocal() as db:
@@ -96,6 +104,15 @@ def test_mail_failure_is_retried_then_quarantined(client, monkeypatch) -> None:
         assert stored.failed_at is not None
         assert stored.sent_at is None
         assert stored.last_error == "relay unavailable"
+
+    with SessionLocal() as db:
+        assert retry_failed(db, message_id=message_id) == 1
+        stored = db.get(EmailOutbox, message_id)
+        assert stored is not None
+        assert stored.failed_at is None
+        assert stored.attempts == 0
+        assert stored.last_error == ""
+        assert stored.delivery_state.next_attempt_at <= utcnow()
 
 
 def test_console_delivery_outputs_message_and_respects_limit(client, capsys) -> None:
@@ -110,6 +127,25 @@ def test_console_delivery_outputs_message_and_respects_limit(client, capsys) -> 
     assert "EMAIL TO first@example.gov" in output
     assert "First body" in output
     assert "Second body" not in output
+
+
+def test_request_handlers_only_queue_email(client) -> None:
+    response = client.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": "admin@example.gov"},
+    )
+    assert response.status_code == 202
+    with SessionLocal() as db:
+        message = db.scalar(
+            select(EmailOutbox)
+            .where(EmailOutbox.recipient == "admin@example.gov")
+            .order_by(EmailOutbox.created_at.desc())
+        )
+        assert message is not None
+        assert message.sent_at is None
+        assert message.failed_at is None
+        assert message.attempts == 0
+        assert message.delivery_state.claim_token is None
 
 
 def test_create_admin_validates_confirmation_and_password(client, monkeypatch, capsys) -> None:
@@ -154,3 +190,37 @@ def test_cli_serve_passes_arguments_to_server(monkeypatch) -> None:
     )
     main()
     assert called == {"host": "0.0.0.0", "port": 8050, "reload": True}
+
+
+def test_cli_email_worker_once_reports_delivery_metrics(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("app.cli.assert_schema_current", lambda: None)
+    monkeypatch.setattr(
+        "app.cli.deliver_pending_with_metrics",
+        lambda db, settings, limit: DeliveryMetrics(
+            claimed=3,
+            delivered=1,
+            deferred=1,
+            dead_lettered=1,
+        ),
+    )
+    monkeypatch.setattr("app.cli.sys.argv", ["utm", "email-worker", "--once"])
+    main()
+    assert "claimed=3 delivered=1 deferred=1 dead_lettered=1" in capsys.readouterr().out
+
+
+def test_cli_retry_email_requeues_dead_letters(monkeypatch, capsys) -> None:
+    called = {}
+    monkeypatch.setattr("app.cli.assert_schema_current", lambda: None)
+
+    def fake_retry(db, *, message_id, limit):
+        called.update(message_id=message_id, limit=limit)
+        return 1
+
+    monkeypatch.setattr("app.cli.retry_failed", fake_retry)
+    monkeypatch.setattr(
+        "app.cli.sys.argv",
+        ["utm", "retry-email", "--message-id", "message-1", "--limit", "5"],
+    )
+    main()
+    assert called == {"message_id": "message-1", "limit": 5}
+    assert "Requeued 1 message(s)." in capsys.readouterr().out

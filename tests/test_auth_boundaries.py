@@ -89,8 +89,53 @@ def test_refresh_rotation_rejects_replay_and_invalid_cookie_is_deleted(client) -
         assert len(deleted) == 2
         assert all("Max-Age=0" in cookie for cookie in deleted)
 
-    still_valid = client.post("/api/v1/auth/refresh")
-    assert still_valid.status_code == 200
+    family_revoked = client.post("/api/v1/auth/refresh")
+    assert family_revoked.status_code == 401
+    with SessionLocal() as db:
+        event = db.scalar(
+            select(AuditEvent).where(AuditEvent.event_type == "auth.session.refresh_reuse")
+        )
+        assert event is not None and event.outcome == "denied"
+
+
+def test_trusted_header_authentication_requires_allowlisted_proxy(client) -> None:
+    settings = get_settings()
+    original_mode = settings.authentication_mode
+    original_proxies = settings.trusted_proxy_ips
+    try:
+        settings.authentication_mode = "trusted_header"
+        settings.trusted_proxy_ips = "127.0.0.1"
+        with TestClient(
+            app,
+            client=("127.0.0.1", 50000),
+            follow_redirects=False,
+        ) as federated_client:
+            login_page = federated_client.get("/login")
+            assert "Continue with federated sign-in" in login_page.text
+            assert 'name="password"' not in login_page.text
+            missing = federated_client.post("/api/v1/auth/federated")
+            assert missing.status_code == 401
+            signed_in = federated_client.post(
+                "/api/v1/auth/federated",
+                headers={settings.trusted_identity_header: ADMIN_EMAIL},
+            )
+            assert signed_in.status_code == 200
+            assert decode_access_token(signed_in.json()["access_token"], settings)["sub"]
+            password_login = federated_client.post(
+                "/api/v1/auth/token",
+                json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
+            )
+            assert password_login.status_code == 403
+
+        with TestClient(app, follow_redirects=False) as untrusted_client:
+            spoofed = untrusted_client.post(
+                "/api/v1/auth/federated",
+                headers={settings.trusted_identity_header: ADMIN_EMAIL},
+            )
+            assert spoofed.status_code == 401
+    finally:
+        settings.authentication_mode = original_mode
+        settings.trusted_proxy_ips = original_proxies
 
 
 def test_cookie_requests_require_csrf_but_bearer_requests_do_not(client) -> None:

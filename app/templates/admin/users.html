@@ -1,12 +1,17 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">Administration</p><h1>Users and invitations</h1><p>Provision accounts, review status, and control application access.</p></div><span class="verification-badge"><span class="status-dot"></span>{{ users | length }} accounts</span></div>
+<div class="page-heading"><div><p class="eyebrow">Administration</p><h1>Users and invitations</h1><p>Provision accounts, review status, and control application access.</p></div><span class="verification-badge"><span class="status-dot"></span>{{ total_users }} matching accounts</span></div>
 <div class="admin-layout">
   <section class="panel panel-main">
     <div class="panel-heading"><div><h2>Directory</h2><p>All application-managed identities.</p></div></div>
+    <form action="admin/users" method="get" class="filter-form" aria-label="Filter users">
+      <div><label for="user-query">Search</label><input id="user-query" name="q" value="{{ user_query }}" placeholder="Name, email, or organization"></div>
+      <div><label for="status-filter">Status</label><select id="status-filter" name="status"><option value="">All statuses</option>{% for item in ['active', 'pending', 'disabled'] %}<option value="{{ item }}" {% if status_filter == item %}selected{% endif %}>{{ item | title }}</option>{% endfor %}</select></div>
+      <button class="button button-secondary button-small" type="submit">Apply filters</button>
+      {% if user_query or status_filter %}<a class="button button-quiet button-small" href="admin/users">Clear</a>{% endif %}
+    </form>
     {% include "partials/user_table.html" %}
   </section>
   <aside>{% include "partials/invitation_panel.html" %}</aside>
 </div>
 {% endblock %}
-

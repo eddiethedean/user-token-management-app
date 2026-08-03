@@ -92,6 +92,14 @@ def test_production_directory_requires_https_and_tls_verification() -> None:
         "csrf_secret": "c" * 32,
         "cookie_secure": True,
         "allowed_email_domains": "example.gov",
+        "public_base_url": "https://registry.example.gov",
+        "database_url": "postgresql+psycopg://registry@db.example.gov/registry",
+        "email_backend": "smtp",
+        "smtp_host": "relay.example.gov",
+        "smtp_starttls": True,
+        "email_redact_sent_bodies": True,
+        "password_only_production_risk_accepted": True,
+        "password_blocklist_path": "tests/fixtures/password-blocklist.txt",
     }
     with pytest.raises(ValueError, match="must use HTTPS"):
         Settings(**common, directory_lookup_url="http://directory.example.gov")

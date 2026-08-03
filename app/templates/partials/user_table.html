@@ -15,18 +15,25 @@
           {% elif user.status == 'pending' and user.email_verified_at and user.password_hash %}
             <div class="table-actions">
               <form action="admin/users/{{ user.id }}/approve" method="post" hx-post="admin/users/{{ user.id }}/approve" hx-target="#user-table" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-primary button-small" type="submit">Approve</button></form>
-              <form action="admin/users/{{ user.id }}/deny" method="post" hx-post="admin/users/{{ user.id }}/deny" hx-target="#user-table" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-danger button-small" type="submit">Deny</button></form>
+              <form action="admin/users/{{ user.id }}/deny" method="post" hx-post="admin/users/{{ user.id }}/deny" hx-target="#user-table" hx-swap="outerHTML" hx-confirm="Deny registration for {{ user.email_original }}?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-danger button-small" type="submit">Deny</button></form>
             </div>
           {% elif user.status == 'pending' %}
             <span class="muted">Verification required</span>
           {% elif user.status == 'disabled' and (not user.email_verified_at or not user.password_hash) %}
             <span class="muted">Not eligible to enable</span>
           {% else %}
-            <form action="admin/users/{{ user.id }}/toggle" method="post" hx-post="admin/users/{{ user.id }}/toggle" hx-target="#user-table" hx-swap="outerHTML"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-quiet button-small" type="submit">{{ 'Disable' if user.status == 'active' else 'Enable' }}</button></form>
+            <form action="admin/users/{{ user.id }}/toggle" method="post" hx-post="admin/users/{{ user.id }}/toggle" hx-target="#user-table" hx-swap="outerHTML" {% if user.status == 'active' %}hx-confirm="Disable {{ user.email_original }} and revoke active sessions?"{% endif %}><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-quiet button-small" type="submit">{{ 'Disable' if user.status == 'active' else 'Enable' }}</button></form>
           {% endif %}
         </td>
       </tr>
       {% else %}<tr><td colspan="5" class="empty-state">No users.</td></tr>{% endfor %}
     </tbody>
   </table>
+  {% if page_count > 1 %}
+    <nav class="pagination" aria-label="User result pages">
+      {% if current_page > 1 %}<a class="button button-quiet button-small" href="admin/users?q={{ user_query | default('') | urlencode }}&status={{ status_filter | default('') | urlencode }}&page={{ current_page - 1 }}">Previous</a>{% endif %}
+      <span>Page {{ current_page }} of {{ page_count }}</span>
+      {% if current_page < page_count %}<a class="button button-quiet button-small" href="admin/users?q={{ user_query | default('') | urlencode }}&status={{ status_filter | default('') | urlencode }}&page={{ current_page + 1 }}">Next</a>{% endif %}
+    </nav>
+  {% endif %}
 </div>

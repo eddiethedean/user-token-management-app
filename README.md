@@ -20,7 +20,7 @@ invokes Node, npm, or a JavaScript build step.
 - Rotating, database-backed refresh sessions
 - Forgot/reset password flows designed for email link scanners
 - Self-service profile, password, and session management
-- Non-revealable, per-user Advana, ADE, and MSS API token storage
+- Per-user Advana, ADE, and MSS API-token storage with no plaintext read operation
 - Administrator user, invitation, and role management
 - Structured security audit log
 - API and server-rendered HTMX interface
@@ -45,11 +45,23 @@ For a database created by an older release that used `create_all()`, back it up 
 `python -m app migrate --adopt-existing` once. The command verifies the known table and column shape
 before stamping it, then upgrades it; rehearse this against a restored copy first.
 
-Production deployments should use PostgreSQL and environment-provided secrets. Run
+Production deployments must use PostgreSQL and environment-provided secrets. Run
 `python -m app migrate` from an approved administrative environment against the production database
 before starting the new application version. Do not reuse databases, signing secrets, SMTP relays,
 or account data between NIPR and SIPR environments. Alembic's official documentation covers the
 [versioned migration workflow](https://alembic.sqlalchemy.org/en/latest/tutorial.html).
+
+Run email delivery as a separately supervised process; web requests only commit messages to the
+outbox and never contact SMTP directly:
+
+```bash
+python -m app.cli email-worker
+```
+
+The worker atomically claims due messages, applies exponential retry delays, and moves exhausted
+messages to the dead-letter state. Inspect its batch metrics and requeue an approved dead letter with
+`python -m app.cli retry-email --message-id <id>`. The legacy `send-email` command processes one
+batch and exits.
 
 Run the quality checks with:
 
@@ -117,13 +129,31 @@ COOKIE_SECURE=true
 COOKIE_PATH=auto
 API_TOKEN_ENCRYPTION_KEYS={"v1":"<base64-encoded-32-byte-key>"}
 API_TOKEN_ACTIVE_KEY_ID=v1
+DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>/<database>
+EMAIL_BACKEND=smtp
+SMTP_HOST=<approved-relay>
+SMTP_STARTTLS=true
+EMAIL_REDACT_SENT_BODIES=true
 ```
+
+Production startup rejects HTTP public URLs, SQLite, console email, SMTP without STARTTLS, and
+unredacted delivered mail. It also requires an approved offline password blocklist.
+
+For federal or other phishing-resistant deployments, prefer an approved CAC/MFA identity-aware
+proxy and set `AUTHENTICATION_MODE=trusted_header`. Configure `TRUSTED_IDENTITY_HEADER` and restrict
+`TRUSTED_PROXY_IPS` to the immediate proxy. That proxy must authenticate the user, remove every
+client-supplied instance of the identity header, and inject exactly one normalized account email.
+The application accepts only existing active verified accounts and still owns authorization roles;
+it does not auto-provision from the header. Password sign-in remains available only in
+`local_password` mode, which production refuses unless
+`PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED=true` records the deployment decision.
 
 Leave `COOKIE_PATH=auto` so authentication cookies are scoped at request time to the application URL
 on Connect, the dynamic proxied URL on Workbench, or `/` during ordinary local development. An
 explicit path remains available for unusual proxy configurations. Configure the remaining values
 from `.env.example` as Connect environment variables; the `.env` file itself is excluded from
-deployment.
+deployment by
+[`rsconnect-python`'s default exclusions](https://docs.posit.co/rsconnect-python/deploying/#including-extra-files).
 
 Set `TRUSTED_PROXY_IPS` only to the immediate Connect/Workbench or ingress proxy addresses that
 replace client-supplied forwarding headers. If the direct peer is not allowlisted, the app ignores
@@ -159,7 +189,8 @@ python -m app serve --port 8050 --reload
 
 - The complete, research-backed decision register, assurance boundary, known gaps, and production
   gate are in [SECURITY.md](SECURITY.md). Read it before using the application with operational data.
-- Browser tokens are held in scoped `HttpOnly` cookies, never browser storage.
+- Browser tokens are held in scoped `HttpOnly` cookies, not Web Storage (`localStorage` or
+  `sessionStorage`). Cookies are still endpoint-held bearer credentials and remain sensitive.
 - User API tokens are restricted to the Advana, ADE, and MSS provider slots. Each value is
   encrypted with its own AES-256-GCM data key, the data key is wrapped by a separately configured
   versioned master key, and neither the UI nor API offers plaintext retrieval. Keep old keys in
@@ -170,9 +201,11 @@ python -m app serve --port 8050 --reload
   compromise is separated from the encryption keys; compromise of the application host and key
   ring can expose every stored token.
 - `decrypt_user_secret_for_run()` is the internal execution-boundary hook. A future runner must pass
-  an explicit minimal child environment so it never inherits the API-token master-key ring. For
-  local Posit Connect execution, set `Applications.InheritSystemEnvVars=false` before enabling this
-  integration; inject only the chosen token into the child process, never command arguments.
+  an explicit minimal `env` to the child process so it never inherits the API-token master-key ring.
+  For local Posit Connect execution, also set `Applications.InheritSystemEnvVars=false`; that Posit
+  setting prevents Connect server environment variables from reaching content, but it does **not**
+  sanitize a subprocess launched by this application. Inject only the chosen token into the child,
+  never command arguments.
 - Deleting a saved value removes this application's ciphertext but does not revoke the credential at
   Advana, ADE, or MSS. Users must revoke or rotate a suspected credential with its issuing provider.
   Prefer provider-supported OAuth, workload identity, or short-lived credentials over stored bearer
@@ -215,7 +248,9 @@ The detailed claim-to-source mapping is maintained in [SECURITY.md](SECURITY.md)
   directory attribute validation, mailbox control, and actual identity verification; this is why
   directory presence and email confirmation never activate an account without administrator review.
 - [NIST SP 800-63B-4 rate-limiting guidance](https://pages.nist.gov/800-63-4/sp800-63b/authenticators/#rate-limiting-throttling)
-  supports account-state throttling and additional IP/device/risk signals, while its
+  requires an effective per-authenticator attempt limit and permits lower limits, progressive waits,
+  and IP/device/risk signals. The application's temporary lockout is useful defense in depth but does
+  not yet implement NIST's disable-and-rebind requirement; that gap is explicit in SD-05. NIST's
   [customer-experience guidance](https://pages.nist.gov/800-63-4/sp800-63b/customer/) supports telling
   throttled users when they may retry.
 - [RFC 7239 security considerations](https://www.rfc-editor.org/rfc/rfc7239.html#section-8.1) explain

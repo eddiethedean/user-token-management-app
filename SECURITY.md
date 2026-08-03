@@ -23,13 +23,35 @@ boundary.
 - **Risk acceptance** — an intentional limitation that the authorizing organization must accept.
 - **Gap** — required follow-up before representing the application as meeting the cited guidance.
 
+## Evidence and claim discipline
+
+The register distinguishes three kinds of statements so a citation is not mistaken for a compliance
+claim:
+
+- Repository facts in **Decision** and **Status** were checked against the named code, migrations,
+  configuration, and tests in this revision. They can become stale after a code change and must be
+  reviewed with each release.
+- External requirements and recommendations are attributed to the linked NIST, IETF, OWASP, vendor,
+  or project source. Normative language is paraphrased with its scope intact; a source supporting the
+  rationale does not certify this implementation or satisfy an organizational control by itself.
+- Architecture choices, threat analysis, and residual-risk statements are this project's reasoned
+  conclusions. They are labeled as rationale, limitations, deployment controls, risk acceptance, or
+  gaps rather than presented as quotations or universal requirements.
+
+No Advana, ADE, or MSS token-format, scope, lifetime, or revocation behavior is asserted because no
+provider specification was supplied or relied upon. The application treats those values as opaque
+bearer-like credentials. This review is an engineering evidence check, not a penetration test,
+cryptographic-module validation, SSP assessment, or authorization to operate.
+
 ## Assurance boundary
 
-Access Registry is an administrator-approved, locally managed, password-authenticated application.
-It proves that a claimant knows the password bound to an application account. Invitation acceptance
-and self-registration verification also prove access to an approved email mailbox at that time.
-Self-registered accounts remain inactive until an administrator approves them. These controls do
-**not** prove that the mailbox holder is the real-world person they claim to be.
+Access Registry keeps administrator-approved local accounts and authorization roles. In
+`local_password` mode it proves only that a claimant knows the password bound to an account;
+invitation acceptance and self-registration verification also prove access to an approved email
+mailbox at that time. In `trusted_header` mode it instead accepts an email identity asserted by an
+allowlisted immediate proxy, after that proxy performs the approved authentication. Self-registered
+accounts remain inactive until an administrator approves them. Local application controls do
+**not** prove that a mailbox holder or unverified header value is the real-world person claimed.
 
 NIST separates identity proofing into identity resolution, evidence validation, and verification
 that the applicant is the person to whom the evidence was issued. Email confirmation alone does not
@@ -63,7 +85,7 @@ Evidence:
 
 - [NIST SP 800-63A-4, Identity Proofing](https://pages.nist.gov/800-63-4/sp800-63a.html#identity-proofing-overview)
   defines resolution, validation, and verification as separate proofing steps.
-- [NIST SP 800-63B-4, Authentication Assurance Levels](https://pages.nist.gov/800-63-4/sp800-63b.html#sec2)
+- [NIST SP 800-63B-4, Authentication Assurance Levels](https://pages.nist.gov/800-63-4/sp800-63b/aal/)
   defines AAL1, requires two factors plus a phishing-resistant option at AAL2, sets the federal
   personal-information minimum, and states the phishing-resistance rule for federal workforce users.
 - [NIST SP 800-63B-4, Passwords](https://pages.nist.gov/800-63-4/sp800-63b/authenticators/#passwords)
@@ -97,16 +119,26 @@ NIPR and SIPR.
 
 ### SD-01 — Own credentials locally only when federation is unavailable
 
-**Status:** Risk acceptance.
+**Status:** Selectable boundary implemented; deployment approval remains required.
 
-**Decision:** The application owns user records, password verifiers, recovery, sessions, and roles.
-An administrator may invite a specific address. A user may also request registration, but must prove
-control of the allowed government mailbox and cannot authenticate until an administrator explicitly
-approves the pending account. Approval and denial are audited and communicated by email.
+**Decision:** The application owns user records, recovery state, sessions, and roles. Local password
+authentication is available only in `local_password` mode; production requires explicit
+`PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED=true`. The preferred phishing-resistant boundary is
+`trusted_header` behind an approved CAC/MFA identity-aware proxy. Only an allowlisted immediate
+proxy may assert the configured identity header, exactly one header value is accepted, password
+token issuance is disabled, and the asserted email must match an existing active verified account.
+No header-driven auto-provisioning or role assignment occurs.
 
-**Rationale:** This makes deployment independent of Posit viewer accounts and an unavailable OIDC
-provider, but transfers credential lifecycle, incident response, recovery, and deprovisioning duties
-to the application owner. It also caps assurance at the password-only boundary described above.
+**Rationale:** Trusted federation keeps primary authentication, CAC validation, MFA policy, and
+credential lifecycle in an approved identity layer while preserving local application
+authorization. Local mode remains available for explicitly accepted lower-assurance environments,
+but transfers credential lifecycle, incident response, recovery, and deprovisioning duties to the
+application owner and caps assurance at the password-only boundary described above.
+
+**Deployment control:** The identity-aware proxy must block direct application access, strip all
+client-supplied instances of the configured identity header, authenticate the user using the
+approved mechanism, inject exactly one normalized account email, and be the only address included
+for this purpose in `TRUSTED_PROXY_IPS`. Header trust does not itself implement or validate CAC/MFA.
 
 **Required operations:** document account sponsors and owners, periodically reconcile accounts with
 an authoritative personnel source, disable departed users promptly, and define help-desk identity
@@ -176,26 +208,23 @@ replace network-layer egress policy or protect against a compromised directory.
 
 ### SD-03 — Use length-first passwords without composition or periodic rotation
 
-**Status:** Partly implemented; blocklist is a gap.
+**Status:** Implemented with a deployment-supplied offline blocklist.
 
 **Decision:** Passwords are 15–128 Unicode code points. Account creation and password-change paths
 normalize them with NFC before hashing. The validator imposes no upper/lower/digit/symbol composition
-rules and no periodic password expiration. Passwords matching a small local list or containing the
-email local part are rejected. Forms use standard password-manager autocomplete values and do not
-disable paste.
+rules and no periodic password expiration. Passwords matching a small local list, a configured
+offline blocklist, or the email local part are rejected. Production requires a readable blocklist.
+The same NFC normalization is used for hashing and verification. Forms use standard
+password-manager autocomplete values, allow paste, and provide a visibility control.
 
 **Rationale:** Fifteen characters is NIST's minimum for a single-factor password. NIST recommends a
 maximum of at least 64, NFC normalization, no composition rules, no periodic changes absent evidence
 of compromise, password-manager support, and comparison with known common or compromised values.
 
-**Gap:** the six-entry `COMMON_PASSWORDS` set is deliberately only a development safeguard and is
-not a sufficient common/compromised-password blocklist. Before a production claim of SP 800-63B-4
-alignment, integrate an organization-approved offline blocklist, version and update it, test it with
-Unicode-normalized complete passwords, and do not send candidate passwords to an Internet service
-from NIPR or SIPR. The current “email local part appears anywhere” test is broader than NIST's
-whole-password comparison and should be replaced with reviewed context-specific blocklist entries and
-derivatives. Login verification also needs to apply the same NFC normalization as enrollment. The UI
-should offer a password-visibility control and explicit guidance after blocklist rejection.
+**Deployment control:** Supply, version, update, and test an organization-approved offline list with
+Unicode-normalized complete passwords; never send candidate passwords to an Internet service from
+NIPR or SIPR. The “email local part appears anywhere” test is broader than NIST's whole-password
+comparison and should remain only if the organization approves it as a context-specific rule.
 
 **Evidence:** [NIST SP 800-63B-4 section 3.1.1](https://pages.nist.gov/800-63-4/sp800-63b/authenticators/#passwords)
 contains the minimum length, accepted-character, normalization, composition, rotation, blocklist,
@@ -244,17 +273,24 @@ HMAC-SHA-256 digests under the session pepper, expired buckets are deleted, deni
 `Retry-After`, and denials are audited without recording the raw bucket key. Authentication outcomes
 are audited.
 
-**Rationale:** Generic responses and comparable expensive work reduce account enumeration. A
-per-account limit constrains online password guessing; five is intentionally below NIST's maximum of
-100 consecutive attempts.
+**Rationale:** Generic responses and comparable expensive work reduce account enumeration. The
+temporary per-account lock and shared source/account windows constrain bursts and provide useful
+defense in depth. NIST permits agencies to choose a threshold lower than 100, but the number alone is
+not a conformance claim: its normative limit culminates in disabling the authenticator and requiring
+rebinding.
 
-**Gap:** fixed per-account lockout can be abused for denial of service and neither lockout nor fixed
-windows are a complete defense against distributed password spraying. PostgreSQL shares application
-counters across Connect workers, but the trusted ingress must still impose volumetric source limits
-before requests consume application/database resources and should add progressive delay, device/risk
-signals, and alerting. Boundary bursts are possible, and `RATE_LIMIT_ENABLED=false` must not be used
-without an approved replacement. Test response-time distributions; a dummy hash does not prove
-timing uniformity.
+**Gap:** The five-failure lock automatically permits another attempt after 15 minutes and a later
+successful password clears the count. It does not disable and rebind the password authenticator as
+required when reaching NIST's maximum-attempt boundary, so the current control must not be described
+as satisfying SP 800-63B-4 rate limiting. The separate `failed_login_attempts` update is an ORM
+read-modify-write operation, not an atomic cross-worker counter, so simultaneous failures can delay
+that temporary lock. Fixed account lockout can also be abused for denial of service, and neither
+lockout nor fixed windows are a complete defense against distributed password spraying. PostgreSQL
+shares the fixed-window application counters across Connect workers, but the trusted ingress must
+still impose volumetric source limits before requests consume application/database resources and
+should add progressive delay, device/risk signals, and alerting. Boundary bursts are possible, and
+`RATE_LIMIT_ENABLED=false` must not be used without an approved replacement. Test response-time
+distributions; a dummy hash does not prove timing uniformity.
 
 **Evidence:**
 
@@ -299,21 +335,22 @@ validation.
 
 ### SD-07 — Use opaque, database-backed, rotating refresh tokens
 
-**Status:** Implemented with an important replay-detection gap.
+**Status:** Implemented, including token-family replay detection.
 
 **Decision:** Refresh tokens are 32-byte cryptographically random opaque capabilities. Only an
 HMAC-SHA-256 digest made with a separate session pepper is stored in `refresh_sessions`. Every
-successful refresh replaces the token and extends only the idle deadline, never the absolute
-deadline. Invalid refresh attempts clear browser cookies.
+successful refresh atomically replaces the token, stores the consumed digest in family history,
+and extends only the idle deadline, never the absolute deadline. Reuse of a consumed token revokes
+the active family. Invalid refresh attempts clear browser cookies.
 
 **Rationale:** Opaque server-side state supports revocation, avoids putting account data in the
 refresh token, and limits the usefulness of a database-only token-table disclosure. Rotation makes a
 previous value unusable after a successful refresh.
 
-**Gap:** the implementation replaces the stored digest and does not retain token-family history.
-Consequently, reuse of an old token is rejected but cannot be recognized as evidence of theft and
-cannot revoke the still-active replacement. Add token-family/replacement records and revoke the
-family when reuse is detected before claiming full refresh-token replay detection.
+**Concurrency control:** Rotation is a conditional `UPDATE ... RETURNING`; invitation acceptance
+and password-reset completion likewise consume their capability with a conditional update before
+changing account state. PostgreSQL race tests issue each capability concurrently and require exactly
+one winner. Refresh-token history retains keyed digests, not raw tokens.
 
 **Evidence:** [RFC 9700 section 4.14](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14)
 requires refresh-token confidentiality, expiration/revocation, and either sender constraint or
@@ -459,7 +496,9 @@ also preserves HTTP safe-method semantics and makes automated link inspection le
   log collector to redact query parameter `token`; never put tokens in audit details.
 - `Referrer-Policy: no-referrer` limits browser referrer leakage, but it cannot sanitize upstream
   access logs or mail systems.
-- Add per-account and per-source reset-request throttling and verify uniform response timing.
+- Per-account and per-source reset-request fixed-window throttling is implemented. Its boundary-burst,
+  distributed-source, availability, and timing limitations are the same ones recorded in SD-05;
+  verify response-time distributions rather than assuming generic text makes timing uniform.
 
 **Evidence:** [OWASP Forgot Password](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html)
 requires generic and timing-consistent responses, automated-submission controls, cryptographically
@@ -520,7 +559,7 @@ and retention in the [primary publication](https://doi.org/10.6028/NIST.SP.800-5
 
 ### SD-16 — Apply restrictive browser headers and self-host frontend assets
 
-**Status:** Implemented, with cache control as a gap.
+**Status:** Implemented; HSTS scope remains a deployment decision.
 
 **Decision:** Every application response receives `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a restrictive `Permissions-Policy`, and a
@@ -533,10 +572,9 @@ fallback and no runtime CDN or Node dependency.
 leakage, browser feature exposure, and transport downgrade. Self-hosting enables `script-src 'self'`
 and makes production independent of an external CDN.
 
-**Gap:** authenticated pages and token-bearing form responses do not currently set
-`Cache-Control: no-store`. Add it to sensitive responses, then test behavior through Connect and
-Workbench proxies. HSTS `includeSubDomains` must be reviewed with the owner of the hostname before
-production because it affects descendant hosts.
+**Decision detail:** Every non-static response also receives `Cache-Control: no-store`. HSTS
+`includeSubDomains` must be reviewed with the owner of the hostname before production because it
+affects descendant hosts.
 
 **Evidence:**
 
@@ -554,20 +592,21 @@ production because it affects descendant hosts.
 
 **Status:** Implemented fail-fast checks; TLS itself is a deployment control.
 
-**Decision:** Production configuration refuses to start with insecure cookies, missing domain
-allowlists, weak placeholder application secrets, or a missing SMTP host when SMTP is selected.
-Interactive API documentation is disabled in production. TLS is expected to terminate at the
-approved Posit/reverse-proxy boundary; HSTS and Secure cookies are applied by the application.
+**Decision:** Production configuration refuses to start with insecure cookies, a non-HTTPS or
+malformed public URL, SQLite, console email, SMTP without a host and STARTTLS, missing domain
+allowlists, weak placeholder application secrets, retained delivered email bodies, or a missing
+offline password blocklist. Interactive API documentation is disabled in production. TLS is
+expected to terminate at the approved Posit/reverse-proxy boundary; HSTS and Secure cookies are
+applied by the application.
 
 **Rationale:** Failing startup is safer than silently deploying known development defaults. TLS is
 required for password and bearer-token confidentiality, integrity, and server authentication.
 
 **Deployment control:** verify the full client-to-proxy and proxy-to-application path, approved TLS
 versions/ciphers/certificates, HTTP-to-HTTPS behavior, and that the application cannot be reached
-directly around the proxy. Production must never use the console mail backend because it prints raw
-capability URLs. `PUBLIC_BASE_URL` is not currently restricted to HTTPS by application validation;
-operators must verify that it is the exact approved external HTTPS URL before sending invitations or
-resets.
+directly around the proxy. Startup validation proves configuration shape, not that
+`PUBLIC_BASE_URL` names the organization-approved external route; operators must still verify that
+exact routing before sending invitations or resets.
 
 **Evidence:** [OWASP TLS](https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html)
 requires TLS for login and all authenticated pages, Secure cookies, no mixed transport, and protected
@@ -603,25 +642,31 @@ documents least-privilege access, automated rotation, auditing, revocation, and 
 
 ### SD-19 — Treat SMTP and the email outbox as security-sensitive systems
 
-**Status:** Deployment control and gap.
+**Status:** Asynchronous delivery, retry, and dead-letter controls implemented; relay operation is a
+deployment control.
 
-**Decision:** The mailer supports a development console backend and an SMTP backend with STARTTLS
-enabled by default and optional relay authentication. Messages are queued transactionally in the
-database, retried up to five times, and retain delivery outcome. The application sends
-  registration/invitation/reset URLs and account-status or password-change notifications, never
-  passwords.
+**Decision:** Request handlers only queue messages transactionally. A separately supervised worker
+claims due rows atomically with PostgreSQL `FOR UPDATE SKIP LOCKED`, sends outside the claim
+transaction, applies bounded exponential backoff, emits per-batch delivery metrics, and marks
+exhausted messages as dead letters. Operators can explicitly requeue all or one approved dead
+letter. The SMTP backend uses STARTTLS and optional relay authentication. The application sends
+registration/invitation/reset URLs and account-status or password-change notifications, never
+passwords.
 
 **Rationale:** Transactional queuing avoids losing a message when the surrounding database operation
 commits. Change notifications give users an independent signal of possible compromise.
 
-**Gap:** production currently does not forbid the console backend, require SMTP, require STARTTLS,
-or enforce an approved relay certificate policy. The current schema also retains raw message bodies
-after delivery and defines no purge schedule; those bodies contain active or expired capability URLs.
+**Limitations:** SMTP delivery is at-least-once: a process failure after relay acceptance but before
+the final database commit can produce a duplicate message. Production startup requires SMTP,
+STARTTLS, and post-delivery body redaction, but application validation cannot prove the relay's
+certificate policy or operational approval. Pending and dead-lettered bodies still contain
+capability URLs and require strict access and retention controls.
 
 **Deployment control:** require an approved enclave-local relay and protected route, verify TLS and
 certificate behavior, prohibit console email in production, restrict outbox and backup readers,
-define retry monitoring, and implement body redaction/purge after the operationally required period.
-Mail administrators must define equivalent retention and access controls downstream.
+monitor worker batch metrics and dead letters, and define the shortest workable retention/purge
+period for pending and failed bodies. Mail administrators must define equivalent retention and
+access controls downstream.
 
 **Evidence:** [OWASP Forgot Password](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html)
 requires secure reset-token handling and post-change notification. [OWASP TLS](https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html)
@@ -669,14 +714,14 @@ eavesdropping, injection, and replay.
 
 **Status:** Versioned schema control implemented; production operation is a deployment control.
 
-**Decision:** Three ordered Alembic revisions create the baseline, self-registration, and shared
-rate-limit schemas. Application startup verifies the current revision and refuses to serve a stale or
-unversioned schema; `python -m app migrate` is an explicit release action. Legacy `create_all()`
-databases require the explicit `--adopt-existing` path, which verifies known table/column shapes
-before stamping and upgrading. Administrator bootstrap is a separate `create-admin` command and is
-never migration data. Production is expected to use the PostgreSQL optional dependency and an
-approved managed or operated database, backup, migration, encryption, access-control, monitoring,
-and recovery process.
+**Decision:** Five ordered Alembic revisions create the baseline, self-registration, shared
+rate-limit, user API-secret, and atomic-token/email-worker schemas. Application startup verifies the
+current revision and refuses to serve a stale or unversioned schema; `python -m app migrate` is an
+explicit release action. Legacy `create_all()` databases require the explicit `--adopt-existing`
+path, which verifies known table/column shapes before stamping and upgrading. Administrator
+bootstrap is a separate `create-admin` command and is never migration data. Production is expected
+to use the PostgreSQL optional dependency and an approved managed or operated database, backup,
+migration, encryption, access-control, monitoring, and recovery process.
 
 **Rationale:** Credential, session, outbox, profile, role, and audit data require concurrent access,
 durability, backup, operational monitoring, and controlled schema change beyond the local developer
@@ -825,11 +870,11 @@ pages and API responses set `Cache-Control: no-store`.
 | --- | --- | --- |
 | Treat saved values as bearer capabilities | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-5) explains that any party possessing a bearer token can use it and identifies disclosure and replay as threats. This supports TLS, encrypted storage, non-reveal responses, and never placing values in URLs. | These controls do not narrow the privileges encoded by Advana, ADE, or MSS. Users must issue the least-privileged token at the provider. |
 | Exactly three provider slots, fixed environment-variable names, and owner-scoped queries | [OWASP Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#enforce-least-privileges) recommends least privilege, deny-by-default behavior, and permission checks on every request. An allowlist prevents users from inventing environment-variable names that could alter runner behavior; owner predicates prevent cross-user object access. | A compromised owner account can replace or delete that owner's tokens. The current AAL1-style authentication boundary may be insufficient for high-value credentials. |
-| Per-record AES-256-GCM with fresh 96-bit nonces and context-bound AAD | [NIST SP 800-38D](https://doi.org/10.6028/NIST.SP.800-38D) specifies GCM as authenticated encryption with associated data, and the [`cryptography` AES-GCM API](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM) requires a nonce never be reused with a key. Random per-record data keys and fresh nonces protect confidentiality and detect modification; AAD prevents valid ciphertext from being silently moved to a different owner, record, provider, or purpose. | Randomness and nonce uniqueness depend on the operating system CSPRNG. The deployed module and operational environment still need required FIPS evidence. |
+| Per-record AES-256-GCM with fresh 96-bit nonces and context-bound AAD | [NIST SP 800-38D](https://doi.org/10.6028/NIST.SP.800-38D) specifies GCM as authenticated encryption with associated data, and the [`cryptography` AES-GCM API](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM) requires a nonce never be reused with a key. Random per-record data keys and fresh nonces protect confidentiality and detect modification; AAD causes decryption to fail if ciphertext is moved to a different owner, record, provider, or purpose. | Randomness depends on the operating-system CSPRNG. The shared key-encryption key processes many random nonces across all app instances; SP 800-38D's RBG-construction limits and collision budget apply to aggregate key use. The application does not currently count invocations per key. The deployed module and environment still need required FIPS evidence. |
 | Envelope encryption and a versioned key ring separate from the database and auth keys | [NIST SP 800-57 Part 1 Rev. 5](https://doi.org/10.6028/NIST.SP.800-57pt1r5) covers protection, lifecycle, cryptoperiods, backup, and recovery of keying material. [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-management) recommends storing keys separately from encrypted data and designing for rotation. The active key protects new data while retained key identifiers permit controlled migration and recovery. | The key ring is available to the FastAPI process. Database-only theft does not disclose plaintext, but application-host or key-ring compromise can. Loss of an old referenced key permanently loses the associated tokens. |
 | No plaintext read endpoint or UI reveal | GitHub's [Actions secrets REST API](https://docs.github.com/en/rest/actions/secrets) lists secret metadata without returning encrypted values. Following that pattern reduces routine exposure in browsers, support workflows, and admin tooling. | This is product-level non-disclosure, not end-to-end encryption. Privileged host operators and trusted application code remain in the security boundary. |
 | Metadata-only audit events and no-store responses | [OWASP Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#23-logging) says secrets must not be logged and recommends auditing who requested or used them. GitHub warns that [automatic redaction is not guaranteed](https://docs.github.com/en/actions/reference/security/secure-use#using-secrets), so correctness cannot depend on a masking heuristic. | Application, proxy, runner, artifact, exception, and crash-dump paths all require deployment testing. `no-store` controls caching; it cannot prevent a compromised browser or endpoint from reading a token while it is entered. |
-| Explicit delivery only at an authorized run boundary | OWASP describes controlled [secret consumption](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#25-secret-consumption) and warns that environment variables may leak through logs or dumps. Posit documents that local content processes [inherit server environment variables by default](https://docs.posit.co/connect/admin/process-management/#environment-variables). Therefore the runner must construct a minimal environment, exclude the master-key ring, and grant only selected provider values. | Code intentionally granted a bearer token can copy or transmit it. GitHub documents the analogous boundary: users able to modify workflow code can [extract configured secrets](https://docs.github.com/en/actions/reference/security/secure-use#considering-cross-repository-access). Network, filesystem, artifact, and log isolation reduce opportunities but cannot make an available bearer value unknowable to that code. |
+| Explicit delivery only at an authorized run boundary | OWASP describes controlled [secret consumption](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#25-secret-consumption) and warns that environment variables may leak through logs or dumps. Posit documents that local content processes [inherit Connect server environment variables by default](https://docs.posit.co/connect/admin/appendix/configuration/#inherit-system-env-vars). Therefore Connect should disable that inheritance, and the application runner must separately construct a minimal child environment that excludes the app's master-key ring and grants only selected provider values. | `Applications.InheritSystemEnvVars=false` does not sanitize subprocesses created by the application. Code intentionally granted a bearer token can copy or transmit it. GitHub documents the analogous boundary: users able to modify workflow code can [extract configured secrets](https://docs.github.com/en/actions/reference/security/secure-use#considering-cross-repository-access). Isolation reduces opportunities but cannot make an available bearer value unknowable to that code. |
 | Prefer short-lived credentials when providers support them | OWASP recommends limiting secret lifetime and automating rotation. GitHub's [OIDC guidance](https://docs.github.com/en/actions/concepts/security/openid-connect) uses short-lived, job-specific credentials instead of stored long-lived secrets; Posit similarly documents [process-lifetime API keys](https://docs.posit.co/connect/admin/content-management/api-keys/#automatic-provisioning). | Advana, ADE, and MSS integration currently accepts static user-supplied tokens. Provider-side OAuth, federation, scope, expiration, and revocation remain future integration work. |
 
 **Limitations and deployment controls:** The FastAPI process receives the master-key ring and can
@@ -847,6 +892,16 @@ deployed cryptographic module still requires organization-specific FIPS and auth
 Deleting the local record does not revoke the token at its provider; suspected disclosure requires
 provider-side revocation or rotation. The JSON key-ring variable is itself a structured high-value
 secret and must never be logged; masking or redaction is not a substitute for preventing disclosure.
+[OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-storage)
+warns that process environment variables may be exposed. Posit encrypts configured content variables
+at rest and in memory before process startup as documented in its
+[content settings](https://docs.posit.co/connect/user/content-settings/#environment-variables), but
+the FastAPI process necessarily receives plaintext; an approved secret manager or protected
+key-file/HSM boundary is preferable when available. The
+current implementation also does not enforce SP 800-38D's aggregate invocation bound for random GCM
+nonces under one master key and supplies no rewrap migration. Before production, implement and
+monitor a conservative per-key write/replace limit across all instances, rotate well before the
+standard's bound, and retain prior keys until their records are rewrapped or deleted.
 
 **Evidence:**
 
@@ -871,13 +926,16 @@ authorization evidence.
 
 - [ ] The privacy and security officials have determined whether making the application's profile,
       account activity, and session metadata available invokes the federal AAL2 minimum. If it does,
-      an approved phishing-resistant CAC/MFA path has been added; password-only mode is not approved.
+      `AUTHENTICATION_MODE=trusted_header` is used behind an approved phishing-resistant CAC/MFA
+      identity-aware proxy, or another approved federation path replaces local password sign-in.
 - [ ] For any remaining password-only use, the identity and authenticator risk assessment explicitly
       accepts email-verified access for the information and functions in scope.
 - [ ] The NIPR and SIPR authorization boundaries, data flows, administrators, secrets, databases,
       SMTP relays, logs, backups, and pipelines are separate and documented.
-- [ ] `APP_ENV=production`, `COOKIE_SECURE=true`, the stable `PUBLIC_BASE_URL`, exact
-      `ALLOWED_EMAIL_DOMAINS`, and approved issuer/audience values are set.
+- [ ] `APP_ENV=production`, `COOKIE_SECURE=true`, the stable HTTPS `PUBLIC_BASE_URL`, PostgreSQL
+      `DATABASE_URL`, exact `ALLOWED_EMAIL_DOMAINS`, approved issuer/audience values, SMTP with
+      STARTTLS, sent-body redaction, and the approved offline password blocklist are set. Production
+      startup validation passes.
 - [ ] If directory validation is enabled, the source's authority, attribute currency, privacy use,
       exact URL/response contract, CA trust, bearer-secret handling, fail-open/fail-closed policy,
       DNS behavior, and network egress allowlist are approved and monitored. It is not represented as
@@ -892,14 +950,17 @@ authorization evidence.
       runs, redacts logs/artifacts, and records each use. Arbitrary granted code is treated as capable
       of exfiltrating its token.
 - [ ] For local Posit Connect execution, `Applications.InheritSystemEnvVars=false` is set and verified;
-      the child receives no parent secrets except the explicitly selected provider token. Secret
-      values never enter command arguments, URLs, logs, artifacts, exception reports, or crash dumps.
+      separately, the application run supervisor passes an explicit child environment containing no
+      parent secrets except the selected provider token. Secret values never enter command arguments,
+      URLs, logs, artifacts, exception reports, or crash dumps.
+- [ ] **Code gap:** count API-token key usage across all application instances, enforce a reviewed
+      per-key GCM invocation/rotation threshold well below the SP 800-38D bound, and provide a tested
+      rewrap migration before retiring old keys.
 - [ ] Token-management authentication strength and any step-up/reauthentication requirement are
       approved for the value of the stored credentials; provider-side issuance uses the minimum
       possible scope and lifetime, and revocation/rotation procedures are tested.
-- [ ] **Code gap:** replace the six-entry password list and substring rule with an approved
-      common/compromised/contextual-password blocklist, normalize password input consistently during
-      verification, and add the related user guidance and visibility control.
+- [ ] The configured offline common/compromised-password blocklist is approved, versioned, updated,
+      and tested without disclosing candidate passwords outside the enclave.
 - [ ] The selected Argon2 parameters are recorded and benchmarked, or the exact FIPS-validated
       PBKDF2 module/configuration/operational environment is evidenced.
 - [ ] TLS is approved end to end; HTTP is unavailable or redirected appropriately; Secure cookies,
@@ -907,18 +968,26 @@ authorization evidence.
 - [ ] Direct app-server access is blocked and the trusted proxy overwrites security-relevant
       forwarding headers; every immediate proxy address is explicitly in `TRUSTED_PROXY_IPS`, and
       `X-Forwarded-For` is not used for authorization.
+- [ ] In `trusted_header` mode, the identity-aware proxy strips every client-supplied identity
+      header, performs the approved authentication, injects exactly one normalized account email,
+      and has tests proving header spoofing cannot bypass the proxy boundary.
 - [ ] Cookie set, refresh, deletion, path isolation, SameSite, and expiry have been tested through
       both Connect and Workbench routes.
+- [ ] **Code gap:** implement the selected NIST-aligned terminal action for excessive consecutive
+      password failures, including an atomic cross-worker counter, authenticator disablement, and
+      approved rebinding/recovery; the current automatic 15-minute unlock is not represented as
+      SP 800-63B-4 conformant.
 - [ ] Database-backed source/account throttling is enabled and tested on production PostgreSQL;
       ingress volumetric throttling, progressive delay/device-risk controls, enumeration timing
       tests, alerting, and login-CSRF treatment are approved.
-- [ ] **Code gap:** retain refresh-token family history and revoke the active family on reuse before
-      claiming replay detection.
-- [ ] **Code gap:** apply `Cache-Control: no-store` to authenticated and token-bearing responses.
-- [ ] The SMTP relay requires approved transport protection; console email is disabled; delivery
-      failure is monitored.
-- [ ] **Code gap:** redact or purge delivered outbox bodies; proxy, application, SMTP, and SIEM logs
-      redact registration/invitation/reset query tokens.
+- [ ] Conditional capability-consumption and refresh-family replay tests pass concurrently on the
+      production PostgreSQL version and topology.
+- [ ] `Cache-Control: no-store` behavior is verified through the production proxy for authenticated
+      and token-bearing responses.
+- [ ] The dedicated email worker is supervised; SMTP transport is approved; batch metrics, retry
+      backlog, and dead letters are monitored; the operator requeue procedure is tested.
+- [ ] Sent outbox bodies are redacted; pending/dead-letter retention is approved; proxy,
+      application, SMTP, and SIEM logs redact registration/invitation/reset query tokens.
 - [ ] PostgreSQL security, Alembic migration/adoption rehearsal, backup encryption, restore testing,
       retention, availability, and least-privilege credentials are approved. The release procedure
       migrates before application startup and never uses a migration to bootstrap an administrator.
@@ -979,3 +1048,11 @@ These are the primary or recognized industry sources actually consulted for this
 41. [Posit Connect, Automatic API-key Provisioning](https://docs.posit.co/connect/admin/content-management/api-keys/#automatic-provisioning)
 42. [`cryptography`, Authenticated Encryption](https://cryptography.io/en/stable/hazmat/primitives/aead/)
 43. [PostgreSQL `pgcrypto`, Security Limitations](https://www.postgresql.org/docs/current/pgcrypto.html#PGCRYPTO-NOTES)
+44. [OWASP Input Validation Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html)
+45. [OWASP Content Security Policy Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html)
+46. [HTMX, `hx-indicator` CSP configuration](https://htmx.org/attributes/hx-indicator/)
+47. [Posit Connect, Reverse Proxy](https://docs.posit.co/connect/admin/proxy/)
+48. [Posit Connect, Release Notes](https://docs.posit.co/connect/news/)
+49. [Posit Workbench, Running with a Proxy](https://docs.posit.co/ide/server-pro/admin/access_and_security/running_with_a_proxy.html)
+50. [Posit Connect, `InheritSystemEnvVars`](https://docs.posit.co/connect/admin/appendix/configuration/#inherit-system-env-vars)
+51. [Posit Connect, Content Environment Variables](https://docs.posit.co/connect/user/content-settings/#environment-variables)

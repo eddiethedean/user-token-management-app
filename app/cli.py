@@ -2,6 +2,7 @@ import argparse
 import getpass
 import os
 import sys
+import time
 
 from sqlalchemy import select
 
@@ -13,7 +14,7 @@ from app.security.email import normalize_email
 from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
 from app.server import run_server
 from app.services.auth import ensure_default_roles
-from app.services.mailer import deliver_pending
+from app.services.mailer import deliver_pending, deliver_pending_with_metrics, retry_failed
 
 
 def create_admin(email: str, password: str | None = None) -> int:
@@ -30,7 +31,11 @@ def create_admin(email: str, password: str | None = None) -> int:
                 print("Passwords do not match.", file=sys.stderr)
                 return 2
         try:
-            validated = validate_password(password, email=canonical)
+            validated = validate_password(
+                password,
+                email=canonical,
+                blocklist_path=settings.password_blocklist_path,
+            )
         except PasswordPolicyError as exc:
             print(str(exc), file=sys.stderr)
             return 2
@@ -76,6 +81,17 @@ def main() -> None:
     )
     subparsers.add_parser("schema-status", help="Show the current and expected schema revisions")
     subparsers.add_parser("send-email", help="Deliver queued email")
+    worker_parser = subparsers.add_parser(
+        "email-worker", help="Continuously claim and deliver queued email"
+    )
+    worker_parser.add_argument("--once", action="store_true", help="Process one batch and exit")
+    worker_parser.add_argument("--batch-size", type=int, default=20)
+    worker_parser.add_argument("--poll-seconds", type=float, default=5.0)
+    retry_parser = subparsers.add_parser(
+        "retry-email", help="Requeue dead-lettered email for another delivery cycle"
+    )
+    retry_parser.add_argument("--message-id", help="Retry only this outbox message")
+    retry_parser.add_argument("--limit", type=int, default=20)
     serve_parser = subparsers.add_parser(
         "serve", help="Run locally or through the Posit Workbench proxy"
     )
@@ -103,6 +119,34 @@ def main() -> None:
         with SessionLocal() as db:
             delivered = deliver_pending(db, get_settings())
             print(f"Delivered {delivered} message(s).")
+    if args.command == "email-worker":
+        assert_schema_current()
+        if args.batch_size < 1 or args.batch_size > 200 or args.poll_seconds < 0.1:
+            parser.error("email-worker requires batch-size 1..200 and poll-seconds >= 0.1")
+        try:
+            while True:
+                with SessionLocal() as db:
+                    metrics = deliver_pending_with_metrics(
+                        db, get_settings(), limit=args.batch_size
+                    )
+                if metrics.claimed or args.once:
+                    print(
+                        "Email batch: "
+                        f"claimed={metrics.claimed} delivered={metrics.delivered} "
+                        f"deferred={metrics.deferred} dead_lettered={metrics.dead_lettered}"
+                    )
+                if args.once:
+                    break
+                time.sleep(args.poll_seconds)
+        except KeyboardInterrupt:
+            print("Email worker stopped.")
+    if args.command == "retry-email":
+        assert_schema_current()
+        if args.limit < 1 or args.limit > 200:
+            parser.error("retry-email requires limit 1..200")
+        with SessionLocal() as db:
+            requeued = retry_failed(db, message_id=args.message_id, limit=args.limit)
+        print(f"Requeued {requeued} message(s).")
     if args.command == "serve":
         run_server(host=args.host, port=args.port, reload=args.reload)
 

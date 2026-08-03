@@ -82,10 +82,12 @@ def test_login_htmx_refresh_cookie_and_logout_journey(browser: Browser, live_pro
         assert page.locator("base").get_attribute("href") == f"{prefix}/"
         assert page.evaluate("typeof window.htmx") == "object"
         assert page.evaluate("window.htmx.version") == "2.0.10"
-        assert page.locator("script[src]").count() == 1
-        assert page.locator("script[src]").evaluate("element => element.src") == (
-            f"{base_url}/assets/htmx.min.js?v=2.0.10"
-        )
+        assert page.locator("script[src]").evaluate_all(
+            "elements => elements.map(element => element.src)"
+        ) == [
+            f"{base_url}/assets/htmx.min.js?v=2.0.10",
+            f"{base_url}/assets/app.js?v=20260803-1",
+        ]
         assert page.request.get(f"{base_url}/assets/app.css").status == 200
         htmx_asset = page.request.get(f"{base_url}/assets/htmx.min.js?v=2.0.10")
         assert htmx_asset.status == 200
@@ -94,6 +96,10 @@ def test_login_htmx_refresh_cookie_and_logout_journey(browser: Browser, live_pro
 
         page.locator("#email").fill(ADMIN_EMAIL)
         page.locator("#password").fill(ADMIN_PASSWORD)
+        page.get_by_role("button", name="Show password").click()
+        assert page.locator("#password").get_attribute("type") == "text"
+        page.get_by_role("button", name="Hide password").click()
+        assert page.locator("#password").get_attribute("type") == "password"
         page.get_by_role("button", name="Sign in securely").click()
         page.wait_for_url(f"{base_url}/profile")
         expect(page.get_by_role("heading", name="Your information")).to_be_visible()
@@ -160,8 +166,18 @@ def test_login_htmx_refresh_cookie_and_logout_journey(browser: Browser, live_pro
         assert refreshed[REFRESH_COOKIE]["value"] != original_refresh["value"]
         assert_cookie_cannot_restore_session(browser, base_url, prefix, original_refresh)
 
-        active_access = refreshed[ACCESS_COOKIE]
-        active_refresh = refreshed[REFRESH_COOKIE]
+        # Reusing the consumed token must revoke its replacement family and force the
+        # current browser back through authentication.
+        page.goto(f"{base_url}/security")
+        expect(page.get_by_role("heading", name="Sign in")).to_be_visible()
+        assert page.url.startswith(f"{base_url}/login?next=")
+        page.locator("#email").fill(ADMIN_EMAIL)
+        page.locator("#password").fill(ADMIN_PASSWORD)
+        page.get_by_role("button", name="Sign in securely").click()
+        page.wait_for_url(f"{base_url}/security")
+        active = {cookie["name"]: cookie for cookie in context.cookies(base_url)}
+        active_access = active[ACCESS_COOKIE]
+        active_refresh = active[REFRESH_COOKIE]
 
         page.get_by_role("button", name="Sign out").click()
         page.wait_for_url(f"{base_url}/login")

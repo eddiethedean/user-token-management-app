@@ -65,6 +65,19 @@ class WorkbenchProxySimulator(PrefixStrippingProxySimulator):
         scope["root_path"] = self.prefix
 
 
+class PreservingWorkbenchProxySimulator:
+    """Model a Workbench proxy that leaves the external mount in ASGI path."""
+
+    def __init__(self, application, prefix: str) -> None:
+        self.application = application
+        self.prefix = prefix.rstrip("/")
+
+    async def __call__(self, scope, receive, send) -> None:
+        proxied_scope = dict(scope)
+        proxied_scope["root_path"] = self.prefix
+        await self.application(proxied_scope, receive, send)
+
+
 def bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
@@ -124,6 +137,7 @@ def invite_and_accept(client) -> tuple[str, str]:
 
 def test_pages_assets_and_connect_mount_path(client) -> None:
     assert client.get("/health").json() == {"status": "ok"}
+    assert client.get("/ready").json() == {"status": "ready"}
     login_page = client.get("/login")
     assert login_page.status_code == 200
     assert 'src="assets/htmx.min.js?v=2.0.10"' in login_page.text
@@ -132,6 +146,7 @@ def test_pages_assets_and_connect_mount_path(client) -> None:
     assert client.get("/assets/app.css").status_code == 200
     assert client.get("/assets/htmx.min.js").status_code == 200
     assert "frame-ancestors 'none'" in login_page.headers["content-security-policy"]
+    assert login_page.headers["cache-control"] == "no-store"
 
     mounted = client.get(
         "/login", headers={"rstudio-connect-app-base-url": "/content/access-registry"}
@@ -177,6 +192,22 @@ def test_workbench_root_path_routes_without_code_changes(client) -> None:
         assert all(f"Path={root_path}" in cookie for cookie in set_cookie)
 
 
+def test_preserved_workbench_path_keeps_login_return_target_app_local(client) -> None:
+    prefix = "/s/preserved/session/p/8000"
+    proxy = PreservingWorkbenchProxySimulator(app, prefix)
+    with TestClient(proxy, base_url="https://workbench.example.gov", follow_redirects=False) as wb:
+        protected = wb.get(f"{prefix}/security", headers={"Accept": "text/html"})
+        assert protected.status_code == 303
+        assert protected.headers["location"] == f"{prefix}/login?next=%2Fsecurity"
+
+        signed_in = wb.post(
+            f"{prefix}/login",
+            data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD, "next": "/security"},
+        )
+        assert signed_in.status_code == 303
+        assert signed_in.headers["location"] == f"{prefix}/security"
+
+
 def test_invalid_connect_base_header_cannot_create_external_redirect(client) -> None:
     response = client.get(
         "/profile",
@@ -188,6 +219,13 @@ def test_invalid_connect_base_header_cannot_create_external_redirect(client) -> 
     assert response.status_code == 303
     assert response.headers["location"].startswith("/redirect/login?")
     assert "attacker.example" not in response.headers["location"]
+
+
+def test_authenticated_api_responses_are_not_cacheable(client) -> None:
+    token = login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    response = client.get("/api/v1/me", headers=bearer(token))
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_absolute_connect_base_url_is_reduced_to_its_mount_path(client) -> None:

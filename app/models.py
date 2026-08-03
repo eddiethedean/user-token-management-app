@@ -149,6 +149,19 @@ class RefreshSession(Base):
     user: Mapped[User] = relationship(back_populates="sessions")
 
 
+class RefreshTokenHistory(Base):
+    __tablename__ = "refresh_token_history"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    session_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("refresh_sessions.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    consumed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    session: Mapped[RefreshSession] = relationship()
+
+
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 
@@ -182,6 +195,23 @@ class EmailOutbox(Base):
     failed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str] = mapped_column(Text, default="")
+
+    delivery_state: Mapped[EmailDeliveryState] = relationship(
+        back_populates="message", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class EmailDeliveryState(Base):
+    __tablename__ = "email_delivery_state"
+
+    message_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("email_outbox.id", ondelete="CASCADE"), primary_key=True
+    )
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    message: Mapped[EmailOutbox] = relationship(back_populates="delivery_state")
 
 
 class RateLimitBucket(Base):
