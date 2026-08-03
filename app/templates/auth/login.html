@@ -6,7 +6,7 @@
     <h1>Your identity, managed with clarity.</h1>
     <p>Access your profile, review active sessions, and manage the security of your government application account.</p>
     <div class="trust-list" aria-label="Security features">
-      <div><span aria-hidden="true">✓</span><p><strong>Invite-only access</strong><small>Accounts require an administrator invitation.</small></p></div>
+      <div><span aria-hidden="true">✓</span><p><strong>Administrator-approved access</strong><small>Invited and self-registered accounts require authorization.</small></p></div>
       <div><span aria-hidden="true">✓</span><p><strong>Short-lived credentials</strong><small>Access tokens expire automatically.</small></p></div>
       <div><span aria-hidden="true">✓</span><p><strong>Audited activity</strong><small>Security-sensitive actions are recorded.</small></p></div>
     </div>
@@ -14,7 +14,7 @@
   <div class="auth-card">
     <p class="eyebrow">Account access</p>
     <h2>Sign in</h2>
-    <p class="muted">Use the government email associated with your invitation.</p>
+    <p class="muted">Use the government email associated with your approved account.</p>
     {% if request.query_params.get('invitation') == 'accepted' %}
       <div class="alert alert-success" role="status">Your account is ready. Sign in to continue.</div>
     {% endif %}
@@ -30,7 +30,7 @@
       <input id="password" name="password" type="password" autocomplete="current-password" required>
       <button class="button button-primary button-wide" type="submit">Sign in securely</button>
     </form>
-    <p class="card-footnote">Need an account? Contact an application administrator for an invitation.</p>
+    <p class="card-footnote">Need an account? <a href="register">Request access</a>. You must verify your government email and receive administrator approval before signing in.</p>
   </div>
 </section>
 {% endblock %}

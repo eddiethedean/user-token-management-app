@@ -93,6 +93,20 @@ class Invitation(Base):
     invited_by: Mapped[User] = relationship(foreign_keys=[invited_by_user_id])
 
 
+class RegistrationVerification(Base):
+    __tablename__ = "registration_verifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    requested_ip: Mapped[str] = mapped_column(String(64), default="")
+
+    user: Mapped[User] = relationship()
+
+
 class PasswordReset(Base):
     __tablename__ = "password_resets"
 
@@ -160,7 +174,22 @@ class EmailOutbox(Base):
     last_error: Mapped[str] = mapped_column(Text, default="")
 
 
+class RateLimitBucket(Base):
+    __tablename__ = "rate_limit_buckets"
+
+    scope: Mapped[str] = mapped_column(String(64), primary_key=True)
+    key_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=1)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
 Index("ix_sessions_user_active", RefreshSession.user_id, RefreshSession.revoked_at)
+Index(
+    "ix_registration_verifications_user_active",
+    RegistrationVerification.user_id,
+    RegistrationVerification.used_at,
+)
 Index(
     "ix_invitations_email_active", Invitation.email, Invitation.accepted_at, Invitation.revoked_at
 )

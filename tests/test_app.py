@@ -126,7 +126,9 @@ def test_pages_assets_and_connect_mount_path(client) -> None:
     assert client.get("/health").json() == {"status": "ok"}
     login_page = client.get("/login")
     assert login_page.status_code == 200
-    assert "htmx.min.js" in login_page.text
+    assert 'src="assets/htmx.min.js?v=2.0.10"' in login_page.text
+    assert "cdn.jsdelivr" not in login_page.text
+    assert "unpkg.com" not in login_page.text
     assert client.get("/assets/app.css").status_code == 200
     assert client.get("/assets/htmx.min.js").status_code == 200
     assert "frame-ancestors 'none'" in login_page.headers["content-security-policy"]

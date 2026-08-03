@@ -9,4 +9,4 @@ htmlcov/
 *.sqlite3
 rsconnect-python/
 manifest.json
-
+test-results/

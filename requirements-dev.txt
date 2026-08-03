@@ -1,5 +1,6 @@
 -r requirements.txt
 httpx>=0.28,<1
+playwright>=1.54,<2
 pytest>=8.4,<9
 pytest-cov>=6.2,<7
 rsconnect-python>=1.27,<2

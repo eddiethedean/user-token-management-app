@@ -5,11 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "user-token-management-app"
 version = "0.1.0"
-description = "Invite-only FastAPI, Jinja, and HTMX user and token management application"
+description = "Administrator-approved FastAPI, Jinja, and HTMX user and token management application"
 requires-python = ">=3.11"
 dependencies = [
+  "alembic>=1.16,<2",
   "email-validator>=2.2,<3",
   "fastapi>=0.138.2,<1",
+  "httpx>=0.28,<1",
   "jinja2>=3.1,<4",
   "pyjwt>=2.10,<3",
   "pydantic-settings>=2.10,<3",
@@ -22,6 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "httpx>=0.28,<1",
+  "playwright>=1.54,<2",
   "pytest>=8.4,<9",
   "pytest-cov>=6.2,<7",
   "rsconnect-python>=1.27,<2",
@@ -37,15 +40,17 @@ entrypoint = "app.main:app"
 utm = "app.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["app*", "migrations*"]
 
 [tool.setuptools.package-data]
 app = ["templates/**/*.html", "static/**/*"]
+migrations = ["README.md", "script.py.mako"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+markers = ["e2e: live Playwright browser tests through preserve/strip proxies"]
 
 [tool.ruff]
 line-length = 100

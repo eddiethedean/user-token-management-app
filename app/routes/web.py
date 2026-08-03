@@ -22,17 +22,24 @@ from app.services.auth import (
     AuthenticationError,
     TokenFlowError,
     accept_invitation,
+    approve_self_registration,
     authenticate_user,
     complete_password_reset,
+    complete_self_registration,
     create_invitation,
     create_session,
+    deny_self_registration,
     get_valid_invitation,
     get_valid_password_reset,
+    get_valid_registration_verification,
     request_password_reset,
+    request_self_registration,
     revoke_all_sessions,
     revoke_session,
 )
+from app.services.directory import DirectoryUnavailableError, validate_directory_email
 from app.services.mailer import deliver_pending
+from app.services.rate_limit import check_rate_limit
 from app.templating import template_context, templates
 
 router = APIRouter(include_in_schema=False)
@@ -79,6 +86,15 @@ def login_submit(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> HTMLResponse | RedirectResponse:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="login",
+        source_limit=settings.rate_limit_login_per_source,
+        account_limit=settings.rate_limit_login_per_account,
+        account_key=email,
+    )
     try:
         user = authenticate_user(db, settings, email, password, request)
     except (AuthenticationError, ValueError) as exc:
@@ -98,6 +114,157 @@ def login_submit(
     response = RedirectResponse(app_path(request, _safe_next(next)), status_code=303)
     set_auth_cookies(response, tokens, settings, request)
     return response
+
+
+@router.get("/register", response_class=HTMLResponse)
+def registration_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request=request,
+        name="auth/register.html",
+        context=template_context(request, page_title="Request access"),
+    )
+
+
+@router.post("/register", response_class=HTMLResponse)
+async def registration_submit(
+    request: Request,
+    email: str = Form(),
+    full_name: str = Form(default=""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> HTMLResponse:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="registration",
+        source_limit=settings.rate_limit_registration_per_source,
+        account_limit=settings.rate_limit_registration_per_account,
+        account_key=email,
+    )
+    try:
+        await validate_directory_email(email, settings)
+        request_self_registration(
+            db,
+            settings,
+            email=email,
+            full_name=full_name,
+            request=request,
+        )
+        deliver_pending(db, settings)
+    except (ValueError, DirectoryUnavailableError) as exc:
+        return templates.TemplateResponse(
+            request=request,
+            name="auth/register.html",
+            status_code=503 if isinstance(exc, DirectoryUnavailableError) else 400,
+            context=template_context(
+                request,
+                page_title="Request access",
+                error=str(exc),
+                email=email,
+                full_name=full_name,
+            ),
+        )
+    return templates.TemplateResponse(
+        request=request,
+        name="auth/register.html",
+        status_code=202,
+        context=template_context(
+            request,
+            page_title="Request access",
+            success=(
+                "Request received. If the address is eligible, check your government email for "
+                "a verification link. After verification, an administrator must approve the "
+                "request before you can sign in."
+            ),
+        ),
+    )
+
+
+@router.get("/registration/verify", response_class=HTMLResponse)
+def registration_verification_page(
+    request: Request,
+    token: str,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> HTMLResponse:
+    verification = None
+    error = ""
+    try:
+        verification = get_valid_registration_verification(db, settings, token)
+    except TokenFlowError as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        request=request,
+        name="auth/verify_registration.html",
+        status_code=400 if error else 200,
+        context=template_context(
+            request,
+            page_title="Verify registration",
+            token=token,
+            verification=verification,
+            error=error,
+        ),
+    )
+
+
+@router.post("/registration/verify", response_class=HTMLResponse)
+def registration_verification_submit(
+    request: Request,
+    token: str = Form(),
+    password: str = Form(),
+    password_confirm: str = Form(),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> HTMLResponse:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="registration_verify",
+        source_limit=settings.rate_limit_registration_per_source,
+    )
+    verification = None
+    error = ""
+    try:
+        verification = get_valid_registration_verification(db, settings, token)
+        if password != password_confirm:
+            raise PasswordPolicyError("Passwords do not match.")
+        complete_self_registration(
+            db,
+            settings,
+            raw_token=token,
+            password=password,
+            request=request,
+        )
+        deliver_pending(db, settings)
+        return templates.TemplateResponse(
+            request=request,
+            name="auth/verify_registration.html",
+            context=template_context(
+                request,
+                page_title="Registration awaiting approval",
+                success=(
+                    "Your government email is verified. Your request is now awaiting administrator "
+                    "approval, and you cannot sign in until it is approved. We will email you when "
+                    "access is granted."
+                ),
+            ),
+        )
+    except (TokenFlowError, PasswordPolicyError) as exc:
+        error = str(exc)
+    return templates.TemplateResponse(
+        request=request,
+        name="auth/verify_registration.html",
+        status_code=400,
+        context=template_context(
+            request,
+            page_title="Verify registration",
+            token=token,
+            verification=verification,
+            error=error,
+        ),
+    )
 
 
 @router.post("/logout")
@@ -130,6 +297,15 @@ def forgot_submit(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> HTMLResponse:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="password_reset_request",
+        source_limit=settings.rate_limit_reset_per_source,
+        account_limit=settings.rate_limit_reset_per_account,
+        account_key=email,
+    )
     request_password_reset(db, settings, email, request)
     deliver_pending(db, settings)
     return templates.TemplateResponse(
@@ -174,6 +350,13 @@ def reset_submit(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> HTMLResponse | RedirectResponse:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="password_reset_complete",
+        source_limit=settings.rate_limit_reset_per_source,
+    )
     error = ""
     if password != password_confirm:
         error = "Passwords do not match."
@@ -233,6 +416,13 @@ def invitation_submit(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> HTMLResponse | RedirectResponse:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="invitation_accept",
+        source_limit=settings.rate_limit_registration_per_source,
+    )
     error = ""
     invitation = None
     try:
@@ -425,7 +615,9 @@ async def invite_submit(
 ) -> HTMLResponse:
     await require_csrf(request, auth.session.csrf_token)
     error = ""
+    response_status = 200
     try:
+        await validate_directory_email(email, settings)
         create_invitation(
             db,
             settings,
@@ -435,15 +627,16 @@ async def invite_submit(
             request=request,
         )
         deliver_pending(db, settings)
-    except ValueError as exc:
+    except (ValueError, DirectoryUnavailableError) as exc:
         error = str(exc)
+        response_status = 503 if isinstance(exc, DirectoryUnavailableError) else 400
     invitations = db.scalars(
         select(Invitation).order_by(Invitation.created_at.desc()).limit(25)
     ).all()
     return templates.TemplateResponse(
         request=request,
         name="partials/invitation_panel.html",
-        status_code=400 if error else 200,
+        status_code=response_status,
         context=template_context(
             request,
             auth=auth,
@@ -468,6 +661,15 @@ async def toggle_user(
         raise HTTPException(status_code=404, detail="User not found")
     if user.id == auth.user.id:
         raise HTTPException(status_code=400, detail="You cannot disable your own account")
+    if user.status == UserStatus.PENDING.value:
+        raise HTTPException(status_code=400, detail="Use the registration approval action")
+    if user.status == UserStatus.DISABLED.value and (
+        not user.email_verified_at or not user.password_hash
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="This account cannot be enabled until its government email is verified",
+        )
     user.status = (
         UserStatus.DISABLED.value
         if user.status == UserStatus.ACTIVE.value
@@ -490,6 +692,78 @@ async def toggle_user(
         request=request,
         name="partials/user_table.html",
         context=template_context(request, auth=auth, users=users),
+    )
+
+
+@router.post("/admin/users/{user_id}/approve", response_class=HTMLResponse)
+async def approve_registration_submit(
+    user_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> HTMLResponse:
+    await require_csrf(request, auth.session.csrf_token)
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        approve_self_registration(
+            db,
+            settings,
+            user=user,
+            administrator=auth.user,
+            request=request,
+        )
+        deliver_pending(db, settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    users = db.scalars(select(User).order_by(User.created_at.desc())).all()
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/user_table.html",
+        context=template_context(
+            request,
+            auth=auth,
+            users=users,
+            success=f"Access approved for {user.email_original}.",
+        ),
+    )
+
+
+@router.post("/admin/users/{user_id}/deny", response_class=HTMLResponse)
+async def deny_registration_submit(
+    user_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> HTMLResponse:
+    await require_csrf(request, auth.session.csrf_token)
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        deny_self_registration(
+            db,
+            settings,
+            user=user,
+            administrator=auth.user,
+            request=request,
+        )
+        deliver_pending(db, settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    users = db.scalars(select(User).order_by(User.created_at.desc())).all()
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/user_table.html",
+        context=template_context(
+            request,
+            auth=auth,
+            users=users,
+            success=f"Registration denied for {user.email_original}.",
+        ),
     )
 
 

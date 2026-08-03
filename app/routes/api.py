@@ -20,6 +20,7 @@ from app.schemas import (
     InvitationRequest,
     PasswordChange,
     ProfileUpdate,
+    RegistrationRequest,
     SessionView,
     TokenRequest,
     TokenResponse,
@@ -31,16 +32,25 @@ from app.services.audit import record_event
 from app.services.auth import (
     AuthenticationError,
     TokenFlowError,
+    approve_self_registration,
     authenticate_user,
     complete_password_reset,
     create_invitation,
     create_session,
+    deny_self_registration,
     request_password_reset,
+    request_self_registration,
     revoke_all_sessions,
     revoke_session,
     rotate_session,
 )
+from app.services.directory import (
+    DirectoryEligibilityError,
+    DirectoryUnavailableError,
+    validate_directory_email,
+)
 from app.services.mailer import deliver_pending
+from app.services.rate_limit import check_rate_limit
 
 router = APIRouter(prefix="/api/v1")
 
@@ -59,6 +69,44 @@ async def _csrf_if_cookie(request: Request, auth: AuthContext) -> None:
         await require_csrf(request, auth.session.csrf_token)
 
 
+@router.post("/auth/register", status_code=status.HTTP_202_ACCEPTED)
+async def register(
+    payload: RegistrationRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, str]:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="registration",
+        source_limit=settings.rate_limit_registration_per_source,
+        account_limit=settings.rate_limit_registration_per_account,
+        account_key=str(payload.email),
+    )
+    try:
+        await validate_directory_email(str(payload.email), settings)
+        request_self_registration(
+            db,
+            settings,
+            email=str(payload.email),
+            full_name=payload.full_name,
+            request=request,
+        )
+    except DirectoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (DirectoryEligibilityError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    deliver_pending(db, settings)
+    return {
+        "message": (
+            "If the address is eligible, a verification email has been sent. Email verification "
+            "and administrator approval are both required before sign-in."
+        )
+    }
+
+
 @router.post("/auth/token", response_model=TokenResponse)
 def issue_token(
     payload: TokenRequest,
@@ -67,6 +115,15 @@ def issue_token(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TokenResponse:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="login",
+        source_limit=settings.rate_limit_login_per_source,
+        account_limit=settings.rate_limit_login_per_account,
+        account_key=str(payload.email),
+    )
     try:
         user = authenticate_user(db, settings, str(payload.email), payload.password, request)
     except AuthenticationError as exc:
@@ -134,6 +191,15 @@ def forgot_password(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, str]:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="password_reset_request",
+        source_limit=settings.rate_limit_reset_per_source,
+        account_limit=settings.rate_limit_reset_per_account,
+        account_key=str(payload.email),
+    )
     request_password_reset(db, settings, str(payload.email), request)
     deliver_pending(db, settings)
     return {"message": "If an eligible account exists, instructions have been sent."}
@@ -146,6 +212,13 @@ def reset_password(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> None:
+    check_rate_limit(
+        db,
+        settings,
+        request,
+        scope="password_reset_complete",
+        source_limit=settings.rate_limit_reset_per_source,
+    )
     try:
         complete_password_reset(
             db, settings, raw_token=payload.token, password=payload.new_password, request=request
@@ -255,6 +328,7 @@ async def admin_invite(
 ) -> dict[str, str]:
     await _csrf_if_cookie(request, auth)
     try:
+        await validate_directory_email(str(payload.email), settings)
         invitation, _ = create_invitation(
             db,
             settings,
@@ -263,7 +337,9 @@ async def admin_invite(
             inviter=auth.user,
             request=request,
         )
-    except ValueError as exc:
+    except DirectoryUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (DirectoryEligibilityError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     deliver_pending(db, settings)
     return {"id": invitation.id, "status": "pending"}
@@ -286,6 +362,18 @@ async def admin_update_user(
             raise HTTPException(status_code=400, detail="Invalid status")
         if user.id == auth.user.id and payload.status != UserStatus.ACTIVE.value:
             raise HTTPException(status_code=400, detail="You cannot disable your own account")
+        if user.status == UserStatus.PENDING.value and payload.status == UserStatus.ACTIVE.value:
+            raise HTTPException(
+                status_code=400,
+                detail="Use the registration approval endpoint for pending accounts",
+            )
+        if payload.status == UserStatus.ACTIVE.value and (
+            not user.email_verified_at or not user.password_hash
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="The government email must be verified before activation",
+            )
         user.status = payload.status
         if payload.status != UserStatus.ACTIVE.value:
             user.security_version += 1
@@ -309,6 +397,58 @@ async def admin_update_user(
         detail={"status": payload.status, "roles": payload.roles},
     )
     db.commit()
+    return UserView.from_user(user)
+
+
+@router.post("/admin/users/{user_id}/approve", response_model=UserView)
+async def admin_approve_registration(
+    user_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> UserView:
+    await _csrf_if_cookie(request, auth)
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        approve_self_registration(
+            db,
+            settings,
+            user=user,
+            administrator=auth.user,
+            request=request,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    deliver_pending(db, settings)
+    return UserView.from_user(user)
+
+
+@router.post("/admin/users/{user_id}/deny", response_model=UserView)
+async def admin_deny_registration(
+    user_id: str,
+    request: Request,
+    auth: AuthContext = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> UserView:
+    await _csrf_if_cookie(request, auth)
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    try:
+        deny_self_registration(
+            db,
+            settings,
+            user=user,
+            administrator=auth.user,
+            request=request,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    deliver_pending(db, settings)
     return UserView.from_user(user)
 
 

@@ -7,7 +7,13 @@ from pydantic import ValidationError
 
 from app.config import Settings
 from app.models import Role, User
-from app.routing import _safe_base_path, app_base_url, app_path, cookie_path
+from app.routing import (
+    _safe_base_path,
+    app_base_url,
+    app_path,
+    cookie_path,
+    normalize_workbench_scope,
+)
 from app.security.email import EmailPolicyError, normalize_email
 from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
 from app.security.tokens import (
@@ -186,6 +192,58 @@ def test_proxy_routing_precedence_and_cookie_override() -> None:
     assert cookie_path(connect_request, "auto") == "/content/app"
     assert cookie_path(connect_request, "/explicit") == "/explicit"
     assert cookie_path(request(), "auto") == "/"
+
+
+def test_workbench_scope_strips_root_path_when_uvicorn_includes_it_in_path() -> None:
+    scope = {
+        "type": "http",
+        "path": "/s/session/p/8000/profile",
+        "raw_path": b"/s/session/p/8000/profile",
+        "root_path": "/s/session/p/8000",
+        "query_string": b"",
+    }
+    normalized = normalize_workbench_scope(scope)
+    assert normalized["path"] == "/profile"
+    assert normalized["raw_path"] == b"/profile"
+    assert normalized["root_path"] == "/s/session/p/8000"
+
+
+def test_workbench_scope_removes_internal_proxy_port_prefix() -> None:
+    scope = {
+        "type": "http",
+        "path": "/s/session/p/8000/security",
+        "raw_path": b"/s/session/p/8000/security",
+        "root_path": "/proxy/49152/s/session/p/8000",
+        "query_string": b"",
+    }
+    normalized = normalize_workbench_scope(scope)
+    assert normalized["path"] == "/security"
+    assert normalized["root_path"] == "/s/session/p/8000"
+
+
+def test_workbench_scope_decodes_absolute_url_path_and_preserves_query() -> None:
+    scope = {
+        "type": "http",
+        "path": "/https%3A%2F%2Fworkbench.example.gov%2Fs%2Fsession%2Fp%2F8000%2Flogin%3Fnext%3D%252Fsecurity",
+        "raw_path": b"",
+        "root_path": "/s/session/p/8000",
+        "query_string": b"",
+    }
+    normalized = normalize_workbench_scope(scope)
+    assert normalized["path"] == "/login"
+    assert normalized["root_path"] == "/s/session/p/8000"
+    assert normalized["query_string"] == b"next=%2Fsecurity"
+
+
+def test_workbench_scope_does_not_decode_absolute_paths_without_mount_context() -> None:
+    scope = {
+        "type": "http",
+        "path": "/https%3A%2F%2Fattacker.example%2Flogin",
+        "raw_path": b"",
+        "root_path": "",
+        "query_string": b"",
+    }
+    assert normalize_workbench_scope(scope) is scope
 
 
 def production_values(**updates) -> dict:
