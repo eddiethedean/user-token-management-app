@@ -7,7 +7,8 @@ until an administrator approves them. The app has no Node.js runtime or frontend
 and is structured for deployment as FastAPI content on Posit Connect.
 
 FastAPI renders the application pages with Jinja, HTMX progressively enhances forms and partial
-page updates, and FastAPI's `app.frontend()` serves the vendored CSS and HTMX JavaScript. Node may
+page updates, and FastAPI's `app.frontend()` serves the downloaded, repository-local
+`app/static/htmx.min.js` file and CSS. The browser never contacts a CDN for HTMX. Node may
 be used by a developer as an optional asset-authoring shortcut, but neither startup nor deployment
 invokes Node, npm, or a JavaScript build step.
 

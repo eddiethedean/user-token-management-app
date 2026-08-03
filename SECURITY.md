@@ -714,8 +714,13 @@ even though dedicated capability columns are hashed.
 progressively enhances same-origin forms and partial updates. The browser never determines access
 rights. HTMX is vendored; Node is not a runtime or deployment dependency. Static files are served
 under `/assets` with fallback disabled, after normal application routes, and receive the same
-security middleware. The reviewed artifact identifies itself as HTMX 2.0.10 and has SHA-256
-`71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de`.
+security middleware. `base.html` loads only the repository-local `app/static/htmx.min.js` path, not
+a CDN. The reviewed artifact identifies itself as HTMX 2.0.10, was compared byte-for-byte with the
+official `v2.0.10` tagged distribution, and has SHA-256
+`71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de`. HTMX's built-in indicator
+style injection is disabled declaratively because the local stylesheet supplies the indicator
+rules; this keeps HTMX from attempting an inline style that the application's CSP intentionally
+blocks.
 
 **Rationale:** This architecture fits Workbench's no-Node environment and keeps the security boundary
 on the Python server. A small, self-hosted script surface supports a restrictive CSP and removes a
@@ -734,6 +739,8 @@ therefore a production gate, not an implemented control.
 precedence, middleware application, static-output serving, and disabled fallback. [Jinja Autoescaping](https://jinja.palletsprojects.com/en/stable/api/#autoescaping)
 documents HTML autoescape configuration. [OWASP CSP](https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html)
 describes CSP as an additional layer rather than a replacement for secure output handling.
+[HTMX's indicator documentation](https://htmx.org/attributes/hx-indicator/) recommends disabling
+`includeIndicatorStyles` and hosting the indicator CSS when CSP blocks inline style tags.
 
 ### SD-23 — Test browser security behavior through both proxy path models
 
