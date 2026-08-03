@@ -5,7 +5,7 @@ from collections.abc import Iterable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-import httpx
+import httpx2
 
 HOP_BY_HOP_HEADERS = {
     "connection",
@@ -156,7 +156,7 @@ class PositProxyHandler(BaseHTTPRequestHandler):
             )
         )
 
-        with httpx.Client(follow_redirects=False, timeout=30) as client:
+        with httpx2.Client(follow_redirects=False, timeout=30) as client:
             response = client.request(
                 self.command,
                 f"{config['upstream']}{upstream_path}",

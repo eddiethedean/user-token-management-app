@@ -1,0 +1,5 @@
+<div id="security-activity" class="event-list"{% if oob %} hx-swap-oob="outerHTML"{% endif %}>
+  {% for event in events %}
+    <div class="event-row"><span class="event-icon" aria-hidden="true">•</span><div><strong>{{ event.event_type | replace('.', ' ') | title }}</strong><small>{{ event.occurred_at.strftime('%b %d, %Y at %H:%M') }} · {{ event.outcome }}</small></div></div>
+  {% else %}<p class="empty-state">No recent security activity.</p>{% endfor %}
+</div>

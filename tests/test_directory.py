@@ -1,7 +1,9 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
-import httpx
+import httpx2
 import pytest
+import starlette.testclient
 from sqlalchemy import select
 
 from app.config import Settings, get_settings
@@ -14,6 +16,10 @@ from app.services.directory import (
 )
 
 
+def test_starlette_and_directory_use_httpx2() -> None:
+    assert starlette.testclient.httpx is httpx2
+
+
 def directory_settings(**updates) -> Settings:
     values = {
         "directory_lookup_url": "https://directory.example.gov/lookup",
@@ -24,25 +30,28 @@ def directory_settings(**updates) -> Settings:
 
 
 def run_lookup(response_handler, **settings_updates):
-    transport = httpx.MockTransport(response_handler)
-    return asyncio.run(
-        validate_directory_email(
-            "person@example.gov",
-            directory_settings(**settings_updates),
-            transport=transport,
+    transport = httpx2.MockTransport(response_handler)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(
+            asyncio.run,
+            validate_directory_email(
+                "person@example.gov",
+                directory_settings(**settings_updates),
+                transport=transport,
+            ),
         )
-    )
+        return future.result()
 
 
 def test_directory_accepts_matching_generic_and_attribute_responses() -> None:
     generic = run_lookup(
-        lambda request: httpx.Response(
+        lambda request: httpx2.Response(
             200,
             json={"email": "PERSON@example.gov", "display_name": "Government Person"},
         )
     )
     attributes = run_lookup(
-        lambda request: httpx.Response(
+        lambda request: httpx2.Response(
             200,
             json={"attributes": {"mail": ["person@example.gov"], "displayName": ["Person"]}},
         )
@@ -54,14 +63,14 @@ def test_directory_accepts_matching_generic_and_attribute_responses() -> None:
 
 def test_directory_rejects_not_found_and_mismatched_addresses() -> None:
     with pytest.raises(DirectoryEligibilityError, match="not found"):
-        run_lookup(lambda request: httpx.Response(404))
+        run_lookup(lambda request: httpx2.Response(404))
     with pytest.raises(DirectoryEligibilityError, match="did not confirm"):
-        run_lookup(lambda request: httpx.Response(200, json={"email": "someone.else@example.gov"}))
+        run_lookup(lambda request: httpx2.Response(200, json={"email": "someone.else@example.gov"}))
 
 
 def test_directory_outage_can_fail_open_or_fail_closed() -> None:
     def unavailable(request):
-        return httpx.Response(503)
+        return httpx2.Response(503)
 
     assert run_lookup(unavailable, directory_lookup_required=False) is None
     with pytest.raises(DirectoryUnavailableError, match="unavailable"):
@@ -74,7 +83,7 @@ def test_directory_request_uses_query_and_bearer_token() -> None:
     def handler(request):
         observed["query"] = request.url.params["query"]
         observed["authorization"] = request.headers.get("authorization")
-        return httpx.Response(200, json={"email": "person@example.gov"})
+        return httpx2.Response(200, json={"email": "person@example.gov"})
 
     result = run_lookup(handler, directory_lookup_bearer_token="directory-secret")
     assert result is not None

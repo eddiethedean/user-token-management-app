@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from fastapi import Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -47,6 +48,15 @@ def change_password(
     new_password: str,
     request: Request | None = None,
 ) -> None:
+    locked_user = db.scalar(
+        select(User)
+        .where(User.id == user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if not locked_user:
+        raise CurrentPasswordError("Current password is incorrect.")
+    user = locked_user
     passwords = PasswordService(settings)
     if not passwords.verify(current_password, user.password_hash):
         raise CurrentPasswordError("Current password is incorrect.")
@@ -57,6 +67,8 @@ def change_password(
     )
     user.password_hash = passwords.hash(validated)
     user.password_changed_at = utcnow()
+    user.failed_login_attempts = 0
+    user.locked_until = None
     user.security_version += 1
     revoke_all_sessions(db, user)
     record_event(db, "password.changed", request=request, actor=user, target=user)

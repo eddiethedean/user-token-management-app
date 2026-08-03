@@ -18,6 +18,7 @@ from app.models import (
     utcnow,
 )
 from app.security.tokens import decode_access_token
+from app.services.auth import create_invitation
 
 ADMIN_EMAIL = "admin@example.gov"
 ADMIN_PASSWORD = "River-Lantern-94!Blue"
@@ -61,7 +62,7 @@ def test_login_lockout_is_generic_audited_and_blocks_correct_password(client) ->
         user = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
         assert user is not None
         assert user.failed_login_attempts == 5
-        assert user.locked_until is not None and user.locked_until > utcnow()
+        assert user.locked_until is None
         outcomes = db.scalars(
             select(AuditEvent.outcome)
             .where(AuditEvent.event_type == "auth.login")
@@ -113,6 +114,28 @@ def test_trusted_header_authentication_requires_allowlisted_proxy(client) -> Non
             login_page = federated_client.get("/login")
             assert "Continue with federated sign-in" in login_page.text
             assert 'name="password"' not in login_page.text
+            csrf_match = re.search(r'name="preauth_csrf_token" value="([^"]+)"', login_page.text)
+            assert csrf_match is not None
+            assert (
+                federated_client.post(
+                    "/login/federated",
+                    data={
+                        "next": "/profile",
+                        "preauth_csrf_token": csrf_match.group(1),
+                    },
+                    headers={settings.trusted_identity_header: ADMIN_EMAIL},
+                ).status_code
+                == 303
+            )
+            federated_client.cookies.clear()
+            assert (
+                federated_client.post(
+                    "/login/federated",
+                    data={"next": "/profile"},
+                    headers={settings.trusted_identity_header: ADMIN_EMAIL},
+                ).status_code
+                == 403
+            )
             missing = federated_client.post("/api/v1/auth/federated")
             assert missing.status_code == 401
             signed_in = federated_client.post(
@@ -120,12 +143,35 @@ def test_trusted_header_authentication_requires_allowlisted_proxy(client) -> Non
                 headers={settings.trusted_identity_header: ADMIN_EMAIL},
             )
             assert signed_in.status_code == 200
-            assert decode_access_token(signed_in.json()["access_token"], settings)["sub"]
+            federated_token = signed_in.json()["access_token"]
+            assert decode_access_token(federated_token, settings)["sub"]
             password_login = federated_client.post(
                 "/api/v1/auth/token",
                 json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
             )
             assert password_login.status_code == 403
+            assert federated_client.get("/password/forgot").status_code == 404
+            assert (
+                federated_client.post(
+                    "/api/v1/auth/forgot-password",
+                    json={"email": ADMIN_EMAIL},
+                ).status_code
+                == 403
+            )
+            security_page = federated_client.get("/security")
+            assert security_page.status_code == 200
+            assert "Change password" not in security_page.text
+            assert (
+                federated_client.post(
+                    "/api/v1/me/password",
+                    json={
+                        "current_password": ADMIN_PASSWORD,
+                        "new_password": NEW_PASSWORD,
+                    },
+                    headers=bearer(federated_token),
+                ).status_code
+                == 403
+            )
 
         with TestClient(app, follow_redirects=False) as untrusted_client:
             spoofed = untrusted_client.post(
@@ -136,6 +182,37 @@ def test_trusted_header_authentication_requires_allowlisted_proxy(client) -> Non
     finally:
         settings.authentication_mode = original_mode
         settings.trusted_proxy_ips = original_proxies
+
+
+def test_federated_invitation_activation_does_not_create_a_local_password(client) -> None:
+    settings = get_settings()
+    original_mode = settings.authentication_mode
+    email = "federated.invitee@example.gov"
+    try:
+        settings.authentication_mode = "trusted_header"
+        with SessionLocal() as db:
+            administrator = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+            assert administrator is not None
+            _, raw_token = create_invitation(
+                db,
+                settings,
+                email=email,
+                role_name="user",
+                inviter=administrator,
+            )
+        page = client.get(f"/invitations/accept?token={raw_token}")
+        assert page.status_code == 200
+        assert 'name="password"' not in page.text
+        accepted = client.post(
+            "/invitations/accept",
+            data={"token": raw_token, "full_name": "Federated Invitee"},
+        )
+        assert accepted.status_code == 303
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.email == email))
+            assert user is not None and user.password_hash is None
+    finally:
+        settings.authentication_mode = original_mode
 
 
 def test_cookie_requests_require_csrf_but_bearer_requests_do_not(client) -> None:
@@ -233,6 +310,22 @@ def test_session_ownership_revocation_and_logout_all(client, make_user) -> None:
     assert logout_all.status_code == 204
     assert client.get("/api/v1/me", headers=bearer(second_token)).status_code == 401
     assert client.get("/api/v1/me", headers=bearer(third_token)).status_code == 401
+
+
+def test_expired_sessions_are_not_reported_as_active(client, make_user) -> None:
+    user = make_user("expired-session@example.gov")
+    first_token = api_login(client, user.email, "Aspen-Compass-64!River")
+    second_token = api_login(client, user.email, "Aspen-Compass-64!River")
+    first_session_id = decode_access_token(first_token, get_settings())["sid"]
+    with SessionLocal() as db:
+        first_session = db.get(RefreshSession, first_session_id)
+        assert first_session is not None
+        first_session.idle_expires_at = utcnow() - timedelta(seconds=1)
+        db.commit()
+    sessions = client.get("/api/v1/me/sessions", headers=bearer(second_token))
+    assert sessions.status_code == 200
+    assert len(sessions.json()) == 1
+    assert sessions.json()[0]["current"] is True
 
 
 def test_non_admin_is_forbidden_and_admin_self_protections_hold(client, make_user) -> None:

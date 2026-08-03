@@ -5,17 +5,20 @@ from urllib.parse import parse_qs, urlparse
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
+from app.config import get_settings
 from app.database import SessionLocal
 from app.main import app
 from app.models import (
     AuditEvent,
     EmailOutbox,
+    Invitation,
     RefreshSession,
     RegistrationVerification,
     User,
     UserStatus,
     utcnow,
 )
+from app.services.auth import create_invitation
 
 ADMIN_EMAIL = "admin@example.gov"
 ADMIN_PASSWORD = "River-Lantern-94!Blue"
@@ -64,14 +67,29 @@ def verify_registration(client, token: str, *, password: str = REGISTRATION_PASS
 
 
 def admin_login(client) -> str:
+    login_page = client.get("/login")
+    preauth_csrf = re.search(r'name="preauth_csrf_token" value="([^"]+)"', login_page.text)
+    assert preauth_csrf is not None
     response = client.post(
         "/login",
-        data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD, "next": "/admin/users"},
+        data={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD,
+            "next": "/admin/users",
+            "preauth_csrf_token": preauth_csrf.group(1),
+        },
     )
     assert response.status_code == 303
     page = client.get("/admin/users")
     assert page.status_code == 200
     return csrf_from(page.text)
+
+
+def login_form_token(client) -> str:
+    page = client.get("/login")
+    match = re.search(r'name="preauth_csrf_token" value="([^"]+)"', page.text)
+    assert match is not None
+    return match.group(1)
 
 
 def test_registration_page_makes_both_gates_explicit(client) -> None:
@@ -86,6 +104,46 @@ def test_registration_page_makes_both_gates_explicit(client) -> None:
     login = client.get("/login")
     assert 'href="register"' in login.text
     assert "administrator approval before signing in" in login.text
+
+
+def test_self_registration_revokes_an_older_invitation_for_the_same_address(client) -> None:
+    settings = get_settings()
+    with SessionLocal() as db:
+        administrator = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert administrator is not None
+        invitation, _ = create_invitation(
+            db,
+            settings,
+            email=REGISTRATION_EMAIL,
+            role_name="user",
+            inviter=administrator,
+        )
+        invitation_id = invitation.id
+    assert request_registration(client).status_code == 202
+    with SessionLocal() as db:
+        invitation = db.get(Invitation, invitation_id)
+        assert invitation is not None and invitation.revoked_at is not None
+
+
+def test_federated_registration_verification_does_not_create_a_password(client) -> None:
+    settings = get_settings()
+    original_mode = settings.authentication_mode
+    try:
+        settings.authentication_mode = "trusted_header"
+        assert request_registration(client).status_code == 202
+        token = verification_token(REGISTRATION_EMAIL)
+        page = client.get(f"/registration/verify?token={token}")
+        assert page.status_code == 200
+        assert 'name="password"' not in page.text
+        verified = client.post("/registration/verify", data={"token": token})
+        assert verified.status_code == 200
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.email == REGISTRATION_EMAIL))
+            assert user is not None
+            assert user.email_verified_at is not None
+            assert user.password_hash is None
+    finally:
+        settings.authentication_mode = original_mode
 
 
 def test_registration_rejects_unapproved_domain_without_creating_state(client) -> None:
@@ -167,6 +225,7 @@ def test_registration_verifies_email_but_blocks_login_until_approval(client) -> 
             "email": REGISTRATION_EMAIL,
             "password": REGISTRATION_PASSWORD,
             "next": "/profile",
+            "preauth_csrf_token": login_form_token(client),
         },
     )
     assert rejected_web.status_code == 400
@@ -206,6 +265,7 @@ def test_admin_approval_activates_registration_and_is_audited(client) -> None:
             "email": REGISTRATION_EMAIL,
             "password": REGISTRATION_PASSWORD,
             "next": "/profile",
+            "preauth_csrf_token": login_form_token(client),
         },
     )
     assert signed_in.status_code == 303

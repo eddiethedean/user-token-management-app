@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
+    BigInteger,
     Column,
     DateTime,
     ForeignKey,
@@ -245,6 +246,14 @@ class UserSecret(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     user: Mapped[User] = relationship()
+
+
+class ApiTokenKeyUsage(Base):
+    __tablename__ = "api_token_key_usage"
+
+    key_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    wrap_count: Mapped[int] = mapped_column(BigInteger, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 Index("ix_sessions_user_active", RefreshSession.user_id, RefreshSession.revoked_at)

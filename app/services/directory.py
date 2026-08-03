@@ -5,7 +5,7 @@ import ssl
 from dataclasses import dataclass
 from typing import Any
 
-import httpx
+import httpx2
 
 from app.config import Settings
 from app.security.email import normalize_email
@@ -61,9 +61,10 @@ async def validate_directory_email(
     email: str,
     settings: Settings,
     *,
-    transport: httpx.AsyncBaseTransport | None = None,
+    transport: httpx2.AsyncBaseTransport | None = None,
 ) -> DirectoryRecord | None:
     """Validate enrollment eligibility; this does not authenticate or identity-proof the user."""
+    canonical_email, _ = normalize_email(email, settings)
     if not settings.directory_lookup_url:
         return None
     headers = {"Accept": "application/json"}
@@ -73,7 +74,7 @@ async def validate_directory_email(
     if settings.directory_lookup_ca_bundle and verify:
         verify = ssl.create_default_context(cafile=settings.directory_lookup_ca_bundle)
     try:
-        async with httpx.AsyncClient(
+        async with httpx2.AsyncClient(
             verify=verify,
             timeout=settings.directory_lookup_timeout_seconds,
             follow_redirects=False,
@@ -81,10 +82,10 @@ async def validate_directory_email(
         ) as client:
             response = await client.get(
                 settings.directory_lookup_url,
-                params={"query": email},
+                params={"query": canonical_email},
                 headers=headers,
             )
-    except httpx.HTTPError as exc:
+    except httpx2.HTTPError as exc:
         if settings.directory_lookup_required:
             raise DirectoryUnavailableError("The government directory is unavailable.") from exc
         log.warning("Directory lookup unavailable; allowing enrollment because fail-closed is off")
@@ -101,7 +102,7 @@ async def validate_directory_email(
         )
         return None
     try:
-        return _parse_record(response.json(), email, settings)
+        return _parse_record(response.json(), canonical_email, settings)
     except DirectoryEligibilityError:
         raise
     except (ValueError, TypeError, DirectoryUnavailableError) as exc:

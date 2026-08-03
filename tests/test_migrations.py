@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 from alembic import command
 from sqlalchemy import create_engine, inspect, select
@@ -47,6 +49,39 @@ def test_migrations_downgrade_cleanly_to_base(tmp_path) -> None:
     command.downgrade(alembic_config(url), "base")
     remaining = set(inspect(create_engine(url)).get_table_names())
     assert remaining <= {"alembic_version"}
+
+
+def test_key_usage_migration_backfills_existing_wrapped_records(tmp_path) -> None:
+    url = sqlite_url(tmp_path / "key-usage-backfill.db")
+    config = alembic_config(url)
+    command.upgrade(config, "0005_atomic_tokens_email")
+    migrated_engine = create_engine(url)
+    with migrated_engine.begin() as connection:
+        connection.exec_driver_sql(
+            """
+            INSERT INTO user_secrets
+                (id, user_id, provider, ciphertext, nonce, encrypted_data_key, key_nonce,
+                 master_key_id, created_at, updated_at, last_used_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "secret-id",
+                "user-id",
+                "advana",
+                "ciphertext",
+                "nonce",
+                "wrapped-key",
+                "key-nonce",
+                "existing-v1",
+                datetime(2026, 1, 1),
+                datetime(2026, 1, 2),
+                None,
+            ),
+        )
+    command.upgrade(config, "head")
+    with migrated_engine.connect() as connection:
+        row = connection.exec_driver_sql("SELECT key_id, wrap_count FROM api_token_key_usage").one()
+        assert row == ("existing-v1", 100_000_001)
 
 
 def test_existing_pre_alembic_schema_is_explicitly_adopted_then_upgraded(tmp_path) -> None:

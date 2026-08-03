@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 class TokenRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=128)
 
 
 class TokenResponse(BaseModel):
@@ -27,8 +27,8 @@ class ProfileUpdate(BaseModel):
 
 
 class PasswordChange(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(max_length=128)
+    new_password: str = Field(max_length=128)
 
 
 class UserView(BaseModel):
@@ -86,7 +86,7 @@ class SecretSlotView(BaseModel):
 
 class InvitationRequest(BaseModel):
     email: EmailStr
-    role: str = "user"
+    role: str = Field(default="user", max_length=64)
 
 
 class AdminUserUpdate(BaseModel):

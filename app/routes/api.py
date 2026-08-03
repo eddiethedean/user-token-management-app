@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,7 @@ from app.dependencies import (
     require_auth,
     set_auth_cookies,
 )
-from app.models import AuditEvent, Invitation, RefreshSession, Role, User, UserStatus
+from app.models import AuditEvent, Invitation, RefreshSession, Role, User, UserStatus, utcnow
 from app.schemas import (
     AdminUserUpdate,
     InvitationRequest,
@@ -49,6 +49,7 @@ from app.services.auth import (
     create_invitation,
     create_session,
     deny_self_registration,
+    lock_administrator_action,
     request_password_reset,
     request_self_registration,
     revoke_all_sessions,
@@ -63,6 +64,7 @@ from app.services.directory import (
 )
 from app.services.rate_limit import check_rate_limit
 from app.services.secrets import (
+    SecretStorageError,
     delete_user_secret,
     list_user_secrets,
     require_secret_provider,
@@ -77,8 +79,8 @@ class EmailRequest(BaseModel):
 
 
 class ResetRequest(BaseModel):
-    token: str
-    new_password: str
+    token: str = Field(min_length=1, max_length=512)
+    new_password: str = Field(max_length=128)
 
 
 async def _csrf_if_cookie(request: Request, auth: AuthContext) -> None:
@@ -232,6 +234,8 @@ def forgot_password(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict[str, str]:
+    if settings.authentication_mode != "local_password":
+        raise HTTPException(status_code=403, detail="Password recovery is disabled")
     check_rate_limit(
         db,
         settings,
@@ -252,6 +256,8 @@ def reset_password(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> None:
+    if settings.authentication_mode != "local_password":
+        raise HTTPException(status_code=403, detail="Password recovery is disabled")
     check_rate_limit(
         db,
         settings,
@@ -297,6 +303,8 @@ async def change_password(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> None:
+    if settings.authentication_mode != "local_password":
+        raise HTTPException(status_code=403, detail="Password changes are disabled")
     await _csrf_if_cookie(request, auth)
     try:
         change_account_password(
@@ -352,6 +360,8 @@ async def put_secret(
             token=payload.token,
             request=request,
         )
+    except SecretStorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     response.headers["Cache-Control"] = "no-store"
@@ -387,9 +397,15 @@ async def remove_secret(
 def list_sessions(
     auth: AuthContext = Depends(require_auth), db: Session = Depends(get_db)
 ) -> list[SessionView]:
+    now = utcnow()
     sessions = db.scalars(
         select(RefreshSession)
-        .where(RefreshSession.user_id == auth.user.id, RefreshSession.revoked_at.is_(None))
+        .where(
+            RefreshSession.user_id == auth.user.id,
+            RefreshSession.revoked_at.is_(None),
+            RefreshSession.idle_expires_at > now,
+            RefreshSession.absolute_expires_at > now,
+        )
         .order_by(RefreshSession.last_seen_at.desc())
     ).all()
     return [
@@ -482,8 +498,12 @@ async def admin_update_user(
     request: Request,
     auth: AuthContext = Depends(require_admin),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> UserView:
     await _csrf_if_cookie(request, auth)
+    if not lock_administrator_action(db, auth.user):
+        db.rollback()
+        raise HTTPException(status_code=403, detail="Administrator required")
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -498,7 +518,8 @@ async def admin_update_user(
                 detail="Use the registration approval endpoint for pending accounts",
             )
         if payload.status == UserStatus.ACTIVE.value and (
-            not user.email_verified_at or not user.password_hash
+            not user.email_verified_at
+            or (settings.authentication_mode == "local_password" and not user.password_hash)
         ):
             raise HTTPException(
                 status_code=400,

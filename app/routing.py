@@ -5,6 +5,9 @@ from urllib.parse import unquote, urlsplit
 from fastapi import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.config import get_settings
+from app.security.client import is_trusted_direct_proxy
+
 _PROXY_ROOT = re.compile(r"^/proxy/\d+(?P<mount>/.*)$")
 
 
@@ -94,9 +97,11 @@ def _safe_base_path(value: str, *, allow_absolute_url: bool = False) -> str:
 
 def app_base_url(request: Request) -> str:
     """Resolve the external mount path for Connect, Workbench, or a root deployment."""
-    connect_base = _safe_base_path(
-        request.headers.get("rstudio-connect-app-base-url", ""), allow_absolute_url=True
-    )
+    connect_base = ""
+    if is_trusted_direct_proxy(request, get_settings()):
+        connect_base = _safe_base_path(
+            request.headers.get("rstudio-connect-app-base-url", ""), allow_absolute_url=True
+        )
     workbench_or_asgi_base = _safe_base_path(str(request.scope.get("root_path", "")))
     return connect_base or workbench_or_asgi_base
 
@@ -105,6 +110,11 @@ def app_path(request: Request, path: str) -> str:
     """Prefix an application-absolute path with its external deployment mount path."""
     normalized = path if path.startswith("/") else f"/{path}"
     return f"{app_base_url(request)}{normalized}"
+
+
+def is_htmx_request(request: Request) -> bool:
+    """Return whether the request was initiated by HTMX."""
+    return request.headers.get("HX-Request", "").casefold() == "true"
 
 
 def cookie_path(request: Request, configured_path: str) -> str:

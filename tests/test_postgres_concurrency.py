@@ -5,35 +5,45 @@ from datetime import timedelta
 from threading import Barrier, Lock
 
 import pytest
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, delete, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 from app.database import Base
 from app.models import (
+    ApiTokenKeyUsage,
     EmailOutbox,
     Invitation,
     PasswordReset,
     RefreshSession,
     RefreshTokenHistory,
+    RegistrationVerification,
     Role,
     User,
+    UserSecret,
     UserStatus,
     utcnow,
 )
 from app.security.passwords import PasswordService
 from app.security.tokens import hash_token, random_token
+from app.services.accounts import CurrentPasswordError, change_password
 from app.services.auth import (
+    AuthenticationError,
     TokenFlowError,
     accept_invitation,
+    authenticate_user,
     complete_password_reset,
     create_invitation,
     create_session,
     ensure_default_roles,
+    lock_administrator_action,
+    request_password_reset,
+    request_self_registration,
     rotate_session,
 )
 from app.services.mailer import deliver_pending_with_metrics, queue_email
+from app.services.secrets import store_user_secret
 
 pytestmark = pytest.mark.postgres
 POSTGRES_TEST_DATABASE_URL = os.environ.get("POSTGRES_TEST_DATABASE_URL", "")
@@ -206,6 +216,254 @@ def test_password_reset_consumption_is_atomic(postgres_sessions) -> None:
         assert sum(verifier.verify(password, user.password_hash) for password in assigned) == 1
 
 
+def test_failed_login_counter_is_atomic_and_terminal(postgres_sessions) -> None:
+    settings = get_settings()
+    email = f"lockout-{uuid.uuid4().hex}@example.gov"
+    with postgres_sessions() as db:
+        user = _new_user(db, email)
+        user.failed_login_attempts = 4
+        db.commit()
+        user_id = user.id
+
+    outcomes = _race(
+        postgres_sessions,
+        lambda db: authenticate_user(db, settings, email, "incorrect-password"),
+    )
+    assert all(isinstance(item, AuthenticationError) for item in outcomes)
+    with postgres_sessions() as db:
+        user = db.get(User, user_id)
+        assert user is not None and user.failed_login_attempts == 5
+        with pytest.raises(AuthenticationError):
+            authenticate_user(
+                db,
+                settings,
+                email,
+                "Initial-River-Password-71",
+            )
+
+
+def test_concurrent_password_reset_requests_leave_one_live_capability(
+    postgres_sessions,
+) -> None:
+    settings = get_settings()
+    email = f"reset-request-{uuid.uuid4().hex}@example.gov"
+    with postgres_sessions() as db:
+        user_id = _new_user(db, email).id
+
+    outcomes = _race(
+        postgres_sessions,
+        lambda db: request_password_reset(db, settings, email),
+    )
+    assert all(not isinstance(item, Exception) for item in outcomes)
+    with postgres_sessions() as db:
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(PasswordReset)
+                .where(PasswordReset.user_id == user_id, PasswordReset.used_at.is_(None))
+            )
+            == 1
+        )
+
+
+def test_concurrent_registration_requests_create_one_account_and_capability(
+    postgres_sessions,
+) -> None:
+    settings = get_settings()
+    email = f"registration-{uuid.uuid4().hex}@example.gov"
+    outcomes = _race(
+        postgres_sessions,
+        lambda db: request_self_registration(
+            db,
+            settings,
+            email=email,
+            full_name="Concurrent Registrant",
+        ),
+    )
+    assert all(not isinstance(item, Exception) for item in outcomes)
+    with postgres_sessions() as db:
+        user = db.scalar(select(User).where(User.email == email))
+        assert user is not None
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(RegistrationVerification)
+                .where(
+                    RegistrationVerification.user_id == user.id,
+                    RegistrationVerification.used_at.is_(None),
+                )
+            )
+            == 1
+        )
+
+
+def test_concurrent_invitation_creation_leaves_one_pending_invitation(
+    postgres_sessions,
+) -> None:
+    settings = get_settings()
+    email = f"invitation-create-{uuid.uuid4().hex}@example.gov"
+    with postgres_sessions() as db:
+        first_admin_id = _new_user(db, f"admin-one-{uuid.uuid4().hex}@example.gov").id
+        second_admin_id = _new_user(db, f"admin-two-{uuid.uuid4().hex}@example.gov").id
+
+    inviter_ids = iter((first_admin_id, second_admin_id))
+    assigned_ids = [next(inviter_ids), next(inviter_ids)]
+    barrier = Barrier(2)
+
+    def invoke(inviter_id):
+        barrier.wait()
+        with postgres_sessions() as db:
+            try:
+                return create_invitation(
+                    db,
+                    settings,
+                    email=email,
+                    role_name="user",
+                    inviter=db.get(User, inviter_id),
+                )
+            except Exception as exc:
+                return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(invoke, assigned_ids))
+    assert all(not isinstance(item, Exception) for item in outcomes)
+    with postgres_sessions() as db:
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(Invitation)
+                .where(
+                    Invitation.email == email,
+                    Invitation.accepted_at.is_(None),
+                    Invitation.revoked_at.is_(None),
+                )
+            )
+            == 1
+        )
+
+
+def test_concurrent_first_secret_write_upserts_one_record(postgres_sessions) -> None:
+    settings = get_settings()
+    with postgres_sessions() as db:
+        user_id = _new_user(db, f"secret-{uuid.uuid4().hex}@example.gov").id
+        initial_usage = db.get(ApiTokenKeyUsage, settings.api_token_active_key_id)
+        initial_count = initial_usage.wrap_count if initial_usage else 0
+
+    token_values = iter(("first-secret-token", "second-secret-token"))
+    assigned_tokens = [next(token_values), next(token_values)]
+    barrier = Barrier(2)
+
+    def invoke(token):
+        barrier.wait()
+        with postgres_sessions() as db:
+            try:
+                return store_user_secret(
+                    db,
+                    settings,
+                    user=db.get(User, user_id),
+                    provider="advana",
+                    token=token,
+                )
+            except Exception as exc:
+                return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(invoke, assigned_tokens))
+    assert all(isinstance(item, UserSecret) for item in outcomes), outcomes
+    with postgres_sessions() as db:
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(UserSecret)
+                .where(UserSecret.user_id == user_id, UserSecret.provider == "advana")
+            )
+            == 1
+        )
+        usage = db.get(ApiTokenKeyUsage, settings.api_token_active_key_id)
+        assert usage is not None and usage.wrap_count == initial_count + 2
+
+
+def test_concurrent_password_changes_have_one_winner(postgres_sessions) -> None:
+    settings = get_settings()
+    first_password = "First-Concurrent-Password-81"
+    second_password = "Second-Concurrent-Password-92"
+    with postgres_sessions() as db:
+        user_id = _new_user(db, f"change-{uuid.uuid4().hex}@example.gov").id
+
+    passwords = iter((first_password, second_password))
+    assigned = [next(passwords), next(passwords)]
+    barrier = Barrier(2)
+
+    def invoke(new_password):
+        barrier.wait()
+        with postgres_sessions() as db:
+            try:
+                change_password(
+                    db,
+                    settings,
+                    user=db.get(User, user_id),
+                    current_password="Initial-River-Password-71",
+                    new_password=new_password,
+                )
+                return True
+            except Exception as exc:
+                return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(invoke, assigned))
+    assert outcomes.count(True) == 1
+    assert sum(isinstance(item, CurrentPasswordError) for item in outcomes) == 1
+
+
+def test_concurrent_administrator_disables_cannot_remove_every_active_admin(
+    postgres_sessions,
+) -> None:
+    with postgres_sessions() as db:
+        first_id = _new_user(db, f"admin-a-{uuid.uuid4().hex}@example.gov").id
+        second_id = _new_user(db, f"admin-b-{uuid.uuid4().hex}@example.gov").id
+        administrator = db.scalar(select(Role).where(Role.name == "administrator"))
+        first = db.get(User, first_id)
+        second = db.get(User, second_id)
+        first.roles = [administrator]
+        second.roles = [administrator]
+        db.commit()
+
+    pairs = iter(((first_id, second_id), (second_id, first_id)))
+    assigned = [next(pairs), next(pairs)]
+    barrier = Barrier(2)
+
+    def invoke(pair):
+        actor_id, target_id = pair
+        barrier.wait()
+        with postgres_sessions() as db:
+            actor = db.get(User, actor_id)
+            if not lock_administrator_action(db, actor):
+                db.rollback()
+                return False
+            target = db.get(User, target_id)
+            target.status = UserStatus.DISABLED.value
+            target.security_version += 1
+            db.commit()
+            return True
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(invoke, assigned))
+    assert sorted(outcomes) == [False, True]
+    with postgres_sessions() as db:
+        administrator = db.scalar(select(Role).where(Role.name == "administrator"))
+        active_administrators = db.scalar(
+            select(func.count())
+            .select_from(User)
+            .join(User.roles)
+            .where(
+                User.id.in_((first_id, second_id)),
+                Role.id == administrator.id,
+                User.status == UserStatus.ACTIVE.value,
+            )
+        )
+        assert active_administrators == 1
+
+
 def test_email_workers_claim_each_message_once(postgres_sessions, monkeypatch) -> None:
     settings = get_settings().model_copy(
         update={"email_backend": "smtp", "smtp_host": "relay.example.gov"}
@@ -221,6 +479,10 @@ def test_email_workers_claim_each_message_once(postgres_sessions, monkeypatch) -
 
     monkeypatch.setattr("app.services.mailer._send_smtp", record_send)
     with postgres_sessions() as db:
+        # Earlier concurrency tests intentionally queue notices. Isolate this worker race
+        # so each worker can only observe the message created for this assertion.
+        db.execute(delete(EmailOutbox))
+        db.commit()
         message = queue_email(db, "worker-race@example.gov", "Notice", "Body")
         db.commit()
         message_id = message.id

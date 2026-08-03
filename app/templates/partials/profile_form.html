@@ -7,6 +7,8 @@
     hx-post="profile"
     hx-target="#profile-form-region"
     hx-swap="outerHTML"
+    hx-sync="this:drop"
+    hx-disabled-elt="find button"
   >
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="field-grid">

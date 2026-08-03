@@ -42,6 +42,8 @@ def test_custom_workbench_port_uses_rserver_url(monkeypatch) -> None:
         "https://user@workbench.example.gov/s/session/p/1",
         "https://workbench.example.gov/s/session/p/1?next=/admin",
         "https://workbench.example.gov/s/session/p/1#fragment",
+        "/s/session\\p/1",
+        "/s/session/p/1\nmalformed",
     ],
 )
 def test_unsafe_rserver_url_output_is_rejected(value: str) -> None:

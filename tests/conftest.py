@@ -20,6 +20,7 @@ os.environ.update(
         "PASSWORD_HASH_SCHEME": "pbkdf2_sha256",
         "PBKDF2_ITERATIONS": "100000",
         "PUBLIC_BASE_URL": "https://registry.example.gov",
+        "TRUSTED_PROXY_IPS": "127.0.0.1",
     }
 )
 
@@ -60,7 +61,7 @@ def client() -> Generator[TestClient, None, None]:
     with SessionLocal() as db:
         ensure_default_roles(db)
     seed_admin()
-    with TestClient(app, follow_redirects=False) as test_client:
+    with TestClient(app, follow_redirects=False, client=("127.0.0.1", 50000)) as test_client:
         yield test_client
 
 

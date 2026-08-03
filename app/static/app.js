@@ -8,3 +8,12 @@ document.addEventListener("click", (event) => {
   button.setAttribute("aria-pressed", revealing ? "true" : "false");
   button.textContent = revealing ? "Hide password" : "Show password";
 });
+
+document.addEventListener("htmx:beforeRequest", (event) => {
+  event.detail.elt.setAttribute("aria-busy", "true");
+  document.getElementById("global-feedback")?.replaceChildren();
+});
+
+document.addEventListener("htmx:afterRequest", (event) => {
+  event.detail.elt.removeAttribute("aria-busy");
+});

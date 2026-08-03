@@ -126,8 +126,9 @@ authentication is available only in `local_password` mode; production requires e
 `PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED=true`. The preferred phishing-resistant boundary is
 `trusted_header` behind an approved CAC/MFA identity-aware proxy. Only an allowlisted immediate
 proxy may assert the configured identity header, exactly one header value is accepted, password
-token issuance is disabled, and the asserted email must match an existing active verified account.
-No header-driven auto-provisioning or role assignment occurs.
+token issuance, recovery, and change are disabled, and the asserted email must match an existing
+active verified account. Invitation acceptance and registration verification do not create a local
+password in this mode. No header-driven auto-provisioning or role assignment occurs.
 
 **Rationale:** Trusted federation keeps primary authentication, CAC validation, MFA policy, and
 credential lifecycle in an approved identity layer while preserving local application
@@ -156,14 +157,17 @@ monitoring, and disabling in the
 **Decision:** `ALLOWED_EMAIL_DOMAINS` is mandatory in production. Email addresses are parsed,
 normalized, and compared against an exact domain allowlist. Invited users receive a single-use
 administrator-created invitation. Self-registering users receive a separate 24-hour, single-use
-verification capability and choose a password only after opening it. The resulting account stays in
+verification capability and, in local-password mode, choose a password only after opening it. The
+resulting account stays in
 `pending` status until an administrator approves it; pending accounts cannot obtain JWTs or browser
 sessions. A newer invitation revokes older outstanding invitations for the same address.
 When `DIRECTORY_LOOKUP_URL` is configured, both enrollment paths also query a bounded-time,
 non-redirecting HTTPS directory endpoint and require the returned record's normalized email to match
 exactly. A private CA bundle and bearer credential are supported. `DIRECTORY_LOOKUP_REQUIRED`
 selects fail-closed or fail-open behavior for service failure; explicit not-found and email mismatch
-always reject enrollment.
+always reject enrollment. Outbound directory requests use the actively maintained HTTPX2 client and
+the operating-system trust store by default; a configured private CA bundle produces an explicit
+certificate-verifying `SSLContext` instead.
 
 **Rationale:** Exact allowlisting prevents suffix tricks. Deferring password setup until mailbox
 verification prevents a requester from pre-claiming someone else's address with a credential they
@@ -265,27 +269,23 @@ that evidence.
 **Status:** Implemented in the application; perimeter and progressive controls remain gaps.
 
 **Decision:** Login uses the same user-facing failure for a missing user, bad password, disabled or
-unverified account, and active lockout. A dummy Argon2 operation is performed when no verifier exists.
-Five consecutive failures lock the account for 15 minutes; successful authentication clears the
-counter. Registration, login, and reset paths additionally increment atomic fixed-window buckets for
+unverified account, and active lockout. A fixed dummy password is verified with the configured
+password scheme when no verifier exists or an oversized candidate is supplied. Five consecutive
+failures atomically disable local-password authentication until a successful password-reset/rebinding
+flow; an ordinary later login cannot clear that terminal state. Registration, login, and reset paths
+additionally increment atomic fixed-window buckets for
 both source address and normalized account email in the shared application database. Bucket keys are
 HMAC-SHA-256 digests under the session pepper, expired buckets are deleted, denials return
 `Retry-After`, and denials are audited without recording the raw bucket key. Authentication outcomes
 are audited.
 
 **Rationale:** Generic responses and comparable expensive work reduce account enumeration. The
-temporary per-account lock and shared source/account windows constrain bursts and provide useful
-defense in depth. NIST permits agencies to choose a threshold lower than 100, but the number alone is
-not a conformance claim: its normative limit culminates in disabling the authenticator and requiring
-rebinding.
+terminal per-account action and shared source/account windows constrain bursts and provide useful
+defense in depth. NIST permits agencies to choose a threshold lower than 100 and requires a terminal
+action when that threshold is reached.
 
-**Gap:** The five-failure lock automatically permits another attempt after 15 minutes and a later
-successful password clears the count. It does not disable and rebind the password authenticator as
-required when reaching NIST's maximum-attempt boundary, so the current control must not be described
-as satisfying SP 800-63B-4 rate limiting. The separate `failed_login_attempts` update is an ORM
-read-modify-write operation, not an atomic cross-worker counter, so simultaneous failures can delay
-that temporary lock. Fixed account lockout can also be abused for denial of service, and neither
-lockout nor fixed windows are a complete defense against distributed password spraying. PostgreSQL
+**Gap:** Terminal account lockout can be abused for denial of service, and neither lockout nor fixed
+windows are a complete defense against distributed password spraying. PostgreSQL
 shares the fixed-window application counters across Connect workers, but the trusted ingress must
 still impose volumetric source limits before requests consume application/database resources and
 should add progressive delay, device/risk signals, and alerting. Boundary bursts are possible, and
@@ -406,19 +406,19 @@ explains the attributes and cookie-prefix tradeoffs.
 
 ### SD-10 — Require synchronizer CSRF tokens for cookie-authenticated changes
 
-**Status:** Implemented, with login CSRF as a gap.
+**Status:** Implemented.
 
 **Decision:** Each database session has an independent random CSRF value. All authenticated
 state-changing browser and cookie-authenticated API requests must return it in a form field or
 `X-CSRF-Token` header; comparison is constant-time. `SameSite=Lax` is defense in depth, not the sole
 control. Authorization-header bearer requests are exempt because browsers do not attach that header
-automatically cross-site.
+automatically cross-site. Password and federated login forms use a separate one-hour signed
+double-submit token in an `HttpOnly`, `SameSite=Strict` cookie scoped to the application mount;
+`CSRF_SECRET` signs that pre-authentication token.
 
 **Rationale:** Cookies are automatically sent by the browser, so authentication alone cannot
 distinguish a forged cross-site request. A server-held synchronizer value supplies that distinction.
 
-**Gap:** the unauthenticated login form has no pre-authentication CSRF mechanism. Assess forced-login
-risk and add an origin check, Fetch Metadata policy, or pre-authentication token before production.
 Reset and invitation forms are authorized by their high-entropy one-time capability, but still
 require URL and log protections described in SD-13.
 
@@ -564,8 +564,8 @@ and retention in the [primary publication](https://doi.org/10.6028/NIST.SP.800-5
 **Decision:** Every application response receives `X-Content-Type-Options: nosniff`,
 `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a restrictive `Permissions-Policy`, and a
 Content Security Policy limited to same-origin scripts, styles, fonts, and connections, with
-`frame-ancestors 'none'`, `base-uri 'self'`, and `form-action 'self'`. Production adds one-year HSTS
-with `includeSubDomains`. HTMX and CSS are vendored and served through `app.frontend()` with no SPA
+`frame-ancestors 'none'`, `base-uri 'self'`, and `form-action 'self'`. Production adds one-year HSTS;
+`includeSubDomains` is enabled only with `HSTS_INCLUDE_SUBDOMAINS=true`. HTMX and CSS are vendored and served through `app.frontend()` with no SPA
 fallback and no runtime CDN or Node dependency.
 
 **Rationale:** These headers reduce script injection impact, clickjacking, MIME confusion, referrer
@@ -595,7 +595,9 @@ affects descendant hosts.
 **Decision:** Production configuration refuses to start with insecure cookies, a non-HTTPS or
 malformed public URL, SQLite, console email, SMTP without a host and STARTTLS, missing domain
 allowlists, weak placeholder application secrets, retained delivered email bodies, or a missing
-offline password blocklist. Interactive API documentation is disabled in production. TLS is
+offline password blocklist. PostgreSQL must use the installed `psycopg` driver. Invalid ports,
+unsafe header-bearing configuration values, malformed routing paths, and missing configured CA
+bundle files also fail validation. Interactive API documentation is disabled in production. TLS is
 expected to terminate at the approved Posit/reverse-proxy boundary; HSTS and Secure cookies are
 applied by the application.
 
@@ -615,7 +617,7 @@ requires an authenticated protected channel when collecting passwords.
 
 ### SD-18 — Keep application secrets out of source and separate by enclave
 
-**Status:** Deployment control, with one configuration cleanup gap.
+**Status:** Application secret uses implemented; lifecycle remains a deployment control.
 
 **Decision:** JWT signing, session-token hashing, SMTP, and database secrets come from deployment
 configuration, not committed values. Production requires long non-placeholder JWT and session
@@ -626,9 +628,8 @@ deployment pipelines; no application feature moves data across the boundary.
 being accepted in another. A managed secret lifecycle provides access control, audit, rotation, and
 incident response that environment files alone cannot.
 
-**Gap:** `CSRF_SECRET` is currently validated but not used; CSRF uses random server-stored session
-values and needs no signing key. Do not list `CSRF_SECRET` as an active control. Remove the dead
-setting, or implement and document a justified cryptographic use, to avoid misleading operators.
+`CSRF_SECRET` signs short-lived pre-authentication login CSRF tokens and is separate from the random
+server-stored synchronizer values used after authentication.
 
 **Deployment control:** use an approved secret manager or protected Connect configuration, generate
 at least 256 random bits for JWT and session secrets, restrict human and service access, prohibit
@@ -649,7 +650,8 @@ deployment control.
 claims due rows atomically with PostgreSQL `FOR UPDATE SKIP LOCKED`, sends outside the claim
 transaction, applies bounded exponential backoff, emits per-batch delivery metrics, and marks
 exhausted messages as dead letters. Operators can explicitly requeue all or one approved dead
-letter. The SMTP backend uses STARTTLS and optional relay authentication. The application sends
+letter. The SMTP backend uses STARTTLS with hostname and certificate validation through the system
+trust store or `SMTP_CA_BUNDLE`, plus optional relay authentication. The application sends
 registration/invitation/reset URLs and account-status or password-change notifications, never
 passwords.
 
@@ -659,7 +661,7 @@ commits. Change notifications give users an independent signal of possible compr
 **Limitations:** SMTP delivery is at-least-once: a process failure after relay acceptance but before
 the final database commit can produce a duplicate message. Production startup requires SMTP,
 STARTTLS, and post-delivery body redaction, but application validation cannot prove the relay's
-certificate policy or operational approval. Pending and dead-lettered bodies still contain
+certificate issuance policy or operational approval. Pending and dead-lettered bodies still contain
 capability URLs and require strict access and retention controls.
 
 **Deployment control:** require an approved enclave-local relay and protected route, verify TLS and
@@ -675,10 +677,11 @@ supports excluding or specially protecting token and session values.
 
 ### SD-20 — Trust proxy routing data only at an isolated ingress
 
-**Status:** Implemented parsing; trust enforcement is a deployment control.
+**Status:** Implemented parsing and direct-peer enforcement; ingress isolation is a deployment control.
 
 **Decision:** The application derives its external mount path from Posit Connect's
-`RStudio-Connect-App-Base-URL` or the ASGI `root_path` used by Workbench. Values are reduced to a
+`RStudio-Connect-App-Base-URL` only when the direct peer is allowlisted, or from the ASGI `root_path`
+used by Workbench. Values are reduced to a
 same-origin absolute path and values containing protocol-relative paths, backslashes, query strings,
 fragments, or control characters are rejected. The result prefixes application links and scopes
 cookies. A narrow middleware also handles duplicate ASGI root paths, Workbench
@@ -714,13 +717,13 @@ eavesdropping, injection, and replay.
 
 **Status:** Versioned schema control implemented; production operation is a deployment control.
 
-**Decision:** Five ordered Alembic revisions create the baseline, self-registration, shared
-rate-limit, user API-secret, and atomic-token/email-worker schemas. Application startup verifies the
+**Decision:** Six ordered Alembic revisions create the baseline, self-registration, shared
+rate-limit, user API-secret, atomic-token/email-worker, and encryption-key-usage schemas. Application startup verifies the
 current revision and refuses to serve a stale or unversioned schema; `python -m app migrate` is an
 explicit release action. Legacy `create_all()` databases require the explicit `--adopt-existing`
 path, which verifies known table/column shapes before stamping and upgrading. Administrator
-bootstrap is a separate `create-admin` command and is never migration data. Production is expected
-to use the PostgreSQL optional dependency and an approved managed or operated database, backup,
+bootstrap is a separate `create-admin` command and is never migration data. The production core
+dependency set includes the `psycopg` PostgreSQL driver; deployment still requires an approved managed or operated database, backup,
 migration, encryption, access-control, monitoring, and recovery process.
 
 **Rationale:** Credential, session, outbox, profile, role, and audit data require concurrent access,
@@ -765,7 +768,13 @@ official `v2.0.10` tagged distribution, and has SHA-256
 `71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de`. HTMX's built-in indicator
 style injection is disabled declaratively because the local stylesheet supplies the indicator
 rules; this keeps HTMX from attempting an inline style that the application's CSP intentionally
-blocks.
+blocks. HTMX expression evaluation and response script execution are disabled. Sensitive page
+snapshots are excluded from HTMX history and its localStorage cache is set to zero; URL-aware
+filtering therefore restores through a server request. Mutation endpoints negotiate fragments only
+for `HX-Request: true`; ordinary form submissions redirect to or render complete pages. Expected
+error fragments remain visible for `4xx` and `5xx` responses, while unexpected HTMX errors are
+retargeted to a global live region and expired sessions receive `HX-Redirect` independently of the
+browser's `Accept` header.
 
 **Rationale:** This architecture fits Workbench's no-Node environment and keeps the security boundary
 on the Python server. A small, self-hosted script surface supports a restrictive CSP and removes a
@@ -776,9 +785,9 @@ and server authorization remain required.
 Python dependencies through the approved supply-chain process, and never render untrusted values with
 Jinja's `safe` escape bypass without a security review.
 
-**Gap:** compatible dependency ranges are declared, but the repository has no committed lockfile,
-software bill of materials, or recorded HTMX acquisition/provenance evidence. Supply-chain review is
-therefore a production gate, not an implemented control.
+**Gap:** a cross-platform `uv.lock` is committed, but the repository has no software bill of
+materials or recorded HTMX acquisition/provenance evidence. Approved vulnerability scanning,
+artifact attestation, and supply-chain review remain production gates.
 
 **Evidence:** [FastAPI Frontend](https://fastapi.tiangolo.com/tutorial/frontend/) documents route
 precedence, middleware application, static-output serving, and disabled fallback. [Jinja Autoescaping](https://jinja.palletsprojects.com/en/stable/api/#autoescaping)
@@ -800,12 +809,14 @@ the app-base and credentials headers, original-request and forwarded metadata, c
 `root_path` where applicable, and an optional `connect.workerid` cookie. The proxy strips
 client-supplied platform and forwarding headers before replacing them. A real Chromium context
 connects to the simulation over TLS while the application runs with `COOKIE_SECURE=true`. It
-exercises login, HTMX form submission, static assets, host-only cookie behavior, path isolation,
-expiry, `Secure`, `HttpOnly`, `SameSite`, JavaScript invisibility, access-token loss followed by
-refresh rotation, replay rejection, logout cookie deletion, server-side denial of both former
-credentials after logout, and preservation of Connect's unrelated worker cookie. The credentials
-header tests coexistence with the platform and is deliberately not accepted as this application's
-authenticator. Unit tests separately cover malformed path and launcher inputs.
+exercises login, successful and rejected HTMX form submissions, out-of-band identity updates,
+debounced filtering with URL synchronization, absence of HTMX history storage, static assets,
+host-only cookie behavior, path isolation, expiry, `Secure`, `HttpOnly`, `SameSite`, JavaScript
+invisibility, access-token loss followed by refresh rotation, replay rejection, logout cookie
+deletion, server-side denial of both former credentials after logout, and preservation of Connect's
+unrelated worker cookie. The credentials header tests coexistence with the platform and is
+deliberately not accepted as this application's authenticator. Unit tests separately cover malformed
+path and launcher inputs.
 
 **Rationale:** `TestClient` is valuable for deterministic route and header coverage but does not
 apply a browser's cookie-selection rules, execute HTMX, or reproduce a reverse proxy's path and
@@ -862,7 +873,12 @@ authenticated data binds both ciphertexts to the environment-independent format 
 secret record, and provider. The database stores the ciphertexts, nonces, and non-secret master-key
 identifier. Old master keys remain in the configured key ring while records reference them. Creation,
 replacement, deletion, and run-boundary use are audited without token material. Authenticated token
-pages and API responses set `Cache-Control: no-store`.
+pages and API responses set `Cache-Control: no-store`. Each data-key wrap atomically increments a
+database counter for its master-key ID. The operation fails closed at
+`API_TOKEN_MAX_WRAPS_PER_KEY` (one million by default). Because historical replacements cannot be
+reliably attributed to a key, migration marks every key with pre-counter ciphertext above the
+maximum configurable ceiling. Those keys remain available for decryption but cannot wrap again;
+operators must configure a fresh active key after upgrade.
 
 **Research-backed rationale:**
 
@@ -870,7 +886,7 @@ pages and API responses set `Cache-Control: no-store`.
 | --- | --- | --- |
 | Treat saved values as bearer capabilities | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-5) explains that any party possessing a bearer token can use it and identifies disclosure and replay as threats. This supports TLS, encrypted storage, non-reveal responses, and never placing values in URLs. | These controls do not narrow the privileges encoded by Advana, ADE, or MSS. Users must issue the least-privileged token at the provider. |
 | Exactly three provider slots, fixed environment-variable names, and owner-scoped queries | [OWASP Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#enforce-least-privileges) recommends least privilege, deny-by-default behavior, and permission checks on every request. An allowlist prevents users from inventing environment-variable names that could alter runner behavior; owner predicates prevent cross-user object access. | A compromised owner account can replace or delete that owner's tokens. The current AAL1-style authentication boundary may be insufficient for high-value credentials. |
-| Per-record AES-256-GCM with fresh 96-bit nonces and context-bound AAD | [NIST SP 800-38D](https://doi.org/10.6028/NIST.SP.800-38D) specifies GCM as authenticated encryption with associated data, and the [`cryptography` AES-GCM API](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM) requires a nonce never be reused with a key. Random per-record data keys and fresh nonces protect confidentiality and detect modification; AAD causes decryption to fail if ciphertext is moved to a different owner, record, provider, or purpose. | Randomness depends on the operating-system CSPRNG. The shared key-encryption key processes many random nonces across all app instances; SP 800-38D's RBG-construction limits and collision budget apply to aggregate key use. The application does not currently count invocations per key. The deployed module and environment still need required FIPS evidence. |
+| Per-record AES-256-GCM with fresh 96-bit nonces and context-bound AAD | [NIST SP 800-38D](https://doi.org/10.6028/NIST.SP.800-38D) specifies GCM as authenticated encryption with associated data, and the [`cryptography` AES-GCM API](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM) requires a nonce never be reused with a key. Random per-record data keys and fresh nonces protect confidentiality and detect modification; AAD causes decryption to fail if ciphertext is moved to a different owner, record, provider, or purpose. | Randomness depends on the operating-system CSPRNG. An atomic aggregate counter fails closed at a conservative configured wrap limit, but the organization must approve that ceiling, monitor it, and rotate early. The deployed module and environment still need required FIPS evidence. |
 | Envelope encryption and a versioned key ring separate from the database and auth keys | [NIST SP 800-57 Part 1 Rev. 5](https://doi.org/10.6028/NIST.SP.800-57pt1r5) covers protection, lifecycle, cryptoperiods, backup, and recovery of keying material. [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-management) recommends storing keys separately from encrypted data and designing for rotation. The active key protects new data while retained key identifiers permit controlled migration and recovery. | The key ring is available to the FastAPI process. Database-only theft does not disclose plaintext, but application-host or key-ring compromise can. Loss of an old referenced key permanently loses the associated tokens. |
 | No plaintext read endpoint or UI reveal | GitHub's [Actions secrets REST API](https://docs.github.com/en/rest/actions/secrets) lists secret metadata without returning encrypted values. Following that pattern reduces routine exposure in browsers, support workflows, and admin tooling. | This is product-level non-disclosure, not end-to-end encryption. Privileged host operators and trusted application code remain in the security boundary. |
 | Metadata-only audit events and no-store responses | [OWASP Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#23-logging) says secrets must not be logged and recommends auditing who requested or used them. GitHub warns that [automatic redaction is not guaranteed](https://docs.github.com/en/actions/reference/security/secure-use#using-secrets), so correctness cannot depend on a masking heuristic. | Application, proxy, runner, artifact, exception, and crash-dump paths all require deployment testing. `no-store` controls caching; it cannot prevent a compromised browser or endpoint from reading a token while it is entered. |
@@ -898,10 +914,9 @@ at rest and in memory before process startup as documented in its
 [content settings](https://docs.posit.co/connect/user/content-settings/#environment-variables), but
 the FastAPI process necessarily receives plaintext; an approved secret manager or protected
 key-file/HSM boundary is preferable when available. The
-current implementation also does not enforce SP 800-38D's aggregate invocation bound for random GCM
-nonces under one master key and supplies no rewrap migration. Before production, implement and
-monitor a conservative per-key write/replace limit across all instances, rotate well before the
-standard's bound, and retain prior keys until their records are rewrapped or deleted.
+application enforces an atomic per-key wrap ceiling but does not automatically rewrap existing
+records. Monitor the counter, rotate well before the configured ceiling, and retain prior keys until
+their records are rewrapped by an approved procedure or deleted.
 
 **Evidence:**
 
@@ -953,9 +968,9 @@ authorization evidence.
       separately, the application run supervisor passes an explicit child environment containing no
       parent secrets except the selected provider token. Secret values never enter command arguments,
       URLs, logs, artifacts, exception reports, or crash dumps.
-- [ ] **Code gap:** count API-token key usage across all application instances, enforce a reviewed
-      per-key GCM invocation/rotation threshold well below the SP 800-38D bound, and provide a tested
-      rewrap migration before retiring old keys.
+- [ ] The atomic API-token key-usage counter is monitored, its per-key ceiling is approved well below
+      the applicable SP 800-38D bound, rotation occurs early, and an approved rewrap procedure is
+      tested before retiring old keys.
 - [ ] Token-management authentication strength and any step-up/reauthentication requirement are
       approved for the value of the stored credentials; provider-side issuance uses the minimum
       possible scope and lifetime, and revocation/rotation procedures are tested.
@@ -973,13 +988,13 @@ authorization evidence.
       and has tests proving header spoofing cannot bypass the proxy boundary.
 - [ ] Cookie set, refresh, deletion, path isolation, SameSite, and expiry have been tested through
       both Connect and Workbench routes.
-- [ ] **Code gap:** implement the selected NIST-aligned terminal action for excessive consecutive
-      password failures, including an atomic cross-worker counter, authenticator disablement, and
-      approved rebinding/recovery; the current automatic 15-minute unlock is not represented as
-      SP 800-63B-4 conformant.
+- [ ] The atomic five-failure terminal password disablement and approved reset/rebinding procedure
+      are exercised against production PostgreSQL, monitored for denial-of-service abuse, and
+      reflected in help-desk recovery procedures.
 - [ ] Database-backed source/account throttling is enabled and tested on production PostgreSQL;
       ingress volumetric throttling, progressive delay/device-risk controls, enumeration timing
-      tests, alerting, and login-CSRF treatment are approved.
+      tests and alerting are approved; signed pre-authentication CSRF behavior is verified through
+      the production proxy.
 - [ ] Conditional capability-consumption and refresh-family replay tests pass concurrently on the
       production PostgreSQL version and topology.
 - [ ] `Cache-Control: no-store` behavior is verified through the production proxy for authenticated

@@ -1,3 +1,5 @@
+import re
+
 from fastapi import Request
 from sqlalchemy import select
 
@@ -112,13 +114,28 @@ def test_browser_rate_limit_has_html_response_and_retry_header(client) -> None:
     settings.rate_limit_login_per_source = 1
     settings.rate_limit_login_per_account = 1
     try:
-        client.post(
+        page = client.get("/login")
+        token_match = re.search(r'name="preauth_csrf_token" value="([^"]+)"', page.text)
+        assert token_match is not None
+        rejected = client.post(
             "/login",
-            data={"email": "missing@example.gov", "password": "wrong", "next": "/profile"},
+            data={
+                "email": "missing@example.gov",
+                "password": "wrong",
+                "next": "/profile",
+                "preauth_csrf_token": token_match.group(1),
+            },
         )
+        token_match = re.search(r'name="preauth_csrf_token" value="([^"]+)"', rejected.text)
+        assert token_match is not None
         limited = client.post(
             "/login",
-            data={"email": "missing@example.gov", "password": "wrong", "next": "/profile"},
+            data={
+                "email": "missing@example.gov",
+                "password": "wrong",
+                "next": "/profile",
+                "preauth_csrf_token": token_match.group(1),
+            },
             headers={"Accept": "text/html"},
         )
         assert limited.status_code == 429

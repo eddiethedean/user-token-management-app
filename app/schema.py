@@ -21,6 +21,7 @@ REGISTRATION_TABLE = "registration_verifications"
 RATE_LIMIT_TABLE = "rate_limit_buckets"
 USER_SECRET_TABLE = "user_secrets"
 ATOMIC_SUPPORT_TABLES = {"refresh_token_history", "email_delivery_state"}
+KEY_USAGE_TABLE = "api_token_key_usage"
 
 
 def alembic_config(database_url: str | None = None) -> Config:
@@ -78,6 +79,10 @@ def adopt_existing_schema(db_engine: Engine = engine) -> str:
         raise RuntimeError(
             "Existing schema has atomic-token/email-worker tables without user API secrets."
         )
+    if KEY_USAGE_TABLE in tables and not ATOMIC_SUPPORT_TABLES <= tables:
+        raise RuntimeError(
+            "Existing schema has API-token key accounting without the preceding atomic schema."
+        )
     known_existing_tables = CORE_TABLES | {
         table_name
         for table_name in (
@@ -85,6 +90,7 @@ def adopt_existing_schema(db_engine: Engine = engine) -> str:
             RATE_LIMIT_TABLE,
             USER_SECRET_TABLE,
             *sorted(ATOMIC_SUPPORT_TABLES),
+            KEY_USAGE_TABLE,
         )
         if table_name in tables
     }
@@ -93,7 +99,9 @@ def adopt_existing_schema(db_engine: Engine = engine) -> str:
         actual = {column["name"] for column in inspector.get_columns(table_name)}
         if expected != actual:
             raise RuntimeError(f"Existing table {table_name!r} does not match the baseline schema.")
-    if ATOMIC_SUPPORT_TABLES <= tables:
+    if KEY_USAGE_TABLE in tables:
+        revision = "0006_api_key_usage"
+    elif ATOMIC_SUPPORT_TABLES <= tables:
         revision = "0005_atomic_tokens_email"
     elif USER_SECRET_TABLE in tables:
         revision = "0004_user_api_secrets"

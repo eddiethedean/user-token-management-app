@@ -12,6 +12,11 @@ page updates, and FastAPI's `app.frontend()` serves the downloaded, repository-l
 be used by a developer as an optional asset-authoring shortcut, but neither startup nor deployment
 invokes Node, npm, or a JavaScript build step.
 
+Mutation forms remain usable without JavaScript and redirect back to complete pages. With HTMX,
+validation fragments, request indicators, duplicate-submit suppression, out-of-band consistency
+updates, and URL-aware administrator filtering avoid full-page reloads. HTMX expression evaluation,
+response script execution, and localStorage history snapshots are disabled.
+
 ## Capabilities
 
 - Government-email invitations and verification
@@ -72,9 +77,10 @@ pytest
 ```
 
 The live browser suite starts the actual application behind named Posit proxy profiles over local
-HTTPS with `COOKIE_SECURE=true`. It verifies login, HTMX updates, static assets, cookie issuance and
-path isolation, refresh rotation and replay rejection, server-side logout revocation, and deletion
-across:
+HTTPS with `COOKIE_SECURE=true`. It verifies login, successful and rejected HTMX swaps,
+out-of-band updates, administrator filtering and URL synchronization, disabled HTMX history
+storage, static assets, cookie issuance and path isolation, refresh rotation and replay rejection,
+server-side logout revocation, and deletion across:
 
 - current Connect GUID content with an app-base header, content-aware ASGI `root_path`, forwarded
   request metadata, Connect credentials, and a sticky-worker cookie (the app intentionally ignores
@@ -129,23 +135,32 @@ COOKIE_SECURE=true
 COOKIE_PATH=auto
 API_TOKEN_ENCRYPTION_KEYS={"v1":"<base64-encoded-32-byte-key>"}
 API_TOKEN_ACTIVE_KEY_ID=v1
+API_TOKEN_MAX_WRAPS_PER_KEY=1000000
 DATABASE_URL=postgresql+psycopg://<user>:<password>@<host>/<database>
 EMAIL_BACKEND=smtp
 SMTP_HOST=<approved-relay>
 SMTP_STARTTLS=true
+# Optional when the relay uses an organization-specific trust anchor:
+SMTP_CA_BUNDLE=/path/to/organization-ca.pem
 EMAIL_REDACT_SENT_BODIES=true
 ```
 
 Production startup rejects HTTP public URLs, SQLite, console email, SMTP without STARTTLS, and
 unredacted delivered mail. It also requires an approved offline password blocklist.
 
+Revision `0006_api_key_usage` treats every master key with pre-counter ciphertext as decrypt-only,
+because its historical wrap count cannot be reconstructed safely. Before that upgrade, add a fresh
+key to `API_TOKEN_ENCRYPTION_KEYS` and select it with `API_TOKEN_ACTIVE_KEY_ID`; retain old keys for
+decrypting their existing records.
+
 For federal or other phishing-resistant deployments, prefer an approved CAC/MFA identity-aware
 proxy and set `AUTHENTICATION_MODE=trusted_header`. Configure `TRUSTED_IDENTITY_HEADER` and restrict
 `TRUSTED_PROXY_IPS` to the immediate proxy. That proxy must authenticate the user, remove every
 client-supplied instance of the identity header, and inject exactly one normalized account email.
 The application accepts only existing active verified accounts and still owns authorization roles;
-it does not auto-provision from the header. Password sign-in remains available only in
-`local_password` mode, which production refuses unless
+it does not auto-provision from the header. Invitation acceptance and registration verification do
+not create a local password in this mode, and password sign-in, recovery, and change endpoints are
+disabled. Local passwords remain available only in `local_password` mode, which production refuses unless
 `PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED=true` records the deployment decision.
 
 Leave `COOKIE_PATH=auto` so authentication cookies are scoped at request time to the application URL
@@ -157,7 +172,8 @@ deployment by
 
 Set `TRUSTED_PROXY_IPS` only to the immediate Connect/Workbench or ingress proxy addresses that
 replace client-supplied forwarding headers. If the direct peer is not allowlisted, the app ignores
-`X-Forwarded-For` and throttles by the peer address.
+`X-Forwarded-For` and `RStudio-Connect-App-Base-URL`, throttles by the peer address, and does not use
+the supplied Connect mount path.
 
 ## Posit Workbench routing
 
@@ -193,7 +209,8 @@ python -m app serve --port 8050 --reload
   `sessionStorage`). Cookies are still endpoint-held bearer credentials and remain sensitive.
 - User API tokens are restricted to the Advana, ADE, and MSS provider slots. Each value is
   encrypted with its own AES-256-GCM data key, the data key is wrapped by a separately configured
-  versioned master key, and neither the UI nor API offers plaintext retrieval. Keep old keys in
+  versioned master key, and aggregate wraps are atomically capped per key across workers. Neither
+  the UI nor API offers plaintext retrieval. Keep old keys in
   `API_TOKEN_ENCRYPTION_KEYS` for as long as any stored record references them.
 - "Owner-only" means the product authorizes only the owning user to create, replace, or delete a
   token and never reveals its saved plaintext. It does not mean end-to-end encryption: the trusted

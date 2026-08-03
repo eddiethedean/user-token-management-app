@@ -15,6 +15,7 @@ from app.routing import (
     cookie_path,
     normalize_workbench_scope,
 )
+from app.security.csrf import issue_preauth_csrf, validate_preauth_csrf
 from app.security.email import EmailPolicyError, normalize_email
 from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
 from app.security.tokens import (
@@ -40,7 +41,9 @@ def settings(**updates) -> Settings:
     return Settings(_env_file=None, **values)
 
 
-def request(*, root_path: str = "", connect_base: str = "") -> Request:
+def request(
+    *, root_path: str = "", connect_base: str = "", direct_ip: str = "127.0.0.1"
+) -> Request:
     headers = []
     if connect_base:
         headers.append((b"rstudio-connect-app-base-url", connect_base.encode()))
@@ -54,6 +57,7 @@ def request(*, root_path: str = "", connect_base: str = "") -> Request:
             "root_path": root_path,
             "query_string": b"",
             "headers": headers,
+            "client": (direct_ip, 50000),
         }
     )
 
@@ -131,6 +135,8 @@ def test_argon2_hashing_and_cross_scheme_rehash() -> None:
     assert not argon.needs_rehash(encoded)
     pbkdf2 = PasswordService(settings()).hash("Granite-Trail-54!North")
     assert argon.needs_rehash(pbkdf2)
+    assert not argon.verify("anything", "$argon2-malformed")
+    assert not argon.verify("x" * 100_000, encoded)
 
 
 def test_random_and_hashed_tokens_are_non_reversible_and_pepper_bound() -> None:
@@ -140,6 +146,15 @@ def test_random_and_hashed_tokens_are_non_reversible_and_pepper_bound() -> None:
     assert len(first) >= 40
     assert hash_token(first, "pepper-one") != hash_token(first, "pepper-two")
     assert first not in hash_token(first, "pepper-one")
+
+
+def test_preauth_csrf_is_signed_bound_and_short_lived() -> None:
+    token_settings = settings()
+    token = issue_preauth_csrf(token_settings, issued_at=1_000)
+    assert validate_preauth_csrf(token, token, token_settings, now=1_001)
+    assert not validate_preauth_csrf(f"{token}x", token, token_settings, now=1_001)
+    assert not validate_preauth_csrf(token, token, settings(csrf_secret="x" * 32), now=1_001)
+    assert not validate_preauth_csrf(token, token, token_settings, now=4_601)
 
 
 def test_jwt_round_trip_and_required_claims() -> None:
@@ -208,6 +223,15 @@ def test_proxy_routing_precedence_and_cookie_override() -> None:
     assert cookie_path(connect_request, "auto") == "/content/app"
     assert cookie_path(connect_request, "/explicit") == "/explicit"
     assert cookie_path(request(), "auto") == "/"
+
+
+def test_connect_mount_header_is_ignored_from_an_untrusted_direct_client() -> None:
+    spoofed = request(
+        connect_base="https://connect.example.gov/content/attacker/",
+        direct_ip="198.51.100.25",
+    )
+    assert app_base_url(spoofed) == ""
+    assert app_path(spoofed, "profile") == "/profile"
 
 
 def test_workbench_scope_strips_root_path_when_uvicorn_includes_it_in_path() -> None:
@@ -301,8 +325,12 @@ def production_values(**updates) -> dict:
         {"email_backend": "console"},
         {"smtp_starttls": False},
         {"database_url": "sqlite:///production.db"},
+        {"database_url": "postgresql://registry@db.example.gov/registry"},
+        {"database_url": "postgresql+psycopg://registry@db.example.gov"},
         {"public_base_url": "http://registry.example.gov"},
+        {"public_base_url": "https://registry.example.gov:invalid"},
         {"public_base_url": "https://user:secret@registry.example.gov"},
+        {"public_base_url": "https://registry.example.gov//unsafe"},
         {"password_only_production_risk_accepted": False},
         {
             "authentication_mode": "trusted_header",
@@ -312,6 +340,11 @@ def production_values(**updates) -> dict:
         {"email_redact_sent_bodies": False},
         {"password_blocklist_path": ""},
         {"cookie_path": "relative"},
+        {"cookie_path": "//attacker.example"},
+        {"cookie_path": "/safe\\escape"},
+        {"smtp_host": "relay.example.gov\nBcc: attacker@example.test"},
+        {"email_from": "not-an-email"},
+        {"smtp_username": "", "smtp_password": "orphaned-secret"},
         {"api_token_encryption_keys": {}},
         {"api_token_active_key_id": "missing"},
         {

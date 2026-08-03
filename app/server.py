@@ -29,7 +29,12 @@ def _normalize_root_path(value: str, *, allow_absolute_url: bool = False) -> str
     path = candidate.rstrip("/")
     if path in {"", "/"}:
         return ""
-    if not path.startswith("/") or path.startswith("//"):
+    if (
+        not path.startswith("/")
+        or path.startswith("//")
+        or "\\" in path
+        or any(ord(character) < 32 or ord(character) == 127 for character in path)
+    ):
         raise RuntimeError(f"Invalid ASGI root path returned for Workbench: {path!r}")
     return path
 

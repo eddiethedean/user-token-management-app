@@ -9,17 +9,6 @@
     <div class="panel-heading"><div><h2>Profile details</h2><p>Information shown to application administrators.</p></div></div>
     {% include "partials/profile_form.html" %}
   </section>
-  <aside class="panel identity-panel">
-    <div class="identity-avatar">{{ (current_user.full_name or current_user.email_original)[0] | upper }}</div>
-    <h2>{{ current_user.full_name or 'Account holder' }}</h2>
-    <p>{{ current_user.email_original }}</p>
-    <dl class="detail-list">
-      <div><dt>Account status</dt><dd><span class="pill pill-active">{{ current_user.status }}</span></dd></div>
-      <div><dt>Access level</dt><dd>{{ current_user.role_names | join(', ') | title }}</dd></div>
-      <div><dt>Created</dt><dd>{{ current_user.created_at.strftime('%b %d, %Y') }}</dd></div>
-      <div><dt>Last sign-in</dt><dd>{{ current_user.last_login_at.strftime('%b %d, %Y %H:%M') if current_user.last_login_at else 'First session' }}</dd></div>
-    </dl>
-    <a class="button button-secondary button-wide" href="security">Review account security</a>
-  </aside>
+  {% include "partials/profile_identity.html" %}
 </div>
 {% endblock %}

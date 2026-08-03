@@ -8,8 +8,8 @@ HTMX_PATH = PROJECT_ROOT / "app" / "static" / "htmx.min.js"
 HTMX_VERSION = "2.0.10"
 HTMX_SHA256 = "71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de"
 APP_JS_PATH = PROJECT_ROOT / "app" / "static" / "app.js"
-APP_JS_VERSION = "20260803-1"
-APP_JS_SHA256 = "99d3f54014fb2d407fb9b252eeea9b479ff68f9fe4e711617c372e3fe5679625"
+APP_JS_VERSION = "20260803-2"
+APP_JS_SHA256 = "cd030bdefba50a1f9a061a5769c2818dd97738023a1a34782240cd7f0a82f163"
 
 
 class ScriptSourceParser(HTMLParser):
@@ -41,7 +41,7 @@ def test_vendored_htmx_has_the_reviewed_release_digest() -> None:
 
 def test_local_application_script_has_reviewed_digest() -> None:
     contents = APP_JS_PATH.read_bytes()
-    assert len(contents) == 468
+    assert len(contents) == 767
     assert hashlib.sha256(contents).hexdigest() == APP_JS_SHA256
 
 
@@ -57,9 +57,11 @@ def test_every_page_uses_pinned_same_origin_scripts(client) -> None:
         sources = script_sources(response.text)
 
         assert sources == expected_sources
-        assert '<meta name="htmx-config" content=\'{"includeIndicatorStyles":false}\'>' in (
-            response.text
-        )
+        assert '"allowEval":false' in response.text
+        assert '"allowScriptTags":false' in response.text
+        assert '"historyCacheSize":0' in response.text
+        assert '"[45]..","swap":true' in response.text
+        assert 'hx-history="false"' in response.text
         assert urlparse(sources[0]).scheme == ""
         assert urlparse(sources[0]).netloc == ""
         assert "script-src 'self'" in response.headers["content-security-policy"]

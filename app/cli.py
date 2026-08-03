@@ -13,7 +13,7 @@ from app.schema import assert_schema_current, current_revision, head_revision, u
 from app.security.email import normalize_email
 from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
 from app.server import run_server
-from app.services.auth import ensure_default_roles
+from app.services.auth import ensure_default_roles, revoke_all_sessions
 from app.services.mailer import deliver_pending, deliver_pending_with_metrics, retry_failed
 
 
@@ -24,27 +24,35 @@ def create_admin(email: str, password: str | None = None) -> int:
         ensure_default_roles(db)
         canonical, original = normalize_email(email, settings)
         existing = db.scalar(select(User).where(User.email == canonical))
-        if password is None:
-            password = getpass.getpass("Password: ")
-            confirmation = getpass.getpass("Confirm password: ")
-            if password != confirmation:
-                print("Passwords do not match.", file=sys.stderr)
+        validated = None
+        if settings.authentication_mode == "local_password":
+            if password is None:
+                password = getpass.getpass("Password: ")
+                confirmation = getpass.getpass("Confirm password: ")
+                if password != confirmation:
+                    print("Passwords do not match.", file=sys.stderr)
+                    return 2
+            try:
+                validated = validate_password(
+                    password,
+                    email=canonical,
+                    blocklist_path=settings.password_blocklist_path,
+                )
+            except PasswordPolicyError as exc:
+                print(str(exc), file=sys.stderr)
                 return 2
-        try:
-            validated = validate_password(
-                password,
-                email=canonical,
-                blocklist_path=settings.password_blocklist_path,
-            )
-        except PasswordPolicyError as exc:
-            print(str(exc), file=sys.stderr)
-            return 2
         role = db.scalar(select(Role).where(Role.name == "administrator"))
         if existing:
-            existing.password_hash = PasswordService(settings).hash(validated)
-            existing.password_changed_at = utcnow()
+            existing.password_hash = (
+                PasswordService(settings).hash(validated) if validated is not None else None
+            )
+            existing.password_changed_at = utcnow() if validated is not None else None
             existing.email_verified_at = existing.email_verified_at or utcnow()
             existing.status = UserStatus.ACTIVE.value
+            existing.failed_login_attempts = 0
+            existing.locked_until = None
+            existing.security_version += 1
+            revoke_all_sessions(db, existing)
             if role and role not in existing.roles:
                 existing.roles.append(role)
             user = existing
@@ -54,8 +62,10 @@ def create_admin(email: str, password: str | None = None) -> int:
                 email_original=original,
                 email_verified_at=utcnow(),
                 status=UserStatus.ACTIVE.value,
-                password_hash=PasswordService(settings).hash(validated),
-                password_changed_at=utcnow(),
+                password_hash=(
+                    PasswordService(settings).hash(validated) if validated is not None else None
+                ),
+                password_changed_at=utcnow() if validated is not None else None,
                 roles=[role] if role else [],
             )
             db.add(user)

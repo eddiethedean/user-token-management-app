@@ -8,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from pwdlib import PasswordHash
+from pwdlib.exceptions import PwdlibError
 
 from app.config import Settings
 
@@ -19,6 +20,7 @@ COMMON_PASSWORDS = {
     "qwertyqwertyqwerty",
     "welcome123456789",
 }
+DUMMY_PASSWORD = "constant-time-password-verification-value"
 
 
 class PasswordPolicyError(ValueError):
@@ -85,11 +87,17 @@ class PasswordService:
 
     def verify(self, password: str, password_hash: str | None) -> bool:
         password = normalize_password(password)
+        if len(password) > 128:
+            self.hash(DUMMY_PASSWORD)
+            return False
         if not password_hash:
-            self._argon2.hash(password)
+            self.hash(DUMMY_PASSWORD)
             return False
         if password_hash.startswith("$argon2"):
-            return self._argon2.verify(password, password_hash)
+            try:
+                return self._argon2.verify(password, password_hash)
+            except PwdlibError:
+                return False
         if password_hash.startswith("pbkdf2_sha256$"):
             try:
                 _, iterations_text, salt_text, digest_text = password_hash.split("$", 3)

@@ -9,6 +9,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.main import app
 from app.models import EmailOutbox, Invitation, PasswordReset, RefreshSession, User
+from app.security.csrf import PREAUTH_CSRF_COOKIE
 
 ADMIN_EMAIL = "admin@example.gov"
 ADMIN_PASSWORD = "River-Lantern-94!Blue"
@@ -82,6 +83,14 @@ def bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def login_csrf(client, path: str = "/login", *, headers=None) -> str:
+    page = client.get(path, headers=headers)
+    assert page.status_code == 200
+    match = re.search(r'name="preauth_csrf_token" value="([^"]+)"', page.text)
+    assert match is not None
+    return match.group(1)
+
+
 def login(client, email: str, password: str) -> str:
     response = client.post("/api/v1/auth/token", json={"email": email, "password": password})
     assert response.status_code == 200, response.text
@@ -148,6 +157,11 @@ def test_pages_assets_and_connect_mount_path(client) -> None:
     assert "frame-ancestors 'none'" in login_page.headers["content-security-policy"]
     assert login_page.headers["cache-control"] == "no-store"
 
+    supplied_request_id = client.get("/health", headers={"X-Request-ID": "trace-123"})
+    assert supplied_request_id.headers["x-request-id"] == "trace-123"
+    invalid_request_id = client.get("/health", headers={"X-Request-ID": "bad request id"})
+    assert invalid_request_id.headers["x-request-id"] != "bad request id"
+
     mounted = client.get(
         "/login", headers={"rstudio-connect-app-base-url": "/content/access-registry"}
     )
@@ -181,9 +195,16 @@ def test_workbench_root_path_routes_without_code_changes(client) -> None:
         assert protected.status_code == 303
         assert protected.headers["location"].startswith(f"{root_path}/login?next=%2Fprofile")
 
+        preauth_csrf = login_csrf(workbench_client)
         signed_in = workbench_client.post(
             "/login",
-            data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD, "next": "/profile"},
+            data={
+                "email": ADMIN_EMAIL,
+                "password": ADMIN_PASSWORD,
+                "next": "/profile",
+                "preauth_csrf_token": preauth_csrf,
+            },
+            headers={"Cookie": f"{PREAUTH_CSRF_COOKIE}={preauth_csrf}"},
         )
         assert signed_in.status_code == 303
         assert signed_in.headers["location"] == f"{root_path}/profile"
@@ -202,7 +223,12 @@ def test_preserved_workbench_path_keeps_login_return_target_app_local(client) ->
 
         signed_in = wb.post(
             f"{prefix}/login",
-            data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD, "next": "/security"},
+            data={
+                "email": ADMIN_EMAIL,
+                "password": ADMIN_PASSWORD,
+                "next": "/security",
+                "preauth_csrf_token": login_csrf(wb, f"{prefix}/login"),
+            },
         )
         assert signed_in.status_code == 303
         assert signed_in.headers["location"] == f"{prefix}/security"
@@ -247,18 +273,28 @@ def test_connect_https_cookie_round_trip_refresh_csrf_and_logout(client) -> None
     original_cookie_secure = settings.cookie_secure
     settings.cookie_secure = True
     try:
-        with TestClient(proxy, base_url=origin, follow_redirects=False) as connect_client:
+        with TestClient(
+            proxy,
+            base_url=origin,
+            follow_redirects=False,
+            client=("127.0.0.1", 50000),
+        ) as connect_client:
             signed_in = connect_client.post(
                 f"{prefix}/login",
                 data={
                     "email": ADMIN_EMAIL,
                     "password": ADMIN_PASSWORD,
                     "next": "/profile",
+                    "preauth_csrf_token": login_csrf(connect_client, f"{prefix}/login"),
                 },
             )
             assert signed_in.status_code == 303
             assert signed_in.headers["location"] == f"{prefix}/profile"
-            auth_cookies = signed_in.headers.get_list("set-cookie")
+            auth_cookies = [
+                value
+                for value in signed_in.headers.get_list("set-cookie")
+                if value.startswith(("access_registry_access=", "access_registry_refresh="))
+            ]
             assert len(auth_cookies) == 2
             for cookie in auth_cookies:
                 assert f"Path={prefix}" in cookie
@@ -339,11 +375,16 @@ def test_workbench_https_proxy_cookie_htmx_refresh_and_logout(client) -> None:
                     "email": ADMIN_EMAIL,
                     "password": ADMIN_PASSWORD,
                     "next": "/profile",
+                    "preauth_csrf_token": login_csrf(workbench_client, f"{prefix}/login"),
                 },
             )
             assert signed_in.status_code == 303
             assert signed_in.headers["location"] == f"{prefix}/profile"
-            auth_cookies = signed_in.headers.get_list("set-cookie")
+            auth_cookies = [
+                value
+                for value in signed_in.headers.get_list("set-cookie")
+                if value.startswith(("access_registry_access=", "access_registry_refresh="))
+            ]
             assert len(auth_cookies) == 2
             for cookie in auth_cookies:
                 assert f"Path={prefix}" in cookie
@@ -417,12 +458,14 @@ def test_workbench_https_proxy_cookie_htmx_refresh_and_logout(client) -> None:
 
 
 def test_login_next_rejects_browser_normalized_external_paths(client) -> None:
+    preauth_csrf = login_csrf(client)
     response = client.post(
         "/login",
         data={
             "email": ADMIN_EMAIL,
             "password": ADMIN_PASSWORD,
             "next": "/\\attacker.example",
+            "preauth_csrf_token": preauth_csrf,
         },
     )
     assert response.status_code == 303
@@ -462,7 +505,12 @@ def test_browser_login_refresh_and_htmx_profile_flow(client) -> None:
 
     signed_in = client.post(
         "/login",
-        data={"email": USER_EMAIL, "password": USER_PASSWORD, "next": "/profile"},
+        data={
+            "email": USER_EMAIL,
+            "password": USER_PASSWORD,
+            "next": "/profile",
+            "preauth_csrf_token": login_csrf(client),
+        },
     )
     assert signed_in.status_code == 303
     assert signed_in.headers["location"] == "/profile"

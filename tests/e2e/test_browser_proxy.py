@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from urllib.parse import urlparse
 
@@ -86,7 +87,7 @@ def test_login_htmx_refresh_cookie_and_logout_journey(browser: Browser, live_pro
             "elements => elements.map(element => element.src)"
         ) == [
             f"{base_url}/assets/htmx.min.js?v=2.0.10",
-            f"{base_url}/assets/app.js?v=20260803-1",
+            f"{base_url}/assets/app.js?v=20260803-2",
         ]
         assert page.request.get(f"{base_url}/assets/app.css").status == 200
         htmx_asset = page.request.get(f"{base_url}/assets/htmx.min.js?v=2.0.10")
@@ -139,6 +140,7 @@ def test_login_htmx_refresh_cookie_and_logout_journey(browser: Browser, live_pro
         assert all("404 (Not Found)" in message for message in console_errors)
         console_errors.clear()
 
+        page.locator("#full_name").fill("Browser OOB Administrator")
         page.locator("#organization").fill(f"Posit profile: {live_proxy['profile']}")
         with page.expect_request(
             lambda request: request.url == f"{base_url}/profile"
@@ -151,8 +153,31 @@ def test_login_htmx_refresh_cookie_and_logout_journey(browser: Browser, live_pro
         assert request_info.value.headers["hx-request"] == "true"
         assert response_info.value.status == 200
         expect(page.get_by_text("Your profile has been updated")).to_be_visible()
+        expect(page.locator("#account-summary strong")).to_have_text("Browser OOB Administrator")
+        expect(page.locator("#profile-identity h2")).to_have_text("Browser OOB Administrator")
         assert page.url == f"{base_url}/profile"
         assert page.evaluate("window.htmx.version") == "2.0.10"
+
+        page.goto(f"{base_url}/security")
+        page.locator("#current_password").fill("incorrect-password")
+        page.locator("#new_password").fill("Browser-Quartz-81!Harbor")
+        page.locator("#new_password_confirm").fill("Browser-Quartz-81!Harbor")
+        with page.expect_response(
+            lambda response: response.url == f"{base_url}/security/password"
+        ) as password_response:
+            page.get_by_role("button", name="Change password").click()
+        assert password_response.value.status == 400
+        expect(page.get_by_text("Current password is incorrect")).to_be_visible()
+        assert page.url == f"{base_url}/security"
+        assert all("400" in message for message in console_errors)
+        console_errors.clear()
+
+        page.goto(f"{base_url}/admin/users")
+        page.locator("#user-query").fill(ADMIN_EMAIL)
+        expect(page).to_have_url(re.compile(r"/admin/users\?q=browser(?:\.|%2E)admin"))
+        expect(page.locator("#user-match-count")).to_contain_text("1 matching account")
+        expect(page.locator("#user-table")).to_contain_text(ADMIN_EMAIL)
+        assert page.evaluate("localStorage.getItem('htmx-history-cache')") in (None, "[]")
 
         original_access = cookies[ACCESS_COOKIE]
         original_refresh = cookies[REFRESH_COOKIE]

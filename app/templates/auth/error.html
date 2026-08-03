@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block auth_content %}
+<div class="center-card-wrap">
+  <section class="auth-card compact-card" aria-labelledby="request-error-title">
+    <p class="eyebrow">Request {{ status_code }}</p>
+    <h1 id="request-error-title">Unable to complete the request</h1>
+    <div class="alert alert-error" role="alert">{{ error }}</div>
+    <a class="button button-primary button-wide" href=".">Return to the application</a>
+  </section>
+</div>
+{% endblock %}

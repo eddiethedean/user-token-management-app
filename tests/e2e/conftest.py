@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import httpx
+import httpx2
 import pytest
 from playwright.sync_api import Browser, sync_playwright
 
@@ -81,10 +81,10 @@ def wait_for_http(url: str, process: subprocess.Popen, log_path: Path) -> None:
         if process.poll() is not None:
             raise RuntimeError(f"Process exited while starting:\n{log_path.read_text()}")
         try:
-            response = httpx.get(url, timeout=1, verify=False)
+            response = httpx2.get(url, timeout=1, verify=False)
             if response.status_code < 500:
                 return
-        except httpx.HTTPError:
+        except httpx2.HTTPError:
             pass
         time.sleep(0.1)
     raise RuntimeError(f"Timed out waiting for {url}:\n{log_path.read_text()}")

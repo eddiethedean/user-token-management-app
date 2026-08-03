@@ -1,4 +1,5 @@
 import smtplib
+import ssl
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -19,6 +20,7 @@ class RecordingSMTP:
         self.port = port
         self.timeout = timeout
         self.started_tls = False
+        self.tls_context = None
         self.credentials = None
         self.messages = []
         self.__class__.instances.append(self)
@@ -29,8 +31,9 @@ class RecordingSMTP:
     def __exit__(self, exc_type, exc, traceback) -> None:
         return None
 
-    def starttls(self) -> None:
+    def starttls(self, *, context) -> None:
         self.started_tls = True
+        self.tls_context = context
 
     def login(self, username: str, password: str) -> None:
         self.credentials = (username, password)
@@ -63,6 +66,8 @@ def test_smtp_delivery_uses_tls_auth_and_marks_message_sent(client, monkeypatch)
     smtp = RecordingSMTP.instances[0]
     assert (smtp.host, smtp.port, smtp.timeout) == ("relay.example.gov", 2525, 20)
     assert smtp.started_tls
+    assert smtp.tls_context.verify_mode == ssl.CERT_REQUIRED
+    assert smtp.tls_context.check_hostname
     assert smtp.credentials == ("registry", "relay-password")
     assert len(smtp.messages) == 1
     assert smtp.messages[0]["To"] == "recipient@example.gov"
@@ -175,6 +180,27 @@ def test_create_admin_creates_verified_administrator(client, monkeypatch, capsys
         assert user.email_verified_at is not None
         assert user.role_names == ["administrator"]
         assert PasswordService(get_settings()).verify(password, user.password_hash)
+
+
+def test_create_admin_does_not_create_a_dormant_password_in_federated_mode(
+    client, monkeypatch, capsys
+) -> None:
+    settings = get_settings()
+    original_mode = settings.authentication_mode
+    monkeypatch.setattr("app.cli.assert_schema_current", lambda: None)
+    monkeypatch.setattr(
+        "app.cli.getpass.getpass",
+        lambda prompt: (_ for _ in ()).throw(AssertionError("password prompt was used")),
+    )
+    try:
+        settings.authentication_mode = "trusted_header"
+        assert create_admin("federated.admin@example.gov") == 0
+        assert "Administrator ready" in capsys.readouterr().out
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.email == "federated.admin@example.gov"))
+            assert user is not None and user.password_hash is None
+    finally:
+        settings.authentication_mode = original_mode
 
 
 def test_cli_serve_passes_arguments_to_server(monkeypatch) -> None:

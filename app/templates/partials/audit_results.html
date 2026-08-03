@@ -1,0 +1,15 @@
+<div id="audit-results-region">
+  <form action="admin/audit" method="get" class="filter-form" aria-label="Filter audit events" hx-get="admin/audit" hx-trigger="submit, input changed delay:350ms" hx-target="#audit-results-region" hx-swap="outerHTML" hx-push-url="true" hx-sync="this:replace" hx-disabled-elt="find button">
+    <div><label for="event-type-filter">Event type</label><input id="event-type-filter" name="event_type" value="{{ event_type_filter }}" placeholder="auth.login" autocomplete="off"></div>
+    <div><label for="outcome-filter">Outcome</label><input id="outcome-filter" name="outcome" value="{{ outcome_filter }}" placeholder="success" autocomplete="off"></div>
+    <button class="button button-secondary button-small" type="submit">Apply filters</button>
+    {% if event_type_filter or outcome_filter %}<a class="button button-quiet button-small" href="admin/audit" hx-get="admin/audit" hx-target="#audit-results-region" hx-swap="outerHTML" hx-push-url="true">Clear</a>{% endif %}
+  </form>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Target</th><th>Outcome</th><th>Request</th></tr></thead>
+      <tbody>{% for event in events %}<tr><td class="nowrap">{{ event.occurred_at.strftime('%Y-%m-%d %H:%M') }}</td><td><strong>{{ event.event_type }}</strong></td><td>{{ users[event.actor_user_id].email_original if event.actor_user_id and event.actor_user_id in users else 'System' }}</td><td>{{ users[event.target_user_id].email_original if event.target_user_id and event.target_user_id in users else '—' }}</td><td><span class="pill {% if event.outcome == 'success' %}pill-active{% else %}pill-muted{% endif %}">{{ event.outcome }}</span></td><td><code>{{ event.request_id[:8] }}</code></td></tr>{% else %}<tr><td colspan="6" class="empty-state">No audit events.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% if page_count > 1 %}<nav class="pagination" aria-label="Audit result pages">{% if current_page > 1 %}<a class="button button-quiet button-small" href="admin/audit?event_type={{ event_type_filter | urlencode }}&outcome={{ outcome_filter | urlencode }}&page={{ current_page - 1 }}" hx-get="admin/audit?event_type={{ event_type_filter | urlencode }}&outcome={{ outcome_filter | urlencode }}&page={{ current_page - 1 }}" hx-target="#audit-results-region" hx-swap="outerHTML" hx-push-url="true">Previous</a>{% endif %}<span>Page {{ current_page }} of {{ page_count }}</span>{% if current_page < page_count %}<a class="button button-quiet button-small" href="admin/audit?event_type={{ event_type_filter | urlencode }}&outcome={{ outcome_filter | urlencode }}&page={{ current_page + 1 }}" hx-get="admin/audit?event_type={{ event_type_filter | urlencode }}&outcome={{ outcome_filter | urlencode }}&page={{ current_page + 1 }}" hx-target="#audit-results-region" hx-swap="outerHTML" hx-push-url="true">Next</a>{% endif %}</nav>{% endif %}
+</div>

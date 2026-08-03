@@ -17,19 +17,23 @@
       <div class="alert alert-error" role="alert">{{ error }}</div>
       <a class="button button-secondary button-wide" href="register">Request a new verification email</a>
     {% else %}
-      <h1>Choose your password</h1>
+      <h1>{{ 'Choose your password' if local_password else 'Verify your email' }}</h1>
       <p class="muted">You are verifying <strong>{{ verification.user.email_original }}</strong>. Your account will remain pending after this step.</p>
       <div class="approval-notice">
         <strong>Administrator approval is still required</strong>
-        <p>Creating a password does not activate the account. We will email you after an administrator approves access.</p>
+        <p>{{ 'Creating a password' if local_password else 'Verifying your address' }} does not activate the account. We will email you after an administrator approves access.</p>
       </div>
       <form action="registration/verify" method="post" class="stack-form">
         <input type="hidden" name="token" value="{{ token }}">
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="new-password" minlength="15" maxlength="128" required autofocus><button class="password-toggle" type="button" data-password-toggle="password" aria-pressed="false">Show password</button>
-        <p class="field-help">Use 15–128 characters. Password managers and long passphrases are supported.</p>
-        <label for="password_confirm">Confirm password</label>
-        <input id="password_confirm" name="password_confirm" type="password" autocomplete="new-password" minlength="15" maxlength="128" required><button class="password-toggle" type="button" data-password-toggle="password_confirm" aria-pressed="false">Show password</button>
+        {% if local_password %}
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="new-password" minlength="15" maxlength="128" required autofocus><button class="password-toggle" type="button" data-password-toggle="password" aria-pressed="false">Show password</button>
+          <p class="field-help">Use 15–128 characters. Password managers and long passphrases are supported.</p>
+          <label for="password_confirm">Confirm password</label>
+          <input id="password_confirm" name="password_confirm" type="password" autocomplete="new-password" minlength="15" maxlength="128" required><button class="password-toggle" type="button" data-password-toggle="password_confirm" aria-pressed="false">Show password</button>
+        {% else %}
+          <p class="field-help">No application password is needed. After approval, use your federated credential.</p>
+        {% endif %}
         <button class="button button-primary button-wide" type="submit">Verify email and submit for approval</button>
       </form>
     {% endif %}

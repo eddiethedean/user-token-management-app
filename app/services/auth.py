@@ -3,6 +3,8 @@ from datetime import timedelta
 
 from fastapi import Request
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -55,11 +57,43 @@ def ensure_default_roles(db: Session) -> None:
         "user": "Standard account holder",
         "administrator": "Can manage users, invitations, roles, and audit records",
     }
-    existing = {role.name for role in db.scalars(select(Role)).all()}
+    dialect = db.get_bind().dialect.name
     for name, description in defaults.items():
-        if name not in existing:
-            db.add(Role(name=name, description=description))
+        values = {"name": name, "description": description}
+        if dialect == "postgresql":
+            statement = (
+                postgresql_insert(Role)
+                .values(**values)
+                .on_conflict_do_nothing(index_elements=[Role.name])
+            )
+        elif dialect == "sqlite":
+            statement = (
+                sqlite_insert(Role)
+                .values(**values)
+                .on_conflict_do_nothing(index_elements=[Role.name])
+            )
+        else:
+            if not db.scalar(select(Role.id).where(Role.name == name)):
+                db.add(Role(**values))
+            continue
+        db.execute(statement)
     db.commit()
+
+
+def _lock_role_catalog(db: Session) -> dict[str, Role]:
+    """Serialize low-volume enrollment writes against stable role rows."""
+    return {
+        role.name: role
+        for role in db.scalars(select(Role).order_by(Role.name).with_for_update()).all()
+    }
+
+
+def lock_administrator_action(db: Session, actor: User) -> bool:
+    """Serialize administrator-account mutations and revalidate the acting administrator."""
+    administrator = db.scalar(select(Role).where(Role.name == "administrator").with_for_update())
+    db.refresh(actor)
+    db.expire(actor, ["roles"])
+    return bool(administrator and actor.is_active and administrator in actor.roles)
 
 
 def authenticate_user(
@@ -73,11 +107,11 @@ def authenticate_user(
     user = db.scalar(select(User).where(User.email == canonical))
     now = utcnow()
     password_service = PasswordService(settings)
-    if user and user.locked_until and user.locked_until > now:
+    valid = password_service.verify(password, user.password_hash if user else None)
+    if user and user.failed_login_attempts >= 5:
         record_event(db, "auth.login", request=request, target=user, outcome="locked")
         db.commit()
         raise AccountLockedError("Unable to sign in with those credentials.")
-    valid = password_service.verify(password, user.password_hash if user else None)
     if user and valid and user.status == UserStatus.PENDING.value and user.email_verified_at:
         record_event(db, "auth.login", request=request, target=user, outcome="pending_approval")
         db.commit()
@@ -85,16 +119,33 @@ def authenticate_user(
             "Your registration is awaiting administrator approval. You cannot sign in yet."
         )
     if not user or not valid or not user.is_active or not user.email_verified_at:
-        if user:
-            user.failed_login_attempts += 1
-            if user.failed_login_attempts >= 5:
-                user.locked_until = now + timedelta(minutes=15)
-            record_event(db, "auth.login", request=request, target=user, outcome="failure")
+        if user and user.is_active and user.email_verified_at:
+            attempts = db.scalar(
+                update(User)
+                .where(User.id == user.id, User.failed_login_attempts < 5)
+                .values(
+                    failed_login_attempts=User.failed_login_attempts + 1,
+                    locked_until=None,
+                )
+                .returning(User.failed_login_attempts)
+                .execution_options(synchronize_session=False)
+            )
+            outcome = "failure" if attempts is not None else "locked"
+            record_event(db, "auth.login", request=request, target=user, outcome=outcome)
         db.commit()
         raise AuthenticationError("Unable to sign in with those credentials.")
-    user.failed_login_attempts = 0
-    user.locked_until = None
-    user.last_login_at = now
+    authenticated_user_id = db.scalar(
+        update(User)
+        .where(User.id == user.id, User.failed_login_attempts < 5)
+        .values(failed_login_attempts=0, locked_until=None, last_login_at=now)
+        .returning(User.id)
+        .execution_options(synchronize_session=False)
+    )
+    if not authenticated_user_id:
+        record_event(db, "auth.login", request=request, target=user, outcome="locked")
+        db.commit()
+        raise AccountLockedError("Unable to sign in with those credentials.")
+    db.refresh(user)
     if user.password_hash and password_service.needs_rehash(user.password_hash):
         user.password_hash = password_service.hash(password)
     record_event(db, "auth.login", request=request, actor=user, target=user)
@@ -156,12 +207,24 @@ def request_self_registration(
     request: Request | None = None,
 ) -> None:
     canonical, original = normalize_email(email, settings)
+    role = _lock_role_catalog(db).get("user")
+    if not role:
+        raise RuntimeError("The default user role is unavailable.")
     user = db.scalar(select(User).where(User.email == canonical))
     now = utcnow()
 
     if user:
         if user.status != UserStatus.PENDING.value or user.email_verified_at:
             return
+        db.execute(
+            update(Invitation)
+            .where(
+                Invitation.email == canonical,
+                Invitation.accepted_at.is_(None),
+                Invitation.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
+        )
         recent = db.scalar(
             select(RegistrationVerification)
             .where(
@@ -173,9 +236,18 @@ def request_self_registration(
             .order_by(RegistrationVerification.created_at.desc())
         )
         if recent:
+            db.commit()
             return
     else:
-        role = db.scalar(select(Role).where(Role.name == "user"))
+        db.execute(
+            update(Invitation)
+            .where(
+                Invitation.email == canonical,
+                Invitation.accepted_at.is_(None),
+                Invitation.revoked_at.is_(None),
+            )
+            .values(revoked_at=now)
+        )
         user = User(
             email=canonical,
             email_original=original,
@@ -186,6 +258,15 @@ def request_self_registration(
         db.add(user)
         db.flush()
         record_event(db, "registration.requested", request=request, target=user)
+
+    db.execute(
+        update(RegistrationVerification)
+        .where(
+            RegistrationVerification.user_id == user.id,
+            RegistrationVerification.used_at.is_(None),
+        )
+        .values(used_at=now)
+    )
 
     raw_token = random_token()
     verification = RegistrationVerification(
@@ -242,9 +323,11 @@ def complete_self_registration(
 ) -> User:
     verification = get_valid_registration_verification(db, settings, raw_token)
     user = verification.user
-    validated = validate_password(
-        password, email=user.email, blocklist_path=settings.password_blocklist_path
-    )
+    validated = None
+    if settings.authentication_mode == "local_password":
+        validated = validate_password(
+            password, email=user.email, blocklist_path=settings.password_blocklist_path
+        )
     now = utcnow()
     consumed = db.execute(
         update(RegistrationVerification)
@@ -258,8 +341,9 @@ def complete_self_registration(
     if consumed.rowcount != 1:
         db.rollback()
         raise TokenFlowError("That registration verification link is invalid or expired.")
-    user.password_hash = PasswordService(settings).hash(validated)
-    user.password_changed_at = now
+    if validated is not None:
+        user.password_hash = PasswordService(settings).hash(validated)
+        user.password_changed_at = now
     user.email_verified_at = now
     db.execute(
         update(RegistrationVerification)
@@ -292,7 +376,8 @@ def approve_self_registration(
 ) -> None:
     if user.status != UserStatus.PENDING.value:
         raise ValueError("Only pending registrations can be approved.")
-    if not user.email_verified_at or not user.password_hash:
+    password_ready = settings.authentication_mode != "local_password" or bool(user.password_hash)
+    if not user.email_verified_at or not password_ready:
         raise ValueError("The user must verify their government email before approval.")
     activated = db.execute(
         update(User)
@@ -300,7 +385,6 @@ def approve_self_registration(
             User.id == user.id,
             User.status == UserStatus.PENDING.value,
             User.email_verified_at.is_not(None),
-            User.password_hash.is_not(None),
         )
         .values(status=UserStatus.ACTIVE.value)
     )
@@ -318,8 +402,13 @@ def approve_self_registration(
         db,
         user.email_original,
         f"Your {settings.app_name} access was approved",
-        "An administrator approved your registration. You can now sign in using your government "
-        "email address and the password you created.",
+        (
+            "An administrator approved your registration. You can now sign in using your "
+            "government email address and the password you created."
+            if settings.authentication_mode == "local_password"
+            else "An administrator approved your registration. Continue through the approved "
+            "identity-aware proxy using your federated credential."
+        ),
     )
     db.commit()
 
@@ -455,10 +544,15 @@ def revoke_session(
     actor: User,
     request: Request | None = None,
 ) -> None:
-    if not session.revoked_at:
-        session.revoked_at = utcnow()
+    revoked = db.execute(
+        update(RefreshSession)
+        .where(RefreshSession.id == session.id, RefreshSession.revoked_at.is_(None))
+        .values(revoked_at=utcnow())
+        .execution_options(synchronize_session=False)
+    )
+    if revoked.rowcount == 1:
         record_event(db, "auth.session.revoked", request=request, actor=actor, target=session.user)
-        db.commit()
+    db.commit()
 
 
 def revoke_all_sessions(db: Session, user: User) -> None:
@@ -479,9 +573,9 @@ def create_invitation(
     request: Request | None = None,
 ) -> tuple[Invitation, str]:
     canonical, original = normalize_email(email, settings)
+    role = _lock_role_catalog(db).get(role_name)
     if db.scalar(select(User).where(User.email == canonical)):
         raise ValueError("An account already exists for that email address.")
-    role = db.scalar(select(Role).where(Role.name == role_name))
     if not role:
         raise ValueError("Select a valid role.")
     now = utcnow()
@@ -548,9 +642,19 @@ def revoke_invitation(
     administrator: User,
     request: Request | None = None,
 ) -> None:
-    if invitation.accepted_at or invitation.revoked_at:
+    revoked = db.execute(
+        update(Invitation)
+        .where(
+            Invitation.id == invitation.id,
+            Invitation.accepted_at.is_(None),
+            Invitation.revoked_at.is_(None),
+        )
+        .values(revoked_at=utcnow())
+        .execution_options(synchronize_session=False)
+    )
+    if revoked.rowcount != 1:
+        db.rollback()
         raise ValueError("Only a pending invitation can be revoked.")
-    invitation.revoked_at = utcnow()
     record_event(
         db,
         "invitation.revoked",
@@ -573,9 +677,11 @@ def accept_invitation(
     invitation = get_valid_invitation(db, settings, raw_token)
     if db.scalar(select(User).where(User.email == invitation.email)):
         raise TokenFlowError("An account already exists for that email address.")
-    validated = validate_password(
-        password, email=invitation.email, blocklist_path=settings.password_blocklist_path
-    )
+    validated = None
+    if settings.authentication_mode == "local_password":
+        validated = validate_password(
+            password, email=invitation.email, blocklist_path=settings.password_blocklist_path
+        )
     now = utcnow()
     role = db.scalar(select(Role).where(Role.name == invitation.role_name))
     if not role:
@@ -601,8 +707,8 @@ def accept_invitation(
         email_verified_at=now,
         full_name=full_name.strip()[:160],
         status=UserStatus.ACTIVE.value,
-        password_hash=PasswordService(settings).hash(validated),
-        password_changed_at=now,
+        password_hash=PasswordService(settings).hash(validated) if validated is not None else None,
+        password_changed_at=now if validated is not None else None,
         roles=[role],
     )
     db.add(user)
@@ -626,7 +732,7 @@ def request_password_reset(
         canonical, _ = normalize_email(email, settings)
     except ValueError:
         return
-    user = db.scalar(select(User).where(User.email == canonical))
+    user = db.scalar(select(User).where(User.email == canonical).with_for_update())
     if not user or not user.is_active:
         return
     now = utcnow()

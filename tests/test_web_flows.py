@@ -17,9 +17,22 @@ def csrf_from(html: str) -> str:
     return match.group(1)
 
 
+def login_csrf_from(html: str) -> str:
+    match = re.search(r'name="preauth_csrf_token" value="([^"]+)"', html)
+    assert match is not None
+    return match.group(1)
+
+
 def web_login(client, email: str, password: str) -> None:
+    preauth_csrf = login_csrf_from(client.get("/login").text)
     response = client.post(
-        "/login", data={"email": email, "password": password, "next": "/profile"}
+        "/login",
+        data={
+            "email": email,
+            "password": password,
+            "next": "/profile",
+            "preauth_csrf_token": preauth_csrf,
+        },
     )
     assert response.status_code == 303, response.text
     assert response.headers["location"] == "/profile"
@@ -39,16 +52,34 @@ def latest_reset_token(email: str) -> str:
 
 
 def test_web_login_errors_and_authenticated_redirects(client) -> None:
+    missing_csrf = client.post(
+        "/login",
+        data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD, "next": "/profile"},
+    )
+    assert missing_csrf.status_code == 403
+
+    preauth_csrf = login_csrf_from(client.get("/login").text)
     invalid = client.post(
         "/login",
-        data={"email": "not-an-email", "password": "wrong", "next": "/profile"},
+        data={
+            "email": "not-an-email",
+            "password": "wrong",
+            "next": "/profile",
+            "preauth_csrf_token": preauth_csrf,
+        },
     )
     assert invalid.status_code == 400
     assert "valid government email" in invalid.text
 
+    preauth_csrf = login_csrf_from(invalid.text)
     wrong = client.post(
         "/login",
-        data={"email": ADMIN_EMAIL, "password": "wrong", "next": "/profile"},
+        data={
+            "email": ADMIN_EMAIL,
+            "password": "wrong",
+            "next": "/profile",
+            "preauth_csrf_token": preauth_csrf,
+        },
     )
     assert wrong.status_code == 400
     assert "Unable to sign in" in wrong.text
@@ -132,9 +163,11 @@ def test_web_security_password_validation_and_session_errors(client) -> None:
             "new_password": NEW_PASSWORD,
             "new_password_confirm": NEW_PASSWORD,
         },
+        headers={"HX-Request": "true"},
     )
     assert wrong.status_code == 400
     assert "Current password is incorrect" in wrong.text
+    assert "<html" not in wrong.text
 
     mismatch = client.post(
         "/security/password",
@@ -175,10 +208,79 @@ def test_web_security_password_validation_and_session_errors(client) -> None:
             "new_password_confirm": NEW_PASSWORD,
         },
     )
-    assert changed.status_code == 200
-    assert "Sign in again" in changed.text
+    assert changed.status_code == 303
+    assert changed.headers["location"] == "/login?password=changed"
     protected = client.get("/profile", headers={"Accept": "text/html"})
     assert protected.status_code == 303
+
+
+def test_htmx_session_expiry_and_error_retargeting(client) -> None:
+    unauthenticated = client.post(
+        "/profile",
+        data={"csrf_token": "expired", "full_name": "Expired session"},
+        headers={"HX-Request": "true"},
+    )
+    assert unauthenticated.status_code == 303
+    assert unauthenticated.headers["HX-Redirect"].startswith("/login?next=")
+
+    web_login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    users_page = client.get("/admin/users")
+    csrf = csrf_from(users_page.text)
+    self_user = client.get("/api/v1/me").json()
+    rejected = client.post(
+        f"/admin/users/{self_user['id']}/toggle",
+        data={"csrf_token": csrf},
+        headers={"HX-Request": "true"},
+    )
+    assert rejected.status_code == 400
+    assert rejected.headers["HX-Retarget"] == "#global-feedback"
+    assert rejected.headers["HX-Reswap"] == "innerHTML"
+    assert "cannot disable your own account" in rejected.text
+
+
+def test_progressive_profile_and_htmx_admin_fragments(client, make_user) -> None:
+    make_user("filter.target@example.gov")
+    web_login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    profile = client.get("/profile")
+    csrf = csrf_from(profile.text)
+
+    submitted = client.post(
+        "/profile",
+        data={
+            "csrf_token": csrf,
+            "full_name": "Progressive Administrator",
+            "organization": "Operations",
+            "job_title": "Administrator",
+            "phone": "",
+        },
+    )
+    assert submitted.status_code == 303
+    assert submitted.headers["location"] == "/profile?updated=true"
+    completed = client.get(submitted.headers["location"])
+    assert "Your profile has been updated" in completed.text
+    assert "<!doctype html>" in completed.text
+
+    filtered = client.get(
+        "/admin/users",
+        params={"q": "filter.target"},
+        headers={"HX-Request": "true"},
+    )
+    assert filtered.status_code == 200
+    assert '<div id="user-directory-region">' in filtered.text
+    assert 'id="user-match-count"' in filtered.text
+    assert 'hx-swap-oob="outerHTML"' in filtered.text
+    assert "filter.target@example.gov" in filtered.text
+    assert "<!doctype html>" not in filtered.text
+
+    audit = client.get(
+        "/admin/audit",
+        params={"event_type": "profile.updated"},
+        headers={"HX-Request": "true"},
+    )
+    assert audit.status_code == 200
+    assert 'id="audit-results-region"' in audit.text
+    assert 'id="audit-match-count"' in audit.text
+    assert "<!doctype html>" not in audit.text
 
 
 def test_web_admin_invitation_toggle_audit_and_self_protection(client, make_user) -> None:
@@ -253,4 +355,5 @@ def test_web_admin_pages_forbid_standard_user(client, make_user) -> None:
     web_login(client, user.email, "Aspen-Compass-64!River")
     forbidden = client.get("/admin/users", headers={"Accept": "text/html"})
     assert forbidden.status_code == 403
-    assert forbidden.json()["detail"] == "You do not have permission to perform this action."
+    assert "You do not have permission to perform this action." in forbidden.text
+    assert "<!doctype html>" in forbidden.text

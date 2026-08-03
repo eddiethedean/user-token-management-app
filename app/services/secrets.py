@@ -5,11 +5,13 @@ from dataclasses import dataclass
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import User, UserSecret, new_id, utcnow
+from app.models import ApiTokenKeyUsage, User, UserSecret, new_id, utcnow
 from app.services.audit import record_event
 
 
@@ -31,6 +33,33 @@ SECRET_PROVIDER_MAP = {provider.name: provider for provider in SECRET_PROVIDERS}
 
 class SecretStorageError(RuntimeError):
     pass
+
+
+def _reserve_master_key_use(db: Session, settings: Settings, key_id: str) -> int:
+    values = {"key_id": key_id, "wrap_count": 1, "updated_at": utcnow()}
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        statement = postgresql_insert(ApiTokenKeyUsage).values(**values)
+    elif dialect == "sqlite":
+        statement = sqlite_insert(ApiTokenKeyUsage).values(**values)
+    else:
+        raise SecretStorageError(
+            f"API-token key accounting does not support database dialect {dialect!r}."
+        )
+    statement = statement.on_conflict_do_update(
+        index_elements=[ApiTokenKeyUsage.key_id],
+        set_={
+            "wrap_count": ApiTokenKeyUsage.wrap_count + 1,
+            "updated_at": values["updated_at"],
+        },
+        where=ApiTokenKeyUsage.wrap_count < settings.api_token_max_wraps_per_key,
+    ).returning(ApiTokenKeyUsage.wrap_count)
+    count = db.scalar(statement)
+    if count is None:
+        raise SecretStorageError(
+            "The active API-token encryption key reached its usage limit; rotate the key."
+        )
+    return int(count)
 
 
 def require_secret_provider(provider: str) -> SecretProvider:
@@ -64,6 +93,9 @@ def store_user_secret(
     if len(encoded_token) < 8 or len(encoded_token) > 8192:
         raise ValueError("API tokens must contain between 8 and 8192 bytes.")
 
+    # The user row is a stable lock target even when this provider has no secret yet.
+    # This prevents concurrent first-time writes from racing the unique constraint.
+    db.scalar(select(User).where(User.id == user.id).with_for_update())
     stored = db.scalar(
         select(UserSecret).where(
             UserSecret.user_id == user.id, UserSecret.provider == specification.name
@@ -76,6 +108,8 @@ def store_user_secret(
 
     key_id = settings.api_token_active_key_id
     master_key = settings.api_token_key_ring[key_id]
+    with db.no_autoflush:
+        _reserve_master_key_use(db, settings, key_id)
     data_key = AESGCM.generate_key(bit_length=256)
     value_nonce = secrets.token_bytes(12)
     key_nonce = secrets.token_bytes(12)
@@ -111,14 +145,16 @@ def delete_user_secret(
     request: Request | None = None,
 ) -> bool:
     specification = require_secret_provider(provider)
-    stored = db.scalar(
-        select(UserSecret).where(
-            UserSecret.user_id == user.id, UserSecret.provider == specification.name
-        )
+    db.scalar(select(User).where(User.id == user.id).with_for_update())
+    deleted_id = db.scalar(
+        delete(UserSecret)
+        .where(UserSecret.user_id == user.id, UserSecret.provider == specification.name)
+        .returning(UserSecret.id)
+        .execution_options(synchronize_session=False)
     )
-    if not stored:
+    if not deleted_id:
+        db.rollback()
         return False
-    db.delete(stored)
     record_event(
         db,
         "api_token.deleted",

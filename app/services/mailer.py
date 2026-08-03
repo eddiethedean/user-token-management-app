@@ -1,5 +1,6 @@
 import logging
 import smtplib
+import ssl
 from dataclasses import dataclass
 from datetime import timedelta
 from email.message import EmailMessage
@@ -97,7 +98,7 @@ def _deliver_claim(
             )
         else:
             _send_smtp(message, settings)
-    except (OSError, smtplib.SMTPException) as exc:
+    except (OSError, smtplib.SMTPException, ValueError) as exc:
         db.refresh(message)
         db.refresh(state)
         if state.claim_token != claim_token or message.sent_at or message.failed_at:
@@ -209,7 +210,8 @@ def _send_smtp(message: EmailOutbox, settings: Settings) -> None:
     email.set_content(message.body_text)
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as client:
         if settings.smtp_starttls:
-            client.starttls()
+            tls_context = ssl.create_default_context(cafile=settings.smtp_ca_bundle or None)
+            client.starttls(context=tls_context)
         if settings.smtp_username:
             client.login(settings.smtp_username, settings.smtp_password)
         client.send_message(email)

@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import AuditEvent, User, UserSecret
+from app.models import ApiTokenKeyUsage, AuditEvent, User, UserSecret
 from app.services.secrets import SecretStorageError, decrypt_user_secret_for_run
 
 ADMIN_EMAIL = "admin@example.gov"
@@ -80,6 +80,8 @@ def test_secret_is_encrypted_replaceable_decryptable_only_at_run_boundary(client
         )
         assert ADVANA_TOKEN not in serialized
         assert stored.master_key_id == "test-v1"
+        usage = db.get(ApiTokenKeyUsage, "test-v1")
+        assert usage is not None and usage.wrap_count == 1
         assert (
             decrypt_user_secret_for_run(db, get_settings(), user=user, provider="advana")
             == ADVANA_TOKEN
@@ -97,6 +99,8 @@ def test_secret_is_encrypted_replaceable_decryptable_only_at_run_boundary(client
         user = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
         assert user is not None
         assert db.scalar(select(func.count()).select_from(UserSecret)) == 1
+        usage = db.get(ApiTokenKeyUsage, "test-v1")
+        assert usage is not None and usage.wrap_count == 2
         assert (
             decrypt_user_secret_for_run(db, get_settings(), user=user, provider="advana")
             == replacement
@@ -107,6 +111,36 @@ def test_secret_is_encrypted_replaceable_decryptable_only_at_run_boundary(client
         assert "api_token.created" in event_types
         assert "api_token.replaced" in event_types
         assert "api_token.used" in event_types
+
+
+def test_master_key_wrap_limit_fails_closed_without_replacing_ciphertext(client) -> None:
+    settings = get_settings()
+    original_limit = settings.api_token_max_wraps_per_key
+    access_token = api_login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    headers = bearer(access_token)
+    try:
+        settings.api_token_max_wraps_per_key = 1
+        first = client.put(
+            "/api/v1/me/secrets/advana", json={"token": ADVANA_TOKEN}, headers=headers
+        )
+        assert first.status_code == 200
+        blocked = client.put(
+            "/api/v1/me/secrets/advana",
+            json={"token": "replacement-that-must-not-commit"},
+            headers=headers,
+        )
+        assert blocked.status_code == 503
+        assert "rotate the key" in blocked.json()["detail"]
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+            usage = db.get(ApiTokenKeyUsage, "test-v1")
+            assert user is not None and usage is not None and usage.wrap_count == 1
+            assert (
+                decrypt_user_secret_for_run(db, settings, user=user, provider="advana")
+                == ADVANA_TOKEN
+            )
+    finally:
+        settings.api_token_max_wraps_per_key = original_limit
 
 
 def test_secret_ownership_provider_allowlist_validation_and_deletion(client, make_user) -> None:
