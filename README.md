@@ -58,14 +58,32 @@ ruff format --check app tests
 pytest
 ```
 
-The live browser suite starts Uvicorn behind two Connect-like reverse proxies. It verifies login,
-HTMX updates, static assets, cookie paths, refresh, and logout in both prefix-preserving and
-prefix-stripping modes:
+The live browser suite starts the actual application behind named Posit proxy profiles over local
+HTTPS with `COOKIE_SECURE=true`. It verifies login, HTMX updates, static assets, cookie issuance and
+path isolation, refresh rotation and replay rejection, server-side logout revocation, and deletion
+across:
+
+- current Connect GUID content with an app-base header, content-aware ASGI `root_path`, forwarded
+  request metadata, Connect credentials, and a sticky-worker cookie (the app intentionally ignores
+  Connect credentials for authentication);
+- header-only Connect content at a vanity URL, for installations that do not populate `root_path`;
+- Workbench's documented dynamic `/s/<session>/p/<port-id>/` URL discovered from a full
+  `rserver-url -l` result;
+- Workbench behind an outer `/rstudio` path-rewriting proxy; and
+- the prefix-preserved ASGI path anomaly handled by the routing middleware.
 
 ```bash
 python -m playwright install chromium
 RUN_BROWSER_E2E=1 pytest tests/e2e/test_browser_proxy.py
 ```
+
+The suite uses the local `openssl` command to create an ephemeral self-signed certificate. Chromium
+ignores trust errors only for that disposable test certificate; production certificate validation
+remains a deployment test.
+
+Use `-k connect` or `-k workbench` to run only one platform family, or select a profile by name,
+for example `-k workbench-external-prefix`. The simulation replaces client-supplied forwarding and
+Posit headers at the proxy boundary before adding the selected platform metadata.
 
 Playwright and its browser are development/test dependencies only; neither is required by the
 deployed application. See Playwright's official
@@ -117,10 +135,10 @@ python -m app serve --reload
 ```
 
 The launcher uses `UVICORN_ROOT_PATH` when Workbench provides it. For a non-default port, it detects
-`RS_SERVER_URL` and asks Workbench's `rserver-url` utility for the current session's dynamic proxy
-path. Outside Workbench both signals are absent and the application runs at `/`. Connect imports
-`app.main:app` directly and supplies its base URL per request, so deployment uses the same source
-without a mode flag or code change.
+`RS_SERVER_URL` and asks Workbench's `rserver-url -l` utility for the current session's dynamic proxy
+URL, then supplies only that URL's path to Uvicorn as `root_path`. Outside Workbench both signals are
+absent and the application runs at `/`. Connect imports `app.main:app` directly and supplies its base
+URL per request, so deployment uses the same source without a mode flag or code change.
 
 The routing middleware also normalizes Workbench's `/proxy/<port>/...` path form, an accidental
 duplicate `root_path` in the ASGI path, and encoded absolute-URL paths observed in some proxy chains.

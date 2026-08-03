@@ -257,6 +257,9 @@ def test_connect_https_cookie_round_trip_refresh_csrf_and_logout(client) -> None
             assert len(deleted_cookies) == 2
             assert all(f"Path={prefix}" in cookie for cookie in deleted_cookies)
             assert all("Max-Age=0" in cookie for cookie in deleted_cookies)
+            assert all("HttpOnly" in cookie for cookie in deleted_cookies)
+            assert all("SameSite=lax" in cookie for cookie in deleted_cookies)
+            assert all("Secure" in cookie for cookie in deleted_cookies)
             assert (
                 connect_client.cookies.get(
                     "access_registry_access",
@@ -352,6 +355,9 @@ def test_workbench_https_proxy_cookie_htmx_refresh_and_logout(client) -> None:
             assert len(deleted_cookies) == 2
             assert all(f"Path={prefix}" in cookie for cookie in deleted_cookies)
             assert all("Max-Age=0" in cookie for cookie in deleted_cookies)
+            assert all("HttpOnly" in cookie for cookie in deleted_cookies)
+            assert all("SameSite=lax" in cookie for cookie in deleted_cookies)
+            assert all("Secure" in cookie for cookie in deleted_cookies)
             assert (
                 workbench_client.cookies.get(
                     "access_registry_access",

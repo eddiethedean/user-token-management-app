@@ -345,7 +345,7 @@ recognizes password change and logout as refresh-token revocation events.
 cookies with no `Domain` attribute. Production refuses to start unless `Secure=true`. Cookie `Path`
 is restricted to the externally visible application mount, derived at request time for Posit Connect
 and Workbench, so the same code works at `/` and under dynamic proxy prefixes. Browser storage is not
-used.
+used. Logout expiration cookies use the same path and security attributes as the live cookies.
 
 **Rationale:** `HttpOnly` prevents direct JavaScript reads, `Secure` confines transport to HTTPS,
 `SameSite` reduces cross-site attachment, omission of `Domain` makes the cookie host-only, and a
@@ -746,24 +746,34 @@ describes CSP as an additional layer rather than a replacement for secure output
 
 **Status:** Implemented harness; production-equivalent execution remains a deployment control.
 
-**Decision:** The Playwright suite starts the actual Uvicorn service behind two local reverse
-proxies: one preserves the external prefix in the upstream request and one strips it while supplying
-the external Connect base. A real Chromium context exercises login, HTMX form submission, static
-assets, cookie attributes and path scope, access-token loss followed by refresh, logout cookie
-deletion, and denial of authenticated access after logout. Unit tests separately cover Workbench
-path anomalies that are awkward to generate through an ordinary HTTP proxy.
+**Decision:** The Playwright suite starts the actual service behind five named Posit profiles:
+current Connect GUID content, header-only Connect vanity content, Workbench's dynamic
+`/s/<session>/p/<port-id>/` URL, Workbench beneath an outer path-rewriting proxy, and a
+prefix-preserved ASGI compatibility case. The Workbench profiles start the application's real CLI
+and make a fake `rserver-url -l` return the documented full external URL. Connect profiles supply
+the app-base and credentials headers, original-request and forwarded metadata, content-aware
+`root_path` where applicable, and an optional `connect.workerid` cookie. The proxy strips
+client-supplied platform and forwarding headers before replacing them. A real Chromium context
+connects to the simulation over TLS while the application runs with `COOKIE_SECURE=true`. It
+exercises login, HTMX form submission, static assets, host-only cookie behavior, path isolation,
+expiry, `Secure`, `HttpOnly`, `SameSite`, JavaScript invisibility, access-token loss followed by
+refresh rotation, replay rejection, logout cookie deletion, server-side denial of both former
+credentials after logout, and preservation of Connect's unrelated worker cookie. The credentials
+header tests coexistence with the platform and is deliberately not accepted as this application's
+authenticator. Unit tests separately cover malformed path and launcher inputs.
 
 **Rationale:** `TestClient` is valuable for deterministic route and header coverage but does not
-apply a browser's cookie-selection rules, execute HTMX, or reproduce a reverse proxy's path
-transformation. The two layers catch different failure classes. Testing both simulated proxy models
-guards the one-source deployment design, but neither simulation proves the exact installed Connect,
-Workbench, ingress, TLS, enterprise-browser, and PostgreSQL combination.
+apply a browser's cookie-selection rules, execute HTMX, or reproduce a reverse proxy's path and
+header transformations. The layers catch different failure classes. Named platform profiles are
+easier to compare with vendor behavior than generic preserve/strip modes, but no simulation proves
+the exact installed Connect, Workbench, ingress, TLS, enterprise-browser, and PostgreSQL combination.
 
 **Deployment control:** run the suite in the approved pipeline with pinned, internally obtained
-browser artifacts. Before authorization and after proxy/platform changes, repeat security tests at
-the real external URLs using supported enterprise browsers, production-equivalent headers and TLS,
-and non-production accounts/data. Preserve results with the reviewed release. Do not treat this
-functional suite as penetration testing.
+browser artifacts. The local certificate is ephemeral and Chromium disables trust validation only
+for that test, so it does not validate production PKI. Before authorization and after proxy/platform
+changes, repeat security tests at the real external URLs using supported enterprise browsers,
+production-equivalent headers and TLS, and non-production accounts/data. Preserve results with the
+reviewed release. Do not treat this functional suite as penetration testing.
 
 **Evidence:**
 
@@ -781,6 +791,12 @@ functional suite as penetration testing.
 - Posit's [Connect FastAPI documentation](https://docs.posit.co/connect/user/fastapi/) and
   [Workbench FastAPI proxy documentation](https://docs.posit.co/ide/server-pro/user/vs-code/guide/proxying-web-servers.html#fastapi)
   establish that the two platforms expose different runtime base-path signals that require testing.
+- Posit's [Connect reverse-proxy documentation](https://docs.posit.co/connect/admin/proxy/) specifies
+  `X-RSC-Request` and the forwarded-header fallback, while its
+  [Connect release notes](https://docs.posit.co/connect/news/) document content-aware FastAPI request
+  scopes and sticky worker routing.
+- Posit's [Workbench reverse-proxy documentation](https://docs.posit.co/ide/server-pro/admin/access_and_security/running_with_a_proxy.html)
+  specifies external host, protocol, and root-prefix behavior.
 
 ## Production security gate
 

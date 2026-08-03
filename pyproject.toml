@@ -50,7 +50,7 @@ migrations = ["README.md", "script.py.mako"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
-markers = ["e2e: live Playwright browser tests through preserve/strip proxies"]
+markers = ["e2e: live Playwright browser tests through Posit Connect and Workbench profiles"]
 
 [tool.ruff]
 line-length = 100
