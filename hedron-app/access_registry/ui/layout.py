@@ -46,13 +46,15 @@ def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) ->
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.div(
-        html.div(
-            html.span((user.full_name or user.email_original or "?")[:1].upper(), class_="avatar"),
-            html.div(
-                html.strong(user.full_name or user.email_original),
-                html.small(user.email_original),
-            ),
-            class_="account-identity",
+        html.span(
+            (user.full_name or user.email_original or "?")[:1].upper(),
+            class_="account-avatar",
+            aria={"hidden": "true"},
+        ),
+        html.span(
+            html.strong(user.full_name or user.email_original),
+            html.small(user.email_original),
+            class_="account-copy",
         ),
         html.form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
