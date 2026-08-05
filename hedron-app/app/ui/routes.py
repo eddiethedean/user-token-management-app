@@ -82,7 +82,12 @@ from app.services.secrets import (
     store_user_secret,
 )
 from app.ui import partials as ui
-from app.ui.interactions import interaction_response, ok_fragment
+from app.ui.interactions import (
+    audit_match_count_oob,
+    interaction_response,
+    ok_fragment,
+    user_match_count_oob,
+)
 from app.ui.layout import alert_box, app_shell, main_panel, page_heading, side_nav_oob
 from app.ui.urls import form_action, page_href
 
@@ -97,8 +102,24 @@ def _hx_target(request: Request) -> str:
     return raw
 
 
+def _is_history_restore(request: Request) -> bool:
+    return request.headers.get("HX-History-Restore-Request", "").casefold() == "true"
+
+
 def _is_main_panel_nav(request: Request) -> bool:
-    return is_htmx_request(request) and _hx_target(request) == "#main-panel"
+    """In-shell nav fragment swap (not a history-restore full refresh)."""
+    return (
+        is_htmx_request(request)
+        and _hx_target(request) == "#main-panel"
+        and not _is_history_restore(request)
+    )
+
+
+def _is_filter_fragment(request: Request, *targets: str) -> bool:
+    """True for in-page filter/body swaps; false for nav or history restore."""
+    if not is_htmx_request(request) or _is_history_restore(request):
+        return False
+    return _hx_target(request) in targets
 
 
 def _safe_next(value: str) -> str:
@@ -1087,12 +1108,21 @@ def register_routes(app: Hedron) -> None:
         settings: Settings = Depends(get_settings),
     ):
         request.state.hedron_authenticated = True
-        values = _security_values(db, auth, settings)
         if is_htmx_request(request):
-            return await interaction_response(
-                request,
-                ok_fragment(ui.security_activity(values["events"])),
-            )
+            try:
+                values = _security_values(db, auth, settings)
+                return await interaction_response(
+                    request,
+                    ok_fragment(ui.security_activity(values["events"])),
+                )
+            except Exception:
+                return await interaction_response(
+                    request,
+                    ok_fragment(
+                        ui.security_activity_error(),
+                        status_code=200,
+                    ),
+                )
         return RedirectResponse(app_path(request, "/security"), status_code=303)
 
     @app.post("/security/password", include_in_schema=False)
@@ -1109,8 +1139,10 @@ def register_routes(app: Hedron) -> None:
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=403, detail="Password changes are disabled")
         error = ""
+        field_errors: dict[str, str] = {}
         if new_password != new_password_confirm:
             error = "New passwords do not match."
+            field_errors["new_password_confirm"] = error
         else:
             try:
                 change_account_password(
@@ -1121,8 +1153,12 @@ def register_routes(app: Hedron) -> None:
                     new_password=new_password,
                     request=request,
                 )
-            except (CurrentPasswordError, PasswordPolicyError) as exc:
+            except CurrentPasswordError as exc:
                 error = str(exc)
+                field_errors["current_password"] = error
+            except PasswordPolicyError as exc:
+                error = str(exc)
+                field_errors["new_password"] = error
         if not error:
             if is_htmx_request(request):
                 response = await interaction_response(
@@ -1143,7 +1179,11 @@ def register_routes(app: Hedron) -> None:
             return await interaction_response(
                 request,
                 ok_fragment(
-                    ui.password_form(csrf_token=auth.session.csrf_token, error=error),
+                    ui.password_form(
+                        csrf_token=auth.session.csrf_token,
+                        error=error,
+                        field_errors=field_errors,
+                    ),
                     status_code=400,
                 ),
             )
@@ -1155,7 +1195,10 @@ def register_routes(app: Hedron) -> None:
                     "Security",
                     "Manage your password, API tokens, sessions, and recent account activity.",
                 ),
-                html.section(ui.password_form(csrf_token=csrf, error=error), class_="panel"),
+                html.section(
+                    ui.password_form(csrf_token=csrf, error=error, field_errors=field_errors),
+                    class_="panel",
+                ),
                 request=request,
                 settings=settings,
                 auth=auth,
@@ -1338,11 +1381,32 @@ def register_routes(app: Hedron) -> None:
             page_size=ADMIN_PAGE_SIZE,
             success=listing.get("user_success", ""),
         )
-        if is_htmx_request(request) and not _is_main_panel_nav(request):
+        if _is_filter_fragment(request, "#user-directory", "#user-directory-body"):
+            target = _hx_target(request)
+            if target == "#user-directory-body":
+                body = ui.user_table(
+                    listing["users"],
+                    csrf_token=csrf,
+                    query=listing["user_query"],
+                    status_filter=listing["status_filter"],
+                    page=listing["current_page"],
+                    page_count=listing["page_count"],
+                    total_users=listing["total_users"],
+                    page_size=ADMIN_PAGE_SIZE,
+                )
+                return await interaction_response(
+                    request,
+                    ok_fragment(
+                        body,
+                        oob=(user_match_count_oob(listing["total_users"]),),
+                        reswap="outerHTML",
+                    ),
+                )
             return await interaction_response(
                 request,
                 ok_fragment(
-                    html.div(directory, ui.user_match_count(listing["total_users"], oob=True)),
+                    directory,
+                    oob=(user_match_count_oob(listing["total_users"]),),
                 ),
             )
         invitations = list(
@@ -1410,15 +1474,25 @@ def register_routes(app: Hedron) -> None:
     ):
         await require_csrf(request, auth.session.csrf_token)
         error = ""
+        field_errors: dict[str, str] = {}
         response_status = 200
         try:
             await validate_directory_email(email, settings)
             create_invitation(
                 db, settings, email=email, role_name=role, inviter=auth.user, request=request
             )
-        except (ValueError, DirectoryUnavailableError) as exc:
+        except DirectoryUnavailableError as exc:
             error = str(exc)
-            response_status = 503 if isinstance(exc, DirectoryUnavailableError) else 400
+            field_errors["invite_email"] = error
+            response_status = 503
+        except ValueError as exc:
+            error = str(exc)
+            lowered = error.lower()
+            if "role" in lowered:
+                field_errors["invite_role"] = error
+            else:
+                field_errors["invite_email"] = error
+            response_status = 400
         invitations = list(
             db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all()
         )
@@ -1434,6 +1508,7 @@ def register_routes(app: Hedron) -> None:
             roles,
             csrf_token=auth.session.csrf_token,
             error=error,
+            field_errors=field_errors,
             success="Invitation queued for delivery." if not error else "",
         )
         if error:
@@ -1517,20 +1592,19 @@ def register_routes(app: Hedron) -> None:
         return await interaction_response(
             request,
             ok_fragment(
-                html.div(
-                    ui.user_table(
-                        listing["users"],
-                        csrf_token=auth.session.csrf_token,
-                        query=listing["user_query"],
-                        status_filter=listing["status_filter"],
-                        page=listing["current_page"],
-                        page_count=listing["page_count"],
-                        total_users=listing["total_users"],
-                        page_size=ADMIN_PAGE_SIZE,
-                    ),
-                    ui.user_match_count(listing["total_users"], oob=True),
+                ui.user_table(
+                    listing["users"],
+                    csrf_token=auth.session.csrf_token,
+                    query=listing["user_query"],
+                    status_filter=listing["status_filter"],
+                    page=listing["current_page"],
+                    page_count=listing["page_count"],
+                    total_users=listing["total_users"],
+                    page_size=ADMIN_PAGE_SIZE,
                 ),
+                oob=(user_match_count_oob(listing["total_users"]),),
                 toast=toast,
+                reswap="outerHTML",
             ),
         )
 
@@ -1664,10 +1738,29 @@ def register_routes(app: Hedron) -> None:
             total_events=total,
             page_size=AUDIT_PAGE_SIZE,
         )
-        if is_htmx_request(request) and not _is_main_panel_nav(request):
+        if _is_filter_fragment(request, "#audit-results-region", "#audit-results-body"):
+            target = _hx_target(request)
+            if target == "#audit-results-body":
+                body = ui.audit_results_body(
+                    events,
+                    event_type_filter=et,
+                    outcome_filter=oc,
+                    current_page=page,
+                    page_count=page_count,
+                    total_events=total,
+                    page_size=AUDIT_PAGE_SIZE,
+                )
+                return await interaction_response(
+                    request,
+                    ok_fragment(
+                        body,
+                        oob=(audit_match_count_oob(total),),
+                        reswap="outerHTML",
+                    ),
+                )
             return await interaction_response(
                 request,
-                ok_fragment(html.div(results, ui.audit_match_count(total, oob=True))),
+                ok_fragment(results, oob=(audit_match_count_oob(total),)),
             )
         csrf = auth.session.csrf_token
         body = [

@@ -4,13 +4,24 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
-from hedron import Dialog, Loading, Tabs, html
+from hedron import ComponentRef, Dialog, ErrorState, Lazy, Loading, Pagination, Tabs, html
 
 from app.dependencies import AuthContext
 from app.models import AuditEvent, Invitation, RefreshSession, Role, User, UserStatus
 from app.services.secrets import SecretProvider
 from app.ui.layout import INDICATOR, account_summary, alert_box
 from app.ui.urls import form_action, hx_attrs, page_href
+
+
+def field_error(field_id: str, message: str = "") -> object:
+    """Inline field error slot (empty when valid)."""
+    attrs: dict = {
+        "id": f"field-error-{field_id}",
+        "class_": "field-error" + (" is-active" if message else ""),
+    }
+    if message:
+        attrs["role"] = "alert"
+    return html.div(message, **attrs)
 
 
 def hedron_pagination(
@@ -21,35 +32,17 @@ def hedron_pagination(
     base_path: str,
     target: str,
 ) -> object:
-    """Pagination markup matching Hedron's Pagination, with outerHTML + push-url."""
+    """Hedron Pagination builtin (innerHTML into a dedicated body region)."""
     pages = max(1, (total + page_size - 1) // page_size) if total else 1
     if pages <= 1:
         return html.div()
-    links = []
-    for number in range(1, pages + 1):
-        sep = "&" if "?" in base_path else "?"
-        path = f"{base_path}{sep}page={number}"
-        current = number == page
-        links.append(
-            html.a(
-                str(number),
-                class_="is-current" if current else "",
-                href=page_href(path),
-                aria={
-                    "label": f"Page {number}" + (" (current)" if current else ""),
-                    **({"current": "page"} if current else {}),
-                },
-                **hx_attrs(
-                    method="get",
-                    path=path.lstrip("/"),
-                    target=target,
-                    swap="outerHTML",
-                    push_url=True,
-                    indicator=INDICATOR,
-                ),
-            )
-        )
-    return html.nav(*links, class_="hedron-pagination", aria={"label": "Pagination"})
+    return Pagination(
+        page=page,
+        page_size=page_size,
+        total=total,
+        base_path=base_path,
+        target=target,
+    )
 
 
 def _filter_base_path(path: str, **params: str) -> str:
@@ -179,7 +172,12 @@ def profile_identity(auth: AuthContext, *, oob: bool = False) -> object:
 
 
 def _password_field(
-    label: str, field_id: str, *, autocomplete: str, minlength: str | None = None
+    label: str,
+    field_id: str,
+    *,
+    autocomplete: str,
+    minlength: str | None = None,
+    error: str = "",
 ) -> list[object]:
     attrs: dict = {
         "id": field_id,
@@ -191,6 +189,8 @@ def _password_field(
     }
     if minlength:
         attrs["minlength"] = minlength
+    if error:
+        attrs["aria"] = {"invalid": "true", "describedby": f"field-error-{field_id}"}
     return [
         html.label(label, for_=field_id),
         html.input(**attrs),
@@ -201,10 +201,18 @@ def _password_field(
             data={"password-toggle": field_id},
             aria={"pressed": "false"},
         ),
+        field_error(field_id, error),
     ]
 
 
-def password_form(*, csrf_token: str, error: str = "", success: str = "") -> object:
+def password_form(
+    *,
+    csrf_token: str,
+    error: str = "",
+    success: str = "",
+    field_errors: dict[str, str] | None = None,
+) -> object:
+    field_errors = field_errors or {}
     if success:
         return html.div(
             alert_box(success, kind="success"),
@@ -212,21 +220,30 @@ def password_form(*, csrf_token: str, error: str = "", success: str = "") -> obj
             id="password-form-region",
             class_="form-column",
         )
+    top_error = error if error and not field_errors else ""
     return html.div(
-        alert_box(error),
+        alert_box(top_error),
         html.form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
             *_password_field(
-                "Current password", "current_password", autocomplete="current-password"
+                "Current password",
+                "current_password",
+                autocomplete="current-password",
+                error=field_errors.get("current_password", ""),
             ),
             *_password_field(
-                "New password", "new_password", autocomplete="new-password", minlength="15"
+                "New password",
+                "new_password",
+                autocomplete="new-password",
+                minlength="15",
+                error=field_errors.get("new_password", ""),
             ),
             *_password_field(
                 "Confirm new password",
                 "new_password_confirm",
                 autocomplete="new-password",
                 minlength="15",
+                error=field_errors.get("new_password_confirm", ""),
             ),
             html.button("Change password", class_="button button-primary", type="submit"),
             class_="stack-form",
@@ -296,7 +313,7 @@ def secret_slot(
             ),
             html.button(
                 "Replace" if configured else "Save",
-                class_="button button-primary button-small",
+                class_="button button-primary button-small button-action",
                 type="submit",
             ),
             class_="secret-form",
@@ -448,20 +465,32 @@ def security_activity(events: list[AuditEvent], *, oob: bool = False) -> object:
     return html.div(*items, **attrs)
 
 
-def security_activity_lazy() -> object:
-    """Deferred activity panel loaded via HTMX after first paint."""
+def security_activity_error(
+    message: str = "Could not load security activity.",
+) -> object:
+    """ErrorState wrapped so Lazy outerHTML swaps keep a stable region id."""
     return html.div(
-        Loading("Loading activity…"),
+        ErrorState(
+            message,
+            retry_href="/security/activity",
+            target="#security-activity",
+        ),
         id="security-activity",
         class_="event-list",
-        **hx_attrs(
-            method="get",
-            path="security/activity",
-            target="#security-activity",
-            trigger="load",
+        data={"lazy-error": "security-activity"},
+    )
+
+
+def security_activity_lazy() -> object:
+    """Deferred activity panel loaded via Hedron Lazy after first paint."""
+    return Lazy(
+        ref=ComponentRef(
+            logical_id="security-activity",
+            path="/security/activity",
             swap="outerHTML",
-            indicator=INDICATOR,
         ),
+        placeholder=Loading("Loading activity…"),
+        target_id="security-activity",
     )
 
 
@@ -572,12 +601,14 @@ def user_table(
                         html.input(type="hidden", name="q", value=query),
                         html.input(type="hidden", name="status", value=status_filter),
                         html.input(type="hidden", name="page", value=str(page)),
-                        html.button(label, class_="button button-small", type="submit"),
+                        html.button(
+                            label, class_="button button-small button-action", type="submit"
+                        ),
                         action=form_action(f"admin/users/{user.id}/{action}"),
                         method="post",
                         **hx_attrs(
                             path=f"admin/users/{user.id}/{action}",
-                            target="#user-table",
+                            target="#user-directory-body",
                             include="closest form",
                             disabled_elt="find button",
                             indicator=INDICATOR,
@@ -593,12 +624,16 @@ def user_table(
                 html.input(type="hidden", name="q", value=query),
                 html.input(type="hidden", name="status", value=status_filter),
                 html.input(type="hidden", name="page", value=str(page)),
-                html.button(action_label, class_="button button-small", type="submit"),
+                html.button(
+                    action_label,
+                    class_="button button-small button-action",
+                    type="submit",
+                ),
                 action=form_action(f"admin/users/{user.id}/toggle"),
                 method="post",
                 **hx_attrs(
                     path=f"admin/users/{user.id}/toggle",
-                    target="#user-table",
+                    target="#user-directory-body",
                     disabled_elt="find button",
                     indicator=INDICATOR,
                 ),
@@ -662,9 +697,9 @@ def user_table(
             page_size=page_size,
             total=total,
             base_path=base,
-            target="#user-directory",
+            target="#user-directory-body",
         ),
-        id="user-table",
+        id="user-directory-body",
     )
 
 
@@ -707,6 +742,7 @@ def user_directory(
                 target="#user-directory",
                 push_url=True,
                 sync="this:replace",
+                disabled_elt="find button",
                 indicator=INDICATOR,
             ),
         ),
@@ -731,7 +767,9 @@ def invitation_panel(
     csrf_token: str,
     error: str = "",
     success: str = "",
+    field_errors: dict[str, str] | None = None,
 ) -> object:
+    field_errors = field_errors or {}
     pending_rows = []
     for invitation in invitations:
         if invitation.accepted_at:
@@ -788,21 +826,42 @@ def invitation_panel(
                 class_="pending-row",
             )
         )
+    email_error = field_errors.get("invite_email", "")
+    role_error = field_errors.get("invite_role", "")
+    top_error = error if error and not field_errors else ""
+    email_attrs: dict = {
+        "id": "invite_email",
+        "name": "email",
+        "type": "email",
+        "required": True,
+    }
+    if email_error:
+        email_attrs["aria"] = {
+            "invalid": "true",
+            "describedby": "field-error-invite_email",
+        }
     return html.div(
         html.h2("Invitations"),
         html.p("Send a government-email invitation with an initial role."),
-        alert_box(error),
+        alert_box(top_error),
         alert_box(success, kind="success"),
         html.form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
             html.label("Government email", for_="invite_email"),
-            html.input(id="invite_email", name="email", type="email", required=True),
+            html.input(**email_attrs),
+            field_error("invite_email", email_error),
             html.label("Initial role", for_="invite_role"),
             html.select(
                 *[html.option(role.name.title(), value=role.name) for role in roles],
                 id="invite_role",
                 name="role",
+                **(
+                    {"aria": {"invalid": "true", "describedby": "field-error-invite_role"}}
+                    if role_error
+                    else {}
+                ),
             ),
+            field_error("invite_role", role_error),
             html.button(
                 "Send invitation", class_="button button-primary button-wide", type="submit"
             ),
@@ -842,6 +901,87 @@ def audit_results(
     total_events: int,
     page_size: int = 50,
 ) -> object:
+    return html.div(
+        _audit_filter_form(event_type_filter, outcome_filter),
+        audit_results_body(
+            events,
+            event_type_filter=event_type_filter,
+            outcome_filter=outcome_filter,
+            current_page=current_page,
+            page_count=page_count,
+            total_events=total_events,
+            page_size=page_size,
+        ),
+        id="audit-results-region",
+    )
+
+
+def _audit_filter_form(event_type_filter: str, outcome_filter: str) -> object:
+    return html.form(
+        html.div(
+            html.label("Event type", for_="event-type-filter"),
+            html.input(
+                id="event-type-filter",
+                name="event_type",
+                value=event_type_filter,
+                placeholder="auth.login",
+                autocomplete="off",
+            ),
+        ),
+        html.div(
+            html.label("Outcome", for_="outcome-filter"),
+            html.input(
+                id="outcome-filter",
+                name="outcome",
+                value=outcome_filter,
+                placeholder="success",
+                autocomplete="off",
+            ),
+        ),
+        html.button("Apply filters", class_="button button-secondary button-small", type="submit"),
+        (
+            html.a(
+                "Clear",
+                class_="button button-quiet button-small",
+                href=page_href("admin/audit"),
+                **hx_attrs(
+                    method="get",
+                    path="admin/audit",
+                    target="#audit-results-region",
+                    push_url=True,
+                    indicator=INDICATOR,
+                ),
+            )
+            if event_type_filter or outcome_filter
+            else html.div()
+        ),
+        class_="filter-form",
+        action=form_action("admin/audit"),
+        method="get",
+        aria={"label": "Filter audit events"},
+        **hx_attrs(
+            method="get",
+            path="admin/audit",
+            trigger="submit, input changed delay:350ms",
+            target="#audit-results-region",
+            push_url=True,
+            sync="this:replace",
+            disabled_elt="find button",
+            indicator=INDICATOR,
+        ),
+    )
+
+
+def audit_results_body(
+    events: list[AuditEvent],
+    *,
+    event_type_filter: str,
+    outcome_filter: str,
+    current_page: int,
+    page_count: int,
+    total_events: int,
+    page_size: int = 50,
+) -> object:
     rows = [
         html.tr(
             html.td(event.occurred_at.strftime("%Y-%m-%d %H:%M")),
@@ -858,60 +998,6 @@ def audit_results(
         outcome=outcome_filter,
     )
     return html.div(
-        html.form(
-            html.div(
-                html.label("Event type", for_="event-type-filter"),
-                html.input(
-                    id="event-type-filter",
-                    name="event_type",
-                    value=event_type_filter,
-                    placeholder="auth.login",
-                    autocomplete="off",
-                ),
-            ),
-            html.div(
-                html.label("Outcome", for_="outcome-filter"),
-                html.input(
-                    id="outcome-filter",
-                    name="outcome",
-                    value=outcome_filter,
-                    placeholder="success",
-                    autocomplete="off",
-                ),
-            ),
-            html.button(
-                "Apply filters", class_="button button-secondary button-small", type="submit"
-            ),
-            (
-                html.a(
-                    "Clear",
-                    class_="button button-quiet button-small",
-                    href=page_href("admin/audit"),
-                    **hx_attrs(
-                        method="get",
-                        path="admin/audit",
-                        target="#audit-results-region",
-                        push_url=True,
-                        indicator=INDICATOR,
-                    ),
-                )
-                if event_type_filter or outcome_filter
-                else html.div()
-            ),
-            class_="filter-form",
-            action=form_action("admin/audit"),
-            method="get",
-            aria={"label": "Filter audit events"},
-            **hx_attrs(
-                method="get",
-                path="admin/audit",
-                trigger="submit, input changed delay:350ms",
-                target="#audit-results-region",
-                push_url=True,
-                sync="this:replace",
-                indicator=INDICATOR,
-            ),
-        ),
         html.div(
             html.table(
                 html.thead(
@@ -936,32 +1022,51 @@ def audit_results(
             page_size=page_size,
             total=total_events,
             base_path=base,
-            target="#audit-results-region",
+            target="#audit-results-body",
         ),
-        id="audit-results-region",
+        id="audit-results-body",
     )
 
 
-def audit_results_lazy(*, event_type: str = "", outcome: str = "", page: int = 1) -> object:
-    params = {}
+def audit_results_error(
+    message: str = "Could not load audit activity.",
+    *,
+    event_type: str = "",
+    outcome: str = "",
+    page: int = 1,
+) -> object:
+    params: dict[str, str] = {}
     if event_type:
         params["event_type"] = event_type
     if outcome:
         params["outcome"] = outcome
     if page > 1:
         params["page"] = str(page)
-    path = "admin/audit" + (f"?{urlencode(params)}" if params else "")
+    path = "/admin/audit" + (f"?{urlencode(params)}" if params else "")
     return html.div(
-        Loading("Loading audit activity…"),
+        ErrorState(message, retry_href=path, target="#audit-results-region"),
         id="audit-results-region",
-        **hx_attrs(
-            method="get",
+        data={"lazy-error": "audit-results-region"},
+    )
+
+
+def audit_results_lazy(*, event_type: str = "", outcome: str = "", page: int = 1) -> object:
+    params: dict[str, str] = {}
+    if event_type:
+        params["event_type"] = event_type
+    if outcome:
+        params["outcome"] = outcome
+    if page > 1:
+        params["page"] = str(page)
+    path = "/admin/audit" + (f"?{urlencode(params)}" if params else "")
+    return Lazy(
+        ref=ComponentRef(
+            logical_id="audit-results",
             path=path,
-            target="#audit-results-region",
-            trigger="load",
             swap="outerHTML",
-            indicator=INDICATOR,
         ),
+        placeholder=Loading("Loading audit activity…"),
+        target_id="audit-results-region",
     )
 
 

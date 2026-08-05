@@ -28,9 +28,11 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.SECRET_SLOT_MSS,
     region_defs.INVITATION_PANEL,
     region_defs.USER_DIRECTORY,
+    region_defs.USER_DIRECTORY_BODY,
     region_defs.USER_TABLE,
     region_defs.USER_MATCH_COUNT,
     region_defs.AUDIT_RESULTS,
+    region_defs.AUDIT_RESULTS_BODY,
     region_defs.AUDIT_MATCH_COUNT,
     region_defs.SECURITY_ACTIVITY,
     region_defs.GLOBAL_FEEDBACK,
@@ -53,11 +55,37 @@ _RENDER_POLICY = SecurityPolicy(
 )
 
 
-def toast_oob(message: str, *, tone: str = "success") -> OobUpdate:
+def toast_oob(message: str, *, tone: str = "success", duration_ms: int = 4500) -> OobUpdate:
+    from hedron import html
+
     return OobUpdate(
-        content=Toast(message, tone=tone),  # type: ignore[arg-type]
+        content=html.div(
+            Toast(message, tone=tone),  # type: ignore[arg-type]
+            class_="toast-item",
+            data={"toast-ms": str(duration_ms)},
+        ),
         element_id="toast-host",
-        swap="innerHTML",
+        swap="beforeend",
+    )
+
+
+def user_match_count_oob(total: int) -> OobUpdate:
+    from hedron import html
+
+    return OobUpdate(
+        content=html.span(f"{total} matching accounts", class_="verification-badge"),
+        element_id="user-match-count",
+        swap="outerHTML",
+    )
+
+
+def audit_match_count_oob(total: int) -> OobUpdate:
+    from hedron import html
+
+    return OobUpdate(
+        content=html.span(f"{total} matching events", class_="verification-badge"),
+        element_id="audit-match-count",
+        swap="outerHTML",
     )
 
 
@@ -71,6 +99,8 @@ def ok_fragment(
     redirect: str | None = None,
     status_code: int = 200,
     region_id: str | None = None,
+    swap: str | None = None,
+    reswap: str | None = None,
 ) -> InteractionResult:
     extras = list(oob)
     if toast:
@@ -83,6 +113,8 @@ def ok_fragment(
         redirect=redirect,
         policy=APP_POLICY,
         region_id=region_id,
+        swap=swap,
+        reswap=reswap,
         cache="no-store",
     )
 

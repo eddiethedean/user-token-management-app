@@ -376,6 +376,31 @@ code { padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; colo
 .global-feedback:empty { display: none; }
 .global-request-indicator { position: fixed; z-index: 101; right: 18px; bottom: 18px; padding: 9px 13px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--ink); background: var(--paper); box-shadow: var(--shadow); }
 .htmx-request .button { cursor: progress; }
+form.htmx-request .button-action,
+.button-action.htmx-request,
+.button[aria-busy="true"],
+a.nav-link[disabled],
+a.nav-link[aria-disabled="true"] {
+  opacity: 0.62;
+  cursor: progress;
+  pointer-events: none;
+}
+form.htmx-request .button-action::after,
+.button-action.htmx-request::after {
+  content: "";
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-left: 0.45em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -0.1em;
+  animation: button-spin 0.65s linear infinite;
+}
+@keyframes button-spin {
+  to { transform: rotate(360deg); }
+}
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 @media (max-width: 1040px) {
@@ -471,6 +496,15 @@ code { padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; colo
   box-shadow: var(--shadow-soft);
   pointer-events: auto;
   animation: toast-enter 0.24s ease;
+}
+.toast-item {
+  pointer-events: auto;
+  animation: toast-enter 0.24s ease;
+}
+.toast-item.is-leaving {
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 .hedron-toast-success {
   border-color: rgba(57, 214, 191, 0.35);
@@ -606,6 +640,41 @@ code { padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; colo
   min-height: 88px;
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.hedron-error {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  padding: 16px 0;
+  color: var(--muted-strong);
+  font-size: 0.88rem;
+}
+.hedron-error [role="alert"] {
+  margin: 0;
+  color: var(--danger, #ff8f9f);
+}
+.hedron-error button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.78rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.field-error {
+  min-height: 0;
+  margin: -4px 0 0;
+  color: var(--danger, #ff8f9f);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.field-error:not(.is-active) {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

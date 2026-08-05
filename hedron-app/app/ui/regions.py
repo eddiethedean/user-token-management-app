@@ -90,15 +90,25 @@ USER_DIRECTORY = FragmentRegion(
     selector="#user-directory",
     description="Administrator user directory",
 )
+USER_DIRECTORY_BODY = FragmentRegion(
+    id="user-directory-body",
+    selector="#user-directory-body",
+    description="Administrator user directory table body",
+)
 USER_TABLE = FragmentRegion(
     id="user-table",
     selector="#user-table",
-    description="Administrator user table",
+    description="Administrator user table (legacy alias)",
 )
 AUDIT_RESULTS = FragmentRegion(
     id="audit-results-region",
     selector="#audit-results-region",
     description="Audit log results",
+)
+AUDIT_RESULTS_BODY = FragmentRegion(
+    id="audit-results-body",
+    selector="#audit-results-body",
+    description="Audit log results table body",
 )
 SECURITY_ACTIVITY = FragmentRegion(
     id="security-activity",

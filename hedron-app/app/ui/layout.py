@@ -85,6 +85,9 @@ def side_nav_children(request, auth: AuthContext) -> list[object]:
                 target="#main-panel",
                 swap="outerHTML",
                 push_url=True,
+                select="#main-panel",
+                select_oob="#side-nav",
+                disabled_elt="#side-nav a.nav-link",
                 indicator=INDICATOR,
             ),
         )

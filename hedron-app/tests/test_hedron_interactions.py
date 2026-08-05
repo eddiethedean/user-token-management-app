@@ -57,6 +57,8 @@ def test_auth_and_shell_pages_are_documents(page) -> None:
     assert_html_contains(profile, 'id="toast-host"')
     assert_html_contains(profile, 'id="dialog-host"')
     assert_html_contains(profile, 'id="global-request-indicator"')
+    assert_html_contains(profile, 'hx-select="#main-panel"')
+    assert_html_contains(profile, 'hx-select-oob="#side-nav"')
     assert_budget(profile.body, max_bytes=250_000)
 
 
@@ -80,6 +82,42 @@ def test_main_panel_nav_swaps_all_authenticated_routes(htmx) -> None:
         assert_hx_push_url(adapter)
         assert "hx-swap-oob" in response.text  # side-nav active state
         assert_budget(response.text, max_bytes=200_000)
+
+
+def test_history_restore_returns_full_document(htmx) -> None:
+    htmx_login(htmx)
+    response = htmx.get(
+        "/admin/users",
+        params={"q": "restore"},
+        headers={
+            "HX-Target": "#main-panel",
+            "HX-History-Restore-Request": "true",
+            "Accept": "text/html",
+        },
+    )
+    assert response.status_code == 200
+    assert 'id="main-panel"' in response.text
+    assert 'id="side-nav"' in response.text
+    assert "site-header" in response.text or "Official use system" in response.text
+
+
+def test_toast_oob_appends_for_queueing() -> None:
+    from hedron import html
+    from hedron.testing import render_html
+    from hedron_core.interaction import InteractionResult, materialize_interaction_nodes
+
+    from app.ui.interactions import APP_POLICY, toast_oob
+
+    result = InteractionResult(
+        content=html.div("ok"),
+        oob=(toast_oob("First"), toast_oob("Second", tone="danger")),
+        policy=APP_POLICY,
+    )
+    markup = render_html(materialize_interaction_nodes(result))
+    assert markup.count('hx-swap-oob="beforeend"') == 2
+    assert "toast-item" in markup
+    assert 'data-toast-ms="4500"' in markup
+    assert "First" in markup and "Second" in markup
 
 
 def test_undeclared_hx_target_is_rejected(htmx) -> None:
@@ -142,6 +180,7 @@ def test_password_htmx_error_fragment_and_success_redirect(htmx) -> None:
     assert mismatch.status_code == 400
     assert_html_contains(adapter, "password-form-region")
     assert_html_contains(adapter, "do not match")
+    assert_html_contains(adapter, "field-error-new_password_confirm")
     assert_no_document_shell(adapter)
 
     success = htmx.post(
@@ -238,10 +277,10 @@ def test_admin_invite_and_toggle_toasts(htmx, make_user) -> None:
             "status": "",
             "page": "1",
         },
-        headers={"HX-Target": "#user-table", "Accept": "text/html"},
+        headers={"HX-Target": "#user-directory-body", "Accept": "text/html"},
     )
     toggle_adapter = as_adapter(toggled)
-    assert_fragment_body(toggle_adapter, contains="user-table")
+    assert_fragment_body(toggle_adapter, contains="user-directory-body")
     assert_html_contains(toggle_adapter, "hedron-toast")
     assert_html_contains(toggle_adapter, "account status was updated")
     assert_html_contains(toggle_adapter, "hedron-dialog")
@@ -259,8 +298,19 @@ def test_admin_directory_and_audit_filter_fragments(htmx, make_user) -> None:
     dir_adapter = as_adapter(directory)
     assert_fragment_body(dir_adapter, contains="user-directory")
     assert_html_contains(dir_adapter, "filter.hedron@example.gov")
+    assert_html_contains(dir_adapter, "user-directory-body")
     assert_no_document_shell(dir_adapter)
     assert_budget(directory.text, max_bytes=150_000)
+
+    body = htmx.get(
+        "/admin/users",
+        params={"q": "filter.hedron", "page": "1"},
+        headers={"HX-Target": "#user-directory-body", "Accept": "text/html"},
+    )
+    body_adapter = as_adapter(body)
+    assert_fragment_body(body_adapter, contains="user-directory-body")
+    assert "HX-Reswap" in body.headers
+    assert body.headers["HX-Reswap"] == "outerHTML"
 
     audit = htmx.get(
         "/admin/audit",
@@ -331,11 +381,12 @@ def test_component_renders_via_hedron_assert_renders() -> None:
             page_size=10,
             total=35,
             base_path="/admin/audit",
-            target="#audit-results-region",
+            target="#audit-results-body",
         ),
         contains="hedron-pagination",
     )
-    assert 'hx-swap="outerHTML"' in pagination
+    assert 'hx-swap="innerHTML"' in pagination
+    assert 'hx-target="#audit-results-body"' in pagination
     assert "page=3" in pagination
 
 

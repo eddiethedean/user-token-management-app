@@ -174,7 +174,7 @@ def test_user_directory_fragment_render() -> None:
         )
     )
     assert 'id="user-directory"' in html
-    assert 'id="user-table"' in html
+    assert 'id="user-directory-body"' in html
     assert "No users found." in html
 
 
@@ -264,6 +264,8 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, 'id="toast-host"')
     assert_html_contains(profile, 'id="side-nav"')
     assert_html_contains(profile, 'hx-target="#main-panel"')
+    assert_html_contains(profile, 'hx-select="#main-panel"')
+    assert_html_contains(profile, 'hx-select-oob="#side-nav"')
     assert_html_contains(profile, "historyCacheSize")
 
 
@@ -327,8 +329,9 @@ def test_htmx_profile_update_emits_toast_oob(hedron_app) -> None:
     assert_fragment_body(adapter, contains="profile-form-region")
     assert_html_contains(adapter, "Your profile has been updated")
     assert_html_contains(adapter, "hedron-toast")
-    assert 'hx-swap-oob="innerHTML"' in response.text
+    assert 'hx-swap-oob="beforeend"' in response.text
     assert 'id="toast-host"' in response.text
+    assert "toast-item" in response.text
 
 
 def test_session_list_uses_dialog_confirm(hedron_app) -> None:
@@ -362,12 +365,12 @@ def test_admin_pagination_uses_hedron_markup() -> None:
             page_size=10,
             total=45,
             base_path="/admin/users",
-            target="#user-directory",
+            target="#user-directory-body",
         )
     )
     assert "hedron-pagination" in html
-    assert 'hx-target="#user-directory"' in html
-    assert 'hx-swap="outerHTML"' in html
+    assert 'hx-target="#user-directory-body"' in html
+    assert 'hx-swap="innerHTML"' in html
     assert "page=2" in html
 
 
@@ -376,3 +379,25 @@ def test_security_activity_lazy_placeholder() -> None:
     assert 'id="security-activity"' in html
     assert "hedron-loading" in html
     assert 'hx-get="/security/activity"' in html
+    assert 'hx-swap="outerHTML"' in html
+
+
+def test_password_form_field_errors() -> None:
+    html = render_html(
+        ui.password_form(
+            csrf_token="csrf",
+            field_errors={"new_password_confirm": "New passwords do not match."},
+        )
+    )
+    assert 'id="field-error-new_password_confirm"' in html
+    assert "field-error is-active" in html
+    assert "do not match" in html
+    assert 'aria-invalid="true"' in html
+
+
+def test_audit_results_lazy_uses_hedron_lazy() -> None:
+    html = render_html(ui.audit_results_lazy())
+    assert 'id="audit-results-region"' in html
+    assert "hedron-loading" in html
+    assert 'hx-get="/admin/audit"' in html
+    assert "Loading audit activity" in html
