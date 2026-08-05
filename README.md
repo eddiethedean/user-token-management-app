@@ -1,37 +1,22 @@
 # Access Registry
 
-Administrator-approved user and token management for government-email accounts. This repository
-holds **two peer FastAPI apps** with the same domain capabilities and independent deployments.
+Administrator-approved user and token management for government-email accounts.
+FastAPI + [Hedron](https://github.com/eddiethedean/hedron) typed components and HTMX.
 
-| | Jinja UI | Hedron UI |
-|--|--|--|
-| Directory | [`jinja-app/`](jinja-app/) | [`hedron-app/`](hedron-app/) |
-| Package / entrypoint | `app.main:app` | `app.main:app` |
-| Default local URL | http://127.0.0.1:8000 | http://127.0.0.1:8001 |
-| Default local DB | `jinja-app/access-registry.db` | `hedron-app/hedron-access-registry.db` |
-| JSON API (`/api/v1`) | Yes | Not included (web UI only) |
-| UI stack | Jinja2 + HTMX | Hedron typed components + HTMX |
+| | |
+|--|--|
+| Package / entrypoint | `app.main:app` |
+| Default local URL | http://127.0.0.1:8000 |
+| Default local DB | `./access-registry.db` |
+| UI stack | Hedron typed components + HTMX |
 
-**Do not** point both apps at the same production database or share signing, CSRF, session, or
-API-token encryption secrets between them (including across NIPR/SIPR).
+Security decision register and production gate: [SECURITY.md](SECURITY.md).
 
 ## Quick start
 
 ```bash
-# Jinja
-cd jinja-app
-python -m venv .venv && source .venv/bin/activate
-python -m pip install -r requirements-dev.txt
-cp .env.example .env
-python -m app migrate
-python -m app.cli create-admin --email admin@example.gov
-python -m app serve --reload
-```
-
-```bash
-# Hedron
-cd hedron-app
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -e ".[dev]"
 cp .env.example .env
 python -m app migrate
@@ -40,9 +25,29 @@ ADMIN_BOOTSTRAP_PASSWORD='…' python -m app.cli create-admin \
 python -m app serve --reload
 ```
 
-Full runbooks (Connect, Workbench, env vars, e2e):
+Open http://127.0.0.1:8000/login.
 
-- [jinja-app/README.md](jinja-app/README.md)
-- [hedron-app/README.md](hedron-app/README.md)
+Set `ADMIN_BOOTSTRAP_PASSWORD` first (15+ characters; must not contain the email local-part).
 
-Security decision register and production gate: [SECURITY.md](SECURITY.md).
+Email delivery worker:
+
+```bash
+python -m app.cli email-worker
+```
+
+## Quality checks
+
+```bash
+ruff check app tests
+ruff format --check app tests
+pytest
+```
+
+## Posit Connect
+
+```bash
+rsconnect deploy fastapi \
+  -n <server-name> \
+  --entrypoint app.main:app \
+  ./
+```

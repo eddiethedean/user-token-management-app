@@ -1,9 +1,0 @@
-<div id="user-directory-region">
-  <form id="user-filters" action="admin/users" method="get" class="filter-form" aria-label="Filter users" hx-get="admin/users" hx-trigger="submit, input changed delay:350ms from:#user-query, change from:#status-filter" hx-target="#user-directory-region" hx-swap="outerHTML" hx-push-url="true" hx-sync="this:replace" hx-disabled-elt="find button">
-    <div><label for="user-query">Search</label><input id="user-query" name="q" value="{{ user_query }}" placeholder="Name, email, or organization" autocomplete="off"></div>
-    <div><label for="status-filter">Status</label><select id="status-filter" name="status"><option value="">All statuses</option>{% for item in ['active', 'pending', 'disabled'] %}<option value="{{ item }}" {% if status_filter == item %}selected{% endif %}>{{ item | title }}</option>{% endfor %}</select></div>
-    <button class="button button-secondary button-small" type="submit">Apply filters</button>
-    {% if user_query or status_filter %}<a class="button button-quiet button-small" href="admin/users" hx-get="admin/users" hx-target="#user-directory-region" hx-swap="outerHTML" hx-push-url="true">Clear</a>{% endif %}
-  </form>
-  {% include "partials/user_table.html" %}
-</div>

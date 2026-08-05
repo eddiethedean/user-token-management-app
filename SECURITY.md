@@ -719,7 +719,7 @@ eavesdropping, injection, and replay.
 
 **Decision:** Six ordered Alembic revisions create the baseline, self-registration, shared
 rate-limit, user API-secret, atomic-token/email-worker, and encryption-key-usage schemas. Application startup verifies the
-current revision and refuses to serve a stale or unversioned schema; from `jinja-app/`, `python -m app migrate` is an
+current revision and refuses to serve a stale or unversioned schema; `python -m app migrate` is an
 explicit release action. Legacy `create_all()` databases require the explicit `--adopt-existing`
 path, which verifies known table/column shapes before stamping and upgrading. Administrator
 bootstrap is a separate `create-admin` command and is never migration data. The production core
@@ -758,78 +758,59 @@ even though dedicated capability columns are hashed.
 
 **Status:** Implemented.
 
-**Decision:** FastAPI executes authentication and authorization, Jinja renders HTML, and HTMX
-progressively enhances same-origin forms and partial updates. The browser never determines access
-rights. HTMX is vendored; Node is not a runtime or deployment dependency. Static files are served
+**Decision:** FastAPI executes authentication and authorization, Hedron typed components render HTML,
+and HTMX progressively enhances same-origin forms and partial updates. The browser never determines
+access rights. Node is not a runtime or deployment dependency. Application static files are served
 under `/assets` with fallback disabled, after normal application routes, and receive the same
-security middleware. `base.html` loads only the repository-local `app/static/htmx.min.js` path, not
-a CDN. The reviewed artifact identifies itself as HTMX 2.0.10, was compared byte-for-byte with the
-official `v2.0.10` tagged distribution, and has SHA-256
-`71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de`. HTMX's built-in indicator
-style injection is disabled declaratively because the local stylesheet supplies the indicator
-rules; this keeps HTMX from attempting an inline style that the application's CSP intentionally
-blocks. HTMX expression evaluation and response script execution are disabled. Sensitive page
-snapshots are excluded from HTMX history and its localStorage cache is set to zero; URL-aware
-filtering therefore restores through a server request. Mutation endpoints negotiate fragments only
-for `HX-Request: true`; ordinary form submissions redirect to or render complete pages. Expected
-error fragments remain visible for `4xx` and `5xx` responses, while unexpected HTMX errors are
-retargeted to a global live region and expired sessions receive `HX-Redirect` independently of the
-browser's `Accept` header.
+security middleware. Hedron injects its bundled HTMX from `/hedron-static/htmx.min.js`; the app adds
+progressive-enhancement behavior from `/assets/app.js`. HTMX's built-in indicator style injection is
+disabled declaratively because the local stylesheet supplies the indicator rules; this keeps HTMX
+from attempting an inline style that the application's CSP intentionally blocks. HTMX expression
+evaluation and response script execution are disabled. Authenticated navigation uses an in-shell
+`#main-panel` swap with a modest HTMX history cache; history restore refreshes stale filter state
+through an explicit server request (`HX-History-Restore-Request`). Mutation endpoints negotiate
+fragments for `HX-Request: true`; ordinary form submissions redirect to or render complete pages.
+Expected error fragments remain visible for `4xx` and `5xx` responses, while unexpected HTMX errors
+are retargeted to a global live region and expired sessions receive `HX-Redirect` independently of
+the browser's `Accept` header.
 
 **Rationale:** This architecture fits Workbench's no-Node environment and keeps the security boundary
 on the Python server. A small, self-hosted script surface supports a restrictive CSP and removes a
-runtime CDN dependency. It does not make XSS impossible; output encoding, dependency review, CSP,
-and server authorization remain required.
+runtime CDN dependency. It does not make XSS impossible; output encoding (Hedron's HTML escaping),
+dependency review, CSP, and server authorization remain required.
 
-**Deployment control:** record the HTMX file version and integrity hash, review upgrades, scan and pin
-Python dependencies through the approved supply-chain process, and never render untrusted values with
-Jinja's `safe` escape bypass without a security review.
+**Deployment control:** record the HTMX file version and integrity hash shipped by the Hedron
+package, review upgrades, scan and pin Python dependencies through the approved supply-chain process,
+and never bypass Hedron's HTML escaping for untrusted values without a security review.
 
-**Gap:** a cross-platform `uv.lock` is committed, but the repository has no software bill of
-materials or recorded HTMX acquisition/provenance evidence. Approved vulnerability scanning,
-artifact attestation, and supply-chain review remain production gates.
+**Gap:** the repository has no software bill of materials or recorded HTMX acquisition/provenance
+evidence beyond the pinned Hedron dependency. Approved vulnerability scanning, artifact attestation,
+and supply-chain review remain production gates.
 
 **Evidence:** [FastAPI Frontend](https://fastapi.tiangolo.com/tutorial/frontend/) documents route
-precedence, middleware application, static-output serving, and disabled fallback. [Jinja Autoescaping](https://jinja.palletsprojects.com/en/stable/api/#autoescaping)
-documents HTML autoescape configuration. [OWASP CSP](https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html)
+precedence, middleware application, static-asset serving, and disabled fallback. [OWASP CSP](https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html)
 describes CSP as an additional layer rather than a replacement for secure output handling.
 [HTMX's indicator documentation](https://htmx.org/attributes/hx-indicator/) recommends disabling
 `includeIndicatorStyles` and hosting the indicator CSS when CSP blocks inline style tags.
 
 ### SD-23 — Test browser security behavior through both proxy path models
 
-**Status:** Implemented harness; production-equivalent execution remains a deployment control.
+**Status:** Unit/integration coverage implemented; full browser e2e harness is deferred.
 
-**Decision:** The Playwright suite starts the actual service behind five named Posit profiles:
-current Connect GUID content, header-only Connect vanity content, Workbench's dynamic
-`/s/<session>/p/<port-id>/` URL, Workbench beneath an outer path-rewriting proxy, and a
-prefix-preserved ASGI compatibility case. The Workbench profiles start the application's real CLI
-and make a fake `rserver-url -l` return the documented full external URL. Connect profiles supply
-the app-base and credentials headers, original-request and forwarded metadata, content-aware
-`root_path` where applicable, and an optional `connect.workerid` cookie. The proxy strips
-client-supplied platform and forwarding headers before replacing them. A real Chromium context
-connects to the simulation over TLS while the application runs with `COOKIE_SECURE=true`. It
-exercises login, successful and rejected HTMX form submissions, out-of-band identity updates,
-debounced filtering with URL synchronization, absence of HTMX history storage, static assets,
-host-only cookie behavior, path isolation, expiry, `Secure`, `HttpOnly`, `SameSite`, JavaScript
-invisibility, access-token loss followed by refresh rotation, replay rejection, logout cookie
-deletion, server-side denial of both former credentials after logout, and preservation of Connect's
-unrelated worker cookie. The credentials header tests coexistence with the platform and is
-deliberately not accepted as this application's authenticator. Unit tests separately cover malformed
-path and launcher inputs.
+**Decision:** Connect and Workbench path normalization, trusted-proxy header handling, and cookie
+path scoping are exercised by automated unit and HTMX fragment tests (including Workbench
+`/s/<session>/p/<port-id>/` style `root_path` cases). A full Playwright multi-profile proxy suite is
+not shipped in this repository; production-equivalent browser verification remains a deployment
+control when required by the authorization package.
 
-**Rationale:** `TestClient` is valuable for deterministic route and header coverage but does not
-apply a browser's cookie-selection rules, execute HTMX, or reproduce a reverse proxy's path and
-header transformations. The layers catch different failure classes. Named platform profiles are
-easier to compare with vendor behavior than generic preserve/strip modes, but no simulation proves
-the exact installed Connect, Workbench, ingress, TLS, enterprise-browser, and PostgreSQL combination.
+**Rationale:** `TestClient` and fragment clients catch deterministic route, header, and HTMX
+contract failures. They do not replace enterprise-browser cookie selection or a real reverse proxy's
+path and header transformations.
 
-**Deployment control:** run the suite in the approved pipeline with pinned, internally obtained
-browser artifacts. The local certificate is ephemeral and Chromium disables trust validation only
-for that test, so it does not validate production PKI. Before authorization and after proxy/platform
-changes, repeat security tests at the real external URLs using supported enterprise browsers,
-production-equivalent headers and TLS, and non-production accounts/data. Preserve results with the
-reviewed release. Do not treat this functional suite as penetration testing.
+**Deployment control:** before authorization and after proxy/platform changes, repeat security tests
+at the real external URLs using supported enterprise browsers, production-equivalent headers and TLS,
+and non-production accounts/data. Preserve results with the reviewed release. Do not treat functional
+suites as penetration testing.
 
 **Evidence:**
 
@@ -841,18 +822,9 @@ reviewed release. Do not treat this functional suite as penetration testing.
 - [OWASP WSTG logout testing](https://owasp.org/www-project-web-security-testing-guide/stable/4-Web_Application_Security_Testing/06-Session_Management_Testing/06-Testing_for_Logout_Functionality)
   calls for verifying browser cookie behavior, server-side invalidation, and loss of access to
   authenticated pages after logout.
-- [Playwright browser-context documentation](https://playwright.dev/python/docs/api/class-browsercontext)
-  confirms that the harness can observe the browser's effective cookie domain, path, expiry,
-  `HttpOnly`, `Secure`, and `SameSite` properties.
 - Posit's [Connect FastAPI documentation](https://docs.posit.co/connect/user/fastapi/) and
   [Workbench FastAPI proxy documentation](https://docs.posit.co/ide/server-pro/user/vs-code/guide/proxying-web-servers.html#fastapi)
   establish that the two platforms expose different runtime base-path signals that require testing.
-- Posit's [Connect reverse-proxy documentation](https://docs.posit.co/connect/admin/proxy/) specifies
-  `X-RSC-Request` and the forwarded-header fallback, while its
-  [Connect release notes](https://docs.posit.co/connect/news/) document content-aware FastAPI request
-  scopes and sticky worker routing.
-- Posit's [Workbench reverse-proxy documentation](https://docs.posit.co/ide/server-pro/admin/access_and_security/running_with_a_proxy.html)
-  specifies external host, protocol, and root-prefix behavior.
 
 ### SD-24 — Encrypt user-owned API tokens and restrict provider slots
 
@@ -1010,11 +982,11 @@ authorization evidence.
       monitoring, alerts, access review, and incident-response integration.
 - [ ] Administrator lifecycle, dual-control/break-glass needs, periodic access review, and prompt
       deprovisioning are documented.
-- [ ] Dependency locking, vulnerability scanning, vendored HTMX provenance/hash, patching, and
+- [ ] Dependency locking, vulnerability scanning, Hedron/HTMX provenance review, patching, and
       release approval are part of the deployment pipeline.
-- [ ] The Playwright preserve/strip proxy suite and unit edge-case tests pass; security tests also
-      pass in the exact production-equivalent proxy and database topology; penetration testing and
-      authorization review are complete at the required impact level.
+- [ ] Unit and HTMX fragment security tests pass; security tests also pass in the exact
+      production-equivalent proxy and database topology; penetration testing and authorization
+      review are complete at the required impact level.
 
 ## Reference index
 
@@ -1043,7 +1015,7 @@ These are the primary or recognized industry sources actually consulted for this
 21. [Posit Connect FastAPI documentation](https://docs.posit.co/connect/user/fastapi/)
 22. [Posit Workbench FastAPI proxy documentation](https://docs.posit.co/ide/server-pro/user/vs-code/guide/proxying-web-servers.html#fastapi)
 23. [FastAPI Frontend documentation](https://fastapi.tiangolo.com/tutorial/frontend/)
-24. [Jinja API, Autoescaping](https://jinja.palletsprojects.com/en/stable/api/#autoescaping)
+24. [Hedron](https://github.com/eddiethedean/hedron)
 25. [Alembic Tutorial](https://alembic.sqlalchemy.org/en/latest/tutorial.html)
 26. [Playwright Python, Browsers](https://playwright.dev/python/docs/browsers)
 27. [Playwright Python, Continuous Integration](https://playwright.dev/python/docs/ci)
