@@ -20,9 +20,7 @@ def test_federated_login_page_and_proxy_allowlist(hedron_app) -> None:
     try:
         settings.authentication_mode = "trusted_header"
         settings.trusted_proxy_ips = "127.0.0.1"
-        with TestClient(
-            hedron_app, follow_redirects=False, client=("127.0.0.1", 50000)
-        ) as client:
+        with TestClient(hedron_app, follow_redirects=False, client=("127.0.0.1", 50000)) as client:
             login_page = client.get("/login")
             adapter = as_adapter(login_page)
             assert_page_document(adapter)

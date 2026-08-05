@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.database import SessionLocal
 from app.models import AuditEvent, Invitation, RegistrationVerification, User, UserStatus
-from app.config import get_settings
 from app.services.auth import create_invitation
 from tests.helpers import (
     ADMIN_EMAIL,
@@ -38,8 +38,9 @@ def test_registration_page_states_both_gates(page) -> None:
 
 
 def test_registration_rejects_unapproved_domain(client) -> None:
-    from app.models import RegistrationVerification
     from sqlalchemy import func
+
+    from app.models import RegistrationVerification
 
     response = client.post(
         "/register",

@@ -71,15 +71,12 @@ def test_secret_is_encrypted_replaceable_and_wrap_limited(client, make_user) -> 
             db, settings, user=owner, provider="advana", token=ADVANA_TOKEN, request=None
         )
         stored = db.scalar(
-            select(UserSecret).where(
-                UserSecret.user_id == user.id, UserSecret.provider == "advana"
-            )
+            select(UserSecret).where(UserSecret.user_id == user.id, UserSecret.provider == "advana")
         )
         assert stored is not None
         assert ADVANA_TOKEN not in stored.ciphertext
         assert (
-            decrypt_user_secret_for_run(db, settings, user=owner, provider="advana")
-            == ADVANA_TOKEN
+            decrypt_user_secret_for_run(db, settings, user=owner, provider="advana") == ADVANA_TOKEN
         )
 
     original_limit = settings.api_token_max_wraps_per_key
@@ -136,18 +133,14 @@ def test_secret_validation_ownership_and_tampering(client, make_user) -> None:
     with SessionLocal() as db:
         assert (
             db.scalar(
-                select(func.count())
-                .select_from(UserSecret)
-                .where(UserSecret.user_id == second.id)
+                select(func.count()).select_from(UserSecret).where(UserSecret.user_id == second.id)
             )
             == 0
         )
         owner = db.get(User, first.id)
         other = db.get(User, second.id)
         stored = db.scalar(
-            select(UserSecret).where(
-                UserSecret.user_id == first.id, UserSecret.provider == "mss"
-            )
+            select(UserSecret).where(UserSecret.user_id == first.id, UserSecret.provider == "mss")
         )
         assert owner is not None and other is not None and stored is not None
         settings = get_settings()

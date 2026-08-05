@@ -144,9 +144,7 @@ def profile_identity(auth: AuthContext, *, oob: bool = False) -> object:
         attrs["hx-swap-oob"] = "outerHTML"
     initial = (user.full_name or user.email_original or "?")[:1].upper()
     last_login = (
-        user.last_login_at.strftime("%b %d, %Y %H:%M")
-        if user.last_login_at
-        else "First session"
+        user.last_login_at.strftime("%b %d, %Y %H:%M") if user.last_login_at else "First session"
     )
     return html.aside(
         html.div(initial, class_="identity-avatar"),
@@ -180,7 +178,9 @@ def profile_identity(auth: AuthContext, *, oob: bool = False) -> object:
     )
 
 
-def _password_field(label: str, field_id: str, *, autocomplete: str, minlength: str | None = None) -> list[object]:
+def _password_field(
+    label: str, field_id: str, *, autocomplete: str, minlength: str | None = None
+) -> list[object]:
     attrs: dict = {
         "id": field_id,
         "name": field_id,
@@ -216,10 +216,17 @@ def password_form(*, csrf_token: str, error: str = "", success: str = "") -> obj
         alert_box(error),
         html.form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
-            *_password_field("Current password", "current_password", autocomplete="current-password"),
-            *_password_field("New password", "new_password", autocomplete="new-password", minlength="15"),
             *_password_field(
-                "Confirm new password", "new_password_confirm", autocomplete="new-password", minlength="15"
+                "Current password", "current_password", autocomplete="current-password"
+            ),
+            *_password_field(
+                "New password", "new_password", autocomplete="new-password", minlength="15"
+            ),
+            *_password_field(
+                "Confirm new password",
+                "new_password_confirm",
+                autocomplete="new-password",
+                minlength="15",
             ),
             html.button("Change password", class_="button button-primary", type="submit"),
             class_="stack-form",
@@ -274,7 +281,9 @@ def secret_slot(
         html.p(metadata, class_="secret-metadata"),
         html.form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
-            html.label(f"{provider.label} API token", for_=f"{provider.name}-token", class_="sr-only"),
+            html.label(
+                f"{provider.label} API token", for_=f"{provider.name}-token", class_="sr-only"
+            ),
             html.input(
                 id=f"{provider.name}-token",
                 name="token",
@@ -312,8 +321,7 @@ def secret_slot(
                 Dialog(
                     f"Delete {provider.label} token",
                     html.p(
-                        f"Delete your {provider.label} API token? "
-                        "Runs using it will stop working."
+                        f"Delete your {provider.label} API token? Runs using it will stop working."
                     ),
                     html.form(
                         html.input(type="hidden", name="csrf_token", value=csrf_token),
@@ -626,7 +634,11 @@ def user_table(
                 html.td(*actions, class_="table-actions"),
             )
         )
-    total = total_users if total_users is not None else max(0, (page_count - 1) * page_size + len(users))
+    total = (
+        total_users
+        if total_users is not None
+        else max(0, (page_count - 1) * page_size + len(users))
+    )
     base = _filter_base_path("/admin/users", q=query, status=status_filter)
     return html.div(
         html.div(
@@ -639,7 +651,9 @@ def user_table(
                         html.th("Actions"),
                     )
                 ),
-                html.tbody(*rows) if rows else html.tbody(html.tr(html.td("No users found.", colspan="4"))),
+                html.tbody(*rows)
+                if rows
+                else html.tbody(html.tr(html.td("No users found.", colspan="4"))),
             ),
             class_="table-wrap",
         ),
@@ -789,7 +803,9 @@ def invitation_panel(
                 id="invite_role",
                 name="role",
             ),
-            html.button("Send invitation", class_="button button-primary button-wide", type="submit"),
+            html.button(
+                "Send invitation", class_="button button-primary button-wide", type="submit"
+            ),
             class_="stack-form",
             action=form_action("admin/invitations"),
             method="post",
@@ -801,7 +817,9 @@ def invitation_panel(
                 indicator=INDICATOR,
             ),
         ),
-        html.div(*pending_rows, class_="pending-list") if pending_rows else html.p("No invitations yet."),
+        html.div(*pending_rows, class_="pending-list")
+        if pending_rows
+        else html.p("No invitations yet."),
         id="invitation-panel",
         class_="panel",
     )
@@ -861,7 +879,9 @@ def audit_results(
                     autocomplete="off",
                 ),
             ),
-            html.button("Apply filters", class_="button button-secondary button-small", type="submit"),
+            html.button(
+                "Apply filters", class_="button button-secondary button-small", type="submit"
+            ),
             (
                 html.a(
                     "Clear",
@@ -905,7 +925,9 @@ def audit_results(
                 ),
                 html.tbody(*rows)
                 if rows
-                else html.tbody(html.tr(html.td(f"No events ({total_events} total).", colspan="5"))),
+                else html.tbody(
+                    html.tr(html.td(f"No events ({total_events} total).", colspan="5"))
+                ),
             ),
             class_="table-wrap",
         ),

@@ -19,11 +19,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from hedron import Hedron, html
-from hedron.security.policy import SecurityPolicy
-from sqlalchemy import text
-
 from hedron.responses import render_component_response
+from hedron.security.policy import SecurityPolicy
 from hedron_core import RenderMode
+from sqlalchemy import text
 
 from app.config import get_settings
 from app.database import SessionLocal
@@ -100,7 +99,9 @@ async def security_and_session_middleware(request: Request, call_next):
         "font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
         "form-action 'self'"
     )
-    if not str(request.scope.get("path", "")).startswith(("/assets/", "/hedron-static/", "/hedron-assets/")):
+    if not str(request.scope.get("path", "")).startswith(
+        ("/assets/", "/hedron-static/", "/hedron-assets/")
+    ):
         response.headers["Cache-Control"] = "no-store"
     if settings.is_production:
         hsts = "max-age=31536000"
@@ -146,7 +147,9 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         page = app_shell(
             html.div(
                 html.h1("Too many requests"),
-                html.p(f"Please wait {(exc.headers or {}).get('Retry-After', '60')} seconds and try again."),
+                html.p(
+                    f"Please wait {(exc.headers or {}).get('Retry-After', '60')} seconds and try again."
+                ),
                 class_="panel auth-card",
             ),
             request=request,

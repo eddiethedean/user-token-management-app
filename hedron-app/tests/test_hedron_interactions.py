@@ -294,7 +294,9 @@ def test_non_admin_cannot_nav_swap_admin_panels(htmx, make_user) -> None:
 
 
 def test_component_renders_via_hedron_assert_renders() -> None:
-    assert_renders(alert_box("Saved via toast path.", kind="success"), contains="Saved via toast path.")
+    assert_renders(
+        alert_box("Saved via toast path.", kind="success"), contains="Saved via toast path."
+    )
     assert_renders(
         page_heading("Workspace", "Security", "Manage tokens and sessions."),
         contains="Security",

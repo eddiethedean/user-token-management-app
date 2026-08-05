@@ -203,7 +203,6 @@ def test_htmx_admin_directory_and_audit_fragments(client, htmx, make_user) -> No
 
 
 def test_htmx_admin_invitation_errors_and_missing_toggle(client, htmx) -> None:
-    from hedron.testing import assert_fragment_body
 
     web_login(client, next_path="/admin/users")
     for key, value in client.cookies.items():

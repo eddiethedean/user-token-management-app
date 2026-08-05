@@ -44,8 +44,10 @@ from app.security.passwords import PasswordPolicyError
 from app.services.accounts import (
     CurrentPasswordError,
     ProfileValues,
-    change_password as change_account_password,
     update_profile,
+)
+from app.services.accounts import (
+    change_password as change_account_password,
 )
 from app.services.audit import record_event
 from app.services.auth import (
@@ -79,9 +81,9 @@ from app.services.secrets import (
     require_secret_provider,
     store_user_secret,
 )
-from app.ui.layout import alert_box, app_shell, main_panel, page_heading, side_nav_oob
 from app.ui import partials as ui
 from app.ui.interactions import interaction_response, ok_fragment
+from app.ui.layout import alert_box, app_shell, main_panel, page_heading, side_nav_oob
 from app.ui.urls import form_action, page_href
 
 ADMIN_PAGE_SIZE = 50
@@ -207,7 +209,9 @@ def _security_values(db: Session, auth: AuthContext, settings: Settings, **value
     }
 
 
-def _user_listing_values(db: Session, *, query: str = "", status_filter: str = "", page: int = 1, **values):
+def _user_listing_values(
+    db: Session, *, query: str = "", status_filter: str = "", page: int = 1, **values
+):
     cleaned_query = query.strip()[:160]
     cleaned_status = status_filter if status_filter in {item.value for item in UserStatus} else ""
     users, total_users, current_page = _user_page(
@@ -224,7 +228,9 @@ def _user_listing_values(db: Session, *, query: str = "", status_filter: str = "
     }
 
 
-def _user_listing_path(request: Request, *, query: str = "", status_filter: str = "", page: int = 1, notice: str = "") -> str:
+def _user_listing_path(
+    request: Request, *, query: str = "", status_filter: str = "", page: int = 1, notice: str = ""
+) -> str:
     parameters = {"q": query, "status": status_filter, "page": max(1, page)}
     if notice:
         parameters["notice"] = notice
@@ -238,7 +244,9 @@ def _auth_card(*children: object) -> object:
 def register_routes(app: Hedron) -> None:
     @app.get("/", include_in_schema=False)
     def home(request: Request, auth: AuthContext | None = Depends(get_optional_auth)):
-        return RedirectResponse(app_path(request, "/profile" if auth else "/login"), status_code=303)
+        return RedirectResponse(
+            app_path(request, "/profile" if auth else "/login"), status_code=303
+        )
 
     @app.get("/login", include_in_schema=False)
     def login_page(
@@ -250,7 +258,14 @@ def register_routes(app: Hedron) -> None:
     ):
         if auth:
             return RedirectResponse(app_path(request, _safe_next(next)), status_code=303)
-        return _login_html(request, settings, next=_safe_next(next), success="Password changed. Sign in with your new password." if password == "changed" else "")
+        return _login_html(
+            request,
+            settings,
+            next=_safe_next(next),
+            success="Password changed. Sign in with your new password."
+            if password == "changed"
+            else "",
+        )
 
     @app.post("/login", include_in_schema=False)
     def login_submit(
@@ -266,7 +281,10 @@ def register_routes(app: Hedron) -> None:
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=403, detail="Password sign-in is disabled")
         check_rate_limit(
-            db, settings, request, scope="login",
+            db,
+            settings,
+            request,
+            scope="login",
             source_limit=settings.rate_limit_login_per_source,
             account_limit=settings.rate_limit_login_per_account,
             account_key=email,
@@ -274,7 +292,14 @@ def register_routes(app: Hedron) -> None:
         try:
             user = authenticate_user(db, settings, email, password, request)
         except (AuthenticationError, ValueError) as exc:
-            return _login_html(request, settings, status_code=400, error=str(exc), email=email, next=_safe_next(next))
+            return _login_html(
+                request,
+                settings,
+                status_code=400,
+                error=str(exc),
+                email=email,
+                next=_safe_next(next),
+            )
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(app_path(request, _safe_next(next)), status_code=303)
         set_auth_cookies(response, tokens, settings, request)
@@ -290,7 +315,13 @@ def register_routes(app: Hedron) -> None:
         settings: Settings = Depends(get_settings),
     ):
         require_preauth_csrf(request, preauth_csrf_token, settings)
-        check_rate_limit(db, settings, request, scope="federated_login", source_limit=settings.rate_limit_login_per_source)
+        check_rate_limit(
+            db,
+            settings,
+            request,
+            scope="federated_login",
+            source_limit=settings.rate_limit_login_per_source,
+        )
         try:
             user = authenticate_trusted_identity(db, settings, request)
         except AuthenticationError as exc:
@@ -301,7 +332,9 @@ def register_routes(app: Hedron) -> None:
         clear_preauth_csrf_cookie(response, request, settings)
         return response
 
-    def _login_html(request, settings, *, status_code=200, error="", email="", next="/profile", success=""):
+    def _login_html(
+        request, settings, *, status_code=200, error="", email="", next="/profile", success=""
+    ):
         preauth = issue_preauth_csrf(settings)
         federated = settings.authentication_mode == "trusted_header"
 
@@ -428,7 +461,9 @@ def register_routes(app: Hedron) -> None:
             html.div(*card_children, class_="auth-card"),
             class_="auth-layout",
         )
-        page = app_shell(layout, request=request, settings=settings, auth=None, page_title="Sign in")
+        page = app_shell(
+            layout, request=request, settings=settings, auth=None, page_title="Sign in"
+        )
         response = _render_page(page, request=request, status_code=status_code)
         set_preauth_csrf_cookie(response, request, preauth, settings)
         return response
@@ -446,22 +481,32 @@ def register_routes(app: Hedron) -> None:
         settings: Settings = Depends(get_settings),
     ):
         check_rate_limit(
-            db, settings, request, scope="registration",
+            db,
+            settings,
+            request,
+            scope="registration",
             source_limit=settings.rate_limit_registration_per_source,
             account_limit=settings.rate_limit_registration_per_account,
             account_key=email,
         )
         try:
             await validate_directory_email(email, settings)
-            request_self_registration(db, settings, email=email, full_name=full_name, request=request)
+            request_self_registration(
+                db, settings, email=email, full_name=full_name, request=request
+            )
         except (ValueError, DirectoryUnavailableError) as exc:
             return _register_html(
-                request, settings,
+                request,
+                settings,
                 status_code=503 if isinstance(exc, DirectoryUnavailableError) else 400,
-                error=str(exc), email=email, full_name=full_name,
+                error=str(exc),
+                email=email,
+                full_name=full_name,
             )
         return _register_html(
-            request, settings, status_code=202,
+            request,
+            settings,
+            status_code=202,
             success=(
                 "Request received. If the address is eligible, check your government email for "
                 "a verification link. After verification, an administrator must approve the "
@@ -469,7 +514,9 @@ def register_routes(app: Hedron) -> None:
             ),
         )
 
-    def _register_html(request, settings, *, status_code=200, error="", success="", email="", full_name=""):
+    def _register_html(
+        request, settings, *, status_code=200, error="", success="", email="", full_name=""
+    ):
         body = [html.h1("Request access"), alert_box(error), alert_box(success, kind="success")]
         if not success:
             body.append(
@@ -478,18 +525,33 @@ def register_routes(app: Hedron) -> None:
                     html.input(id="email", name="email", type="email", value=email, required=True),
                     html.label("Full name", for_="full_name"),
                     html.input(id="full_name", name="full_name", value=full_name),
-                    html.button("Submit request", class_="button button-primary button-wide", type="submit"),
-                    action=form_action("register"), method="post", class_="stack-form",
+                    html.button(
+                        "Submit request", class_="button button-primary button-wide", type="submit"
+                    ),
+                    action=form_action("register"),
+                    method="post",
+                    class_="stack-form",
                 )
             )
         body.append(html.p(html.a("Back to sign in", href=page_href("login"))))
         return _render_page(
-            app_shell(_auth_card(*body), request=request, settings=settings, auth=None, page_title="Request access"),
-            status_code=status_code, request=request)
+            app_shell(
+                _auth_card(*body),
+                request=request,
+                settings=settings,
+                auth=None,
+                page_title="Request access",
+            ),
+            status_code=status_code,
+            request=request,
+        )
 
     @app.get("/registration/verify", include_in_schema=False)
     def registration_verification_page(
-        request: Request, token: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        request: Request,
+        token: str,
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
         error = ""
         verification = None
@@ -497,7 +559,14 @@ def register_routes(app: Hedron) -> None:
             verification = get_valid_registration_verification(db, settings, token)
         except TokenFlowError as exc:
             error = str(exc)
-        return _verify_html(request, settings, token=token, verification=verification, error=error, status_code=400 if error else 200)
+        return _verify_html(
+            request,
+            settings,
+            token=token,
+            verification=verification,
+            error=error,
+            status_code=400 if error else 200,
+        )
 
     @app.post("/registration/verify", include_in_schema=False)
     def registration_verification_submit(
@@ -508,42 +577,91 @@ def register_routes(app: Hedron) -> None:
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
     ):
-        check_rate_limit(db, settings, request, scope="registration_verify", source_limit=settings.rate_limit_registration_per_source)
+        check_rate_limit(
+            db,
+            settings,
+            request,
+            scope="registration_verify",
+            source_limit=settings.rate_limit_registration_per_source,
+        )
         verification = None
         error = ""
         try:
             verification = get_valid_registration_verification(db, settings, token)
             if settings.authentication_mode == "local_password" and password != password_confirm:
                 raise PasswordPolicyError("Passwords do not match.")
-            complete_self_registration(db, settings, raw_token=token, password=password, request=request)
+            complete_self_registration(
+                db, settings, raw_token=token, password=password, request=request
+            )
             return _verify_html(
-                request, settings, success=(
+                request,
+                settings,
+                success=(
                     "Your government email is verified. Your request is now awaiting administrator "
                     "approval, and you cannot sign in until it is approved."
                 ),
             )
         except (TokenFlowError, PasswordPolicyError) as exc:
             error = str(exc)
-        return _verify_html(request, settings, token=token, verification=verification, error=error, status_code=400)
+        return _verify_html(
+            request, settings, token=token, verification=verification, error=error, status_code=400
+        )
 
-    def _verify_html(request, settings, *, token="", verification=None, error="", success="", status_code=200):
-        body = [html.h1("Verify registration"), alert_box(error), alert_box(success, kind="success")]
+    def _verify_html(
+        request, settings, *, token="", verification=None, error="", success="", status_code=200
+    ):
+        body = [
+            html.h1("Verify registration"),
+            alert_box(error),
+            alert_box(success, kind="success"),
+        ]
         if not success and not error:
             fields = [html.input(type="hidden", name="token", value=token)]
             if settings.authentication_mode == "local_password":
-                fields.extend([
-                    html.label("Password", for_="password"),
-                    html.input(id="password", name="password", type="password", required=True, minlength="15"),
-                    html.label("Confirm password", for_="password_confirm"),
-                    html.input(id="password_confirm", name="password_confirm", type="password", required=True, minlength="15"),
-                ])
-            fields.append(html.button("Verify", class_="button button-primary button-wide", type="submit"))
-            body.append(html.form(*fields, action=form_action("registration/verify"), method="post", class_="stack-form"))
+                fields.extend(
+                    [
+                        html.label("Password", for_="password"),
+                        html.input(
+                            id="password",
+                            name="password",
+                            type="password",
+                            required=True,
+                            minlength="15",
+                        ),
+                        html.label("Confirm password", for_="password_confirm"),
+                        html.input(
+                            id="password_confirm",
+                            name="password_confirm",
+                            type="password",
+                            required=True,
+                            minlength="15",
+                        ),
+                    ]
+                )
+            fields.append(
+                html.button("Verify", class_="button button-primary button-wide", type="submit")
+            )
+            body.append(
+                html.form(
+                    *fields,
+                    action=form_action("registration/verify"),
+                    method="post",
+                    class_="stack-form",
+                )
+            )
         elif error:
             body.append(html.p(html.a("Request access again", href=page_href("register"))))
         return _render_page(
-            app_shell(_auth_card(*body), request=request, settings=settings, auth=None, page_title="Verify registration"),
-            status_code=status_code, request=request)
+            app_shell(
+                _auth_card(*body),
+                request=request,
+                settings=settings,
+                auth=None,
+                page_title="Verify registration",
+            ),
+            status_code=status_code,
+            request=request,
+        )
 
     @app.post("/logout", include_in_schema=False)
     async def logout_submit(
@@ -574,14 +692,18 @@ def register_routes(app: Hedron) -> None:
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=404, detail="Not found")
         check_rate_limit(
-            db, settings, request, scope="reset",
+            db,
+            settings,
+            request,
+            scope="reset",
             source_limit=settings.rate_limit_reset_per_source,
             account_limit=settings.rate_limit_reset_per_account,
             account_key=email,
         )
         request_password_reset(db, settings, email=email, request=request)
         return _forgot_html(
-            request, settings,
+            request,
+            settings,
             success="If the account exists and can sign in with a password, a reset link was sent.",
         )
 
@@ -592,15 +714,33 @@ def register_routes(app: Hedron) -> None:
                 html.form(
                     html.label("Government email", for_="email"),
                     html.input(id="email", name="email", type="email", required=True),
-                    html.button("Send reset link", class_="button button-primary button-wide", type="submit"),
-                    action=form_action("password/forgot"), method="post", class_="stack-form",
+                    html.button(
+                        "Send reset link", class_="button button-primary button-wide", type="submit"
+                    ),
+                    action=form_action("password/forgot"),
+                    method="post",
+                    class_="stack-form",
                 )
             )
         body.append(html.p(html.a("Back to sign in", href=page_href("login"))))
-        return _render_page(app_shell(_auth_card(*body), request=request, settings=settings, auth=None, page_title="Forgot password"), request=request)
+        return _render_page(
+            app_shell(
+                _auth_card(*body),
+                request=request,
+                settings=settings,
+                auth=None,
+                page_title="Forgot password",
+            ),
+            request=request,
+        )
 
     @app.get("/password/reset", include_in_schema=False)
-    def reset_page(request: Request, token: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+    def reset_page(
+        request: Request,
+        token: str,
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
+    ):
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=404, detail="Not found")
         error = ""
@@ -608,7 +748,9 @@ def register_routes(app: Hedron) -> None:
             get_valid_password_reset(db, settings, token)
         except TokenFlowError as exc:
             error = str(exc)
-        return _reset_html(request, settings, token=token, error=error, status_code=400 if error else 200)
+        return _reset_html(
+            request, settings, token=token, error=error, status_code=400 if error else 200
+        )
 
     @app.post("/password/reset", include_in_schema=False)
     def reset_submit(
@@ -624,7 +766,9 @@ def register_routes(app: Hedron) -> None:
         try:
             if password != password_confirm:
                 raise PasswordPolicyError("Passwords do not match.")
-            complete_password_reset(db, settings, raw_token=token, password=password, request=request)
+            complete_password_reset(
+                db, settings, raw_token=token, password=password, request=request
+            )
             return RedirectResponse(app_path(request, "/login?password=changed"), status_code=303)
         except (TokenFlowError, PasswordPolicyError) as exc:
             return _reset_html(request, settings, token=token, error=str(exc), status_code=400)
@@ -636,26 +780,62 @@ def register_routes(app: Hedron) -> None:
                 html.form(
                     html.input(type="hidden", name="token", value=token),
                     html.label("New password", for_="password"),
-                    html.input(id="password", name="password", type="password", required=True, minlength="15"),
+                    html.input(
+                        id="password",
+                        name="password",
+                        type="password",
+                        required=True,
+                        minlength="15",
+                    ),
                     html.label("Confirm password", for_="password_confirm"),
-                    html.input(id="password_confirm", name="password_confirm", type="password", required=True, minlength="15"),
-                    html.button("Update password", class_="button button-primary button-wide", type="submit"),
-                    action=form_action("password/reset"), method="post", class_="stack-form",
+                    html.input(
+                        id="password_confirm",
+                        name="password_confirm",
+                        type="password",
+                        required=True,
+                        minlength="15",
+                    ),
+                    html.button(
+                        "Update password", class_="button button-primary button-wide", type="submit"
+                    ),
+                    action=form_action("password/reset"),
+                    method="post",
+                    class_="stack-form",
                 )
             )
         return _render_page(
-            app_shell(_auth_card(*body), request=request, settings=settings, auth=None, page_title="Reset password"),
-            status_code=status_code, request=request)
+            app_shell(
+                _auth_card(*body),
+                request=request,
+                settings=settings,
+                auth=None,
+                page_title="Reset password",
+            ),
+            status_code=status_code,
+            request=request,
+        )
 
     @app.get("/invitations/accept", include_in_schema=False)
-    def invitation_page(request: Request, token: str, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+    def invitation_page(
+        request: Request,
+        token: str,
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
+    ):
         error = ""
         invitation = None
         try:
             invitation = get_valid_invitation(db, settings, token)
         except TokenFlowError as exc:
             error = str(exc)
-        return _invite_html(request, settings, token=token, invitation=invitation, error=error, status_code=400 if error else 200)
+        return _invite_html(
+            request,
+            settings,
+            token=token,
+            invitation=invitation,
+            error=error,
+            status_code=400 if error else 200,
+        )
 
     @app.post("/invitations/accept", include_in_schema=False)
     def invitation_submit(
@@ -673,13 +853,30 @@ def register_routes(app: Hedron) -> None:
             invitation = get_valid_invitation(db, settings, token)
             if settings.authentication_mode == "local_password" and password != password_confirm:
                 raise PasswordPolicyError("Passwords do not match.")
-            accept_invitation(db, settings, raw_token=token, full_name=full_name, password=password, request=request)
+            accept_invitation(
+                db,
+                settings,
+                raw_token=token,
+                full_name=full_name,
+                password=password,
+                request=request,
+            )
             return RedirectResponse(app_path(request, "/login"), status_code=303)
         except (TokenFlowError, PasswordPolicyError, ValueError) as exc:
             error = str(exc)
-        return _invite_html(request, settings, token=token, invitation=invitation, full_name=full_name, error=error, status_code=400)
+        return _invite_html(
+            request,
+            settings,
+            token=token,
+            invitation=invitation,
+            full_name=full_name,
+            error=error,
+            status_code=400,
+        )
 
-    def _invite_html(request, settings, *, token="", invitation=None, full_name="", error="", status_code=200):
+    def _invite_html(
+        request, settings, *, token="", invitation=None, full_name="", error="", status_code=200
+    ):
         body = [html.h1("Accept invitation"), alert_box(error)]
         if invitation and not error:
             fields = [
@@ -689,23 +886,59 @@ def register_routes(app: Hedron) -> None:
                 html.input(id="full_name", name="full_name", value=full_name),
             ]
             if settings.authentication_mode == "local_password":
-                fields.extend([
-                    html.label("Password", for_="password"),
-                    html.input(id="password", name="password", type="password", required=True, minlength="15"),
-                    html.label("Confirm password", for_="password_confirm"),
-                    html.input(id="password_confirm", name="password_confirm", type="password", required=True, minlength="15"),
-                ])
-            fields.append(html.button("Accept invitation", class_="button button-primary button-wide", type="submit"))
-            body.append(html.form(*fields, action=form_action("invitations/accept"), method="post", class_="stack-form"))
+                fields.extend(
+                    [
+                        html.label("Password", for_="password"),
+                        html.input(
+                            id="password",
+                            name="password",
+                            type="password",
+                            required=True,
+                            minlength="15",
+                        ),
+                        html.label("Confirm password", for_="password_confirm"),
+                        html.input(
+                            id="password_confirm",
+                            name="password_confirm",
+                            type="password",
+                            required=True,
+                            minlength="15",
+                        ),
+                    ]
+                )
+            fields.append(
+                html.button(
+                    "Accept invitation", class_="button button-primary button-wide", type="submit"
+                )
+            )
+            body.append(
+                html.form(
+                    *fields,
+                    action=form_action("invitations/accept"),
+                    method="post",
+                    class_="stack-form",
+                )
+            )
         return _render_page(
-            app_shell(_auth_card(*body), request=request, settings=settings, auth=None, page_title="Accept invitation"),
-            status_code=status_code, request=request)
+            app_shell(
+                _auth_card(*body),
+                request=request,
+                settings=settings,
+                auth=None,
+                page_title="Accept invitation",
+            ),
+            status_code=status_code,
+            request=request,
+        )
 
     # ---- Authenticated pages ----
 
     @app.get("/profile", include_in_schema=False)
     async def profile_page(
-        request: Request, updated: bool = False, auth: AuthContext = Depends(require_auth), settings: Settings = Depends(get_settings),
+        request: Request,
+        updated: bool = False,
+        auth: AuthContext = Depends(require_auth),
+        settings: Settings = Depends(get_settings),
     ):
         request.state.hedron_authenticated = True
         csrf = auth.session.csrf_token
@@ -750,9 +983,14 @@ def register_routes(app: Hedron) -> None:
         return _render_page(
             app_shell(
                 *body,
-                request=request, settings=settings, auth=auth, page_title="Your profile", csrf_token=csrf,
+                request=request,
+                settings=settings,
+                auth=auth,
+                page_title="Your profile",
+                csrf_token=csrf,
             ),
-            request=request, authenticated=True,
+            request=request,
+            authenticated=True,
         )
 
     @app.post("/profile", include_in_schema=False)
@@ -767,8 +1005,11 @@ def register_routes(app: Hedron) -> None:
     ):
         await require_csrf(request, auth.session.csrf_token)
         update_profile(
-            db, user=auth.user,
-            values=ProfileValues(full_name=full_name, organization=organization, job_title=job_title, phone=phone),
+            db,
+            user=auth.user,
+            values=ProfileValues(
+                full_name=full_name, organization=organization, job_title=job_title, phone=phone
+            ),
             request=request,
         )
         if not is_htmx_request(request):
@@ -776,15 +1017,20 @@ def register_routes(app: Hedron) -> None:
         return await interaction_response(
             request,
             ok_fragment(
-                html.div(*ui.profile_response(auth, csrf_token=auth.session.csrf_token, success="")),
+                html.div(
+                    *ui.profile_response(auth, csrf_token=auth.session.csrf_token, success="")
+                ),
                 toast="Your profile has been updated.",
             ),
         )
 
     @app.get("/security", include_in_schema=False)
     async def security_page(
-        request: Request, notice: str = "",
-        auth: AuthContext = Depends(require_auth), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        request: Request,
+        notice: str = "",
+        auth: AuthContext = Depends(require_auth),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
         request.state.hedron_authenticated = True
         notices = {
@@ -823,9 +1069,15 @@ def register_routes(app: Hedron) -> None:
             )
         page = app_shell(
             *body,
-            request=request, settings=settings, auth=auth, page_title="Security", csrf_token=csrf,
+            request=request,
+            settings=settings,
+            auth=auth,
+            page_title="Security",
+            csrf_token=csrf,
         )
-        return _render_page(page, request=request, headers={"Cache-Control": "no-store"}, authenticated=True)
+        return _render_page(
+            page, request=request, headers={"Cache-Control": "no-store"}, authenticated=True
+        )
 
     @app.get("/security/activity", include_in_schema=False)
     async def security_activity_fragment(
@@ -862,8 +1114,12 @@ def register_routes(app: Hedron) -> None:
         else:
             try:
                 change_account_password(
-                    db, settings, user=auth.user, current_password=current_password,
-                    new_password=new_password, request=request,
+                    db,
+                    settings,
+                    user=auth.user,
+                    current_password=current_password,
+                    new_password=new_password,
+                    request=request,
                 )
             except (CurrentPasswordError, PasswordPolicyError) as exc:
                 error = str(exc)
@@ -878,7 +1134,9 @@ def register_routes(app: Hedron) -> None:
                 )
                 clear_auth_cookies(response, settings, request)
                 return response
-            response = RedirectResponse(app_path(request, "/login?password=changed"), status_code=303)
+            response = RedirectResponse(
+                app_path(request, "/login?password=changed"), status_code=303
+            )
             clear_auth_cookies(response, settings, request)
             return response
         if is_htmx_request(request):
@@ -905,12 +1163,18 @@ def register_routes(app: Hedron) -> None:
                 csrf_token=csrf,
             ),
             status_code=400,
-            headers={"Cache-Control": "no-store"}, request=request, authenticated=True)
+            headers={"Cache-Control": "no-store"},
+            request=request,
+            authenticated=True,
+        )
 
     @app.post("/security/sessions/{session_id}/revoke", include_in_schema=False)
     async def revoke_session_submit(
-        session_id: str, request: Request,
-        auth: AuthContext = Depends(require_auth), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        session_id: str,
+        request: Request,
+        auth: AuthContext = Depends(require_auth),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
         await require_csrf(request, auth.session.csrf_token)
         session = db.get(RefreshSession, session_id)
@@ -918,13 +1182,17 @@ def register_routes(app: Hedron) -> None:
             raise HTTPException(status_code=404, detail="Session not found")
         revoke_session(db, session, actor=auth.user, request=request)
         if not is_htmx_request(request):
-            return RedirectResponse(app_path(request, "/security?notice=session-revoked"), status_code=303)
+            return RedirectResponse(
+                app_path(request, "/security?notice=session-revoked"), status_code=303
+            )
         values = _security_values(db, auth, settings)
         return await interaction_response(
             request,
             ok_fragment(
                 html.div(
-                    ui.session_list(values["sessions"], auth=auth, csrf_token=auth.session.csrf_token),
+                    ui.session_list(
+                        values["sessions"], auth=auth, csrf_token=auth.session.csrf_token
+                    ),
                     ui.session_count(values["sessions"], oob=True),
                     ui.security_activity(values["events"], oob=True),
                 ),
@@ -934,30 +1202,47 @@ def register_routes(app: Hedron) -> None:
 
     @app.post("/security/secrets/{provider}", include_in_schema=False)
     async def secret_submit(
-        provider: str, request: Request, token: str = Form(max_length=8192),
-        auth: AuthContext = Depends(require_auth), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        provider: str,
+        request: Request,
+        token: str = Form(max_length=8192),
+        auth: AuthContext = Depends(require_auth),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
         await require_csrf(request, auth.session.csrf_token)
         try:
             specification = require_secret_provider(provider)
-            stored = store_user_secret(db, settings, user=auth.user, provider=provider, token=token, request=request)
+            stored = store_user_secret(
+                db, settings, user=auth.user, provider=provider, token=token, request=request
+            )
             error = ""
             response_status = 200
         except (ValueError, SecretStorageError) as exc:
             try:
                 specification = require_secret_provider(provider)
             except ValueError as provider_exc:
-                raise HTTPException(status_code=404, detail="API token provider not found") from provider_exc
-            stored = db.scalar(select(UserSecret).where(UserSecret.user_id == auth.user.id, UserSecret.provider == specification.name))
+                raise HTTPException(
+                    status_code=404, detail="API token provider not found"
+                ) from provider_exc
+            stored = db.scalar(
+                select(UserSecret).where(
+                    UserSecret.user_id == auth.user.id, UserSecret.provider == specification.name
+                )
+            )
             error = str(exc)
             response_status = 503 if isinstance(exc, SecretStorageError) else 400
         if not is_htmx_request(request):
             if not error:
-                return RedirectResponse(app_path(request, "/security?notice=secret-saved"), status_code=303)
+                return RedirectResponse(
+                    app_path(request, "/security?notice=secret-saved"), status_code=303
+                )
             raise HTTPException(status_code=response_status, detail=error)
         events = _security_values(db, auth, settings)["events"]
         slot = ui.secret_slot(
-            specification, stored, csrf_token=auth.session.csrf_token, error=error,
+            specification,
+            stored,
+            csrf_token=auth.session.csrf_token,
+            error=error,
             success=f"{specification.label} API token saved." if not error else "",
         )
         if error:
@@ -980,8 +1265,11 @@ def register_routes(app: Hedron) -> None:
 
     @app.post("/security/secrets/{provider}/delete", include_in_schema=False)
     async def secret_delete_submit(
-        provider: str, request: Request,
-        auth: AuthContext = Depends(require_auth), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        provider: str,
+        request: Request,
+        auth: AuthContext = Depends(require_auth),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
         await require_csrf(request, auth.session.csrf_token)
         try:
@@ -992,7 +1280,9 @@ def register_routes(app: Hedron) -> None:
         if not deleted:
             raise HTTPException(status_code=404, detail="API token is not configured.")
         if not is_htmx_request(request):
-            return RedirectResponse(app_path(request, "/security?notice=secret-deleted"), status_code=303)
+            return RedirectResponse(
+                app_path(request, "/security?notice=secret-deleted"), status_code=303
+            )
         events = _security_values(db, auth, settings)["events"]
         return await interaction_response(
             request,
@@ -1014,8 +1304,14 @@ def register_routes(app: Hedron) -> None:
 
     @app.get("/admin/users", include_in_schema=False)
     async def users_page(
-        request: Request, q: str = "", status: str = "", page: int = 1, notice: str = "",
-        auth: AuthContext = Depends(require_admin), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        request: Request,
+        q: str = "",
+        status: str = "",
+        page: int = 1,
+        notice: str = "",
+        auth: AuthContext = Depends(require_admin),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
         request.state.hedron_authenticated = True
         user_notices = {
@@ -1027,13 +1323,20 @@ def register_routes(app: Hedron) -> None:
             "invitation-queued": "The invitation was queued for delivery.",
             "invitation-revoked": "The invitation was revoked.",
         }
-        listing = _user_listing_values(db, query=q, status_filter=status, page=page, user_success=user_notices.get(notice, ""))
+        listing = _user_listing_values(
+            db, query=q, status_filter=status, page=page, user_success=user_notices.get(notice, "")
+        )
         csrf = auth.session.csrf_token
         directory = ui.user_directory(
-            listing["users"], csrf_token=csrf, query=listing["user_query"],
-            status_filter=listing["status_filter"], page=listing["current_page"],
-            page_count=listing["page_count"], total_users=listing["total_users"],
-            page_size=ADMIN_PAGE_SIZE, success=listing.get("user_success", ""),
+            listing["users"],
+            csrf_token=csrf,
+            query=listing["user_query"],
+            status_filter=listing["status_filter"],
+            page=listing["current_page"],
+            page_count=listing["page_count"],
+            total_users=listing["total_users"],
+            page_size=ADMIN_PAGE_SIZE,
+            success=listing.get("user_success", ""),
         )
         if is_htmx_request(request) and not _is_main_panel_nav(request):
             return await interaction_response(
@@ -1042,7 +1345,9 @@ def register_routes(app: Hedron) -> None:
                     html.div(directory, ui.user_match_count(listing["total_users"], oob=True)),
                 ),
             )
-        invitations = list(db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all())
+        invitations = list(
+            db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all()
+        )
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         body = [
             page_heading(
@@ -1053,13 +1358,19 @@ def register_routes(app: Hedron) -> None:
             ),
             html.div(
                 html.section(
-                    html.div(html.h2("Directory"), html.p("All application-managed identities."), class_="panel-heading"),
+                    html.div(
+                        html.h2("Directory"),
+                        html.p("All application-managed identities."),
+                        class_="panel-heading",
+                    ),
                     directory,
                     class_="panel panel-main",
                 ),
                 html.aside(
                     ui.invitation_panel(
-                        invitations, roles, csrf_token=csrf,
+                        invitations,
+                        roles,
+                        csrf_token=csrf,
                         success=invitation_notices.get(notice, ""),
                     )
                 ),
@@ -1078,33 +1389,51 @@ def register_routes(app: Hedron) -> None:
         return _render_page(
             app_shell(
                 *body,
-                request=request, settings=settings, auth=auth, page_title="User administration", csrf_token=csrf,
+                request=request,
+                settings=settings,
+                auth=auth,
+                page_title="User administration",
+                csrf_token=csrf,
             ),
-            request=request, authenticated=True,
+            request=request,
+            authenticated=True,
         )
 
     @app.post("/admin/invitations", include_in_schema=False)
     async def invite_submit(
-        request: Request, email: str = Form(max_length=320), role: str = Form(default="user", max_length=64),
-        auth: AuthContext = Depends(require_admin), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        request: Request,
+        email: str = Form(max_length=320),
+        role: str = Form(default="user", max_length=64),
+        auth: AuthContext = Depends(require_admin),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
         await require_csrf(request, auth.session.csrf_token)
         error = ""
         response_status = 200
         try:
             await validate_directory_email(email, settings)
-            create_invitation(db, settings, email=email, role_name=role, inviter=auth.user, request=request)
+            create_invitation(
+                db, settings, email=email, role_name=role, inviter=auth.user, request=request
+            )
         except (ValueError, DirectoryUnavailableError) as exc:
             error = str(exc)
             response_status = 503 if isinstance(exc, DirectoryUnavailableError) else 400
-        invitations = list(db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all())
+        invitations = list(
+            db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all()
+        )
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         if not is_htmx_request(request) and not error:
-            return RedirectResponse(app_path(request, "/admin/users?notice=invitation-queued"), status_code=303)
+            return RedirectResponse(
+                app_path(request, "/admin/users?notice=invitation-queued"), status_code=303
+            )
         if not is_htmx_request(request):
             raise HTTPException(status_code=response_status, detail=error or "Invitation error")
         panel = ui.invitation_panel(
-            invitations, roles, csrf_token=auth.session.csrf_token, error=error,
+            invitations,
+            roles,
+            csrf_token=auth.session.csrf_token,
+            error=error,
             success="Invitation queued for delivery." if not error else "",
         )
         if error:
@@ -1117,7 +1446,9 @@ def register_routes(app: Hedron) -> None:
             ok_fragment(panel, toast="Invitation queued for delivery."),
         )
 
-    async def _admin_user_mutation(request, user_id, auth, db, settings, *, action: str, q="", status="", page=1):
+    async def _admin_user_mutation(
+        request, user_id, auth, db, settings, *, action: str, q="", status="", page=1
+    ):
         await require_csrf(request, auth.session.csrf_token)
         if not lock_administrator_action(db, auth.user):
             db.rollback()
@@ -1136,12 +1467,26 @@ def register_routes(app: Hedron) -> None:
                 not user.email_verified_at
                 or (settings.authentication_mode == "local_password" and not user.password_hash)
             ):
-                raise HTTPException(status_code=400, detail="This account cannot be enabled until its government email is verified")
-            user.status = UserStatus.DISABLED.value if user.status == UserStatus.ACTIVE.value else UserStatus.ACTIVE.value
+                raise HTTPException(
+                    status_code=400,
+                    detail="This account cannot be enabled until its government email is verified",
+                )
+            user.status = (
+                UserStatus.DISABLED.value
+                if user.status == UserStatus.ACTIVE.value
+                else UserStatus.ACTIVE.value
+            )
             user.security_version += 1
             if not user.is_active:
                 revoke_all_sessions(db, user)
-            record_event(db, "admin.user.status_changed", request=request, actor=auth.user, target=user, detail={"status": user.status})
+            record_event(
+                db,
+                "admin.user.status_changed",
+                request=request,
+                actor=auth.user,
+                target=user,
+                detail={"status": user.status},
+            )
             db.commit()
         elif action == "approve":
             try:
@@ -1162,17 +1507,26 @@ def register_routes(app: Hedron) -> None:
             notice = "registration-denied"
             toast = "The registration was denied."
         if not is_htmx_request(request):
-            return RedirectResponse(_user_listing_path(request, query=q, status_filter=status, page=page, notice=notice), status_code=303)
+            return RedirectResponse(
+                _user_listing_path(
+                    request, query=q, status_filter=status, page=page, notice=notice
+                ),
+                status_code=303,
+            )
         listing = _user_listing_values(db, query=q, status_filter=status, page=page)
         return await interaction_response(
             request,
             ok_fragment(
                 html.div(
                     ui.user_table(
-                        listing["users"], csrf_token=auth.session.csrf_token,
-                        query=listing["user_query"], status_filter=listing["status_filter"],
-                        page=listing["current_page"], page_count=listing["page_count"],
-                        total_users=listing["total_users"], page_size=ADMIN_PAGE_SIZE,
+                        listing["users"],
+                        csrf_token=auth.session.csrf_token,
+                        query=listing["user_query"],
+                        status_filter=listing["status_filter"],
+                        page=listing["current_page"],
+                        page_count=listing["page_count"],
+                        total_users=listing["total_users"],
+                        page_size=ADMIN_PAGE_SIZE,
                     ),
                     ui.user_match_count(listing["total_users"], oob=True),
                 ),
@@ -1182,29 +1536,56 @@ def register_routes(app: Hedron) -> None:
 
     @app.post("/admin/users/{user_id}/toggle", include_in_schema=False)
     async def toggle_user(
-        user_id: str, request: Request, q: str = Form(default=""), status: str = Form(default=""), page: int = Form(default=1),
-        auth: AuthContext = Depends(require_admin), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        user_id: str,
+        request: Request,
+        q: str = Form(default=""),
+        status: str = Form(default=""),
+        page: int = Form(default=1),
+        auth: AuthContext = Depends(require_admin),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
-        return await _admin_user_mutation(request, user_id, auth, db, settings, action="toggle", q=q, status=status, page=page)
+        return await _admin_user_mutation(
+            request, user_id, auth, db, settings, action="toggle", q=q, status=status, page=page
+        )
 
     @app.post("/admin/users/{user_id}/approve", include_in_schema=False)
     async def approve_user(
-        user_id: str, request: Request, q: str = Form(default=""), status: str = Form(default=""), page: int = Form(default=1),
-        auth: AuthContext = Depends(require_admin), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        user_id: str,
+        request: Request,
+        q: str = Form(default=""),
+        status: str = Form(default=""),
+        page: int = Form(default=1),
+        auth: AuthContext = Depends(require_admin),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
-        return await _admin_user_mutation(request, user_id, auth, db, settings, action="approve", q=q, status=status, page=page)
+        return await _admin_user_mutation(
+            request, user_id, auth, db, settings, action="approve", q=q, status=status, page=page
+        )
 
     @app.post("/admin/users/{user_id}/deny", include_in_schema=False)
     async def deny_user(
-        user_id: str, request: Request, q: str = Form(default=""), status: str = Form(default=""), page: int = Form(default=1),
-        auth: AuthContext = Depends(require_admin), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        user_id: str,
+        request: Request,
+        q: str = Form(default=""),
+        status: str = Form(default=""),
+        page: int = Form(default=1),
+        auth: AuthContext = Depends(require_admin),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
-        return await _admin_user_mutation(request, user_id, auth, db, settings, action="deny", q=q, status=status, page=page)
+        return await _admin_user_mutation(
+            request, user_id, auth, db, settings, action="deny", q=q, status=status, page=page
+        )
 
     @app.post("/admin/invitations/{invitation_id}/revoke", include_in_schema=False)
     async def revoke_invitation_submit(
-        invitation_id: str, request: Request,
-        auth: AuthContext = Depends(require_admin), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        invitation_id: str,
+        request: Request,
+        auth: AuthContext = Depends(require_admin),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
         await require_csrf(request, auth.session.csrf_token)
         invitation = db.get(Invitation, invitation_id)
@@ -1220,14 +1601,21 @@ def register_routes(app: Hedron) -> None:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         if not is_htmx_request(request):
-            return RedirectResponse(app_path(request, "/admin/users?notice=invitation-revoked"), status_code=303)
-        invitations = list(db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all())
+            return RedirectResponse(
+                app_path(request, "/admin/users?notice=invitation-revoked"), status_code=303
+            )
+        invitations = list(
+            db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all()
+        )
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         return await interaction_response(
             request,
             ok_fragment(
                 ui.invitation_panel(
-                    invitations, roles, csrf_token=auth.session.csrf_token, success="The invitation was revoked."
+                    invitations,
+                    roles,
+                    csrf_token=auth.session.csrf_token,
+                    success="The invitation was revoked.",
                 ),
                 toast="The invitation was revoked.",
             ),
@@ -1235,8 +1623,13 @@ def register_routes(app: Hedron) -> None:
 
     @app.get("/admin/audit", include_in_schema=False)
     async def audit_page(
-        request: Request, event_type: str = "", outcome: str = "", page: int = 1,
-        auth: AuthContext = Depends(require_admin), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
+        request: Request,
+        event_type: str = "",
+        outcome: str = "",
+        page: int = 1,
+        auth: AuthContext = Depends(require_admin),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
     ):
         request.state.hedron_authenticated = True
         page = max(1, page)
@@ -1263,8 +1656,12 @@ def register_routes(app: Hedron) -> None:
             ).all()
         )
         results = ui.audit_results(
-            events, event_type_filter=et, outcome_filter=oc,
-            current_page=page, page_count=page_count, total_events=total,
+            events,
+            event_type_filter=et,
+            outcome_filter=oc,
+            current_page=page,
+            page_count=page_count,
+            total_events=total,
             page_size=AUDIT_PAGE_SIZE,
         )
         if is_htmx_request(request) and not _is_main_panel_nav(request):
@@ -1299,7 +1696,12 @@ def register_routes(app: Hedron) -> None:
         return _render_page(
             app_shell(
                 *body,
-                request=request, settings=settings, auth=auth, page_title="Audit activity", csrf_token=csrf,
+                request=request,
+                settings=settings,
+                auth=auth,
+                page_title="Audit activity",
+                csrf_token=csrf,
             ),
-            request=request, authenticated=True,
+            request=request,
+            authenticated=True,
         )

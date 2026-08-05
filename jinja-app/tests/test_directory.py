@@ -94,6 +94,8 @@ def test_directory_request_uses_query_and_bearer_token() -> None:
 
 
 def test_production_directory_requires_https_and_tls_verification() -> None:
+    from pydantic import ValidationError
+
     common = {
         "app_env": "production",
         "jwt_secret": "j" * 32,
@@ -109,11 +111,16 @@ def test_production_directory_requires_https_and_tls_verification() -> None:
         "email_redact_sent_bodies": True,
         "password_only_production_risk_accepted": True,
         "password_blocklist_path": "tests/fixtures/password-blocklist.txt",
+        "api_token_encryption_keys": {
+            "production-v1": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+        },
+        "api_token_active_key_id": "production-v1",
     }
-    with pytest.raises(ValueError, match="must use HTTPS"):
-        Settings(**common, directory_lookup_url="http://directory.example.gov")
-    with pytest.raises(ValueError, match="VERIFY_TLS"):
+    with pytest.raises(ValidationError, match="must use HTTPS"):
+        Settings(_env_file=None, **common, directory_lookup_url="http://directory.example.gov")
+    with pytest.raises(ValidationError, match="VERIFY_TLS"):
         Settings(
+            _env_file=None,
             **common,
             directory_lookup_url="https://directory.example.gov",
             directory_lookup_verify_tls=False,

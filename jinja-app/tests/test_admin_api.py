@@ -123,9 +123,7 @@ def test_admin_audit_list_and_filters(client) -> None:
 
 
 def test_api_approve_and_deny_registration(client) -> None:
-    user_id = _verified_pending_user(
-        client, email=REGISTRATION_EMAIL, full_name="API Pending"
-    )
+    user_id = _verified_pending_user(client, email=REGISTRATION_EMAIL, full_name="API Pending")
     token = api_login(client)
     headers = bearer(token)
 
