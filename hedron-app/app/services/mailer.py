@@ -8,8 +8,8 @@ from email.message import EmailMessage
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from access_registry.config import Settings
-from access_registry.models import EmailDeliveryState, EmailOutbox, new_id, utcnow
+from app.config import Settings
+from app.models import EmailDeliveryState, EmailOutbox, new_id, utcnow
 
 log = logging.getLogger(__name__)
 

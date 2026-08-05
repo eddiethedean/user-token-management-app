@@ -8,8 +8,8 @@ from typing import Any
 import jwt
 from jwt import InvalidTokenError
 
-from access_registry.config import Settings
-from access_registry.models import User, utcnow
+from app.config import Settings
+from app.models import User, utcnow
 
 
 class AccessTokenError(ValueError):

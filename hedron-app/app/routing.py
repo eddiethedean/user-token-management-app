@@ -5,8 +5,8 @@ from urllib.parse import unquote, urlsplit
 from fastapi import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from access_registry.config import get_settings
-from access_registry.security.client import is_trusted_direct_proxy
+from app.config import get_settings
+from app.security.client import is_trusted_direct_proxy
 
 _PROXY_ROOT = re.compile(r"^/proxy/\d+(?P<mount>/.*)$")
 

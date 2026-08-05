@@ -18,7 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from access_registry.database import Base
+from app.database import Base
 
 
 def new_id() -> str:

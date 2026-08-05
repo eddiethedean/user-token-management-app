@@ -1,6 +1,6 @@
 from email_validator import EmailNotValidError, validate_email
 
-from access_registry.config import Settings
+from app.config import Settings
 
 
 class EmailPolicyError(ValueError):

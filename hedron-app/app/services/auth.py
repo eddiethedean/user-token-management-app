@@ -8,8 +8,8 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from access_registry.config import Settings
-from access_registry.models import (
+from app.config import Settings
+from app.models import (
     Invitation,
     PasswordReset,
     RefreshSession,
@@ -20,12 +20,12 @@ from access_registry.models import (
     UserStatus,
     utcnow,
 )
-from access_registry.security.client import is_trusted_direct_proxy
-from access_registry.security.email import normalize_email
-from access_registry.security.passwords import PasswordService, validate_password
-from access_registry.security.tokens import create_access_token, hash_token, random_token
-from access_registry.services.audit import client_ip, record_event
-from access_registry.services.mailer import queue_email
+from app.security.client import is_trusted_direct_proxy
+from app.security.email import normalize_email
+from app.security.passwords import PasswordService, validate_password
+from app.security.tokens import create_access_token, hash_token, random_token
+from app.services.audit import client_ip, record_event
+from app.services.mailer import queue_email
 
 
 class AuthenticationError(ValueError):

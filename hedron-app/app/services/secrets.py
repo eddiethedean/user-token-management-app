@@ -10,9 +10,9 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from access_registry.config import Settings
-from access_registry.models import ApiTokenKeyUsage, User, UserSecret, new_id, utcnow
-from access_registry.services.audit import record_event
+from app.config import Settings
+from app.models import ApiTokenKeyUsage, User, UserSecret, new_id, utcnow
+from app.services.audit import record_event
 
 
 @dataclass(frozen=True)

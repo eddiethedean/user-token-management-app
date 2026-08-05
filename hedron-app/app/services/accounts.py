@@ -4,11 +4,11 @@ from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from access_registry.config import Settings
-from access_registry.models import User, utcnow
-from access_registry.security.passwords import PasswordService, validate_password
-from access_registry.services.audit import record_event
-from access_registry.services.auth import revoke_all_sessions
+from app.config import Settings
+from app.models import User, utcnow
+from app.security.passwords import PasswordService, validate_password
+from app.services.audit import record_event
+from app.services.auth import revoke_all_sessions
 
 
 class CurrentPasswordError(ValueError):

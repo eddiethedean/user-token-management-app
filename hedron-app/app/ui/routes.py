@@ -12,9 +12,9 @@ from hedron_core import RenderMode
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from access_registry.config import Settings, get_settings
-from access_registry.database import get_db
-from access_registry.dependencies import (
+from app.config import Settings, get_settings
+from app.database import get_db
+from app.dependencies import (
     AuthContext,
     clear_auth_cookies,
     get_optional_auth,
@@ -22,7 +22,7 @@ from access_registry.dependencies import (
     require_auth,
     set_auth_cookies,
 )
-from access_registry.models import (
+from app.models import (
     AuditEvent,
     Invitation,
     RefreshSession,
@@ -32,23 +32,23 @@ from access_registry.models import (
     UserStatus,
     utcnow,
 )
-from access_registry.routing import app_path, is_htmx_request
-from access_registry.security.csrf import (
+from app.routing import app_path, is_htmx_request
+from app.security.csrf import (
     clear_preauth_csrf_cookie,
     issue_preauth_csrf,
     require_csrf,
     require_preauth_csrf,
     set_preauth_csrf_cookie,
 )
-from access_registry.security.passwords import PasswordPolicyError
-from access_registry.services.accounts import (
+from app.security.passwords import PasswordPolicyError
+from app.services.accounts import (
     CurrentPasswordError,
     ProfileValues,
     change_password as change_account_password,
     update_profile,
 )
-from access_registry.services.audit import record_event
-from access_registry.services.auth import (
+from app.services.audit import record_event
+from app.services.auth import (
     AuthenticationError,
     TokenFlowError,
     accept_invitation,
@@ -70,18 +70,18 @@ from access_registry.services.auth import (
     revoke_invitation,
     revoke_session,
 )
-from access_registry.services.directory import DirectoryUnavailableError, validate_directory_email
-from access_registry.services.rate_limit import check_rate_limit
-from access_registry.services.secrets import (
+from app.services.directory import DirectoryUnavailableError, validate_directory_email
+from app.services.rate_limit import check_rate_limit
+from app.services.secrets import (
     SecretStorageError,
     delete_user_secret,
     list_user_secrets,
     require_secret_provider,
     store_user_secret,
 )
-from access_registry.ui.layout import alert_box, app_shell, page_heading
-from access_registry.ui import partials as ui
-from access_registry.ui.urls import form_action, page_href
+from app.ui.layout import alert_box, app_shell, page_heading
+from app.ui import partials as ui
+from app.ui.urls import form_action, page_href
 
 ADMIN_PAGE_SIZE = 50
 AUDIT_PAGE_SIZE = 50
@@ -1044,10 +1044,20 @@ def register_routes(app: Hedron) -> None:
             record_event(db, "admin.user.status_changed", request=request, actor=auth.user, target=user, detail={"status": user.status})
             db.commit()
         elif action == "approve":
-            approve_self_registration(db, settings, user=user, actor=auth.user, request=request)
+            try:
+                approve_self_registration(
+                    db, settings, user=user, administrator=auth.user, request=request
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             notice = "registration-approved"
         elif action == "deny":
-            deny_self_registration(db, settings, user=user, actor=auth.user, request=request)
+            try:
+                deny_self_registration(
+                    db, settings, user=user, administrator=auth.user, request=request
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             notice = "registration-denied"
         if not is_htmx_request(request):
             return RedirectResponse(_user_listing_path(request, query=q, status_filter=status, page=page, notice=notice), status_code=303)
@@ -1090,7 +1100,15 @@ def register_routes(app: Hedron) -> None:
         invitation = db.get(Invitation, invitation_id)
         if not invitation:
             raise HTTPException(status_code=404, detail="Invitation not found")
-        revoke_invitation(db, invitation, actor=auth.user, request=request)
+        try:
+            revoke_invitation(
+                db,
+                invitation=invitation,
+                administrator=auth.user,
+                request=request,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         if not is_htmx_request(request):
             return RedirectResponse(app_path(request, "/admin/users?notice=invitation-revoked"), status_code=303)
         invitations = list(db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all())

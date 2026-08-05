@@ -16,8 +16,8 @@ from hedron.testing import (
 )
 from hedron_core import RenderMode
 
-from access_registry.ui import partials as ui
-from access_registry.ui.layout import alert_box, page_heading
+from app.ui import partials as ui
+from app.ui.layout import alert_box, page_heading
 
 
 def _preauth_token(html: str) -> str:

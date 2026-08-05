@@ -4,12 +4,12 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from access_registry.config import Settings, get_settings
-from access_registry.database import get_db
-from access_registry.models import RefreshSession, User, utcnow
-from access_registry.routing import cookie_path
-from access_registry.security.tokens import AccessTokenError, decode_access_token, hash_token
-from access_registry.services.auth import SessionTokens, TokenFlowError, rotate_session
+from app.config import Settings, get_settings
+from app.database import get_db
+from app.models import RefreshSession, User, utcnow
+from app.routing import cookie_path
+from app.security.tokens import AccessTokenError, decode_access_token, hash_token
+from app.services.auth import SessionTokens, TokenFlowError, rotate_session
 
 ACCESS_COOKIE = "access_registry_access"
 REFRESH_COOKIE = "access_registry_refresh"

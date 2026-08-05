@@ -7,8 +7,8 @@ from typing import Any
 
 import httpx2
 
-from access_registry.config import Settings
-from access_registry.security.email import normalize_email
+from app.config import Settings
+from app.security.email import normalize_email
 
 log = logging.getLogger(__name__)
 

@@ -357,3 +357,67 @@ def test_web_admin_pages_forbid_standard_user(client, make_user) -> None:
     assert forbidden.status_code == 403
     assert "You do not have permission to perform this action." in forbidden.text
     assert "<!doctype html>" in forbidden.text
+
+
+def test_web_session_revoke_success(client) -> None:
+    from fastapi.testclient import TestClient
+
+    from app.config import get_settings
+    from app.dependencies import ACCESS_COOKIE
+    from app.main import app
+    from app.models import RefreshSession
+    from app.security.tokens import decode_access_token
+
+    web_login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    other = TestClient(app, follow_redirects=False, client=("127.0.0.1", 50001))
+    web_login(other, ADMIN_EMAIL, ADMIN_PASSWORD)
+
+    current_sid = decode_access_token(client.cookies.get(ACCESS_COOKIE), get_settings())["sid"]
+    with SessionLocal() as db:
+        other_session = db.scalar(
+            select(RefreshSession).where(
+                RefreshSession.id != current_sid,
+                RefreshSession.revoked_at.is_(None),
+            )
+        )
+        assert other_session is not None
+        other_id = other_session.id
+
+    security = client.get("/security")
+    assert security.status_code == 200
+    csrf = csrf_from(security.text)
+    revoked = client.post(
+        f"/security/sessions/{other_id}/revoke",
+        data={"csrf_token": csrf},
+    )
+    assert revoked.status_code == 303
+    assert revoked.headers["location"] == "/security?notice=session-revoked"
+    notice = client.get(revoked.headers["location"])
+    assert notice.status_code == 200
+    assert "browser session was revoked" in notice.text
+
+    with SessionLocal() as db:
+        session = db.get(RefreshSession, other_id)
+        assert session is not None and session.revoked_at is not None
+
+    # Create another remote session and revoke it via HTMX fragment swap.
+    third = TestClient(app, follow_redirects=False, client=("127.0.0.1", 50002))
+    web_login(third, ADMIN_EMAIL, ADMIN_PASSWORD)
+    current_sid = decode_access_token(client.cookies.get(ACCESS_COOKIE), get_settings())["sid"]
+    with SessionLocal() as db:
+        remote = db.scalar(
+            select(RefreshSession).where(
+                RefreshSession.id != current_sid,
+                RefreshSession.revoked_at.is_(None),
+            )
+        )
+        assert remote is not None
+        remote_id = remote.id
+    htmx = client.post(
+        f"/security/sessions/{remote_id}/revoke",
+        data={"csrf_token": csrf_from(client.get("/security").text)},
+        headers={"HX-Request": "true"},
+    )
+    assert htmx.status_code == 200
+    assert 'id="session-list"' in htmx.text
+    assert "<html" not in htmx.text

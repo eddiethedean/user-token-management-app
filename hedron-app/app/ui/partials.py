@@ -6,11 +6,11 @@ from urllib.parse import urlencode
 
 from hedron import html
 
-from access_registry.dependencies import AuthContext
-from access_registry.models import AuditEvent, Invitation, RefreshSession, Role, User, UserStatus
-from access_registry.services.secrets import SecretProvider
-from access_registry.ui.layout import account_summary, alert_box
-from access_registry.ui.urls import form_action, hx_attrs, page_href
+from app.dependencies import AuthContext
+from app.models import AuditEvent, Invitation, RefreshSession, Role, User, UserStatus
+from app.services.secrets import SecretProvider
+from app.ui.layout import account_summary, alert_box
+from app.ui.urls import form_action, hx_attrs, page_href
 
 
 def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> object:

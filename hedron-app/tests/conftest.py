@@ -6,6 +6,36 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, event, select
+from sqlalchemy.orm import sessionmaker
+
+
+def _rebind_database() -> None:
+    """Point the process-wide engine/SessionLocal at the current DATABASE_URL."""
+    from app import database as dbmod
+    from app import schema as schemamod
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    settings = get_settings()
+    dbmod.engine.dispose()
+    new_engine = create_engine(
+        settings.database_url,
+        **dbmod._engine_options(settings.database_url),
+    )
+    if new_engine.dialect.name == "sqlite":
+
+        @event.listens_for(new_engine, "connect")
+        def _enable_sqlite_foreign_keys(dbapi_connection, _) -> None:
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA foreign_keys=ON")
+            finally:
+                cursor.close()
+
+    dbmod.engine = new_engine
+    dbmod.SessionLocal.configure(bind=new_engine)
+    schemamod.engine = new_engine
 
 
 @pytest.fixture()
@@ -27,26 +57,63 @@ def hedron_app(tmp_path, monkeypatch):
     monkeypatch.setenv("AUTHENTICATION_MODE", "local_password")
     monkeypatch.setenv("COOKIE_SECURE", "false")
     monkeypatch.setenv("EMAIL_BACKEND", "console")
+    monkeypatch.setenv("PASSWORD_HASH_SCHEME", "pbkdf2_sha256")
+    monkeypatch.setenv("PBKDF2_ITERATIONS", "100000")
 
-    from access_registry.config import get_settings
-
-    get_settings.cache_clear()
-    from access_registry.schema import upgrade_schema
+    _rebind_database()
+    from app.schema import upgrade_schema
 
     upgrade_schema()
 
-    from access_registry.cli import create_admin
-    from access_registry.main import app
+    from app.cli import create_admin
+    from app.main import app
 
     os.environ["ADMIN_BOOTSTRAP_PASSWORD"] = "Tr0pic-Maple!River92"
     assert create_admin("admin@example.gov", password="Tr0pic-Maple!River92") == 0
 
     yield app
 
+    from app.config import get_settings
+
     get_settings.cache_clear()
 
 
 @pytest.fixture()
 def client(hedron_app):
-    with TestClient(hedron_app) as test_client:
+    with TestClient(hedron_app, follow_redirects=False) as test_client:
         yield test_client
+
+
+@pytest.fixture()
+def make_user(hedron_app):
+    from app.config import get_settings
+    from app.database import SessionLocal
+    from app.models import Role, User, UserStatus, utcnow
+    from app.security.passwords import PasswordService
+
+    def factory(
+        email: str,
+        *,
+        password: str = "Aspen-Compass-64!River",
+        roles: tuple[str, ...] = ("user",),
+        status: str = UserStatus.ACTIVE.value,
+        verified: bool = True,
+    ) -> User:
+        with SessionLocal() as db:
+            assigned_roles = db.scalars(select(Role).where(Role.name.in_(roles))).all()
+            user = User(
+                email=email.casefold(),
+                email_original=email,
+                email_verified_at=utcnow() if verified else None,
+                full_name=email.partition("@")[0].replace(".", " ").title(),
+                status=status,
+                password_hash=PasswordService(get_settings()).hash(password),
+                password_changed_at=utcnow(),
+                roles=list(assigned_roles),
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            return user
+
+    return factory

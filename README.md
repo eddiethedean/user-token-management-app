@@ -6,7 +6,7 @@ holds **two peer FastAPI apps** with the same domain capabilities and independen
 | | Jinja UI | Hedron UI |
 |--|--|--|
 | Directory | [`jinja-app/`](jinja-app/) | [`hedron-app/`](hedron-app/) |
-| Package / entrypoint | `app.main:app` | `access_registry.main:app` |
+| Package / entrypoint | `app.main:app` | `app.main:app` |
 | Default local URL | http://127.0.0.1:8000 | http://127.0.0.1:8001 |
 | Default local DB | `jinja-app/access-registry.db` | `hedron-app/hedron-access-registry.db` |
 | JSON API (`/api/v1`) | Yes | Not included (web UI only) |
@@ -34,10 +34,10 @@ cd hedron-app
 python3 -m venv .venv && source .venv/bin/activate
 python -m pip install -e ".[dev]"
 cp .env.example .env
-python -m access_registry migrate
-ADMIN_BOOTSTRAP_PASSWORD='…' python -m access_registry.cli create-admin \
+python -m app migrate
+ADMIN_BOOTSTRAP_PASSWORD='…' python -m app.cli create-admin \
   --email admin@example.gov --password-env ADMIN_BOOTSTRAP_PASSWORD
-python -m access_registry serve --reload
+python -m app serve --reload
 ```
 
 Full runbooks (Connect, Workbench, env vars, e2e):

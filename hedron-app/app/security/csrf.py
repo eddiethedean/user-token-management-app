@@ -6,8 +6,8 @@ from hashlib import sha256
 
 from fastapi import HTTPException, Request, Response, status
 
-from access_registry.config import Settings
-from access_registry.routing import cookie_path
+from app.config import Settings
+from app.routing import cookie_path
 
 PREAUTH_CSRF_COOKIE = "access_registry_login_csrf"
 PREAUTH_CSRF_MAX_AGE = 3600

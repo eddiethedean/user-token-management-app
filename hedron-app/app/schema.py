@@ -4,8 +4,8 @@ from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, inspect
 
-from access_registry.config import BASE_DIR, get_settings
-from access_registry.database import Base, engine
+from app.config import BASE_DIR, get_settings
+from app.database import Base, engine
 
 CORE_TABLES = {
     "roles",

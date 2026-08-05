@@ -2,7 +2,7 @@ from ipaddress import ip_address
 
 from fastapi import Request
 
-from access_registry.config import Settings
+from app.config import Settings
 
 
 def direct_client_ip(request: Request | None) -> str:

@@ -144,3 +144,49 @@ def test_browser_rate_limit_has_html_response_and_retry_header(client) -> None:
     finally:
         settings.rate_limit_login_per_source = original_source
         settings.rate_limit_login_per_account = original_account
+
+
+def test_registration_rate_limit_returns_429(client) -> None:
+    settings = get_settings()
+    original_source = settings.rate_limit_registration_per_source
+    original_account = settings.rate_limit_registration_per_account
+    settings.rate_limit_registration_per_source = 1
+    settings.rate_limit_registration_per_account = 1
+    try:
+        first = client.post(
+            "/api/v1/auth/register",
+            json={"email": "rate.reg@example.gov", "full_name": "Rate Reg"},
+        )
+        limited = client.post(
+            "/api/v1/auth/register",
+            json={"email": "rate.reg@example.gov", "full_name": "Rate Reg"},
+        )
+        assert first.status_code == 202
+        assert limited.status_code == 429
+        assert limited.headers["retry-after"]
+    finally:
+        settings.rate_limit_registration_per_source = original_source
+        settings.rate_limit_registration_per_account = original_account
+
+
+def test_password_reset_rate_limit_returns_429(client) -> None:
+    settings = get_settings()
+    original_source = settings.rate_limit_reset_per_source
+    original_account = settings.rate_limit_reset_per_account
+    settings.rate_limit_reset_per_source = 1
+    settings.rate_limit_reset_per_account = 1
+    try:
+        first = client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "rate.reset@example.gov"},
+        )
+        limited = client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "rate.reset@example.gov"},
+        )
+        assert first.status_code == 202
+        assert limited.status_code == 429
+        assert limited.headers["retry-after"]
+    finally:
+        settings.rate_limit_reset_per_source = original_source
+        settings.rate_limit_reset_per_account = original_account

@@ -8,10 +8,10 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from access_registry.config import Settings
-from access_registry.models import RateLimitBucket, utcnow
-from access_registry.security.client import client_ip
-from access_registry.services.audit import record_event
+from app.config import Settings
+from app.models import RateLimitBucket, utcnow
+from app.security.client import client_ip
+from app.services.audit import record_event
 
 
 def _window_start(now: datetime, seconds: int) -> datetime:

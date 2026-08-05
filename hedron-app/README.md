@@ -11,7 +11,7 @@ The Jinja app lives beside this package in [`../jinja-app/`](../jinja-app/).
 | Default URL | http://127.0.0.1:8000 | http://127.0.0.1:8001 |
 | Default DB | `./access-registry.db` | `./hedron-access-registry.db` |
 | JSON API | `/api/v1` | Not included (web UI only) |
-| Entrypoint | `app.main:app` | `access_registry.main:app` |
+| Entrypoint | `app.main:app` | `app.main:app` |
 
 Do not point both apps at the same production database or secrets.
 
@@ -23,10 +23,10 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[dev]"
 cp .env.example .env
-python -m access_registry migrate
-python -m access_registry.cli create-admin --email admin@example.gov --password-env ADMIN_BOOTSTRAP_PASSWORD
+python -m app migrate
+python -m app.cli create-admin --email admin@example.gov --password-env ADMIN_BOOTSTRAP_PASSWORD
 # set ADMIN_BOOTSTRAP_PASSWORD first (15+ chars, must not contain the email local-part)
-python -m access_registry serve --reload
+python -m app serve --reload
 ```
 
 Open http://127.0.0.1:8001/login.
@@ -34,13 +34,13 @@ Open http://127.0.0.1:8001/login.
 Email delivery (same as Jinja app):
 
 ```bash
-python -m access_registry.cli email-worker
+python -m app.cli email-worker
 ```
 
 ## Quality checks
 
 ```bash
-ruff check access_registry tests
+ruff check app tests
 pytest
 ```
 
@@ -52,6 +52,6 @@ Deploy from this directory (`hedron-app/`):
 cd hedron-app
 rsconnect deploy fastapi \
   -n <server-name> \
-  --entrypoint access_registry.main:app \
+  --entrypoint app.main:app \
   ./
 ```

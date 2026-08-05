@@ -5,10 +5,10 @@ from __future__ import annotations
 from hedron import Page, Text, html
 from hedron_core.security import SafeUrl, UrlPurpose
 
-from access_registry.config import Settings
-from access_registry.dependencies import AuthContext
-from access_registry.routing import app_path
-from access_registry.ui.urls import form_action, page_href
+from app.config import Settings
+from app.dependencies import AuthContext
+from app.routing import app_path
+from app.ui.urls import form_action, page_href
 
 HTMX_CONFIG = (
     '{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,'

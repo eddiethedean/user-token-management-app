@@ -10,7 +10,7 @@ from pathlib import Path
 from pwdlib import PasswordHash
 from pwdlib.exceptions import PwdlibError
 
-from access_registry.config import Settings
+from app.config import Settings
 
 COMMON_PASSWORDS = {
     "123456789012345",

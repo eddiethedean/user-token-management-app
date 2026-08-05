@@ -3,9 +3,9 @@ import json
 from fastapi import Request
 from sqlalchemy.orm import Session
 
-from access_registry.config import get_settings
-from access_registry.models import AuditEvent, User
-from access_registry.security.client import client_ip as resolve_client_ip
+from app.config import get_settings
+from app.models import AuditEvent, User
+from app.security.client import client_ip as resolve_client_ip
 
 
 def client_ip(request: Request | None) -> str:

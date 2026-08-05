@@ -6,15 +6,15 @@ import time
 
 from sqlalchemy import select
 
-from access_registry.config import get_settings
-from access_registry.database import SessionLocal
-from access_registry.models import Role, User, UserStatus, utcnow
-from access_registry.schema import assert_schema_current, current_revision, head_revision, upgrade_schema
-from access_registry.security.email import normalize_email
-from access_registry.security.passwords import PasswordPolicyError, PasswordService, validate_password
-from access_registry.server import run_server
-from access_registry.services.auth import ensure_default_roles, revoke_all_sessions
-from access_registry.services.mailer import deliver_pending, deliver_pending_with_metrics, retry_failed
+from app.config import get_settings
+from app.database import SessionLocal
+from app.models import Role, User, UserStatus, utcnow
+from app.schema import assert_schema_current, current_revision, head_revision, upgrade_schema
+from app.security.email import normalize_email
+from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
+from app.server import run_server
+from app.services.auth import ensure_default_roles, revoke_all_sessions
+from app.services.mailer import deliver_pending, deliver_pending_with_metrics, retry_failed
 
 
 def create_admin(email: str, password: str | None = None) -> int:

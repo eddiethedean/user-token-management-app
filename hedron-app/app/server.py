@@ -72,7 +72,7 @@ def detect_root_path(port: int) -> str:
 def run_server(*, host: str, port: int, reload: bool = False) -> None:
     root_path = detect_root_path(port)
     uvicorn.run(
-        "access_registry.main:app",
+        "app.main:app",
         host=host,
         port=port,
         reload=reload,

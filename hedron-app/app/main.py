@@ -25,15 +25,15 @@ from sqlalchemy import text
 from hedron.responses import render_component_response
 from hedron_core import RenderMode
 
-from access_registry.config import get_settings
-from access_registry.database import SessionLocal
-from access_registry.dependencies import clear_auth_cookies, set_auth_cookies
-from access_registry.routing import WorkbenchPathMiddleware, app_base_url, app_path, is_htmx_request
-from access_registry.schema import assert_schema_current
-from access_registry.services.auth import ensure_default_roles
-from access_registry.ui.layout import alert_box, app_shell
-from access_registry.ui.partials import request_error
-from access_registry.ui.routes import register_routes
+from app.config import get_settings
+from app.database import SessionLocal
+from app.dependencies import clear_auth_cookies, set_auth_cookies
+from app.routing import WorkbenchPathMiddleware, app_base_url, app_path, is_htmx_request
+from app.schema import assert_schema_current
+from app.services.auth import ensure_default_roles
+from app.ui.layout import alert_box, app_shell
+from app.ui.partials import request_error
+from app.ui.routes import register_routes
 
 settings = get_settings()
 log = logging.getLogger(__name__)
