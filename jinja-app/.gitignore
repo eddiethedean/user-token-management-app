@@ -10,11 +10,6 @@ htmlcov/
 *.egg-info/
 dist/
 build/
-rsconnect-python/
 .rsconnect-python/
 manifest.json
 test-results/
-tmp-compare*/
-tmp-avatar/
-jinja-app/.venv/
-hedron-app/.venv/

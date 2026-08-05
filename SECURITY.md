@@ -719,7 +719,7 @@ eavesdropping, injection, and replay.
 
 **Decision:** Six ordered Alembic revisions create the baseline, self-registration, shared
 rate-limit, user API-secret, atomic-token/email-worker, and encryption-key-usage schemas. Application startup verifies the
-current revision and refuses to serve a stale or unversioned schema; `python -m app migrate` is an
+current revision and refuses to serve a stale or unversioned schema; from `jinja-app/`, `python -m app migrate` is an
 explicit release action. Legacy `create_all()` databases require the explicit `--adopt-existing`
 path, which verifies known table/column shapes before stamping and upgrading. Administrator
 bootstrap is a separate `create-admin` command and is never migration data. The production core
