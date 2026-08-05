@@ -13,7 +13,7 @@ from app.ui.urls import form_action, hx_attrs, page_href
 
 
 def audit_match_count(total: int, *, oob: bool = False) -> object:
-    attrs: dict = {"id": "audit-match-count", "class_": "verification-badge"}
+    attrs: dict[str, object] = {"id": "audit-match-count", "class_": "verification-badge"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.span(f"{total} matching events", **attrs)

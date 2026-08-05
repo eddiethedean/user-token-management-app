@@ -20,7 +20,7 @@ def _password_field(
     minlength: str | None = None,
     error: str = "",
 ) -> list[object]:
-    attrs: dict = {
+    attrs: dict[str, object] = {
         "id": field_id,
         "name": field_id,
         "type": "password",
@@ -276,14 +276,14 @@ def session_list(
 
 
 def session_count(sessions: list[RefreshSession], *, oob: bool = False) -> object:
-    attrs: dict = {"id": "session-count", "class_": "count-badge"}
+    attrs: dict[str, object] = {"id": "session-count", "class_": "count-badge"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.span(str(len(sessions)), **attrs)
 
 
 def security_activity(events: list[AuditEvent], *, oob: bool = False) -> object:
-    attrs: dict = {"id": "security-activity", "class_": "event-list"}
+    attrs: dict[str, object] = {"id": "security-activity", "class_": "event-list"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     items = []

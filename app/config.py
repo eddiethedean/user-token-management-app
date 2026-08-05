@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import base64
 import re
 from functools import lru_cache
@@ -124,7 +126,7 @@ class Settings(BaseSettings):
         return keys
 
     @model_validator(mode="after")
-    def validate_production_settings(self) -> "Settings":
+    def validate_production_settings(self) -> Settings:
         for name in (
             "app_name",
             "directory_lookup_bearer_token",

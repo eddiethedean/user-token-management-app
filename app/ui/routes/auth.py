@@ -6,6 +6,7 @@ from fastapi import Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, html
 from sqlalchemy.orm import Session
+from starlette.responses import Response
 
 from app.config import Settings, get_settings
 from app.database import get_db
@@ -16,6 +17,7 @@ from app.dependencies import (
     require_auth,
     set_auth_cookies,
 )
+from app.models import Invitation, RegistrationVerification
 from app.routing import app_path
 from app.security.csrf import (
     clear_preauth_csrf_cookie,
@@ -56,7 +58,7 @@ def register_auth_routes(app: Hedron) -> None:
         password: str = "",
         auth: AuthContext | None = Depends(get_optional_auth),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         if auth:
             return RedirectResponse(app_path(request, safe_next(next)), status_code=303)
         return _login_html(
@@ -77,7 +79,7 @@ def register_auth_routes(app: Hedron) -> None:
         next: str = Form(default="/profile", max_length=2048),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         require_preauth_csrf(request, preauth_csrf_token, settings)
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=403, detail="Password sign-in is disabled")
@@ -114,7 +116,7 @@ def register_auth_routes(app: Hedron) -> None:
         preauth_csrf_token: str = Form(default="", max_length=256),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         require_preauth_csrf(request, preauth_csrf_token, settings)
         check_rate_limit(
             db,
@@ -134,8 +136,15 @@ def register_auth_routes(app: Hedron) -> None:
         return response
 
     def _login_html(
-        request, settings, *, status_code=200, error="", email="", next="/profile", success=""
-    ):
+        request: Request,
+        settings: Settings,
+        *,
+        status_code: int = 200,
+        error: str = "",
+        email: str = "",
+        next: str = "/profile",
+        success: str = "",
+    ) -> Response:
         preauth = issue_preauth_csrf(settings)
         federated = settings.authentication_mode == "trusted_header"
 
@@ -280,7 +289,7 @@ def register_auth_routes(app: Hedron) -> None:
         full_name: str = Form(default="", max_length=160),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         check_rate_limit(
             db,
             settings,
@@ -316,8 +325,15 @@ def register_auth_routes(app: Hedron) -> None:
         )
 
     def _register_html(
-        request, settings, *, status_code=200, error="", success="", email="", full_name=""
-    ):
+        request: Request,
+        settings: Settings,
+        *,
+        status_code: int = 200,
+        error: str = "",
+        success: str = "",
+        email: str = "",
+        full_name: str = "",
+    ) -> Response:
         body = [html.h1("Request access"), alert_box(error), alert_box(success, kind="success")]
         if not success:
             body.append(
@@ -353,7 +369,7 @@ def register_auth_routes(app: Hedron) -> None:
         token: str,
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         error = ""
         verification = None
         try:
@@ -377,7 +393,7 @@ def register_auth_routes(app: Hedron) -> None:
         password_confirm: str = Form(default="", max_length=128),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         check_rate_limit(
             db,
             settings,
@@ -409,8 +425,15 @@ def register_auth_routes(app: Hedron) -> None:
         )
 
     def _verify_html(
-        request, settings, *, token="", verification=None, error="", success="", status_code=200
-    ):
+        request: Request,
+        settings: Settings,
+        *,
+        token: str = "",
+        verification: RegistrationVerification | None = None,
+        error: str = "",
+        success: str = "",
+        status_code: int = 200,
+    ) -> Response:
         body = [
             html.h1("Verify registration"),
             alert_box(error),
@@ -470,7 +493,7 @@ def register_auth_routes(app: Hedron) -> None:
         auth: AuthContext = Depends(require_auth),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         revoke_session(db, auth.session, actor=auth.user, request=request)
         response = RedirectResponse(app_path(request, "/login"), status_code=303)
@@ -489,7 +512,7 @@ def register_auth_routes(app: Hedron) -> None:
         email: str = Form(max_length=320),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=404, detail="Not found")
         check_rate_limit(
@@ -508,7 +531,7 @@ def register_auth_routes(app: Hedron) -> None:
             success="If the account exists and can sign in with a password, a reset link was sent.",
         )
 
-    def _forgot_html(request, settings, *, success=""):
+    def _forgot_html(request: Request, settings: Settings, *, success: str = "") -> Response:
         body = [html.h1("Forgot password"), alert_box(success, kind="success")]
         if not success:
             body.append(
@@ -541,7 +564,7 @@ def register_auth_routes(app: Hedron) -> None:
         token: str,
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=404, detail="Not found")
         error = ""
@@ -561,7 +584,7 @@ def register_auth_routes(app: Hedron) -> None:
         password_confirm: str = Form(max_length=128),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=404, detail="Not found")
         try:
@@ -574,7 +597,14 @@ def register_auth_routes(app: Hedron) -> None:
         except (TokenFlowError, PasswordPolicyError) as exc:
             return _reset_html(request, settings, token=token, error=str(exc), status_code=400)
 
-    def _reset_html(request, settings, *, token="", error="", status_code=200):
+    def _reset_html(
+        request: Request,
+        settings: Settings,
+        *,
+        token: str = "",
+        error: str = "",
+        status_code: int = 200,
+    ) -> Response:
         body = [html.h1("Reset password"), alert_box(error)]
         if not error or token:
             body.append(
@@ -622,7 +652,7 @@ def register_auth_routes(app: Hedron) -> None:
         token: str,
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         error = ""
         invitation = None
         try:
@@ -647,7 +677,7 @@ def register_auth_routes(app: Hedron) -> None:
         password_confirm: str = Form(default="", max_length=128),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ):
+    ) -> Response:
         invitation = None
         error = ""
         try:
@@ -676,8 +706,15 @@ def register_auth_routes(app: Hedron) -> None:
         )
 
     def _invite_html(
-        request, settings, *, token="", invitation=None, full_name="", error="", status_code=200
-    ):
+        request: Request,
+        settings: Settings,
+        *,
+        token: str = "",
+        invitation: Invitation | None = None,
+        full_name: str = "",
+        error: str = "",
+        status_code: int = 200,
+    ) -> Response:
         body = [html.h1("Accept invitation"), alert_box(error)]
         if invitation and not error:
             fields = [

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any, cast
 
 from fastapi import Request
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -98,7 +100,7 @@ def complete_password_reset(
         .values(used_at=now)
         .execution_options(synchronize_session=False)
     )
-    if consumed.rowcount != 1:
+    if cast(CursorResult[Any], consumed).rowcount != 1:
         db.rollback()
         raise TokenFlowError("That password reset link is invalid or expired.")
     user.password_hash = PasswordService(settings).hash(validated)

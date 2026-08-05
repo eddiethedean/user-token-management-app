@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -95,7 +97,9 @@ def get_session_by_refresh_token(
     )
 
 
-def set_auth_cookies(response, tokens: SessionTokens, settings: Settings, request: Request) -> None:
+def set_auth_cookies(
+    response: Response, tokens: SessionTokens, settings: Settings, request: Request
+) -> None:
     common = {
         "secure": settings.cookie_secure,
         "httponly": True,
@@ -116,7 +120,7 @@ def set_auth_cookies(response, tokens: SessionTokens, settings: Settings, reques
     )
 
 
-def clear_auth_cookies(response, settings: Settings, request: Request) -> None:
+def clear_auth_cookies(response: Response, settings: Settings, request: Request) -> None:
     path = cookie_path(request, settings.cookie_path)
     common = {
         "path": path,

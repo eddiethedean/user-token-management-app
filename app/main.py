@@ -8,6 +8,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request
@@ -33,6 +34,12 @@ from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
 from app.ui.routes import register_routes
 from app.ui.security_policy import access_registry_security_policy
+
+
+def _node(value: object) -> Any:
+    """Bridge Hedron builders typed as object into NodeLike-accepting APIs."""
+    return cast(Any, value)
+
 
 settings = get_settings()
 log = logging.getLogger(__name__)
@@ -128,7 +135,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
     detail = exc.detail if isinstance(exc.detail, str) else "The request could not be completed."
     if is_htmx:
         response = render_component_response(
-            request_error(detail),
+            _node(request_error(detail)),
             request=request,
             mode=RenderMode.FRAGMENT,
             status_code=exc.status_code,
@@ -166,7 +173,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         page = app_shell(
             html.div(
                 html.h1("Request error"),
-                alert_box(detail),
+                _node(alert_box(detail)),
                 html.p(f"Status {exc.status_code}"),
                 class_="panel auth-card",
             ),
@@ -192,7 +199,7 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
     message = "Check the submitted values and try again."
     if is_htmx_request(request):
         response = render_component_response(
-            request_error(message),
+            _node(request_error(message)),
             request=request,
             mode=RenderMode.FRAGMENT,
             status_code=422,
@@ -201,7 +208,7 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
         response.headers["HX-Reswap"] = "innerHTML"
         return response
     page = app_shell(
-        html.div(html.h1("Request error"), alert_box(message), class_="panel auth-card"),
+        html.div(html.h1("Request error"), _node(alert_box(message)), class_="panel auth-card"),
         request=request,
         settings=settings,
         auth=None,

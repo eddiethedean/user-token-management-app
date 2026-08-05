@@ -11,7 +11,7 @@ from app.ui.layout import alert_box
 
 def field_error(field_id: str, message: str = "") -> object:
     """Inline field error slot (empty when valid)."""
-    attrs: dict = {
+    attrs: dict[str, object] = {
         "id": f"field-error-{field_id}",
         "class_": "field-error" + (" is-active" if message else ""),
     }

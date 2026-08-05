@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any, cast
 
 from fastapi import Request
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -165,7 +167,7 @@ def complete_self_registration(
         )
         .values(used_at=now)
     )
-    if consumed.rowcount != 1:
+    if cast(CursorResult[Any], consumed).rowcount != 1:
         db.rollback()
         raise TokenFlowError("That registration verification link is invalid or expired.")
     if validated is not None:
@@ -215,7 +217,7 @@ def approve_self_registration(
         )
         .values(status=UserStatus.ACTIVE.value)
     )
-    if activated.rowcount != 1:
+    if cast(CursorResult[Any], activated).rowcount != 1:
         db.rollback()
         raise ValueError("This registration is no longer pending approval.")
     record_event(
@@ -258,7 +260,7 @@ def deny_self_registration(
             security_version=User.security_version + 1,
         )
     )
-    if denied.rowcount != 1:
+    if cast(CursorResult[Any], denied).rowcount != 1:
         db.rollback()
         raise ValueError("This registration is no longer pending approval.")
     revoke_all_sessions(db, user)

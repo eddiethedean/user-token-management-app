@@ -59,6 +59,7 @@ python -m app.cli email-worker
 ```bash
 ruff check app tests
 ruff format --check app tests
+basedpyright
 pytest
 ```
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import ssl
 from dataclasses import dataclass
-from typing import Any
+from typing import TypedDict
 from urllib.parse import urlencode
 
 import httpx2
@@ -35,7 +35,17 @@ class DirectoryRecord:
     display_name: str = ""
 
 
-def _first_string(value: Any) -> str:
+class UserListingValues(TypedDict):
+    users: list[User]
+    total_users: int
+    current_page: int
+    page_count: int
+    user_query: str
+    status_filter: str
+    user_success: str
+
+
+def _first_string(value: object) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, list) and value:
@@ -43,10 +53,11 @@ def _first_string(value: Any) -> str:
     return ""
 
 
-def _parse_record(data: Any, query_email: str, settings: Settings) -> DirectoryRecord:
+def _parse_record(data: object, query_email: str, settings: Settings) -> DirectoryRecord:
     if not isinstance(data, dict):
         raise DirectoryUnavailableError("Directory returned an unexpected response.")
-    attributes = data.get("attributes") if isinstance(data.get("attributes"), dict) else {}
+    attributes_raw = data.get("attributes")
+    attributes = attributes_raw if isinstance(attributes_raw, dict) else {}
     returned_email = (
         _first_string(data.get("email"))
         or _first_string(data.get("mail"))
@@ -158,8 +169,13 @@ def list_users_page(
 
 
 def user_listing_values(
-    db: Session, *, query: str = "", status_filter: str = "", page: int = 1, **values
-) -> dict:
+    db: Session,
+    *,
+    query: str = "",
+    status_filter: str = "",
+    page: int = 1,
+    user_success: str = "",
+) -> UserListingValues:
     cleaned_query = query.strip()[:160]
     cleaned_status = status_filter if status_filter in {item.value for item in UserStatus} else ""
     users, total_users, current_page = list_users_page(
@@ -172,7 +188,7 @@ def user_listing_values(
         "page_count": max(1, (total_users + ADMIN_PAGE_SIZE - 1) // ADMIN_PAGE_SIZE),
         "user_query": cleaned_query,
         "status_filter": cleaned_status,
-        **values,
+        "user_success": user_success,
     }
 
 

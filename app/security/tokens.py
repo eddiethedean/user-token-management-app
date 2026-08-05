@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import hashlib
 import hmac
 import secrets
 import uuid
-from datetime import timedelta
-from typing import Any
+from datetime import datetime, timedelta
+from typing import TypedDict, cast
 
 import jwt
 from jwt import InvalidTokenError
@@ -14,6 +16,19 @@ from app.models import User, utcnow
 
 class AccessTokenError(ValueError):
     pass
+
+
+class AccessTokenPayload(TypedDict):
+    iss: str
+    aud: str
+    sub: str
+    sid: str
+    jti: str
+    iat: datetime
+    nbf: datetime
+    exp: datetime
+    sv: int
+    roles: list[str]
 
 
 def random_token(bytes_count: int = 32) -> str:
@@ -27,7 +42,7 @@ def hash_token(token: str, pepper: str) -> str:
 def create_access_token(user: User, session_id: str, settings: Settings) -> tuple[str, int]:
     now = utcnow()
     expires = now + timedelta(minutes=settings.access_token_minutes)
-    payload: dict[str, Any] = {
+    payload: AccessTokenPayload = {
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
         "sub": user.id,
@@ -39,11 +54,11 @@ def create_access_token(user: User, session_id: str, settings: Settings) -> tupl
         "sv": user.security_version,
         "roles": user.role_names,
     }
-    encoded = jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+    encoded = jwt.encode(dict(payload), settings.jwt_secret, algorithm="HS256")
     return encoded, settings.access_token_minutes * 60
 
 
-def decode_access_token(token: str, settings: Settings) -> dict[str, Any]:
+def decode_access_token(token: str, settings: Settings) -> AccessTokenPayload:
     try:
         payload = jwt.decode(
             token,
@@ -57,4 +72,4 @@ def decode_access_token(token: str, settings: Settings) -> dict[str, Any]:
         raise AccessTokenError("Invalid or expired access token") from exc
     if not isinstance(payload.get("sub"), str) or not isinstance(payload.get("sid"), str):
         raise AccessTokenError("Malformed access token")
-    return payload
+    return cast(AccessTokenPayload, payload)

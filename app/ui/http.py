@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from fastapi import Request
 from hedron import Page, html
 from hedron.responses import render_component_response
 from hedron_core import RenderMode
+from starlette.responses import Response
 
 from app.config import Settings
 from app.dependencies import AuthContext
@@ -58,19 +59,19 @@ def render_page(
     *,
     request: Request | None = None,
     status_code: int = 200,
-    headers: dict | None = None,
+    headers: Mapping[str, str] | None = None,
     authenticated: bool = False,
-):
+) -> Response:
     response = render_component_response(
         page,
         request=request,
         mode=RenderMode.PAGE,
         status_code=status_code,
-        extra_headers=headers,
+        extra_headers=dict(headers) if headers is not None else None,
         authenticated=authenticated,
     )
     # Hedron forbids <script> nodes in the tree; inject AR progressive-enhancement JS here.
-    html_text = response.body.decode(response.charset or "utf-8")
+    html_text = bytes(response.body).decode(response.charset or "utf-8")
     app_script = '<script src="/assets/app.js" defer></script>'
     if "app.js" not in html_text:
         if "</body>" in html_text:
@@ -82,7 +83,9 @@ def render_page(
     return response
 
 
-def render_fragment(*nodes: object, request: Request | None = None, status_code: int = 200):
+def render_fragment(
+    *nodes: object, request: Request | None = None, status_code: int = 200
+) -> Response:
     content = html.div(*nodes) if len(nodes) != 1 else nodes[0]
     return render_component_response(
         content,
@@ -105,8 +108,8 @@ async def render_authenticated_view(
     page_title: str,
     csrf_token: str,
     push_path: str,
-    headers: dict | None = None,
-):
+    headers: Mapping[str, str] | None = None,
+) -> Response | object:
     """Serve main-panel nav fragment or full authenticated document."""
     if is_main_panel_nav(request):
         return await interaction_response(

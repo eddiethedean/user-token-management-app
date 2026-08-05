@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ipaddress import ip_address
 
 from fastapi import Request
@@ -22,7 +24,7 @@ def is_trusted_direct_proxy(request: Request | None, settings: Settings) -> bool
 def client_ip(request: Request | None, settings: Settings) -> str:
     """Return a normalized source address, trusting forwarding data only from configured proxies."""
     normalized_direct = direct_client_ip(request)
-    if not normalized_direct:
+    if not normalized_direct or request is None:
         return ""
 
     if not is_trusted_direct_proxy(request, settings):

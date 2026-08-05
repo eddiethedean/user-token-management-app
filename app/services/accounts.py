@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TypedDict
 
 from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import AuditEvent, RefreshSession, User, utcnow
+from app.models import AuditEvent, RefreshSession, User, UserSecret, utcnow
 from app.security.passwords import PasswordService, validate_password
 from app.services.audit import record_event
 from app.services.auth import revoke_all_sessions
-from app.services.secrets import list_user_secrets
+from app.services.secrets import SecretProvider, list_user_secrets
 
 
 class CurrentPasswordError(ValueError):
@@ -22,6 +25,14 @@ class ProfileValues:
     organization: str = ""
     job_title: str = ""
     phone: str = ""
+
+
+class SecurityPageValues(TypedDict):
+    sessions: list[RefreshSession]
+    secret_slots: list[tuple[SecretProvider, UserSecret | None]]
+    events: list[AuditEvent]
+    local_password: bool
+    security_success: str
 
 
 def update_profile(
@@ -76,7 +87,13 @@ def change_password(
     db.commit()
 
 
-def security_page_values(db: Session, user: User, settings: Settings, **values) -> dict:
+def security_page_values(
+    db: Session,
+    user: User,
+    settings: Settings,
+    *,
+    security_success: str = "",
+) -> SecurityPageValues:
     """Assemble sessions, secrets, and recent activity for the security page."""
     now = utcnow()
     sessions = db.scalars(
@@ -100,5 +117,5 @@ def security_page_values(db: Session, user: User, settings: Settings, **values) 
         "secret_slots": list_user_secrets(db, user),
         "events": list(events),
         "local_password": settings.authentication_mode == "local_password",
-        **values,
+        "security_success": security_success,
     }

@@ -11,7 +11,7 @@ from app.ui.urls import form_action, hx_attrs
 
 
 def user_match_count(total: int, *, oob: bool = False) -> object:
-    attrs: dict = {"id": "user-match-count", "class_": "verification-badge"}
+    attrs: dict[str, object] = {"id": "user-match-count", "class_": "verification-badge"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.span(f"{total} matching accounts", **attrs)
@@ -267,7 +267,7 @@ def invitation_panel(
     email_error = field_errors.get("invite_email", "")
     role_error = field_errors.get("invite_role", "")
     top_error = error if error and not field_errors else ""
-    email_attrs: dict = {
+    email_attrs: dict[str, object] = {
         "id": "invite_email",
         "name": "email",
         "type": "email",

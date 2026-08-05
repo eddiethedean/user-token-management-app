@@ -89,7 +89,7 @@ def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> ob
 
 def profile_identity(auth: AuthContext, *, oob: bool = False) -> object:
     user = auth.user
-    attrs: dict = {"id": "profile-identity", "class_": "panel identity-panel"}
+    attrs: dict[str, object] = {"id": "profile-identity", "class_": "panel identity-panel"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     initial = (user.full_name or user.email_original or "?")[:1].upper()

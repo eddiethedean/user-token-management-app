@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any, cast
 
 from fastapi import Request
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -108,7 +110,7 @@ def revoke_invitation(
         .values(revoked_at=utcnow())
         .execution_options(synchronize_session=False)
     )
-    if revoked.rowcount != 1:
+    if cast(CursorResult[Any], revoked).rowcount != 1:
         db.rollback()
         raise ValueError("Only a pending invitation can be revoked.")
     record_event(
@@ -154,7 +156,7 @@ def accept_invitation(
         .values(accepted_at=now)
         .execution_options(synchronize_session=False)
     )
-    if consumed.rowcount != 1:
+    if cast(CursorResult[Any], consumed).rowcount != 1:
         db.rollback()
         raise TokenFlowError("That invitation is invalid or expired.")
     user = User(

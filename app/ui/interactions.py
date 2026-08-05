@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Literal
 
 from fastapi import Request
 from hedron import FragmentRegion, InteractionPolicy, InteractionResult, OobUpdate, Toast
@@ -11,6 +12,8 @@ from hedron_core import RenderMode
 
 from app.ui import regions as region_defs
 from app.ui.security_policy import access_registry_security_policy
+
+ToastTone = Literal["info", "success", "warning", "danger"]
 
 APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.MAIN_PANEL,
@@ -47,12 +50,17 @@ APP_POLICY = InteractionPolicy(
 )
 
 
-def toast_oob(message: str, *, tone: str = "success", duration_ms: int = 4500) -> OobUpdate:
+def toast_oob(
+    message: str,
+    *,
+    tone: ToastTone = "success",
+    duration_ms: int = 4500,
+) -> OobUpdate:
     from hedron import html
 
     return OobUpdate(
         content=html.div(
-            Toast(message, tone=tone),  # type: ignore[arg-type]
+            Toast(message, tone=tone),
             class_="toast-item",
             data={"toast-ms": str(duration_ms)},
         ),
@@ -87,7 +95,7 @@ def ok_fragment(
     oob: Sequence[OobUpdate] = (),
     push_url: str | bool | None = None,
     toast: str | None = None,
-    toast_tone: str = "success",
+    toast_tone: ToastTone = "success",
     redirect: str | None = None,
     status_code: int = 200,
     region_id: str | None = None,

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
@@ -43,7 +45,10 @@ def current_revision(db_engine: Engine | None = None) -> str | None:
 
 
 def head_revision() -> str:
-    return ScriptDirectory.from_config(alembic_config()).get_current_head()
+    head = ScriptDirectory.from_config(alembic_config()).get_current_head()
+    if head is None:
+        raise RuntimeError("No Alembic head revision is configured.")
+    return head
 
 
 def assert_schema_current(db_engine: Engine | None = None) -> None:

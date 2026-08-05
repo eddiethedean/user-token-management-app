@@ -24,6 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "basedpyright>=1.29,<2",
   "pytest>=8.4,<9",
   "pytest-cov>=6.2,<7",
   "ruff>=0.12,<1",
@@ -51,6 +52,22 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
 ignore = ["B008", "E501"]
+
+[tool.basedpyright]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+extraPaths = ["."]
+exclude = ["**/__pycache__", "access_registry.egg-info", ".venv", "tests"]
+reportMissingTypeStubs = false
+
+# Hedron HTML builders intentionally use `object` / open attrs.
+[[tool.basedpyright.executionEnvironments]]
+root = "app/ui"
+reportArgumentType = "none"
+reportAny = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownVariableType = "none"
 
 [tool.hedron]
 format_version = 1

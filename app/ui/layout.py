@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from fastapi import Request
 from hedron import Fragment, OobUpdate, Page, Text, html
 from hedron_core.security import SafeUrl, UrlPurpose
 
@@ -44,7 +45,7 @@ def alert_box(message: str, *, kind: str = "error") -> object:
 
 def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) -> object:
     user = auth.user
-    attrs: dict = {"id": "account-summary", "class_": "account-summary"}
+    attrs: dict[str, object] = {"id": "account-summary", "class_": "account-summary"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.div(
@@ -68,7 +69,7 @@ def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) ->
     )
 
 
-def side_nav_children(request, auth: AuthContext) -> list[object]:
+def side_nav_children(request: Request, auth: AuthContext) -> list[object]:
     path = str(request.scope.get("path") or "/")
 
     def link(href: str, number: str, label: str) -> object:
@@ -111,8 +112,8 @@ def side_nav_children(request, auth: AuthContext) -> list[object]:
     return children
 
 
-def side_nav(request, auth: AuthContext, *, oob: bool = False) -> object:
-    attrs: dict = {
+def side_nav(request: Request, auth: AuthContext, *, oob: bool = False) -> object:
+    attrs: dict[str, object] = {
         "id": "side-nav",
         "class_": "side-nav",
         "aria": {"label": "Account navigation"},
@@ -122,7 +123,7 @@ def side_nav(request, auth: AuthContext, *, oob: bool = False) -> object:
     return html.nav(*side_nav_children(request, auth), **attrs)
 
 
-def side_nav_oob(request, auth: AuthContext) -> OobUpdate:
+def side_nav_oob(request: Request, auth: AuthContext) -> OobUpdate:
     """Replace side-nav contents after in-shell navigation (preserves outer nav element)."""
     return OobUpdate(
         content=Fragment(*side_nav_children(request, auth)),
@@ -132,7 +133,11 @@ def side_nav_oob(request, auth: AuthContext) -> OobUpdate:
 
 
 def toast_host(*, oob: bool = False) -> object:
-    attrs: dict = {"id": "toast-host", "class_": "toast-host", "aria": {"live": "polite"}}
+    attrs: dict[str, object] = {
+        "id": "toast-host",
+        "class_": "toast-host",
+        "aria": {"live": "polite"},
+    }
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.div(**attrs)
@@ -144,7 +149,7 @@ def dialog_host() -> object:
 
 def app_shell(
     *body: object,
-    request,
+    request: Request,
     settings: Settings,
     auth: AuthContext | None,
     page_title: str,

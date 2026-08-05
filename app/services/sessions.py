@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any, cast
 
 from fastapi import Request
 from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -224,7 +226,7 @@ def revoke_session(
         .values(revoked_at=utcnow())
         .execution_options(synchronize_session=False)
     )
-    if revoked.rowcount == 1:
+    if cast(CursorResult[Any], revoked).rowcount == 1:
         record_event(db, "auth.session.revoked", request=request, actor=actor, target=session.user)
     db.commit()
 
