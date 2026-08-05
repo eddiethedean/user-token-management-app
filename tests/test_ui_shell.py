@@ -34,8 +34,8 @@ def _session_csrf(html: str) -> str:
     return snippet.split('value="')[1].split('"')[0]
 
 
-def test_login_page_document(hedron_app) -> None:
-    fixture = fastapi_fixture(hedron_app)
+def test_login_page_document(access_app) -> None:
+    fixture = fastapi_fixture(access_app)
     response = fixture.get("/login")
     assert_page_document(response)
     assert_html_contains(response, "Sign in")
@@ -43,15 +43,15 @@ def test_login_page_document(hedron_app) -> None:
     assert_html_contains(response, 'name="htmx-config"')
 
 
-def test_register_page_document(hedron_app) -> None:
-    fixture = fastapi_fixture(hedron_app)
+def test_register_page_document(access_app) -> None:
+    fixture = fastapi_fixture(access_app)
     response = fixture.get("/register")
     assert_page_document(response)
     assert_html_contains(response, "Request access")
 
 
-def test_login_then_profile_via_fastapi_fixture(hedron_app) -> None:
-    fixture = fastapi_fixture(hedron_app)
+def test_login_then_profile_via_fastapi_fixture(access_app) -> None:
+    fixture = fastapi_fixture(access_app)
     login_page = fixture.get("/login")
     assert_page_document(login_page)
     token = _preauth_token(login_page.body)
@@ -71,8 +71,8 @@ def test_login_then_profile_via_fastapi_fixture(hedron_app) -> None:
     assert_html_contains(profile, "admin@example.gov")
 
 
-def test_htmx_profile_update_returns_fragment(hedron_app) -> None:
-    client = fragment_client(hedron_app)
+def test_htmx_profile_update_returns_fragment(access_app) -> None:
+    client = fragment_client(access_app)
     login_page = client.get("/login")
     token = _preauth_token(login_page.text)
     signed_in = client.post(
@@ -105,8 +105,8 @@ def test_htmx_profile_update_returns_fragment(hedron_app) -> None:
     assert_html_contains(adapter, "hedron-toast")
 
 
-def test_htmx_admin_users_requires_auth(hedron_app) -> None:
-    client = fragment_client(hedron_app)
+def test_htmx_admin_users_requires_auth(access_app) -> None:
+    client = fragment_client(access_app)
     response = client.get(
         "/admin/users",
         headers={"HX-Target": "#user-directory", "Accept": "text/html"},
@@ -269,8 +269,8 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, "historyCacheSize")
 
 
-def test_htmx_nav_swaps_main_panel_without_shell_chrome(hedron_app) -> None:
-    client = fragment_client(hedron_app)
+def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:
+    client = fragment_client(access_app)
     login_page = client.get("/login")
     token = _preauth_token(login_page.text)
     signed_in = client.post(
@@ -299,8 +299,8 @@ def test_htmx_nav_swaps_main_panel_without_shell_chrome(hedron_app) -> None:
     assert security.headers.get("HX-Push-Url")
 
 
-def test_htmx_profile_update_emits_toast_oob(hedron_app) -> None:
-    client = fragment_client(hedron_app)
+def test_htmx_profile_update_emits_toast_oob(access_app) -> None:
+    client = fragment_client(access_app)
     login_page = client.get("/login")
     token = _preauth_token(login_page.text)
     signed_in = client.post(
@@ -334,7 +334,7 @@ def test_htmx_profile_update_emits_toast_oob(hedron_app) -> None:
     assert "toast-item" in response.text
 
 
-def test_session_list_uses_dialog_confirm(hedron_app) -> None:
+def test_session_list_uses_dialog_confirm(access_app) -> None:
     from datetime import datetime
 
     auth = SimpleNamespace(session=SimpleNamespace(id="current-session"))

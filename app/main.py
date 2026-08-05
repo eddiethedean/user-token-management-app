@@ -20,7 +20,6 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from hedron import Hedron, html
 from hedron.responses import render_component_response
-from hedron.security.policy import SecurityPolicy
 from hedron_core import RenderMode
 from sqlalchemy import text
 
@@ -33,19 +32,14 @@ from app.services.auth import ensure_default_roles
 from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
 from app.ui.routes import register_routes
+from app.ui.security_policy import access_registry_security_policy
 
 settings = get_settings()
 log = logging.getLogger(__name__)
 REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}\Z")
 
 # Access Registry owns CSRF; disable Hedron's Starlette-session CSRF.
-AR_SECURITY = SecurityPolicy(
-    csrf_enabled=False,
-    security_headers=False,  # AR middleware sets headers
-    explorer_enabled=False,
-    private_authenticated_cache=True,
-    content_security_policy=None,
-)
+AR_SECURITY = access_registry_security_policy()
 
 
 @asynccontextmanager

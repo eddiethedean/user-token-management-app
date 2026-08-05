@@ -5,10 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import User, utcnow
+from app.models import AuditEvent, RefreshSession, User, utcnow
 from app.security.passwords import PasswordService, validate_password
 from app.services.audit import record_event
 from app.services.auth import revoke_all_sessions
+from app.services.secrets import list_user_secrets
 
 
 class CurrentPasswordError(ValueError):
@@ -73,3 +74,31 @@ def change_password(
     revoke_all_sessions(db, user)
     record_event(db, "password.changed", request=request, actor=user, target=user)
     db.commit()
+
+
+def security_page_values(db: Session, user: User, settings: Settings, **values) -> dict:
+    """Assemble sessions, secrets, and recent activity for the security page."""
+    now = utcnow()
+    sessions = db.scalars(
+        select(RefreshSession)
+        .where(
+            RefreshSession.user_id == user.id,
+            RefreshSession.revoked_at.is_(None),
+            RefreshSession.idle_expires_at > now,
+            RefreshSession.absolute_expires_at > now,
+        )
+        .order_by(RefreshSession.last_seen_at.desc())
+    ).all()
+    events = db.scalars(
+        select(AuditEvent)
+        .where(AuditEvent.target_user_id == user.id)
+        .order_by(AuditEvent.occurred_at.desc())
+        .limit(12)
+    ).all()
+    return {
+        "sessions": list(sessions),
+        "secret_slots": list_user_secrets(db, user),
+        "events": list(events),
+        "local_password": settings.authentication_mode == "local_password",
+        **values,
+    }

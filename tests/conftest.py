@@ -38,7 +38,7 @@ def _rebind_database() -> None:
 
 
 @pytest.fixture()
-def hedron_app(tmp_path, monkeypatch):
+def access_app(tmp_path, monkeypatch):
     """Boot a fresh app against an isolated SQLite database."""
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("APP_ENV", "test")
@@ -79,29 +79,29 @@ def hedron_app(tmp_path, monkeypatch):
 
 
 @pytest.fixture()
-def client(hedron_app):
-    with TestClient(hedron_app, follow_redirects=False, client=("127.0.0.1", 50000)) as test_client:
+def client(access_app):
+    with TestClient(access_app, follow_redirects=False, client=("127.0.0.1", 50000)) as test_client:
         yield test_client
 
 
 @pytest.fixture()
-def page(hedron_app):
+def page(access_app):
     """Hedron fastapi_fixture — full-page GETs/POSTs with cookie jar."""
     from hedron.testing import fastapi_fixture
 
-    return fastapi_fixture(hedron_app)
+    return fastapi_fixture(access_app)
 
 
 @pytest.fixture()
-def htmx(hedron_app):
+def htmx(access_app):
     """Hedron fragment_client — HTMX headers, follows redirects by default."""
     from hedron.testing import fragment_client
 
-    return fragment_client(hedron_app)
+    return fragment_client(access_app)
 
 
 @pytest.fixture()
-def make_user(hedron_app):
+def make_user(access_app):
     from app.config import get_settings
     from app.database import SessionLocal
     from app.models import Role, User, UserStatus, utcnow

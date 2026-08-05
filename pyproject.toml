@@ -36,7 +36,7 @@ access-registry = "app.cli:main"
 include = ["app*", "migrations*"]
 
 [tool.setuptools.package-data]
-app = ["ui/**/*.css", "static/**/*"]
+app = ["static/**/*"]
 migrations = ["README.md", "script.py.mako"]
 
 [tool.pytest.ini_options]

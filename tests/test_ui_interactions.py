@@ -197,10 +197,10 @@ def test_password_htmx_error_fragment_and_success_redirect(htmx) -> None:
     assert_hx_redirect(as_adapter(success), "password=changed")
 
 
-def test_session_revoke_with_second_session(hedron_app, make_user) -> None:
+def test_session_revoke_with_second_session(access_app, make_user) -> None:
     user = make_user("revoke.pair@example.gov")
-    primary = fragment_client(hedron_app)
-    secondary = fragment_client(hedron_app)
+    primary = fragment_client(access_app)
+    secondary = fragment_client(access_app)
     htmx_login(primary, user.email, USER_PASSWORD)
     htmx_login(secondary, user.email, USER_PASSWORD)
 
@@ -413,9 +413,9 @@ def test_security_tabs_and_lazy_activity_render() -> None:
     assert "hedron-loading" in html
 
 
-def test_fastapi_fixture_admin_round_trip(hedron_app, make_user) -> None:
+def test_fastapi_fixture_admin_round_trip(access_app, make_user) -> None:
     make_user("fixture.roundtrip@example.gov")
-    fixture = fastapi_fixture(hedron_app)
+    fixture = fastapi_fixture(access_app)
     profile = fixture_login(fixture)
     assert_page_document(profile)
 

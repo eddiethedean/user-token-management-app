@@ -13,14 +13,14 @@ from app.services.auth import create_invitation
 from tests.helpers import ADMIN_EMAIL, as_adapter, login_csrf_from
 
 
-def test_federated_login_page_and_proxy_allowlist(hedron_app) -> None:
+def test_federated_login_page_and_proxy_allowlist(access_app) -> None:
     settings = get_settings()
     original_mode = settings.authentication_mode
     original_proxies = settings.trusted_proxy_ips
     try:
         settings.authentication_mode = "trusted_header"
         settings.trusted_proxy_ips = "127.0.0.1"
-        with TestClient(hedron_app, follow_redirects=False, client=("127.0.0.1", 50000)) as client:
+        with TestClient(access_app, follow_redirects=False, client=("127.0.0.1", 50000)) as client:
             login_page = client.get("/login")
             adapter = as_adapter(login_page)
             assert_page_document(adapter)
@@ -57,7 +57,7 @@ def test_federated_login_page_and_proxy_allowlist(hedron_app) -> None:
             assert "Change password" not in security.text
 
         with TestClient(
-            hedron_app, follow_redirects=False, client=("198.51.100.25", 50000)
+            access_app, follow_redirects=False, client=("198.51.100.25", 50000)
         ) as spoofed:
             csrf = login_csrf_from(spoofed.get("/login").text)
             denied = spoofed.post(
@@ -71,7 +71,7 @@ def test_federated_login_page_and_proxy_allowlist(hedron_app) -> None:
         settings.trusted_proxy_ips = original_proxies
 
 
-def test_federated_invitation_activation_skips_password(hedron_app) -> None:
+def test_federated_invitation_activation_skips_password(access_app) -> None:
     settings = get_settings()
     original_mode = settings.authentication_mode
     email = "federated.invitee@example.gov"
@@ -88,12 +88,12 @@ def test_federated_invitation_activation_skips_password(hedron_app) -> None:
                 inviter=administrator,
             )
 
-        fixture = fastapi_fixture(hedron_app)
+        fixture = fastapi_fixture(access_app)
         page = fixture.get(f"/invitations/accept?token={raw_token}")
         assert_page_document(page)
         assert 'name="password"' not in page.body
 
-        with TestClient(hedron_app, follow_redirects=False) as client:
+        with TestClient(access_app, follow_redirects=False) as client:
             accepted = client.post(
                 "/invitations/accept",
                 data={"token": raw_token, "full_name": "Federated Invitee"},

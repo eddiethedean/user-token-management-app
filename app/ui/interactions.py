@@ -7,10 +7,10 @@ from collections.abc import Sequence
 from fastapi import Request
 from hedron import FragmentRegion, InteractionPolicy, InteractionResult, OobUpdate, Toast
 from hedron.routing.route import HedronRoute
-from hedron.security.policy import SecurityPolicy
 from hedron_core import RenderMode
 
 from app.ui import regions as region_defs
+from app.ui.security_policy import access_registry_security_policy
 
 APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.MAIN_PANEL,
@@ -44,14 +44,6 @@ APP_POLICY = InteractionPolicy(
     error_retarget="#global-feedback",
     error_reswap="innerHTML",
     indicator="#global-request-indicator",
-)
-
-_RENDER_POLICY = SecurityPolicy(
-    csrf_enabled=False,
-    security_headers=False,
-    explorer_enabled=False,
-    private_authenticated_cache=True,
-    content_security_policy=None,
 )
 
 
@@ -119,14 +111,25 @@ def ok_fragment(
     )
 
 
-def form_error(content: object, *, status_code: int = 400) -> InteractionResult:
-    return InteractionResult(
-        content=content,
-        status_code=status_code,
-        retarget="#global-feedback",
-        reswap="innerHTML",
-        policy=APP_POLICY,
-        cache="no-store",
+async def _convert_interaction_result(
+    request: Request,
+    result: InteractionResult,
+    *,
+    authenticated: bool,
+) -> object:
+    """Adapter around Hedron's private InteractionResult converter.
+
+    Hedron does not yet expose a stable public API for this conversion; isolate
+    the private call so upgrades only need a one-place change.
+    """
+    return await HedronRoute._convert_interaction_result(
+        request,
+        result,
+        mode=RenderMode.FRAGMENT,
+        kind="component",
+        policy=access_registry_security_policy(),
+        authenticated=authenticated,
+        fragment_regions=APP_REGIONS,
     )
 
 
@@ -138,12 +141,4 @@ async def interaction_response(
 ) -> object:
     """Render an InteractionResult through Hedron's converter."""
     request.state.hedron_authenticated = authenticated
-    return await HedronRoute._convert_interaction_result(
-        request,
-        result,
-        mode=RenderMode.FRAGMENT,
-        kind="component",
-        policy=_RENDER_POLICY,
-        authenticated=authenticated,
-        fragment_regions=APP_REGIONS,
-    )
+    return await _convert_interaction_result(request, result, authenticated=authenticated)

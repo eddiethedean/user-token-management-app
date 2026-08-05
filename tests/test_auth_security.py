@@ -235,7 +235,7 @@ def test_registration_and_reset_rate_limits(client) -> None:
         settings.rate_limit_reset_per_account = original_reset_account
 
 
-def test_session_revoke_success(client, make_user, hedron_app) -> None:
+def test_session_revoke_success(client, make_user, access_app) -> None:
     from fastapi.testclient import TestClient
 
     from app.dependencies import ACCESS_COOKIE
@@ -243,7 +243,7 @@ def test_session_revoke_success(client, make_user, hedron_app) -> None:
 
     user = make_user("sessions.user@example.gov")
     web_login(client, user.email, USER_PASSWORD)
-    other = TestClient(hedron_app, follow_redirects=False)
+    other = TestClient(access_app, follow_redirects=False)
     web_login(other, user.email, USER_PASSWORD)
 
     current_sid = decode_access_token(client.cookies.get(ACCESS_COOKIE), get_settings())["sid"]
@@ -272,7 +272,7 @@ def test_session_revoke_success(client, make_user, hedron_app) -> None:
         assert session is not None and session.revoked_at is not None
 
     # HTMX revoke of another remote session
-    third = TestClient(hedron_app, follow_redirects=False)
+    third = TestClient(access_app, follow_redirects=False)
     web_login(third, user.email, USER_PASSWORD)
     current_sid = decode_access_token(client.cookies.get(ACCESS_COOKIE), get_settings())["sid"]
     with SessionLocal() as db:

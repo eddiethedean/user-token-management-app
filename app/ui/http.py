@@ -1,0 +1,132 @@
+"""Shared HTMX detection and page/fragment render helpers for UI routes."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from fastapi import Request
+from hedron import Page, html
+from hedron.responses import render_component_response
+from hedron_core import RenderMode
+
+from app.config import Settings
+from app.dependencies import AuthContext
+from app.routing import app_path, is_htmx_request
+from app.ui.interactions import interaction_response, ok_fragment
+from app.ui.layout import app_shell, main_panel, side_nav_oob
+
+
+def hx_target(request: Request) -> str:
+    raw = (request.headers.get("HX-Target") or "").strip()
+    if raw and not raw.startswith(("#", ".", "[")) and " " not in raw:
+        return f"#{raw}"
+    return raw
+
+
+def is_history_restore(request: Request) -> bool:
+    return request.headers.get("HX-History-Restore-Request", "").casefold() == "true"
+
+
+def is_main_panel_nav(request: Request) -> bool:
+    """In-shell nav fragment swap (not a history-restore full refresh)."""
+    return (
+        is_htmx_request(request)
+        and hx_target(request) == "#main-panel"
+        and not is_history_restore(request)
+    )
+
+
+def is_filter_fragment(request: Request, *targets: str) -> bool:
+    """True for in-page filter/body swaps; false for nav or history restore."""
+    if not is_htmx_request(request) or is_history_restore(request):
+        return False
+    return hx_target(request) in targets
+
+
+def safe_next(value: str) -> str:
+    is_local_path = (
+        value.startswith("/")
+        and not value.startswith("//")
+        and "\\" not in value
+        and not any(ord(character) < 32 for character in value)
+    )
+    return value if is_local_path else "/profile"
+
+
+def render_page(
+    page: Page,
+    *,
+    request: Request | None = None,
+    status_code: int = 200,
+    headers: dict | None = None,
+    authenticated: bool = False,
+):
+    response = render_component_response(
+        page,
+        request=request,
+        mode=RenderMode.PAGE,
+        status_code=status_code,
+        extra_headers=headers,
+        authenticated=authenticated,
+    )
+    # Hedron forbids <script> nodes in the tree; inject AR progressive-enhancement JS here.
+    html_text = response.body.decode(response.charset or "utf-8")
+    app_script = '<script src="/assets/app.js" defer></script>'
+    if "app.js" not in html_text:
+        if "</body>" in html_text:
+            html_text = html_text.replace("</body>", f"{app_script}</body>", 1)
+        else:
+            html_text += app_script
+        response.body = html_text.encode(response.charset or "utf-8")
+        response.headers["content-length"] = str(len(response.body))
+    return response
+
+
+def render_fragment(*nodes: object, request: Request | None = None, status_code: int = 200):
+    content = html.div(*nodes) if len(nodes) != 1 else nodes[0]
+    return render_component_response(
+        content,
+        request=request,
+        mode=RenderMode.FRAGMENT,
+        status_code=status_code,
+    )
+
+
+def auth_card(*children: object) -> object:
+    return html.div(*children, class_="panel auth-card")
+
+
+async def render_authenticated_view(
+    request: Request,
+    *,
+    body: Sequence[object],
+    auth: AuthContext,
+    settings: Settings,
+    page_title: str,
+    csrf_token: str,
+    push_path: str,
+    headers: dict | None = None,
+):
+    """Serve main-panel nav fragment or full authenticated document."""
+    if is_main_panel_nav(request):
+        return await interaction_response(
+            request,
+            ok_fragment(
+                main_panel(*body),
+                oob=(side_nav_oob(request, auth),),
+                push_url=app_path(request, push_path),
+            ),
+        )
+    return render_page(
+        app_shell(
+            *body,
+            request=request,
+            settings=settings,
+            auth=auth,
+            page_title=page_title,
+            csrf_token=csrf_token,
+        ),
+        request=request,
+        authenticated=True,
+        headers=headers,
+    )

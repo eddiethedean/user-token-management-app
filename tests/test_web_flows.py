@@ -224,11 +224,11 @@ def test_htmx_admin_invitation_errors_and_missing_toggle(client, htmx) -> None:
     assert missing.status_code == 404
 
 
-def test_disable_user_invalidates_active_session(client, make_user, hedron_app) -> None:
+def test_disable_user_invalidates_active_session(client, make_user, access_app) -> None:
     from fastapi.testclient import TestClient
 
     target = make_user("disabled.session@example.gov")
-    victim = TestClient(hedron_app, follow_redirects=False)
+    victim = TestClient(access_app, follow_redirects=False)
     web_login(victim, target.email, USER_PASSWORD)
     assert victim.get("/profile").status_code == 200
 

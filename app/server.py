@@ -1,42 +1,17 @@
 import os
 import subprocess
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import uvicorn
+
+from app.routing import safe_base_path
 
 DEFAULT_RSERVER_URL = Path("/usr/lib/rstudio-server/bin/rserver-url")
 
 
 def _normalize_root_path(value: str, *, allow_absolute_url: bool = False) -> str:
-    candidate = value.strip()
-    parsed = urlsplit(candidate)
-    if parsed.scheme or parsed.netloc:
-        if (
-            not allow_absolute_url
-            or parsed.scheme not in {"http", "https"}
-            or not parsed.netloc
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise RuntimeError(f"Invalid ASGI root path returned for Workbench: {candidate!r}")
-        candidate = parsed.path
-    elif parsed.query or parsed.fragment:
-        raise RuntimeError(f"Invalid ASGI root path returned for Workbench: {candidate!r}")
-
-    path = candidate.rstrip("/")
-    if path in {"", "/"}:
-        return ""
-    if (
-        not path.startswith("/")
-        or path.startswith("//")
-        or "\\" in path
-        or any(ord(character) < 32 or ord(character) == 127 for character in path)
-    ):
-        raise RuntimeError(f"Invalid ASGI root path returned for Workbench: {path!r}")
-    return path
+    """Strict ASGI root-path sanitizer for Workbench/uvicorn detection."""
+    return safe_base_path(value, allow_absolute_url=allow_absolute_url, strict=True)
 
 
 def detect_root_path(port: int) -> str:

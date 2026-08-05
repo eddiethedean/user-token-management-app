@@ -70,29 +70,51 @@ class WorkbenchPathMiddleware:
         await self.app(scope, receive, send)
 
 
-def _safe_base_path(value: str, *, allow_absolute_url: bool = False) -> str:
-    """Reduce a trusted proxy value to a safe, same-origin mount path."""
+def safe_base_path(value: str, *, allow_absolute_url: bool = False, strict: bool = False) -> str:
+    """Reduce a path-like value to a safe, same-origin mount path.
+
+    When ``strict`` is True (Workbench/ASGI root detection), invalid values raise
+    ``RuntimeError``. When False (request base-path resolution), they become ``""``.
+    """
     candidate = value.strip()
     parsed = urlsplit(candidate)
     if parsed.scheme or parsed.netloc:
-        if not allow_absolute_url or parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        invalid = (
+            not allow_absolute_url
+            or parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or (strict and (parsed.username is not None or parsed.password is not None))
+            or (strict and (parsed.query or parsed.fragment))
+        )
+        if invalid:
+            if strict:
+                raise RuntimeError(f"Invalid ASGI root path returned for Workbench: {candidate!r}")
             return ""
         candidate = parsed.path
     elif parsed.query or parsed.fragment:
+        if strict:
+            raise RuntimeError(f"Invalid ASGI root path returned for Workbench: {candidate!r}")
         return ""
-    candidate = candidate.rstrip("/")
-    if candidate in {"", "/"}:
+    path = candidate.rstrip("/")
+    if path in {"", "/"}:
         return ""
     if (
-        not candidate.startswith("/")
-        or candidate.startswith("//")
-        or "\\" in candidate
-        or "?" in candidate
-        or "#" in candidate
-        or any(ord(character) < 32 for character in candidate)
+        not path.startswith("/")
+        or path.startswith("//")
+        or "\\" in path
+        or (not strict and ("?" in path or "#" in path))
+        or any(ord(character) < 32 for character in path)
+        or (strict and any(ord(character) == 127 for character in path))
     ):
+        if strict:
+            raise RuntimeError(f"Invalid ASGI root path returned for Workbench: {path!r}")
         return ""
-    return candidate
+    return path
+
+
+def _safe_base_path(value: str, *, allow_absolute_url: bool = False) -> str:
+    """Backward-compatible alias for request mount-path sanitization."""
+    return safe_base_path(value, allow_absolute_url=allow_absolute_url, strict=False)
 
 
 def app_base_url(request: Request) -> str:

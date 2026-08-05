@@ -12,6 +12,25 @@ FastAPI + [Hedron](https://github.com/eddiethedean/hedron) typed components and 
 
 Security decision register and production gate: [SECURITY.md](SECURITY.md).
 
+## Architecture
+
+| Layer | Package | Responsibility |
+|-------|---------|----------------|
+| HTTP / UI | `app/ui/` | Routes, HTMX fragments, layout, SafeUrl helpers |
+| Domain | `app/services/` | Auth, accounts, directory, secrets, audit, mailer |
+| Primitives | `app/security/` | Passwords, CSRF, tokens, email normalize, client trust |
+| Wiring | `app/dependencies.py`, `app/config.py` | AuthContext, settings |
+
+**Where to add a page or HTMX fragment**
+
+1. Add a SafeUrl helper in [`app/ui/urls.py`](app/ui/urls.py) if needed
+2. Declare a fragment region in [`app/ui/regions.py`](app/ui/regions.py) (and `APP_REGIONS`)
+3. Build the fragment in `app/ui/partials/`
+4. Return it via `ok_fragment` / `interaction_response` from the matching registrar under `app/ui/routes/`
+5. Prefer `render_authenticated_view` for authenticated GETs that support main-panel nav swaps
+
+Auth modes: `local_password` (default) or `trusted_header` — see `.env.example`.
+
 ## Quick start
 
 ```bash

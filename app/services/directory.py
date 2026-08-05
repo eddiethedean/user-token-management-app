@@ -4,13 +4,21 @@ import logging
 import ssl
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx2
+from fastapi import Request
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.models import User, UserStatus
+from app.routing import app_path
 from app.security.email import normalize_email
 
 log = logging.getLogger(__name__)
+
+ADMIN_PAGE_SIZE = 50
 
 
 class DirectoryEligibilityError(ValueError):
@@ -112,3 +120,66 @@ async def validate_directory_email(
             ) from exc
         log.warning("Invalid directory response; allowing enrollment because fail-closed is off")
         return None
+
+
+def list_users_page(
+    db: Session, *, query: str = "", status_filter: str = "", page: int = 1
+) -> tuple[list[User], int, int]:
+    """Return a page of directory users matching optional search/status filters."""
+    page = max(1, page)
+    statement = select(User)
+    count_statement = select(func.count()).select_from(User)
+    conditions = []
+    cleaned_query = query.strip()[:160]
+    if cleaned_query:
+        pattern = f"%{cleaned_query}%"
+        conditions.append(
+            or_(
+                User.email.ilike(pattern),
+                User.email_original.ilike(pattern),
+                User.full_name.ilike(pattern),
+                User.organization.ilike(pattern),
+            )
+        )
+    if status_filter in {item.value for item in UserStatus}:
+        conditions.append(User.status == status_filter)
+    if conditions:
+        statement = statement.where(*conditions)
+        count_statement = count_statement.where(*conditions)
+    total = int(db.scalar(count_statement) or 0)
+    page_count = max(1, (total + ADMIN_PAGE_SIZE - 1) // ADMIN_PAGE_SIZE)
+    page = min(page, page_count)
+    users = db.scalars(
+        statement.order_by(User.created_at.desc())
+        .offset((page - 1) * ADMIN_PAGE_SIZE)
+        .limit(ADMIN_PAGE_SIZE)
+    ).all()
+    return list(users), total, page
+
+
+def user_listing_values(
+    db: Session, *, query: str = "", status_filter: str = "", page: int = 1, **values
+) -> dict:
+    cleaned_query = query.strip()[:160]
+    cleaned_status = status_filter if status_filter in {item.value for item in UserStatus} else ""
+    users, total_users, current_page = list_users_page(
+        db, query=cleaned_query, status_filter=cleaned_status, page=page
+    )
+    return {
+        "users": users,
+        "total_users": total_users,
+        "current_page": current_page,
+        "page_count": max(1, (total_users + ADMIN_PAGE_SIZE - 1) // ADMIN_PAGE_SIZE),
+        "user_query": cleaned_query,
+        "status_filter": cleaned_status,
+        **values,
+    }
+
+
+def user_listing_path(
+    request: Request, *, query: str = "", status_filter: str = "", page: int = 1, notice: str = ""
+) -> str:
+    parameters = {"q": query, "status": status_filter, "page": max(1, page)}
+    if notice:
+        parameters["notice"] = notice
+    return app_path(request, f"/admin/users?{urlencode(parameters)}")
