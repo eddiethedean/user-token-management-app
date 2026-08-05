@@ -37,14 +37,14 @@ from app.ui.layout import alert_box, app_shell, page_heading
 
 
 def register_security_routes(app: Hedron) -> None:
-    @app.get("/security", include_in_schema=False, response_model=None)
+    @app.get("/security", include_in_schema=False)
     async def security_page(
         request: Request,
         notice: str = "",
         auth: AuthContext = Depends(require_auth),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         request.state.hedron_authenticated = True
         notices = {
             "session-revoked": "The browser session was revoked.",
@@ -84,13 +84,13 @@ def register_security_routes(app: Hedron) -> None:
             headers={"Cache-Control": "no-store"},
         )
 
-    @app.get("/security/activity", include_in_schema=False, response_model=None)
+    @app.get("/security/activity", include_in_schema=False)
     async def security_activity_fragment(
         request: Request,
         auth: AuthContext = Depends(require_auth),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         request.state.hedron_authenticated = True
         if is_htmx_request(request):
             try:
@@ -109,7 +109,7 @@ def register_security_routes(app: Hedron) -> None:
                 )
         return RedirectResponse(app_path(request, "/security"), status_code=303)
 
-    @app.post("/security/password", include_in_schema=False, response_model=None)
+    @app.post("/security/password", include_in_schema=False)
     async def password_change_submit(
         request: Request,
         current_password: str = Form(max_length=128),
@@ -118,7 +118,7 @@ def register_security_routes(app: Hedron) -> None:
         auth: AuthContext = Depends(require_auth),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=403, detail="Password changes are disabled")
@@ -195,16 +195,14 @@ def register_security_routes(app: Hedron) -> None:
             authenticated=True,
         )
 
-    @app.post(
-        "/security/sessions/{session_id}/revoke", include_in_schema=False, response_model=None
-    )
+    @app.post("/security/sessions/{session_id}/revoke", include_in_schema=False)
     async def revoke_session_submit(
         session_id: str,
         request: Request,
         auth: AuthContext = Depends(require_auth),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         session = db.get(RefreshSession, session_id)
         if not session or session.user_id != auth.user.id:
@@ -229,7 +227,7 @@ def register_security_routes(app: Hedron) -> None:
             ),
         )
 
-    @app.post("/security/secrets/{provider}", include_in_schema=False, response_model=None)
+    @app.post("/security/secrets/{provider}", include_in_schema=False)
     async def secret_submit(
         provider: str,
         request: Request,
@@ -237,7 +235,7 @@ def register_security_routes(app: Hedron) -> None:
         auth: AuthContext = Depends(require_auth),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         try:
             specification = require_secret_provider(provider)
@@ -292,14 +290,14 @@ def register_security_routes(app: Hedron) -> None:
             ),
         )
 
-    @app.post("/security/secrets/{provider}/delete", include_in_schema=False, response_model=None)
+    @app.post("/security/secrets/{provider}/delete", include_in_schema=False)
     async def secret_delete_submit(
         provider: str,
         request: Request,
         auth: AuthContext = Depends(require_auth),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         try:
             specification = require_secret_provider(provider)

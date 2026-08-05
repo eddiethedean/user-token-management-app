@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import ssl
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import TypeAlias, TypedDict, cast
 from urllib.parse import urlencode
 
 import httpx2
@@ -17,6 +17,8 @@ from app.routing import app_path
 from app.security.email import normalize_email
 
 log = logging.getLogger(__name__)
+
+JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
 
 ADMIN_PAGE_SIZE = 50
 
@@ -45,7 +47,7 @@ class UserListingValues(TypedDict):
     user_success: str
 
 
-def _first_string(value: object) -> str:
+def _first_string(value: JsonValue | None) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, list) and value:
@@ -53,11 +55,11 @@ def _first_string(value: object) -> str:
     return ""
 
 
-def _parse_record(data: object, query_email: str, settings: Settings) -> DirectoryRecord:
+def _parse_record(data: JsonValue, query_email: str, settings: Settings) -> DirectoryRecord:
     if not isinstance(data, dict):
         raise DirectoryUnavailableError("Directory returned an unexpected response.")
     attributes_raw = data.get("attributes")
-    attributes = attributes_raw if isinstance(attributes_raw, dict) else {}
+    attributes: dict[str, JsonValue] = attributes_raw if isinstance(attributes_raw, dict) else {}
     returned_email = (
         _first_string(data.get("email"))
         or _first_string(data.get("mail"))
@@ -121,7 +123,7 @@ async def validate_directory_email(
         )
         return None
     try:
-        return _parse_record(response.json(), canonical_email, settings)
+        return _parse_record(cast(JsonValue, response.json()), canonical_email, settings)
     except DirectoryEligibilityError:
         raise
     except (ValueError, TypeError, DirectoryUnavailableError) as exc:

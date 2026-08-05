@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import Request
 from hedron import Fragment, OobUpdate, Page, Text, html
+from hedron_core import HtmlAttrValue, NodeLike
 from hedron_core.security import SafeUrl, UrlPurpose
 
 from app.config import Settings
@@ -21,7 +22,7 @@ HTMX_CONFIG = (
 )
 
 
-def document_head(*, page_title: str, app_name: str) -> object:
+def document_head(*, page_title: str, app_name: str) -> NodeLike:
     title = f"{page_title} · {app_name}" if page_title else app_name
     return html.div(
         html.meta(name="color-scheme", content="dark"),
@@ -35,7 +36,7 @@ def document_head(*, page_title: str, app_name: str) -> object:
     )
 
 
-def alert_box(message: str, *, kind: str = "error") -> object:
+def alert_box(message: str, *, kind: str = "error") -> NodeLike:
     if not message:
         return html.div()
     role = "status" if kind == "success" else "alert"
@@ -43,9 +44,9 @@ def alert_box(message: str, *, kind: str = "error") -> object:
     return html.div(Text(message), class_=css, role=role)
 
 
-def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) -> object:
+def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) -> NodeLike:
     user = auth.user
-    attrs: dict[str, object] = {"id": "account-summary", "class_": "account-summary"}
+    attrs: dict[str, HtmlAttrValue] = {"id": "account-summary", "class_": "account-summary"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.div(
@@ -69,10 +70,10 @@ def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) ->
     )
 
 
-def side_nav_children(request: Request, auth: AuthContext) -> list[object]:
+def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
     path = str(request.scope.get("path") or "/")
 
-    def link(href: str, number: str, label: str) -> object:
+    def link(href: str, number: str, label: str) -> NodeLike:
         normalized = path.rstrip("/") or "/"
         active = "active" if normalized == href or normalized.endswith(href) else ""
         return html.a(
@@ -93,7 +94,7 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[object]:
             ),
         )
 
-    children: list[object] = [
+    children: list[NodeLike] = [
         html.p("Workspace", class_="nav-label"),
         link("/profile", "01", "Profile"),
         link("/security", "02", "Security"),
@@ -112,8 +113,8 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[object]:
     return children
 
 
-def side_nav(request: Request, auth: AuthContext, *, oob: bool = False) -> object:
-    attrs: dict[str, object] = {
+def side_nav(request: Request, auth: AuthContext, *, oob: bool = False) -> NodeLike:
+    attrs: dict[str, HtmlAttrValue] = {
         "id": "side-nav",
         "class_": "side-nav",
         "aria": {"label": "Account navigation"},
@@ -132,8 +133,8 @@ def side_nav_oob(request: Request, auth: AuthContext) -> OobUpdate:
     )
 
 
-def toast_host(*, oob: bool = False) -> object:
-    attrs: dict[str, object] = {
+def toast_host(*, oob: bool = False) -> NodeLike:
+    attrs: dict[str, HtmlAttrValue] = {
         "id": "toast-host",
         "class_": "toast-host",
         "aria": {"live": "polite"},
@@ -143,12 +144,12 @@ def toast_host(*, oob: bool = False) -> object:
     return html.div(**attrs)
 
 
-def dialog_host() -> object:
+def dialog_host() -> NodeLike:
     return html.div(id="dialog-host", class_="dialog-host")
 
 
 def app_shell(
-    *body: object,
+    *body: NodeLike,
     request: Request,
     settings: Settings,
     auth: AuthContext | None,
@@ -164,7 +165,7 @@ def app_shell(
         ),
         class_="official-banner",
     )
-    header_children: list[object] = [
+    header_children: list[NodeLike] = [
         html.a(
             html.span("AR", class_="brand-mark", aria={"hidden": "true"}),
             html.span(
@@ -230,7 +231,7 @@ def app_shell(
     )
 
 
-def page_heading(eyebrow: str, title: str, lead: str, *extra: object) -> object:
+def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> NodeLike:
     return html.div(
         html.div(
             html.p(eyebrow, class_="eyebrow"),
@@ -242,6 +243,6 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: object) -> object:
     )
 
 
-def main_panel(*body: object) -> object:
+def main_panel(*body: NodeLike) -> NodeLike:
     """Authenticated main panel root used for in-shell HTMX navigation swaps."""
     return html.div(*body, id="main-panel", class_="main-panel")

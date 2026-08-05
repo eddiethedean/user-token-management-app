@@ -21,13 +21,13 @@ from app.ui.layout import alert_box, page_heading
 
 
 def register_profile_routes(app: Hedron) -> None:
-    @app.get("/profile", include_in_schema=False, response_model=None)
+    @app.get("/profile", include_in_schema=False)
     async def profile_page(
         request: Request,
         updated: bool = False,
         auth: AuthContext = Depends(require_auth),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         request.state.hedron_authenticated = True
         csrf = auth.session.csrf_token
         verified_badge = html.span(
@@ -69,7 +69,7 @@ def register_profile_routes(app: Hedron) -> None:
             push_path="/profile",
         )
 
-    @app.post("/profile", include_in_schema=False, response_model=None)
+    @app.post("/profile", include_in_schema=False)
     async def profile_submit(
         request: Request,
         full_name: str = Form(default=""),
@@ -78,7 +78,7 @@ def register_profile_routes(app: Hedron) -> None:
         phone: str = Form(default=""),
         auth: AuthContext = Depends(require_auth),
         db: Session = Depends(get_db),
-    ) -> Response | object:
+    ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         update_profile(
             db,

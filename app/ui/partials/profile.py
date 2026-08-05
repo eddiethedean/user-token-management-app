@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from hedron import html
+from hedron_core import HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
 from app.ui.layout import INDICATOR, account_summary, alert_box
 from app.ui.urls import form_action, hx_attrs, page_href
 
 
-def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> object:
+def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> NodeLike:
     user = auth.user
     return html.div(
         alert_box(success, kind="success"),
@@ -87,9 +88,9 @@ def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> ob
     )
 
 
-def profile_identity(auth: AuthContext, *, oob: bool = False) -> object:
+def profile_identity(auth: AuthContext, *, oob: bool = False) -> NodeLike:
     user = auth.user
-    attrs: dict[str, object] = {"id": "profile-identity", "class_": "panel identity-panel"}
+    attrs: dict[str, HtmlAttrValue] = {"id": "profile-identity", "class_": "panel identity-panel"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     initial = (user.full_name or user.email_original or "?")[:1].upper()
@@ -128,7 +129,7 @@ def profile_identity(auth: AuthContext, *, oob: bool = False) -> object:
     )
 
 
-def profile_response(auth: AuthContext, *, csrf_token: str, success: str) -> list[object]:
+def profile_response(auth: AuthContext, *, csrf_token: str, success: str) -> list[NodeLike]:
     return [
         profile_form(auth, csrf_token=csrf_token, success=success),
         account_summary(auth, csrf_token=csrf_token, oob=True),

@@ -8,7 +8,8 @@ from typing import Literal
 from fastapi import Request
 from hedron import FragmentRegion, InteractionPolicy, InteractionResult, OobUpdate, Toast
 from hedron.routing.route import HedronRoute
-from hedron_core import RenderMode
+from hedron_core import NodeLike, RenderMode
+from starlette.responses import Response
 
 from app.ui import regions as region_defs
 from app.ui.security_policy import access_registry_security_policy
@@ -90,7 +91,7 @@ def audit_match_count_oob(total: int) -> OobUpdate:
 
 
 def ok_fragment(
-    content: object,
+    content: NodeLike,
     *,
     oob: Sequence[OobUpdate] = (),
     push_url: str | bool | None = None,
@@ -124,7 +125,7 @@ async def _convert_interaction_result(
     result: InteractionResult,
     *,
     authenticated: bool,
-) -> object:
+) -> Response:
     """Adapter around Hedron's private InteractionResult converter.
 
     Hedron does not yet expose a stable public API for this conversion; isolate
@@ -146,7 +147,7 @@ async def interaction_response(
     result: InteractionResult,
     *,
     authenticated: bool = True,
-) -> object:
+) -> Response:
     """Render an InteractionResult through Hedron's converter."""
     request.state.hedron_authenticated = authenticated
     return await _convert_interaction_result(request, result, authenticated=authenticated)

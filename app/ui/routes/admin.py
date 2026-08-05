@@ -43,7 +43,7 @@ from app.ui.layout import page_heading
 
 
 def register_admin_routes(app: Hedron) -> None:
-    @app.get("/admin/users", include_in_schema=False, response_model=None)
+    @app.get("/admin/users", include_in_schema=False)
     async def users_page(
         request: Request,
         q: str = "",
@@ -53,7 +53,7 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AuthContext = Depends(require_admin),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         request.state.hedron_authenticated = True
         user_notices = {
             "status-updated": "The account status was updated.",
@@ -149,7 +149,7 @@ def register_admin_routes(app: Hedron) -> None:
             push_path="/admin/users",
         )
 
-    @app.post("/admin/invitations", include_in_schema=False, response_model=None)
+    @app.post("/admin/invitations", include_in_schema=False)
     async def invite_submit(
         request: Request,
         email: str = Form(max_length=320),
@@ -157,7 +157,7 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AuthContext = Depends(require_admin),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         error = ""
         field_errors: dict[str, str] = {}
@@ -209,7 +209,7 @@ def register_admin_routes(app: Hedron) -> None:
 
     async def _admin_user_mutation(
         request, user_id, auth, db, settings, *, action: str, q="", status="", page=1
-    ) -> Response | object:
+    ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         if not lock_administrator_action(db, auth.user):
             db.rollback()
@@ -292,7 +292,7 @@ def register_admin_routes(app: Hedron) -> None:
             ),
         )
 
-    @app.post("/admin/users/{user_id}/toggle", include_in_schema=False, response_model=None)
+    @app.post("/admin/users/{user_id}/toggle", include_in_schema=False)
     async def toggle_user(
         user_id: str,
         request: Request,
@@ -302,12 +302,12 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AuthContext = Depends(require_admin),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         return await _admin_user_mutation(
             request, user_id, auth, db, settings, action="toggle", q=q, status=status, page=page
         )
 
-    @app.post("/admin/users/{user_id}/approve", include_in_schema=False, response_model=None)
+    @app.post("/admin/users/{user_id}/approve", include_in_schema=False)
     async def approve_user(
         user_id: str,
         request: Request,
@@ -317,12 +317,12 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AuthContext = Depends(require_admin),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         return await _admin_user_mutation(
             request, user_id, auth, db, settings, action="approve", q=q, status=status, page=page
         )
 
-    @app.post("/admin/users/{user_id}/deny", include_in_schema=False, response_model=None)
+    @app.post("/admin/users/{user_id}/deny", include_in_schema=False)
     async def deny_user(
         user_id: str,
         request: Request,
@@ -332,21 +332,19 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AuthContext = Depends(require_admin),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         return await _admin_user_mutation(
             request, user_id, auth, db, settings, action="deny", q=q, status=status, page=page
         )
 
-    @app.post(
-        "/admin/invitations/{invitation_id}/revoke", include_in_schema=False, response_model=None
-    )
+    @app.post("/admin/invitations/{invitation_id}/revoke", include_in_schema=False)
     async def revoke_invitation_submit(
         invitation_id: str,
         request: Request,
         auth: AuthContext = Depends(require_admin),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         invitation = db.get(Invitation, invitation_id)
         if not invitation:
@@ -381,7 +379,7 @@ def register_admin_routes(app: Hedron) -> None:
             ),
         )
 
-    @app.get("/admin/audit", include_in_schema=False, response_model=None)
+    @app.get("/admin/audit", include_in_schema=False)
     async def audit_page(
         request: Request,
         event_type: str = "",
@@ -390,7 +388,7 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AuthContext = Depends(require_admin),
         db: Session = Depends(get_db),
         settings: Settings = Depends(get_settings),
-    ) -> Response | object:
+    ) -> Response:
         request.state.hedron_authenticated = True
         events, total, page, et, oc = list_audit_events(
             db, event_type=event_type, outcome=outcome, page=page

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from hedron import Dialog, html
+from hedron_core import HtmlAttrValue, NodeLike
 
 from app.models import Invitation, Role, User, UserStatus
 from app.ui.layout import INDICATOR, alert_box
@@ -10,8 +11,8 @@ from app.ui.partials.shared import _filter_base_path, field_error, hedron_pagina
 from app.ui.urls import form_action, hx_attrs
 
 
-def user_match_count(total: int, *, oob: bool = False) -> object:
-    attrs: dict[str, object] = {"id": "user-match-count", "class_": "verification-badge"}
+def user_match_count(total: int, *, oob: bool = False) -> NodeLike:
+    attrs: dict[str, HtmlAttrValue] = {"id": "user-match-count", "class_": "verification-badge"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.span(f"{total} matching accounts", **attrs)
@@ -27,7 +28,7 @@ def user_table(
     page_count: int,
     total_users: int | None = None,
     page_size: int = 50,
-) -> object:
+) -> NodeLike:
     rows = []
     for user in users:
         actions = []
@@ -152,7 +153,7 @@ def user_directory(
     total_users: int | None = None,
     page_size: int = 50,
     success: str = "",
-) -> object:
+) -> NodeLike:
     return html.div(
         alert_box(success, kind="success"),
         html.form(
@@ -206,7 +207,7 @@ def invitation_panel(
     error: str = "",
     success: str = "",
     field_errors: dict[str, str] | None = None,
-) -> object:
+) -> NodeLike:
     field_errors = field_errors or {}
     pending_rows = []
     for invitation in invitations:
@@ -267,7 +268,7 @@ def invitation_panel(
     email_error = field_errors.get("invite_email", "")
     role_error = field_errors.get("invite_role", "")
     top_error = error if error and not field_errors else ""
-    email_attrs: dict[str, object] = {
+    email_attrs: dict[str, HtmlAttrValue] = {
         "id": "invite_email",
         "name": "email",
         "type": "email",

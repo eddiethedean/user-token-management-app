@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from hedron import ComponentRef, Dialog, ErrorState, Lazy, Loading, Tabs, html
+from hedron_core import HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
 from app.models import AuditEvent, RefreshSession
@@ -19,8 +20,8 @@ def _password_field(
     autocomplete: str,
     minlength: str | None = None,
     error: str = "",
-) -> list[object]:
-    attrs: dict[str, object] = {
+) -> list[NodeLike]:
+    attrs: dict[str, HtmlAttrValue] = {
         "id": field_id,
         "name": field_id,
         "type": "password",
@@ -52,7 +53,7 @@ def password_form(
     error: str = "",
     success: str = "",
     field_errors: dict[str, str] | None = None,
-) -> object:
+) -> NodeLike:
     field_errors = field_errors or {}
     if success:
         return html.div(
@@ -110,7 +111,7 @@ def secret_slot(
     csrf_token: str,
     error: str = "",
     success: str = "",
-) -> object:
+) -> NodeLike:
     configured = secret is not None
     if configured:
         metadata = (
@@ -215,12 +216,12 @@ def session_list(
     *,
     auth: AuthContext,
     csrf_token: str,
-) -> object:
+) -> NodeLike:
     rows = []
     for session in sessions:
         is_current = session.id == auth.session.id
         if is_current:
-            action_node: object = html.span("Current", class_="pill pill-active")
+            action_node: NodeLike = html.span("Current", class_="pill pill-active")
         else:
             dialog_id = f"revoke-session-{session.id}"
             action_node = html.div(
@@ -275,15 +276,15 @@ def session_list(
     return html.div(*rows, id="session-list", class_="session-list")
 
 
-def session_count(sessions: list[RefreshSession], *, oob: bool = False) -> object:
-    attrs: dict[str, object] = {"id": "session-count", "class_": "count-badge"}
+def session_count(sessions: list[RefreshSession], *, oob: bool = False) -> NodeLike:
+    attrs: dict[str, HtmlAttrValue] = {"id": "session-count", "class_": "count-badge"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.span(str(len(sessions)), **attrs)
 
 
-def security_activity(events: list[AuditEvent], *, oob: bool = False) -> object:
-    attrs: dict[str, object] = {"id": "security-activity", "class_": "event-list"}
+def security_activity(events: list[AuditEvent], *, oob: bool = False) -> NodeLike:
+    attrs: dict[str, HtmlAttrValue] = {"id": "security-activity", "class_": "event-list"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     items = []
@@ -308,7 +309,7 @@ def security_activity(events: list[AuditEvent], *, oob: bool = False) -> object:
 
 def security_activity_error(
     message: str = "Could not load security activity.",
-) -> object:
+) -> NodeLike:
     """ErrorState wrapped so Lazy outerHTML swaps keep a stable region id."""
     return html.div(
         ErrorState(
@@ -322,7 +323,7 @@ def security_activity_error(
     )
 
 
-def security_activity_lazy() -> object:
+def security_activity_lazy() -> NodeLike:
     """Deferred activity panel loaded via Hedron Lazy after first paint."""
     return Lazy(
         ref=ComponentRef(
@@ -342,8 +343,8 @@ def security_tabs(
     secret_slots,
     sessions: list[RefreshSession],
     auth: AuthContext,
-) -> object:
-    panels: list[tuple[str, object]] = []
+) -> NodeLike:
+    panels: list[tuple[str, NodeLike]] = []
     if local_password:
         panels.append(
             (

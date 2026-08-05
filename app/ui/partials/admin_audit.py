@@ -5,6 +5,7 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 from hedron import ComponentRef, ErrorState, Lazy, Loading, html
+from hedron_core import HtmlAttrValue, NodeLike
 
 from app.models import AuditEvent
 from app.ui.layout import INDICATOR
@@ -12,8 +13,8 @@ from app.ui.partials.shared import _filter_base_path, hedron_pagination
 from app.ui.urls import form_action, hx_attrs, page_href
 
 
-def audit_match_count(total: int, *, oob: bool = False) -> object:
-    attrs: dict[str, object] = {"id": "audit-match-count", "class_": "verification-badge"}
+def audit_match_count(total: int, *, oob: bool = False) -> NodeLike:
+    attrs: dict[str, HtmlAttrValue] = {"id": "audit-match-count", "class_": "verification-badge"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.span(f"{total} matching events", **attrs)
@@ -28,7 +29,7 @@ def audit_results(
     page_count: int,
     total_events: int,
     page_size: int = 50,
-) -> object:
+) -> NodeLike:
     return html.div(
         _audit_filter_form(event_type_filter, outcome_filter),
         audit_results_body(
@@ -44,7 +45,7 @@ def audit_results(
     )
 
 
-def _audit_filter_form(event_type_filter: str, outcome_filter: str) -> object:
+def _audit_filter_form(event_type_filter: str, outcome_filter: str) -> NodeLike:
     return html.form(
         html.div(
             html.label("Event type", for_="event-type-filter"),
@@ -109,7 +110,7 @@ def audit_results_body(
     page_count: int,
     total_events: int,
     page_size: int = 50,
-) -> object:
+) -> NodeLike:
     rows = [
         html.tr(
             html.td(event.occurred_at.strftime("%Y-%m-%d %H:%M")),
@@ -162,7 +163,7 @@ def audit_results_error(
     event_type: str = "",
     outcome: str = "",
     page: int = 1,
-) -> object:
+) -> NodeLike:
     params: dict[str, str] = {}
     if event_type:
         params["event_type"] = event_type
@@ -178,7 +179,7 @@ def audit_results_error(
     )
 
 
-def audit_results_lazy(*, event_type: str = "", outcome: str = "", page: int = 1) -> object:
+def audit_results_lazy(*, event_type: str = "", outcome: str = "", page: int = 1) -> NodeLike:
     params: dict[str, str] = {}
     if event_type:
         params["event_type"] = event_type

@@ -5,13 +5,14 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 from hedron import Pagination, html
+from hedron_core import HtmlAttrValue, NodeLike
 
 from app.ui.layout import alert_box
 
 
-def field_error(field_id: str, message: str = "") -> object:
+def field_error(field_id: str, message: str = "") -> NodeLike:
     """Inline field error slot (empty when valid)."""
-    attrs: dict[str, object] = {
+    attrs: dict[str, HtmlAttrValue] = {
         "id": f"field-error-{field_id}",
         "class_": "field-error" + (" is-active" if message else ""),
     }
@@ -27,7 +28,7 @@ def hedron_pagination(
     total: int,
     base_path: str,
     target: str,
-) -> object:
+) -> NodeLike:
     """Hedron Pagination builtin (innerHTML into a dedicated body region)."""
     pages = max(1, (total + page_size - 1) // page_size) if total else 1
     if pages <= 1:
@@ -48,5 +49,5 @@ def _filter_base_path(path: str, **params: str) -> str:
     return f"{path}?{urlencode(cleaned)}"
 
 
-def request_error(message: str) -> object:
+def request_error(message: str) -> NodeLike:
     return alert_box(message or "The request could not be completed.")

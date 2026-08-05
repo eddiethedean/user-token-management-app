@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, html
+from hedron_core import NodeLike
 from sqlalchemy.orm import Session
 from starlette.responses import Response
 
@@ -148,7 +149,7 @@ def register_auth_routes(app: Hedron) -> None:
         preauth = issue_preauth_csrf(settings)
         federated = settings.authentication_mode == "trusted_header"
 
-        def trust_item(title: str, detail: str) -> object:
+        def trust_item(title: str, detail: str) -> NodeLike:
             return html.div(
                 html.span("✓", aria={"hidden": "true"}),
                 html.p(html.strong(title), html.small(detail)),
@@ -174,7 +175,7 @@ def register_auth_routes(app: Hedron) -> None:
             class_="auth-intro",
         )
 
-        card_children: list[object] = [
+        card_children: list[NodeLike] = [
             html.p("Account access", class_="eyebrow"),
             html.h2("Sign in"),
             html.p(

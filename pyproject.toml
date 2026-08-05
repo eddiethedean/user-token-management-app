@@ -60,7 +60,7 @@ extraPaths = ["."]
 exclude = ["**/__pycache__", "access_registry.egg-info", ".venv", "tests"]
 reportMissingTypeStubs = false
 
-# Hedron HTML builders intentionally use `object` / open attrs.
+# Hedron HTML kwargs and component builders are loosely typed at the call site.
 [[tool.basedpyright.executionEnvironments]]
 root = "app/ui"
 reportArgumentType = "none"

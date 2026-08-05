@@ -7,7 +7,7 @@ from collections.abc import Mapping, Sequence
 from fastapi import Request
 from hedron import Page, html
 from hedron.responses import render_component_response
-from hedron_core import RenderMode
+from hedron_core import NodeLike, RenderMode
 from starlette.responses import Response
 
 from app.config import Settings
@@ -84,7 +84,7 @@ def render_page(
 
 
 def render_fragment(
-    *nodes: object, request: Request | None = None, status_code: int = 200
+    *nodes: NodeLike, request: Request | None = None, status_code: int = 200
 ) -> Response:
     content = html.div(*nodes) if len(nodes) != 1 else nodes[0]
     return render_component_response(
@@ -95,21 +95,21 @@ def render_fragment(
     )
 
 
-def auth_card(*children: object) -> object:
+def auth_card(*children: NodeLike) -> NodeLike:
     return html.div(*children, class_="panel auth-card")
 
 
 async def render_authenticated_view(
     request: Request,
     *,
-    body: Sequence[object],
+    body: Sequence[NodeLike],
     auth: AuthContext,
     settings: Settings,
     page_title: str,
     csrf_token: str,
     push_path: str,
     headers: Mapping[str, str] | None = None,
-) -> Response | object:
+) -> Response:
     """Serve main-panel nav fragment or full authenticated document."""
     if is_main_panel_nav(request):
         return await interaction_response(
