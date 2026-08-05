@@ -292,40 +292,131 @@ def register_routes(app: Hedron) -> None:
     def _login_html(request, settings, *, status_code=200, error="", email="", next="/profile", success=""):
         preauth = issue_preauth_csrf(settings)
         federated = settings.authentication_mode == "trusted_header"
-        body = []
-        body.append(html.h1("Sign in"))
+
+        def trust_item(title: str, detail: str) -> object:
+            return html.div(
+                html.span("✓", aria={"hidden": "true"}),
+                html.p(html.strong(title), html.small(detail)),
+            )
+
+        intro = html.div(
+            html.p("Controlled access", class_="eyebrow"),
+            html.h1("Your identity, managed with clarity."),
+            html.p(
+                "Access your profile, review active sessions, and manage the security "
+                "of your government application account."
+            ),
+            html.div(
+                trust_item(
+                    "Administrator-approved access",
+                    "Invited and self-registered accounts require authorization.",
+                ),
+                trust_item("Short-lived credentials", "Access tokens expire automatically."),
+                trust_item("Audited activity", "Security-sensitive actions are recorded."),
+                class_="trust-list",
+                aria={"label": "Security features"},
+            ),
+            class_="auth-intro",
+        )
+
+        card_children: list[object] = [
+            html.p("Account access", class_="eyebrow"),
+            html.h2("Sign in"),
+            html.p(
+                "Continue through the approved identity-aware proxy using your CAC or "
+                "federated credential."
+                if federated
+                else "Use the government email associated with your approved account.",
+                class_="muted",
+            ),
+        ]
         if success:
-            body.append(alert_box(success, kind="success"))
+            card_children.append(alert_box(success, kind="success"))
         if error:
-            body.append(alert_box(error))
+            card_children.append(alert_box(error))
         if federated:
-            body.append(
+            card_children.append(
                 html.form(
-                    html.input(type="hidden", name="preauth_csrf_token", value=preauth),
                     html.input(type="hidden", name="next", value=next),
-                    html.button("Continue with organizational identity", class_="button button-primary button-wide", type="submit"),
+                    html.input(type="hidden", name="preauth_csrf_token", value=preauth),
+                    html.button(
+                        "Continue with federated sign-in",
+                        class_="button button-primary button-wide",
+                        type="submit",
+                    ),
                     action=form_action("login/federated"),
                     method="post",
                     class_="stack-form",
                 )
             )
+            card_children.append(
+                html.p(
+                    "Your identity must already be provisioned and active in this application.",
+                    class_="card-footnote",
+                )
+            )
         else:
-            body.append(
+            card_children.append(
                 html.form(
-                    html.input(type="hidden", name="preauth_csrf_token", value=preauth),
                     html.input(type="hidden", name="next", value=next),
+                    html.input(type="hidden", name="preauth_csrf_token", value=preauth),
                     html.label("Government email", for_="email"),
-                    html.input(id="email", name="email", type="email", value=email, required=True, autocomplete="username"),
-                    html.label("Password", for_="password"),
-                    html.input(id="password", name="password", type="password", required=True, autocomplete="current-password"),
-                    html.button("Sign in", class_="button button-primary button-wide", type="submit"),
+                    html.input(
+                        id="email",
+                        name="email",
+                        type="email",
+                        value=email,
+                        required=True,
+                        autocomplete="username",
+                        maxlength="320",
+                        autofocus=True,
+                    ),
+                    html.div(
+                        html.label("Password", for_="password"),
+                        html.a("Forgot password?", href=page_href("password/forgot")),
+                        class_="label-row",
+                    ),
+                    html.input(
+                        id="password",
+                        name="password",
+                        type="password",
+                        required=True,
+                        autocomplete="current-password",
+                        maxlength="128",
+                    ),
+                    html.button(
+                        "Show password",
+                        class_="password-toggle",
+                        type="button",
+                        data={"password-toggle": "password"},
+                        aria={"pressed": "false"},
+                    ),
+                    html.button(
+                        "Sign in securely",
+                        class_="button button-primary button-wide",
+                        type="submit",
+                    ),
                     action=form_action("login"),
                     method="post",
                     class_="stack-form",
                 )
             )
-            body.append(html.p(html.a("Forgot password?", href=page_href("password/forgot")), " · ", html.a("Request access", href=page_href("register"))))
-        page = app_shell(_auth_card(*body), request=request, settings=settings, auth=None, page_title="Sign in")
+            card_children.append(
+                html.p(
+                    "Need an account? ",
+                    html.a("Request access", href=page_href("register")),
+                    ". You must verify your government email and receive administrator "
+                    "approval before signing in.",
+                    class_="card-footnote",
+                )
+            )
+
+        layout = html.section(
+            intro,
+            html.div(*card_children, class_="auth-card"),
+            class_="auth-layout",
+        )
+        page = app_shell(layout, request=request, settings=settings, auth=None, page_title="Sign in")
         response = _render_page(page, request=request, status_code=status_code)
         set_preauth_csrf_cookie(response, request, preauth, settings)
         return response
@@ -606,14 +697,34 @@ def register_routes(app: Hedron) -> None:
     ):
         request.state.hedron_authenticated = True
         csrf = auth.session.csrf_token
+        verified_badge = html.span(
+            html.span("✓", aria={"hidden": "true"}),
+            " Verified email",
+            class_="verification-badge",
+        )
         return _render_page(
             app_shell(
-                page_heading("Workspace", "Your profile", "Update the details associated with your account."),
+                page_heading(
+                    "Account profile",
+                    "Your information",
+                    "Keep your contact and organizational details current.",
+                    verified_badge,
+                ),
                 alert_box("Your profile has been updated." if updated else "", kind="success"),
                 html.div(
-                    html.section(ui.profile_form(auth, csrf_token=csrf), class_="panel"),
+                    html.section(
+                        html.div(
+                            html.div(
+                                html.h2("Profile details"),
+                                html.p("Information shown to application administrators."),
+                            ),
+                            class_="panel-heading",
+                        ),
+                        ui.profile_form(auth, csrf_token=csrf),
+                        class_="panel panel-main",
+                    ),
                     ui.profile_identity(auth),
-                    class_="profile-layout",
+                    class_="content-grid profile-grid",
                 ),
                 request=request, settings=settings, auth=auth, page_title="Your profile", csrf_token=csrf,
             ),

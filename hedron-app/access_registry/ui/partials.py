@@ -19,15 +19,63 @@ def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> ob
         alert_box(success, kind="success"),
         html.form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
-            html.label("Full name", for_="full_name"),
-            html.input(id="full_name", name="full_name", value=user.full_name or ""),
-            html.label("Organization", for_="organization"),
-            html.input(id="organization", name="organization", value=user.organization or ""),
-            html.label("Job title", for_="job_title"),
-            html.input(id="job_title", name="job_title", value=user.job_title or ""),
-            html.label("Phone", for_="phone"),
-            html.input(id="phone", name="phone", value=user.phone or ""),
-            html.button("Save profile", class_="button button-primary", type="submit"),
+            html.div(
+                html.div(
+                    html.label("Government email", for_="email"),
+                    html.input(id="email", value=user.email_original, disabled=True),
+                    html.p(
+                        "Verified addresses can only be changed through an administrator.",
+                        class_="field-help",
+                    ),
+                    class_="field-full",
+                ),
+                html.div(
+                    html.label("Full name", for_="full_name"),
+                    html.input(
+                        id="full_name",
+                        name="full_name",
+                        value=user.full_name or "",
+                        autocomplete="name",
+                        maxlength="160",
+                    ),
+                    class_="field-full",
+                ),
+                html.div(
+                    html.label("Organization", for_="organization"),
+                    html.input(
+                        id="organization",
+                        name="organization",
+                        value=user.organization or "",
+                        maxlength="160",
+                    ),
+                ),
+                html.div(
+                    html.label("Job title", for_="job_title"),
+                    html.input(
+                        id="job_title",
+                        name="job_title",
+                        value=user.job_title or "",
+                        maxlength="160",
+                    ),
+                ),
+                html.div(
+                    html.label("Work phone", for_="phone"),
+                    html.input(
+                        id="phone",
+                        name="phone",
+                        value=user.phone or "",
+                        autocomplete="tel",
+                        maxlength="40",
+                    ),
+                    class_="field-full",
+                ),
+                class_="field-grid",
+            ),
+            html.div(
+                html.button("Save changes", class_="button button-primary", type="submit"),
+                html.span("Saving…", class_="htmx-indicator"),
+                class_="form-actions",
+            ),
             class_="stack-form",
             action=form_action("profile"),
             method="post",
@@ -44,56 +92,87 @@ def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> ob
 
 def profile_identity(auth: AuthContext, *, oob: bool = False) -> object:
     user = auth.user
-    attrs: dict = {"id": "profile-identity", "class_": "panel"}
+    attrs: dict = {"id": "profile-identity", "class_": "panel identity-panel"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
+    initial = (user.full_name or user.email_original or "?")[:1].upper()
+    last_login = (
+        user.last_login_at.strftime("%b %d, %Y %H:%M")
+        if user.last_login_at
+        else "First session"
+    )
     return html.aside(
-        html.p("Identity", class_="section-number"),
-        html.h2("Account record"),
+        html.div(initial, class_="identity-avatar"),
+        html.h2(user.full_name or "Account holder"),
+        html.p(user.email_original),
         html.dl(
-            html.dt("Email"),
-            html.dd(user.email_original),
-            html.dt("Status"),
-            html.dd(user.status),
-            html.dt("Roles"),
-            html.dd(", ".join(user.role_names) or "user"),
-            class_="identity-list",
+            html.div(
+                html.dt("Account status"),
+                html.dd(html.span(user.status, class_="pill pill-active")),
+            ),
+            html.div(
+                html.dt("Access level"),
+                html.dd((", ".join(user.role_names) or "user").title()),
+            ),
+            html.div(
+                html.dt("Created"),
+                html.dd(user.created_at.strftime("%b %d, %Y")),
+            ),
+            html.div(
+                html.dt("Last sign-in"),
+                html.dd(last_login),
+            ),
+            class_="detail-list",
+        ),
+        html.a(
+            "Review account security",
+            class_="button button-secondary button-wide",
+            href=page_href("/security"),
         ),
         **attrs,
     )
 
 
+def _password_field(label: str, field_id: str, *, autocomplete: str, minlength: str | None = None) -> list[object]:
+    attrs: dict = {
+        "id": field_id,
+        "name": field_id,
+        "type": "password",
+        "required": True,
+        "autocomplete": autocomplete,
+        "maxlength": "128",
+    }
+    if minlength:
+        attrs["minlength"] = minlength
+    return [
+        html.label(label, for_=field_id),
+        html.input(**attrs),
+        html.button(
+            "Show password",
+            class_="password-toggle",
+            type="button",
+            data={"password-toggle": field_id},
+            aria={"pressed": "false"},
+        ),
+    ]
+
+
 def password_form(*, csrf_token: str, error: str = "", success: str = "") -> object:
+    if success:
+        return html.div(
+            alert_box(success, kind="success"),
+            html.a("Return to sign in", class_="button button-primary", href=page_href("/login")),
+            id="password-form-region",
+            class_="form-column",
+        )
     return html.div(
         alert_box(error),
-        alert_box(success, kind="success"),
         html.form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
-            html.label("Current password", for_="current_password"),
-            html.input(
-                id="current_password",
-                name="current_password",
-                type="password",
-                required=True,
-                autocomplete="current-password",
-            ),
-            html.label("New password", for_="new_password"),
-            html.input(
-                id="new_password",
-                name="new_password",
-                type="password",
-                required=True,
-                minlength="15",
-                autocomplete="new-password",
-            ),
-            html.label("Confirm new password", for_="new_password_confirm"),
-            html.input(
-                id="new_password_confirm",
-                name="new_password_confirm",
-                type="password",
-                required=True,
-                minlength="15",
-                autocomplete="new-password",
+            *_password_field("Current password", "current_password", autocomplete="current-password"),
+            *_password_field("New password", "new_password", autocomplete="new-password", minlength="15"),
+            *_password_field(
+                "Confirm new password", "new_password_confirm", autocomplete="new-password", minlength="15"
             ),
             html.button("Change password", class_="button button-primary", type="submit"),
             class_="stack-form",
@@ -107,6 +186,7 @@ def password_form(*, csrf_token: str, error: str = "", success: str = "") -> obj
             ),
         ),
         id="password-form-region",
+        class_="form-column",
     )
 
 
@@ -119,24 +199,34 @@ def secret_slot(
     success: str = "",
 ) -> object:
     configured = secret is not None
+    if configured:
+        metadata = (
+            f"Saved {secret.updated_at.strftime('%b %d, %Y at %H:%M')}. "
+            "The stored value cannot be revealed."
+        )
+    else:
+        metadata = f"No {provider.label} token is available to your runs."
     return html.div(
         html.div(
-            html.span(provider.mark, class_="secret-mark"),
             html.div(
-                html.strong(provider.label),
-                html.small(
-                    "Configured"
-                    if configured
-                    else f"Paste a token for {provider.environment_variable}"
+                html.span(provider.mark, class_="secret-provider-mark", aria={"hidden": "true"}),
+                html.div(
+                    html.h3(provider.label),
+                    html.code(provider.environment_variable),
                 ),
             ),
-            class_="secret-heading",
+            html.span(
+                "Configured" if configured else "Not configured",
+                class_=f"pill {'pill-active' if configured else 'pill-muted'}",
+            ),
+            class_="secret-card-heading",
         ),
         alert_box(error),
         alert_box(success, kind="success"),
+        html.p(metadata, class_="secret-metadata"),
         html.form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
-            html.label(f"{provider.label} token", for_=f"{provider.name}-token"),
+            html.label(f"{provider.label} API token", for_=f"{provider.name}-token", class_="sr-only"),
             html.input(
                 id=f"{provider.name}-token",
                 name="token",
@@ -188,7 +278,7 @@ def secret_slot(
             else html.div()
         ),
         id=f"secret-slot-{provider.name}",
-        class_="secret-card panel",
+        class_="secret-card",
     )
 
 
@@ -200,12 +290,31 @@ def session_list(
 ) -> object:
     rows = []
     for session in sessions:
+        is_current = session.id == auth.session.id
+        if is_current:
+            action_node: object = html.span("Current", class_="pill pill-active")
+        else:
+            action_node = html.form(
+                html.input(type="hidden", name="csrf_token", value=csrf_token),
+                html.button(
+                    "Revoke",
+                    class_="button button-danger button-small",
+                    type="submit",
+                ),
+                action=form_action(f"security/sessions/{session.id}/revoke"),
+                method="post",
+                **hx_attrs(
+                    path=f"security/sessions/{session.id}/revoke",
+                    target="#session-list",
+                    sync="#session-list:drop",
+                    disabled_elt="find button",
+                ),
+            )
         rows.append(
             html.div(
+                html.div("▣", class_="session-device", aria={"hidden": "true"}),
                 html.div(
-                    html.strong(
-                        "Current session" if session.id == auth.session.id else "Browser session"
-                    ),
+                    html.strong("Current session" if is_current else "Browser session"),
                     html.span((session.user_agent or "Unknown client")[:90]),
                     html.small(
                         f"Last active {session.last_seen_at.strftime('%b %d, %Y %H:%M')} · "
@@ -213,27 +322,12 @@ def session_list(
                     ),
                     class_="session-copy",
                 ),
-                html.form(
-                    html.input(type="hidden", name="csrf_token", value=csrf_token),
-                    html.button(
-                        "Revoke",
-                        class_="button button-danger button-small",
-                        type="submit",
-                    ),
-                    action=form_action(f"security/sessions/{session.id}/revoke"),
-                    method="post",
-                    **hx_attrs(
-                        path=f"security/sessions/{session.id}/revoke",
-                        target="#session-list",
-                        sync="#session-list:drop",
-                        disabled_elt="find button",
-                    ),
-                ),
+                action_node,
                 class_="session-row",
             )
         )
     if not rows:
-        rows.append(html.p("No active sessions."))
+        rows.append(html.p("No active sessions.", class_="empty-state"))
     return html.div(*rows, id="session-list", class_="session-list")
 
 
@@ -250,16 +344,21 @@ def security_activity(events: list[AuditEvent], *, oob: bool = False) -> object:
         attrs["hx-swap-oob"] = "outerHTML"
     items = []
     for event in events:
+        title = event.event_type.replace(".", " ").title()
         items.append(
             html.div(
-                html.strong(event.event_type),
-                html.span(event.outcome),
-                html.small(event.occurred_at.strftime("%b %d, %Y %H:%M")),
+                html.span("•", class_="event-icon", aria={"hidden": "true"}),
+                html.div(
+                    html.strong(title),
+                    html.small(
+                        f"{event.occurred_at.strftime('%b %d, %Y at %H:%M')} · {event.outcome}"
+                    ),
+                ),
                 class_="event-row",
             )
         )
     if not items:
-        items.append(html.p("No recent security activity."))
+        items.append(html.p("No recent security activity.", class_="empty-state"))
     return html.div(*items, **attrs)
 
 

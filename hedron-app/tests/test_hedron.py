@@ -148,10 +148,17 @@ def test_profile_form_render_html() -> None:
 
 
 def test_password_form_render_html() -> None:
-    html = render_html(ui.password_form(csrf_token="pw-csrf", success="Password changed."))
+    html = render_html(ui.password_form(csrf_token="pw-csrf"))
     assert 'id="password-form-region"' in html
-    assert "Password changed." in html
     assert 'hx-post="/security/password"' in html
+    assert 'data-password-toggle="new_password"' in html
+
+
+def test_password_form_success_swaps_to_sign_in() -> None:
+    html = render_html(ui.password_form(csrf_token="pw-csrf", success="Password changed."))
+    assert "Password changed." in html
+    assert "Return to sign in" in html
+    assert 'hx-post="/security/password"' not in html
 
 
 def test_user_directory_fragment_render() -> None:
