@@ -59,6 +59,7 @@ def hedron_app(tmp_path, monkeypatch):
     monkeypatch.setenv("EMAIL_BACKEND", "console")
     monkeypatch.setenv("PASSWORD_HASH_SCHEME", "pbkdf2_sha256")
     monkeypatch.setenv("PBKDF2_ITERATIONS", "100000")
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", "127.0.0.1")
 
     _rebind_database()
     from app.schema import upgrade_schema
@@ -80,8 +81,24 @@ def hedron_app(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def client(hedron_app):
-    with TestClient(hedron_app, follow_redirects=False) as test_client:
+    with TestClient(hedron_app, follow_redirects=False, client=("127.0.0.1", 50000)) as test_client:
         yield test_client
+
+
+@pytest.fixture()
+def page(hedron_app):
+    """Hedron fastapi_fixture — full-page GETs/POSTs with cookie jar."""
+    from hedron.testing import fastapi_fixture
+
+    return fastapi_fixture(hedron_app)
+
+
+@pytest.fixture()
+def htmx(hedron_app):
+    """Hedron fragment_client — HTMX headers, follows redirects by default."""
+    from hedron.testing import fragment_client
+
+    return fragment_client(hedron_app)
 
 
 @pytest.fixture()

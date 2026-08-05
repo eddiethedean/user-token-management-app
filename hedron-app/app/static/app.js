@@ -17,3 +17,11 @@ document.addEventListener("htmx:beforeRequest", (event) => {
 document.addEventListener("htmx:afterRequest", (event) => {
   event.detail.elt.removeAttribute("aria-busy");
 });
+
+document.addEventListener("htmx:afterSwap", (event) => {
+  const host = document.getElementById("toast-host");
+  if (!host) return;
+  for (const toast of host.querySelectorAll(".hedron-toast")) {
+    window.setTimeout(() => toast.remove(), 4500);
+  }
+});

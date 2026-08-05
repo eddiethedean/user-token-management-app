@@ -4,13 +4,59 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
-from hedron import html
+from hedron import Dialog, Loading, Tabs, html
 
 from app.dependencies import AuthContext
 from app.models import AuditEvent, Invitation, RefreshSession, Role, User, UserStatus
 from app.services.secrets import SecretProvider
-from app.ui.layout import account_summary, alert_box
+from app.ui.layout import INDICATOR, account_summary, alert_box
 from app.ui.urls import form_action, hx_attrs, page_href
+
+
+def hedron_pagination(
+    *,
+    page: int,
+    page_size: int,
+    total: int,
+    base_path: str,
+    target: str,
+) -> object:
+    """Pagination markup matching Hedron's Pagination, with outerHTML + push-url."""
+    pages = max(1, (total + page_size - 1) // page_size) if total else 1
+    if pages <= 1:
+        return html.div()
+    links = []
+    for number in range(1, pages + 1):
+        sep = "&" if "?" in base_path else "?"
+        path = f"{base_path}{sep}page={number}"
+        current = number == page
+        links.append(
+            html.a(
+                str(number),
+                class_="is-current" if current else "",
+                href=page_href(path),
+                aria={
+                    "label": f"Page {number}" + (" (current)" if current else ""),
+                    **({"current": "page"} if current else {}),
+                },
+                **hx_attrs(
+                    method="get",
+                    path=path.lstrip("/"),
+                    target=target,
+                    swap="outerHTML",
+                    push_url=True,
+                    indicator=INDICATOR,
+                ),
+            )
+        )
+    return html.nav(*links, class_="hedron-pagination", aria={"label": "Pagination"})
+
+
+def _filter_base_path(path: str, **params: str) -> str:
+    cleaned = {key: value for key, value in params.items() if value}
+    if not cleaned:
+        return path
+    return f"{path}?{urlencode(cleaned)}"
 
 
 def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> object:
@@ -84,6 +130,7 @@ def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> ob
                 target="#profile-form-region",
                 sync="this:drop",
                 disabled_elt="find button",
+                indicator=INDICATOR,
             ),
         ),
         id="profile-form-region",
@@ -183,6 +230,7 @@ def password_form(*, csrf_token: str, error: str = "", success: str = "") -> obj
                 target="#password-form-region",
                 sync="this:drop",
                 disabled_elt="find button",
+                indicator=INDICATOR,
             ),
         ),
         id="password-form-region",
@@ -250,28 +298,42 @@ def secret_slot(
                 target=f"#secret-slot-{provider.name}",
                 sync="closest .secret-card:drop",
                 disabled_elt="find button",
+                indicator=INDICATOR,
             ),
         ),
         (
-            html.form(
-                html.input(type="hidden", name="csrf_token", value=csrf_token),
+            html.div(
                 html.button(
                     "Delete token",
                     class_="button button-danger button-small",
-                    type="submit",
+                    type="button",
+                    data={"hedron-dialog-open": f"#delete-secret-{provider.name}"},
                 ),
-                class_="secret-delete-form",
-                action=form_action(f"security/secrets/{provider.name}/delete"),
-                method="post",
-                **hx_attrs(
-                    path=f"security/secrets/{provider.name}/delete",
-                    target=f"#secret-slot-{provider.name}",
-                    sync="closest .secret-card:drop",
-                    disabled_elt="find button",
-                    confirm=(
+                Dialog(
+                    f"Delete {provider.label} token",
+                    html.p(
                         f"Delete your {provider.label} API token? "
                         "Runs using it will stop working."
                     ),
+                    html.form(
+                        html.input(type="hidden", name="csrf_token", value=csrf_token),
+                        html.button(
+                            "Delete token",
+                            class_="button button-danger",
+                            type="submit",
+                        ),
+                        action=form_action(f"security/secrets/{provider.name}/delete"),
+                        method="post",
+                        **hx_attrs(
+                            path=f"security/secrets/{provider.name}/delete",
+                            target=f"#secret-slot-{provider.name}",
+                            sync="closest .secret-card:drop",
+                            disabled_elt="find button",
+                            indicator=INDICATOR,
+                        ),
+                    ),
+                    id=f"delete-secret-{provider.name}",
+                    open=False,
                 ),
             )
             if configured
@@ -294,20 +356,36 @@ def session_list(
         if is_current:
             action_node: object = html.span("Current", class_="pill pill-active")
         else:
-            action_node = html.form(
-                html.input(type="hidden", name="csrf_token", value=csrf_token),
+            dialog_id = f"revoke-session-{session.id}"
+            action_node = html.div(
                 html.button(
                     "Revoke",
                     class_="button button-danger button-small",
-                    type="submit",
+                    type="button",
+                    data={"hedron-dialog-open": f"#{dialog_id}"},
                 ),
-                action=form_action(f"security/sessions/{session.id}/revoke"),
-                method="post",
-                **hx_attrs(
-                    path=f"security/sessions/{session.id}/revoke",
-                    target="#session-list",
-                    sync="#session-list:drop",
-                    disabled_elt="find button",
+                Dialog(
+                    "Revoke session",
+                    html.p("Revoke this browser session? The device will need to sign in again."),
+                    html.form(
+                        html.input(type="hidden", name="csrf_token", value=csrf_token),
+                        html.button(
+                            "Revoke session",
+                            class_="button button-danger",
+                            type="submit",
+                        ),
+                        action=form_action(f"security/sessions/{session.id}/revoke"),
+                        method="post",
+                        **hx_attrs(
+                            path=f"security/sessions/{session.id}/revoke",
+                            target="#session-list",
+                            sync="#session-list:drop",
+                            disabled_elt="find button",
+                            indicator=INDICATOR,
+                        ),
+                    ),
+                    id=dialog_id,
+                    open=False,
                 ),
             )
         rows.append(
@@ -362,6 +440,101 @@ def security_activity(events: list[AuditEvent], *, oob: bool = False) -> object:
     return html.div(*items, **attrs)
 
 
+def security_activity_lazy() -> object:
+    """Deferred activity panel loaded via HTMX after first paint."""
+    return html.div(
+        Loading("Loading activity…"),
+        id="security-activity",
+        class_="event-list",
+        **hx_attrs(
+            method="get",
+            path="security/activity",
+            target="#security-activity",
+            trigger="load",
+            swap="outerHTML",
+            indicator=INDICATOR,
+        ),
+    )
+
+
+def security_tabs(
+    *,
+    csrf_token: str,
+    local_password: bool,
+    secret_slots,
+    sessions: list[RefreshSession],
+    auth: AuthContext,
+) -> object:
+    panels: list[tuple[str, object]] = []
+    if local_password:
+        panels.append(
+            (
+                "Password",
+                html.section(
+                    html.div(
+                        html.h2("Change password"),
+                        html.p(
+                            "Changing your password signs out every active session, including this one."
+                        ),
+                    ),
+                    password_form(csrf_token=csrf_token),
+                    class_="panel split-panel",
+                ),
+            )
+        )
+    panels.append(
+        (
+            "Tokens",
+            html.section(
+                html.div(
+                    html.h2("API tokens"),
+                    html.p(
+                        "Add only an approved service token. Saved values are encrypted and cannot be viewed again."
+                    ),
+                    class_="panel-heading",
+                ),
+                html.div(
+                    *[secret_slot(p, s, csrf_token=csrf_token) for p, s in secret_slots],
+                    class_="secret-grid",
+                ),
+                class_="panel",
+            ),
+        )
+    )
+    panels.append(
+        (
+            "Sessions",
+            html.section(
+                html.div(
+                    html.div(
+                        html.h2("Active sessions"),
+                        html.p("Revoke any browser or client you no longer recognize."),
+                    ),
+                    session_count(sessions),
+                    class_="panel-heading",
+                ),
+                session_list(sessions, auth=auth, csrf_token=csrf_token),
+                class_="panel",
+            ),
+        )
+    )
+    panels.append(
+        (
+            "Activity",
+            html.section(
+                html.div(
+                    html.h2("Recent security activity"),
+                    html.p("Latest events associated with your account."),
+                    class_="panel-heading",
+                ),
+                security_activity_lazy(),
+                class_="panel",
+            ),
+        )
+    )
+    return Tabs(*panels, id="security-tabs")
+
+
 def user_match_count(total: int, *, oob: bool = False) -> object:
     attrs: dict = {"id": "user-match-count", "class_": "verification-badge"}
     if oob:
@@ -377,6 +550,8 @@ def user_table(
     status_filter: str,
     page: int,
     page_count: int,
+    total_users: int | None = None,
+    page_size: int = 50,
 ) -> object:
     rows = []
     for user in users:
@@ -397,30 +572,52 @@ def user_table(
                             target="#user-table",
                             include="closest form",
                             disabled_elt="find button",
+                            indicator=INDICATOR,
                         ),
                     )
                 )
         else:
-            actions.append(
-                html.form(
-                    html.input(type="hidden", name="csrf_token", value=csrf_token),
-                    html.input(type="hidden", name="q", value=query),
-                    html.input(type="hidden", name="status", value=status_filter),
-                    html.input(type="hidden", name="page", value=str(page)),
-                    html.button(
-                        "Disable" if user.status == UserStatus.ACTIVE.value else "Enable",
-                        class_="button button-small",
-                        type="submit",
-                    ),
-                    action=form_action(f"admin/users/{user.id}/toggle"),
-                    method="post",
-                    **hx_attrs(
-                        path=f"admin/users/{user.id}/toggle",
-                        target="#user-table",
-                        disabled_elt="find button",
-                    ),
-                )
+            is_active = user.status == UserStatus.ACTIVE.value
+            action_label = "Disable" if is_active else "Enable"
+            dialog_id = f"toggle-user-{user.id}"
+            toggle_form = html.form(
+                html.input(type="hidden", name="csrf_token", value=csrf_token),
+                html.input(type="hidden", name="q", value=query),
+                html.input(type="hidden", name="status", value=status_filter),
+                html.input(type="hidden", name="page", value=str(page)),
+                html.button(action_label, class_="button button-small", type="submit"),
+                action=form_action(f"admin/users/{user.id}/toggle"),
+                method="post",
+                **hx_attrs(
+                    path=f"admin/users/{user.id}/toggle",
+                    target="#user-table",
+                    disabled_elt="find button",
+                    indicator=INDICATOR,
+                ),
             )
+            if is_active:
+                actions.append(
+                    html.div(
+                        html.button(
+                            action_label,
+                            class_="button button-small",
+                            type="button",
+                            data={"hedron-dialog-open": f"#{dialog_id}"},
+                        ),
+                        Dialog(
+                            "Disable account",
+                            html.p(
+                                f"Disable {user.email_original}? "
+                                "Active sessions for this account will be revoked."
+                            ),
+                            toggle_form,
+                            id=dialog_id,
+                            open=False,
+                        ),
+                    )
+                )
+            else:
+                actions.append(toggle_form)
         rows.append(
             html.tr(
                 html.td(html.strong(user.email_original), html.small(user.full_name or "")),
@@ -429,39 +626,8 @@ def user_table(
                 html.td(*actions, class_="table-actions"),
             )
         )
-    pagination = []
-    params = {"q": query, "status": status_filter}
-    if page > 1:
-        prev_q = urlencode({**params, "page": page - 1})
-        pagination.append(
-            html.a(
-                "Previous",
-                class_="button button-quiet button-small",
-                href=page_href(f"admin/users?{prev_q}"),
-                **hx_attrs(
-                    method="get",
-                    path=f"admin/users?{prev_q}",
-                    target="#user-directory",
-                    push_url=True,
-                ),
-            )
-        )
-    pagination.append(html.span(f"Page {page} of {page_count}"))
-    if page < page_count:
-        next_q = urlencode({**params, "page": page + 1})
-        pagination.append(
-            html.a(
-                "Next",
-                class_="button button-quiet button-small",
-                href=page_href(f"admin/users?{next_q}"),
-                **hx_attrs(
-                    method="get",
-                    path=f"admin/users?{next_q}",
-                    target="#user-directory",
-                    push_url=True,
-                ),
-            )
-        )
+    total = total_users if total_users is not None else max(0, (page_count - 1) * page_size + len(users))
+    base = _filter_base_path("/admin/users", q=query, status=status_filter)
     return html.div(
         html.div(
             html.table(
@@ -477,9 +643,13 @@ def user_table(
             ),
             class_="table-wrap",
         ),
-        html.nav(*pagination, class_="pagination", aria={"label": "User result pages"})
-        if page_count > 1
-        else html.div(),
+        hedron_pagination(
+            page=page,
+            page_size=page_size,
+            total=total,
+            base_path=base,
+            target="#user-directory",
+        ),
         id="user-table",
     )
 
@@ -492,6 +662,8 @@ def user_directory(
     status_filter: str,
     page: int,
     page_count: int,
+    total_users: int | None = None,
+    page_size: int = 50,
     success: str = "",
 ) -> object:
     return html.div(
@@ -521,6 +693,7 @@ def user_directory(
                 target="#user-directory",
                 push_url=True,
                 sync="this:replace",
+                indicator=INDICATOR,
             ),
         ),
         user_table(
@@ -530,6 +703,8 @@ def user_directory(
             status_filter=status_filter,
             page=page,
             page_count=page_count,
+            total_users=total_users,
+            page_size=page_size,
         ),
         id="user-directory",
     )
@@ -553,18 +728,37 @@ def invitation_panel(
             pill = ("pending", "pill-pending")
         actions = [html.span(pill[0], class_=f"pill {pill[1]}")]
         if not invitation.accepted_at and not invitation.revoked_at:
+            dialog_id = f"revoke-invite-{invitation.id}"
             actions.append(
-                html.form(
-                    html.input(type="hidden", name="csrf_token", value=csrf_token),
-                    html.button("Revoke", class_="button button-danger button-small", type="submit"),
-                    action=form_action(f"admin/invitations/{invitation.id}/revoke"),
-                    method="post",
-                    **hx_attrs(
-                        path=f"admin/invitations/{invitation.id}/revoke",
-                        target="#invitation-panel",
-                        sync="#invitation-panel:drop",
-                        disabled_elt="find button",
-                        confirm=f"Revoke the invitation for {invitation.email_original}?",
+                html.div(
+                    html.button(
+                        "Revoke",
+                        class_="button button-danger button-small",
+                        type="button",
+                        data={"hedron-dialog-open": f"#{dialog_id}"},
+                    ),
+                    Dialog(
+                        "Revoke invitation",
+                        html.p(f"Revoke the invitation for {invitation.email_original}?"),
+                        html.form(
+                            html.input(type="hidden", name="csrf_token", value=csrf_token),
+                            html.button(
+                                "Revoke invitation",
+                                class_="button button-danger",
+                                type="submit",
+                            ),
+                            action=form_action(f"admin/invitations/{invitation.id}/revoke"),
+                            method="post",
+                            **hx_attrs(
+                                path=f"admin/invitations/{invitation.id}/revoke",
+                                target="#invitation-panel",
+                                sync="#invitation-panel:drop",
+                                disabled_elt="find button",
+                                indicator=INDICATOR,
+                            ),
+                        ),
+                        id=dialog_id,
+                        open=False,
                     ),
                 )
             )
@@ -604,6 +798,7 @@ def invitation_panel(
                 target="#invitation-panel",
                 sync="#invitation-panel:drop",
                 disabled_elt="find button",
+                indicator=INDICATOR,
             ),
         ),
         html.div(*pending_rows, class_="pending-list") if pending_rows else html.p("No invitations yet."),
@@ -627,6 +822,7 @@ def audit_results(
     current_page: int,
     page_count: int,
     total_events: int,
+    page_size: int = 50,
 ) -> object:
     rows = [
         html.tr(
@@ -638,39 +834,11 @@ def audit_results(
         )
         for event in events
     ]
-    params = {"event_type": event_type_filter, "outcome": outcome_filter}
-    pagination = []
-    if current_page > 1:
-        prev_q = urlencode({**params, "page": current_page - 1})
-        pagination.append(
-            html.a(
-                "Previous",
-                class_="button button-quiet button-small",
-                href=page_href(f"admin/audit?{prev_q}"),
-                **hx_attrs(
-                    method="get",
-                    path=f"admin/audit?{prev_q}",
-                    target="#audit-results-region",
-                    push_url=True,
-                ),
-            )
-        )
-    pagination.append(html.span(f"Page {current_page} of {page_count}"))
-    if current_page < page_count:
-        next_q = urlencode({**params, "page": current_page + 1})
-        pagination.append(
-            html.a(
-                "Next",
-                class_="button button-quiet button-small",
-                href=page_href(f"admin/audit?{next_q}"),
-                **hx_attrs(
-                    method="get",
-                    path=f"admin/audit?{next_q}",
-                    target="#audit-results-region",
-                    push_url=True,
-                ),
-            )
-        )
+    base = _filter_base_path(
+        "/admin/audit",
+        event_type=event_type_filter,
+        outcome=outcome_filter,
+    )
     return html.div(
         html.form(
             html.div(
@@ -704,6 +872,7 @@ def audit_results(
                         path="admin/audit",
                         target="#audit-results-region",
                         push_url=True,
+                        indicator=INDICATOR,
                     ),
                 )
                 if event_type_filter or outcome_filter
@@ -720,6 +889,7 @@ def audit_results(
                 target="#audit-results-region",
                 push_url=True,
                 sync="this:replace",
+                indicator=INDICATOR,
             ),
         ),
         html.div(
@@ -739,10 +909,37 @@ def audit_results(
             ),
             class_="table-wrap",
         ),
-        html.nav(*pagination, class_="pagination", aria={"label": "Audit result pages"})
-        if page_count > 1
-        else html.div(),
+        hedron_pagination(
+            page=current_page,
+            page_size=page_size,
+            total=total_events,
+            base_path=base,
+            target="#audit-results-region",
+        ),
         id="audit-results-region",
+    )
+
+
+def audit_results_lazy(*, event_type: str = "", outcome: str = "", page: int = 1) -> object:
+    params = {}
+    if event_type:
+        params["event_type"] = event_type
+    if outcome:
+        params["outcome"] = outcome
+    if page > 1:
+        params["page"] = str(page)
+    path = "admin/audit" + (f"?{urlencode(params)}" if params else "")
+    return html.div(
+        Loading("Loading audit activity…"),
+        id="audit-results-region",
+        **hx_attrs(
+            method="get",
+            path=path,
+            target="#audit-results-region",
+            trigger="load",
+            swap="outerHTML",
+            indicator=INDICATOR,
+        ),
     )
 
 

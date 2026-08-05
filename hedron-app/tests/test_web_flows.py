@@ -9,6 +9,7 @@ from app.models import AuditEvent, User, UserSecret, UserStatus
 from tests.helpers import (
     ADMIN_EMAIL,
     USER_PASSWORD,
+    as_adapter,
     csrf_from,
     web_login,
 )
@@ -124,6 +125,9 @@ def test_secret_save_and_delete_never_reveal_token(client, make_user) -> None:
     security = client.get("/security")
     assert security.status_code == 200
     assert "Advana" in security.text
+    assert 'id="security-tabs"' in security.text
+    assert 'id="main-panel"' in security.text
+    assert "Loading activity" in security.text or "security/activity" in security.text
     csrf = csrf_from(security.text)
 
     saved = client.post(
@@ -167,3 +171,75 @@ def test_secret_save_and_delete_never_reveal_token(client, make_user) -> None:
         data={"csrf_token": csrf_from(client.get("/security").text), "token": "x"},
     )
     assert unknown.status_code == 404
+
+
+def test_htmx_admin_directory_and_audit_fragments(client, htmx, make_user) -> None:
+    from hedron.testing import assert_fragment_body, assert_html_contains
+
+    make_user("filter.target@example.gov")
+    web_login(client)
+    for key, value in client.cookies.items():
+        htmx.cookies.set(key, value)
+
+    filtered = htmx.get(
+        "/admin/users",
+        params={"q": "filter.target"},
+        headers={"HX-Target": "#user-directory", "Accept": "text/html"},
+    )
+    adapter = as_adapter(filtered)
+    assert filtered.status_code == 200
+    assert_fragment_body(adapter, contains="user-directory")
+    assert_html_contains(adapter, "filter.target@example.gov")
+    assert "<!doctype" not in filtered.text.lower()
+
+    audit = htmx.get(
+        "/admin/audit",
+        params={"event_type": "auth.login"},
+        headers={"HX-Target": "#audit-results-region", "Accept": "text/html"},
+    )
+    assert audit.status_code == 200
+    assert_fragment_body(as_adapter(audit), contains="audit-results-region")
+    assert "<html" not in audit.text.lower()
+
+
+def test_htmx_admin_invitation_errors_and_missing_toggle(client, htmx) -> None:
+    from hedron.testing import assert_fragment_body
+
+    web_login(client, next_path="/admin/users")
+    for key, value in client.cookies.items():
+        htmx.cookies.set(key, value)
+    csrf = csrf_from(htmx.get("/admin/users").text)
+
+    bad_role = htmx.post(
+        "/admin/invitations",
+        data={"csrf_token": csrf, "email": "htmx.invite@example.gov", "role": "invalid"},
+    )
+    assert bad_role.status_code == 400
+    assert "role" in bad_role.text.lower()
+    assert "<html" not in bad_role.text.lower()
+
+    missing = client.post(
+        "/admin/users/00000000-0000-0000-0000-000000000000/toggle",
+        data={"csrf_token": csrf_from(client.get("/admin/users").text)},
+    )
+    assert missing.status_code == 404
+
+
+def test_disable_user_invalidates_active_session(client, make_user, hedron_app) -> None:
+    from fastapi.testclient import TestClient
+
+    target = make_user("disabled.session@example.gov")
+    victim = TestClient(hedron_app, follow_redirects=False)
+    web_login(victim, target.email, USER_PASSWORD)
+    assert victim.get("/profile").status_code == 200
+
+    web_login(client, next_path="/admin/users")
+    disabled = client.post(
+        f"/admin/users/{target.id}/toggle",
+        data={"csrf_token": csrf_from(client.get("/admin/users").text)},
+    )
+    assert disabled.status_code == 303
+    blocked = victim.get("/profile")
+    assert blocked.status_code in {302, 303, 401}
+    if blocked.status_code in {302, 303}:
+        assert "/login" in blocked.headers["location"]

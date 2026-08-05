@@ -265,6 +265,218 @@ def test_session_revoke_success(client, make_user, hedron_app) -> None:
     )
     assert revoked.status_code == 303
     assert "session-revoked" in revoked.headers["location"]
+    notice = client.get(revoked.headers["location"])
+    assert "browser session was revoked" in notice.text
     with SessionLocal() as db:
         session = db.get(RefreshSession, remote_id)
         assert session is not None and session.revoked_at is not None
+
+    # HTMX revoke of another remote session
+    third = TestClient(hedron_app, follow_redirects=False)
+    web_login(third, user.email, USER_PASSWORD)
+    current_sid = decode_access_token(client.cookies.get(ACCESS_COOKIE), get_settings())["sid"]
+    with SessionLocal() as db:
+        remote = db.scalar(
+            select(RefreshSession).where(
+                RefreshSession.user_id == user.id,
+                RefreshSession.id != current_sid,
+                RefreshSession.revoked_at.is_(None),
+            )
+        )
+        assert remote is not None
+        remote_id = remote.id
+    htmx = client.post(
+        f"/security/sessions/{remote_id}/revoke",
+        data={"csrf_token": csrf_from(client.get("/security").text)},
+        headers={"HX-Request": "true"},
+    )
+    assert htmx.status_code == 200
+    assert 'id="session-list"' in htmx.text
+    assert "<html" not in htmx.text.lower()
+
+
+def test_login_lockout_is_generic_audited_and_blocks_correct_password(client) -> None:
+    for _ in range(5):
+        preauth = login_csrf_from(client.get("/login").text)
+        rejected = client.post(
+            "/login",
+            data={
+                "email": ADMIN_EMAIL,
+                "password": "definitely-wrong",
+                "next": "/profile",
+                "preauth_csrf_token": preauth,
+            },
+        )
+        assert rejected.status_code == 400
+        assert "Unable to sign in" in rejected.text
+
+    preauth = login_csrf_from(client.get("/login").text)
+    locked = client.post(
+        "/login",
+        data={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD,
+            "next": "/profile",
+            "preauth_csrf_token": preauth,
+        },
+    )
+    assert locked.status_code == 400
+    assert "Unable to sign in" in locked.text
+
+    preauth = login_csrf_from(client.get("/login").text)
+    unknown = client.post(
+        "/login",
+        data={
+            "email": "unknown@example.gov",
+            "password": "definitely-wrong",
+            "next": "/profile",
+            "preauth_csrf_token": preauth,
+        },
+    )
+    assert unknown.status_code == 400
+    assert "Unable to sign in" in unknown.text
+
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert user is not None
+        assert user.failed_login_attempts == 5
+        outcomes = db.scalars(
+            select(AuditEvent.outcome)
+            .where(AuditEvent.event_type == "auth.login")
+            .order_by(AuditEvent.occurred_at)
+        ).all()
+        assert outcomes == ["failure"] * 5 + ["locked"]
+
+
+def test_htmx_unauthenticated_redirect_and_admin_error_retarget(client) -> None:
+    unauthenticated = client.post(
+        "/profile",
+        data={"csrf_token": "expired", "full_name": "Expired"},
+        headers={"HX-Request": "true"},
+    )
+    assert unauthenticated.status_code == 303
+    assert unauthenticated.headers.get("HX-Redirect", "").startswith("/login?next=")
+
+    web_login(client)
+    users = client.get("/admin/users")
+    csrf = csrf_from(users.text)
+    with SessionLocal() as db:
+        admin = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert admin is not None
+        admin_id = admin.id
+    rejected = client.post(
+        f"/admin/users/{admin_id}/toggle",
+        data={"csrf_token": csrf},
+        headers={"HX-Request": "true"},
+    )
+    assert rejected.status_code == 400
+    assert rejected.headers.get("HX-Retarget") == "#global-feedback"
+    assert rejected.headers.get("HX-Reswap") == "innerHTML"
+    assert "cannot disable your own account" in rejected.text.lower()
+    assert "<html" not in rejected.text.lower()
+
+
+def test_password_change_and_reset_validation_edges(client) -> None:
+    web_login(client)
+    csrf = csrf_from(client.get("/security").text)
+
+    mismatch = client.post(
+        "/security/password",
+        data={
+            "csrf_token": csrf,
+            "current_password": ADMIN_PASSWORD,
+            "new_password": NEW_PASSWORD,
+            "new_password_confirm": "different-password",
+        },
+    )
+    assert mismatch.status_code == 400
+    assert "do not match" in mismatch.text.lower()
+
+    weak = client.post(
+        "/security/password",
+        data={
+            "csrf_token": csrf_from(client.get("/security").text),
+            "current_password": ADMIN_PASSWORD,
+            "new_password": "too-short",
+            "new_password_confirm": "too-short",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert weak.status_code == 400
+    assert "at least 15" in weak.text
+    assert "<html" not in weak.text.lower()
+
+    missing_session = client.post(
+        "/security/sessions/00000000-0000-0000-0000-000000000000/revoke",
+        data={"csrf_token": csrf_from(client.get("/security").text)},
+    )
+    assert missing_session.status_code == 404
+
+    client.cookies.clear()
+    assert client.post("/password/forgot", data={"email": ADMIN_EMAIL}).status_code == 200
+    token = latest_email_token(ADMIN_EMAIL, subject_like="%password%")
+    mismatch_reset = client.post(
+        "/password/reset",
+        data={
+            "token": token,
+            "password": NEW_PASSWORD,
+            "password_confirm": "different-password",
+        },
+    )
+    assert mismatch_reset.status_code == 400
+    weak_reset = client.post(
+        "/password/reset",
+        data={"token": token, "password": "too-short", "password_confirm": "too-short"},
+    )
+    assert weak_reset.status_code == 400
+
+
+def test_login_next_rejects_open_redirect(client) -> None:
+    preauth = login_csrf_from(client.get("/login").text)
+    response = client.post(
+        "/login",
+        data={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD,
+            "next": "//evil.example/phish",
+            "preauth_csrf_token": preauth,
+        },
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/profile"
+
+
+def test_password_reset_supersedes_prior_and_rejects_expiry(client) -> None:
+    from datetime import timedelta
+
+    from app.models import PasswordReset, utcnow
+
+    unknown = client.post("/password/forgot", data={"email": "nobody@example.gov"})
+    assert unknown.status_code == 200
+    with SessionLocal() as db:
+        assert db.scalar(select(PasswordReset)) is None
+
+    assert client.post("/password/forgot", data={"email": ADMIN_EMAIL}).status_code == 200
+    first_token = latest_email_token(ADMIN_EMAIL, subject_like="%password%")
+    assert client.post("/password/forgot", data={"email": ADMIN_EMAIL}).status_code == 200
+    second_token = latest_email_token(ADMIN_EMAIL, subject_like="%password%")
+    assert first_token != second_token
+
+    with SessionLocal() as db:
+        resets = list(db.scalars(select(PasswordReset).order_by(PasswordReset.created_at)).all())
+        assert len(resets) == 2
+        assert resets[0].used_at is not None
+        assert resets[1].used_at is None
+        resets[1].expires_at = utcnow() - timedelta(seconds=1)
+        db.commit()
+
+    expired = client.post(
+        "/password/reset",
+        data={
+            "token": second_token,
+            "password": NEW_PASSWORD,
+            "password_confirm": NEW_PASSWORD,
+        },
+    )
+    assert expired.status_code == 400
+    assert "invalid or expired" in expired.text.lower()

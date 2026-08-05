@@ -102,6 +102,7 @@ def test_htmx_profile_update_returns_fragment(hedron_app) -> None:
     assert_fragment_body(adapter, contains="profile-form-region")
     assert_html_contains(adapter, "Hedron Admin")
     assert_html_contains(adapter, "Your profile has been updated")
+    assert_html_contains(adapter, "hedron-toast")
 
 
 def test_htmx_admin_users_requires_auth(hedron_app) -> None:
@@ -175,3 +176,203 @@ def test_user_directory_fragment_render() -> None:
     assert 'id="user-directory"' in html
     assert 'id="user-table"' in html
     assert "No users found." in html
+
+
+def test_session_list_and_secret_slot_render_html() -> None:
+    from datetime import datetime
+
+    from app.services.secrets import SECRET_PROVIDERS
+
+    auth = SimpleNamespace(session=SimpleNamespace(id="current-session"))
+    sessions = [
+        SimpleNamespace(
+            id="current-session",
+            user_agent="TestClient",
+            last_seen_at=datetime(2026, 1, 1, 12, 0, 0),
+            source_ip="127.0.0.1",
+        ),
+        SimpleNamespace(
+            id="other-session",
+            user_agent="Other Browser",
+            last_seen_at=datetime(2026, 1, 1, 11, 0, 0),
+            source_ip="10.0.0.2",
+        ),
+    ]
+    session_html = render_html(ui.session_list(sessions, auth=auth, csrf_token="sess-csrf"))
+    assert 'id="session-list"' in session_html
+    assert "Current" in session_html
+    assert "Revoke" in session_html
+    assert "security/sessions/other-session/revoke" in session_html
+    assert "data-hedron-dialog-open" in session_html
+
+    slot = render_html(ui.secret_slot(SECRET_PROVIDERS[0], None, csrf_token="sec-csrf"))
+    assert 'id="secret-slot-advana"' in slot
+    assert "ADVANA_API_TOKEN" in slot
+    assert "security/secrets/advana" in slot
+
+
+def test_audit_results_and_invitation_panel_render_html() -> None:
+    from datetime import datetime
+
+    events = [
+        SimpleNamespace(
+            occurred_at=datetime(2026, 1, 1, 12, 0, 0),
+            event_type="auth.login",
+            outcome="success",
+            source_ip="127.0.0.1",
+            detail="{}",
+        )
+    ]
+    audit = render_html(
+        ui.audit_results(
+            events,
+            event_type_filter="auth.login",
+            outcome_filter="",
+            current_page=1,
+            page_count=1,
+            total_events=1,
+        )
+    )
+    assert 'id="audit-results-region"' in audit
+    assert "auth.login" in audit
+
+    panel = render_html(
+        ui.invitation_panel(
+            [],
+            [SimpleNamespace(name="user"), SimpleNamespace(name="administrator")],
+            csrf_token="inv-csrf",
+        )
+    )
+    assert 'id="invitation-panel"' in panel
+    assert "admin/invitations" in panel
+
+
+def test_login_via_page_fixture_uses_hedron_asserts(page) -> None:
+    from tests.helpers import fixture_login
+
+    profile = fixture_login(page)
+    assert_page_document(profile)
+    assert_html_contains(profile, "Your profile")
+    assert_html_contains(profile, "admin@example.gov")
+
+
+def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
+    from tests.helpers import fixture_login
+
+    profile = fixture_login(page)
+    assert_html_contains(profile, 'id="main-panel"')
+    assert_html_contains(profile, 'id="toast-host"')
+    assert_html_contains(profile, 'id="side-nav"')
+    assert_html_contains(profile, 'hx-target="#main-panel"')
+    assert_html_contains(profile, "historyCacheSize")
+
+
+def test_htmx_nav_swaps_main_panel_without_shell_chrome(hedron_app) -> None:
+    client = fragment_client(hedron_app)
+    login_page = client.get("/login")
+    token = _preauth_token(login_page.text)
+    signed_in = client.post(
+        "/login",
+        data={
+            "email": "admin@example.gov",
+            "password": "Tr0pic-Maple!River92",
+            "preauth_csrf_token": token,
+            "next": "/profile",
+        },
+        follow_redirects=True,
+    )
+    assert signed_in.status_code == 200
+
+    security = client.get(
+        "/security",
+        headers={"HX-Target": "#main-panel", "Accept": "text/html"},
+    )
+    adapter = AdapterResponse(security.status_code, security.text, dict(security.headers))
+    assert security.status_code == 200
+    assert_fragment_body(adapter, contains="main-panel")
+    assert_html_contains(adapter, "security-tabs")
+    assert_html_contains(adapter, "hx-swap-oob")
+    assert "<!doctype" not in security.text.lower()
+    assert 'class="site-header"' not in security.text
+    assert security.headers.get("HX-Push-Url")
+
+
+def test_htmx_profile_update_emits_toast_oob(hedron_app) -> None:
+    client = fragment_client(hedron_app)
+    login_page = client.get("/login")
+    token = _preauth_token(login_page.text)
+    signed_in = client.post(
+        "/login",
+        data={
+            "email": "admin@example.gov",
+            "password": "Tr0pic-Maple!River92",
+            "preauth_csrf_token": token,
+            "next": "/profile",
+        },
+        follow_redirects=True,
+    )
+    csrf = _session_csrf(signed_in.text)
+    response = client.post(
+        "/profile",
+        data={
+            "csrf_token": csrf,
+            "full_name": "Toast Admin",
+            "organization": "Access Registry",
+            "job_title": "Tester",
+            "phone": "",
+        },
+        headers={"HX-Target": "#profile-form-region", "Accept": "text/html"},
+    )
+    adapter = AdapterResponse(response.status_code, response.text, dict(response.headers))
+    assert_fragment_body(adapter, contains="profile-form-region")
+    assert_html_contains(adapter, "Your profile has been updated")
+    assert_html_contains(adapter, "hedron-toast")
+    assert 'hx-swap-oob="innerHTML"' in response.text
+    assert 'id="toast-host"' in response.text
+
+
+def test_session_list_uses_dialog_confirm(hedron_app) -> None:
+    from datetime import datetime
+
+    auth = SimpleNamespace(session=SimpleNamespace(id="current-session"))
+    sessions = [
+        SimpleNamespace(
+            id="current-session",
+            user_agent="TestClient",
+            last_seen_at=datetime(2026, 1, 1, 12, 0, 0),
+            source_ip="127.0.0.1",
+        ),
+        SimpleNamespace(
+            id="other-session",
+            user_agent="Other Browser",
+            last_seen_at=datetime(2026, 1, 1, 11, 0, 0),
+            source_ip="10.0.0.2",
+        ),
+    ]
+    session_html = render_html(ui.session_list(sessions, auth=auth, csrf_token="sess-csrf"))
+    assert 'data-hedron-dialog-open="#revoke-session-other-session"' in session_html
+    assert 'id="revoke-session-other-session"' in session_html
+    assert "hedron-dialog" in session_html
+
+
+def test_admin_pagination_uses_hedron_markup() -> None:
+    html = render_html(
+        ui.hedron_pagination(
+            page=2,
+            page_size=10,
+            total=45,
+            base_path="/admin/users",
+            target="#user-directory",
+        )
+    )
+    assert "hedron-pagination" in html
+    assert 'hx-target="#user-directory"' in html
+    assert 'hx-swap="outerHTML"' in html
+    assert "page=2" in html
+
+
+def test_security_activity_lazy_placeholder() -> None:
+    html = render_html(ui.security_activity_lazy())
+    assert 'id="security-activity"' in html
+    assert "hedron-loading" in html
+    assert 'hx-get="/security/activity"' in html

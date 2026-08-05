@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
-from hedron import Page, Text, html
+from hedron import Fragment, OobUpdate, Page, Text, html
 from hedron_core.security import SafeUrl, UrlPurpose
 
 from app.config import Settings
 from app.dependencies import AuthContext
 from app.routing import app_path
-from app.ui.urls import form_action, page_href
+from app.ui.urls import form_action, hx_attrs, page_href
+
+INDICATOR = "#global-request-indicator"
 
 HTMX_CONFIG = (
     '{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,'
-    '"historyCacheSize":0,"refreshOnHistoryMiss":true,'
+    '"historyCacheSize":10,"refreshOnHistoryMiss":true,'
     '"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},'
     '{"code":"[45]..","swap":true,"error":true}]}'
 )
@@ -66,16 +68,25 @@ def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) ->
     )
 
 
-def side_nav(request, auth: AuthContext) -> object:
+def side_nav_children(request, auth: AuthContext) -> list[object]:
     path = str(request.scope.get("path") or "/")
 
     def link(href: str, number: str, label: str) -> object:
-        active = "active" if path == href or path.rstrip("/").endswith(href) else ""
+        normalized = path.rstrip("/") or "/"
+        active = "active" if normalized == href or normalized.endswith(href) else ""
         return html.a(
             html.span(number, aria={"hidden": "true"}),
             f" {label}",
             class_=f"nav-link {active}".strip(),
             href=page_href(href),
+            **hx_attrs(
+                method="get",
+                path=href.lstrip("/"),
+                target="#main-panel",
+                swap="outerHTML",
+                push_url=True,
+                indicator=INDICATOR,
+            ),
         )
 
     children: list[object] = [
@@ -94,7 +105,38 @@ def side_nav(request, auth: AuthContext) -> object:
             class_="nav-status",
         )
     )
-    return html.nav(*children, class_="side-nav", aria={"label": "Account navigation"})
+    return children
+
+
+def side_nav(request, auth: AuthContext, *, oob: bool = False) -> object:
+    attrs: dict = {
+        "id": "side-nav",
+        "class_": "side-nav",
+        "aria": {"label": "Account navigation"},
+    }
+    if oob:
+        attrs["hx-swap-oob"] = "outerHTML"
+    return html.nav(*side_nav_children(request, auth), **attrs)
+
+
+def side_nav_oob(request, auth: AuthContext) -> OobUpdate:
+    """Replace side-nav contents after in-shell navigation (preserves outer nav element)."""
+    return OobUpdate(
+        content=Fragment(*side_nav_children(request, auth)),
+        element_id="side-nav",
+        swap="innerHTML",
+    )
+
+
+def toast_host(*, oob: bool = False) -> object:
+    attrs: dict = {"id": "toast-host", "class_": "toast-host", "aria": {"live": "polite"}}
+    if oob:
+        attrs["hx-swap-oob"] = "outerHTML"
+    return html.div(**attrs)
+
+
+def dialog_host() -> object:
+    return html.div(id="dialog-host", class_="dialog-host")
 
 
 def app_shell(
@@ -155,7 +197,12 @@ def app_shell(
     if auth:
         content = html.div(
             side_nav(request, auth),
-            html.main(*body, id="main-content", class_="main-content", tabindex="-1"),
+            html.main(
+                html.div(*body, id="main-panel", class_="main-panel"),
+                id="main-content",
+                class_="main-content",
+                tabindex="-1",
+            ),
             class_="page-width app-shell",
         )
     else:
@@ -164,6 +211,8 @@ def app_shell(
         skip,
         feedback,
         indicator,
+        toast_host(),
+        dialog_host(),
         banner,
         header,
         content,
@@ -183,3 +232,8 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: object) -> object:
         *extra,
         class_="page-heading",
     )
+
+
+def main_panel(*body: object) -> object:
+    """Authenticated main panel root used for in-shell HTMX navigation swaps."""
+    return html.div(*body, id="main-panel", class_="main-panel")

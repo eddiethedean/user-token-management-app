@@ -79,12 +79,24 @@ from app.services.secrets import (
     require_secret_provider,
     store_user_secret,
 )
-from app.ui.layout import alert_box, app_shell, page_heading
+from app.ui.layout import alert_box, app_shell, main_panel, page_heading, side_nav_oob
 from app.ui import partials as ui
+from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.urls import form_action, page_href
 
 ADMIN_PAGE_SIZE = 50
 AUDIT_PAGE_SIZE = 50
+
+
+def _hx_target(request: Request) -> str:
+    raw = (request.headers.get("HX-Target") or "").strip()
+    if raw and not raw.startswith(("#", ".", "[")) and " " not in raw:
+        return f"#{raw}"
+    return raw
+
+
+def _is_main_panel_nav(request: Request) -> bool:
+    return is_htmx_request(request) and _hx_target(request) == "#main-panel"
 
 
 def _safe_next(value: str) -> str:
@@ -692,7 +704,7 @@ def register_routes(app: Hedron) -> None:
     # ---- Authenticated pages ----
 
     @app.get("/profile", include_in_schema=False)
-    def profile_page(
+    async def profile_page(
         request: Request, updated: bool = False, auth: AuthContext = Depends(require_auth), settings: Settings = Depends(get_settings),
     ):
         request.state.hedron_authenticated = True
@@ -702,30 +714,42 @@ def register_routes(app: Hedron) -> None:
             " Verified email",
             class_="verification-badge",
         )
+        body = [
+            page_heading(
+                "Account profile",
+                "Your information",
+                "Keep your contact and organizational details current.",
+                verified_badge,
+            ),
+            alert_box("Your profile has been updated." if updated else "", kind="success"),
+            html.div(
+                html.section(
+                    html.div(
+                        html.div(
+                            html.h2("Profile details"),
+                            html.p("Information shown to application administrators."),
+                        ),
+                        class_="panel-heading",
+                    ),
+                    ui.profile_form(auth, csrf_token=csrf),
+                    class_="panel panel-main",
+                ),
+                ui.profile_identity(auth),
+                class_="content-grid profile-grid",
+            ),
+        ]
+        if _is_main_panel_nav(request):
+            return await interaction_response(
+                request,
+                ok_fragment(
+                    main_panel(*body),
+                    oob=(side_nav_oob(request, auth),),
+                    push_url=app_path(request, "/profile"),
+                ),
+            )
         return _render_page(
             app_shell(
-                page_heading(
-                    "Account profile",
-                    "Your information",
-                    "Keep your contact and organizational details current.",
-                    verified_badge,
-                ),
-                alert_box("Your profile has been updated." if updated else "", kind="success"),
-                html.div(
-                    html.section(
-                        html.div(
-                            html.div(
-                                html.h2("Profile details"),
-                                html.p("Information shown to application administrators."),
-                            ),
-                            class_="panel-heading",
-                        ),
-                        ui.profile_form(auth, csrf_token=csrf),
-                        class_="panel panel-main",
-                    ),
-                    ui.profile_identity(auth),
-                    class_="content-grid profile-grid",
-                ),
+                *body,
                 request=request, settings=settings, auth=auth, page_title="Your profile", csrf_token=csrf,
             ),
             request=request, authenticated=True,
@@ -749,10 +773,16 @@ def register_routes(app: Hedron) -> None:
         )
         if not is_htmx_request(request):
             return RedirectResponse(app_path(request, "/profile?updated=true"), status_code=303)
-        return _render_fragment(*ui.profile_response(auth, csrf_token=auth.session.csrf_token, success="Your profile has been updated."), request=request)
+        return await interaction_response(
+            request,
+            ok_fragment(
+                html.div(*ui.profile_response(auth, csrf_token=auth.session.csrf_token, success="")),
+                toast="Your profile has been updated.",
+            ),
+        )
 
     @app.get("/security", include_in_schema=False)
-    def security_page(
+    async def security_page(
         request: Request, notice: str = "",
         auth: AuthContext = Depends(require_auth), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
     ):
@@ -764,55 +794,54 @@ def register_routes(app: Hedron) -> None:
         }
         values = _security_values(db, auth, settings, security_success=notices.get(notice, ""))
         csrf = auth.session.csrf_token
-        sections = []
-        n = 1
-        if values["local_password"]:
-            sections.append(
-                html.section(
-                    html.div(html.p(f"{n:02d}", class_="section-number"), html.h2("Change password"),
-                             html.p("Changing your password signs out every active session, including this one.")),
-                    ui.password_form(csrf_token=csrf),
-                    class_="panel split-panel",
-                )
-            )
-            n += 1
-        sections.append(
-            html.section(
-                html.div(html.p(f"{n:02d}", class_="section-number"), html.h2("API tokens"),
-                         html.p("Add only an approved service token. Saved values are encrypted and cannot be viewed again."), class_="panel-heading"),
-                html.div(*[ui.secret_slot(p, s, csrf_token=csrf) for p, s in values["secret_slots"]], class_="secret-grid"),
-                class_="panel",
-            )
-        )
-        n += 1
-        sections.append(
-            html.section(
-                html.div(
-                    html.div(html.p(f"{n:02d}", class_="section-number"), html.h2("Active sessions"),
-                             html.p("Revoke any browser or client you no longer recognize.")),
-                    ui.session_count(values["sessions"]),
-                    class_="panel-heading",
-                ),
-                ui.session_list(values["sessions"], auth=auth, csrf_token=csrf),
-                class_="panel",
-            )
-        )
-        n += 1
-        sections.append(
-            html.section(
-                html.div(html.p(f"{n:02d}", class_="section-number"), html.h2("Recent security activity"),
-                         html.p("Latest events associated with your account."), class_="panel-heading"),
-                ui.security_activity(values["events"]),
-                class_="panel",
-            )
-        )
-        page = app_shell(
-            page_heading("Account protection", "Security", "Manage your password, API tokens, sessions, and recent account activity."),
+        body = [
+            page_heading(
+                "Account protection",
+                "Security",
+                "Manage your password, API tokens, sessions, and recent account activity.",
+            ),
             alert_box(values.get("security_success", ""), kind="success"),
-            html.div(*sections, class_="security-stack"),
+            html.div(
+                ui.security_tabs(
+                    csrf_token=csrf,
+                    local_password=values["local_password"],
+                    secret_slots=values["secret_slots"],
+                    sessions=values["sessions"],
+                    auth=auth,
+                ),
+                class_="security-stack",
+            ),
+        ]
+        if _is_main_panel_nav(request):
+            return await interaction_response(
+                request,
+                ok_fragment(
+                    main_panel(*body),
+                    oob=(side_nav_oob(request, auth),),
+                    push_url=app_path(request, "/security"),
+                ),
+            )
+        page = app_shell(
+            *body,
             request=request, settings=settings, auth=auth, page_title="Security", csrf_token=csrf,
         )
         return _render_page(page, request=request, headers={"Cache-Control": "no-store"}, authenticated=True)
+
+    @app.get("/security/activity", include_in_schema=False)
+    async def security_activity_fragment(
+        request: Request,
+        auth: AuthContext = Depends(require_auth),
+        db: Session = Depends(get_db),
+        settings: Settings = Depends(get_settings),
+    ):
+        request.state.hedron_authenticated = True
+        values = _security_values(db, auth, settings)
+        if is_htmx_request(request):
+            return await interaction_response(
+                request,
+                ok_fragment(ui.security_activity(values["events"])),
+            )
+        return RedirectResponse(app_path(request, "/security"), status_code=303)
 
     @app.post("/security/password", include_in_schema=False)
     async def password_change_submit(
@@ -838,15 +867,28 @@ def register_routes(app: Hedron) -> None:
                 )
             except (CurrentPasswordError, PasswordPolicyError) as exc:
                 error = str(exc)
-        if not is_htmx_request(request) and not error:
-            return RedirectResponse(app_path(request, "/login?password=changed"), status_code=303)
+        if not error:
+            if is_htmx_request(request):
+                response = await interaction_response(
+                    request,
+                    ok_fragment(
+                        html.div(),
+                        redirect=app_path(request, "/login?password=changed"),
+                    ),
+                )
+                clear_auth_cookies(response, settings, request)
+                return response
+            response = RedirectResponse(app_path(request, "/login?password=changed"), status_code=303)
+            clear_auth_cookies(response, settings, request)
+            return response
         if is_htmx_request(request):
-            return _render_fragment(
-                ui.password_form(
-                    csrf_token=auth.session.csrf_token, error=error,
-                    success="Password changed. Sign in again with your new password." if not error else "",
+            return await interaction_response(
+                request,
+                ok_fragment(
+                    ui.password_form(csrf_token=auth.session.csrf_token, error=error),
+                    status_code=400,
                 ),
-                status_code=400 if error else 200, request=request)
+            )
         csrf = auth.session.csrf_token
         return _render_page(
             app_shell(
@@ -862,7 +904,7 @@ def register_routes(app: Hedron) -> None:
                 page_title="Security",
                 csrf_token=csrf,
             ),
-            status_code=400 if error else 200,
+            status_code=400,
             headers={"Cache-Control": "no-store"}, request=request, authenticated=True)
 
     @app.post("/security/sessions/{session_id}/revoke", include_in_schema=False)
@@ -878,10 +920,17 @@ def register_routes(app: Hedron) -> None:
         if not is_htmx_request(request):
             return RedirectResponse(app_path(request, "/security?notice=session-revoked"), status_code=303)
         values = _security_values(db, auth, settings)
-        return _render_fragment(
-            ui.session_list(values["sessions"], auth=auth, csrf_token=auth.session.csrf_token),
-            ui.session_count(values["sessions"], oob=True),
-            ui.security_activity(values["events"], oob=True), request=request)
+        return await interaction_response(
+            request,
+            ok_fragment(
+                html.div(
+                    ui.session_list(values["sessions"], auth=auth, csrf_token=auth.session.csrf_token),
+                    ui.session_count(values["sessions"], oob=True),
+                    ui.security_activity(values["events"], oob=True),
+                ),
+                toast="The browser session was revoked.",
+            ),
+        )
 
     @app.post("/security/secrets/{provider}", include_in_schema=False)
     async def secret_submit(
@@ -907,13 +956,27 @@ def register_routes(app: Hedron) -> None:
                 return RedirectResponse(app_path(request, "/security?notice=secret-saved"), status_code=303)
             raise HTTPException(status_code=response_status, detail=error)
         events = _security_values(db, auth, settings)["events"]
-        return _render_fragment(
-            ui.secret_slot(
-                specification, stored, csrf_token=auth.session.csrf_token, error=error,
-                success=f"{specification.label} API token saved." if not error else "",
+        slot = ui.secret_slot(
+            specification, stored, csrf_token=auth.session.csrf_token, error=error,
+            success=f"{specification.label} API token saved." if not error else "",
+        )
+        if error:
+            return await interaction_response(
+                request,
+                ok_fragment(
+                    html.div(slot, ui.security_activity(events, oob=True)),
+                    status_code=response_status,
+                    toast=error,
+                    toast_tone="danger",
+                ),
+            )
+        return await interaction_response(
+            request,
+            ok_fragment(
+                html.div(slot, ui.security_activity(events, oob=True)),
+                toast=f"{specification.label} API token saved.",
             ),
-            ui.security_activity(events, oob=True),
-            status_code=response_status, request=request)
+        )
 
     @app.post("/security/secrets/{provider}/delete", include_in_schema=False)
     async def secret_delete_submit(
@@ -931,14 +994,26 @@ def register_routes(app: Hedron) -> None:
         if not is_htmx_request(request):
             return RedirectResponse(app_path(request, "/security?notice=secret-deleted"), status_code=303)
         events = _security_values(db, auth, settings)["events"]
-        return _render_fragment(
-            ui.secret_slot(specification, None, csrf_token=auth.session.csrf_token, success=f"{specification.label} API token deleted."),
-            ui.security_activity(events, oob=True), request=request)
+        return await interaction_response(
+            request,
+            ok_fragment(
+                html.div(
+                    ui.secret_slot(
+                        specification,
+                        None,
+                        csrf_token=auth.session.csrf_token,
+                        success=f"{specification.label} API token deleted.",
+                    ),
+                    ui.security_activity(events, oob=True),
+                ),
+                toast=f"{specification.label} API token deleted.",
+            ),
+        )
 
     # ---- Admin ----
 
     @app.get("/admin/users", include_in_schema=False)
-    def users_page(
+    async def users_page(
         request: Request, q: str = "", status: str = "", page: int = 1, notice: str = "",
         auth: AuthContext = Depends(require_admin), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
     ):
@@ -954,38 +1029,55 @@ def register_routes(app: Hedron) -> None:
         }
         listing = _user_listing_values(db, query=q, status_filter=status, page=page, user_success=user_notices.get(notice, ""))
         csrf = auth.session.csrf_token
-        if is_htmx_request(request):
-            return _render_fragment(
-                ui.user_directory(
-                    listing["users"], csrf_token=csrf, query=listing["user_query"],
-                    status_filter=listing["status_filter"], page=listing["current_page"],
-                    page_count=listing["page_count"], success=listing.get("user_success", ""),
+        directory = ui.user_directory(
+            listing["users"], csrf_token=csrf, query=listing["user_query"],
+            status_filter=listing["status_filter"], page=listing["current_page"],
+            page_count=listing["page_count"], total_users=listing["total_users"],
+            page_size=ADMIN_PAGE_SIZE, success=listing.get("user_success", ""),
+        )
+        if is_htmx_request(request) and not _is_main_panel_nav(request):
+            return await interaction_response(
+                request,
+                ok_fragment(
+                    html.div(directory, ui.user_match_count(listing["total_users"], oob=True)),
                 ),
-                ui.user_match_count(listing["total_users"], oob=True), request=request)
+            )
         invitations = list(db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all())
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
+        body = [
+            page_heading(
+                "Administration",
+                "Users and invitations",
+                "Provision accounts, review status, and control application access.",
+                ui.user_match_count(listing["total_users"]),
+            ),
+            html.div(
+                html.section(
+                    html.div(html.h2("Directory"), html.p("All application-managed identities."), class_="panel-heading"),
+                    directory,
+                    class_="panel panel-main",
+                ),
+                html.aside(
+                    ui.invitation_panel(
+                        invitations, roles, csrf_token=csrf,
+                        success=invitation_notices.get(notice, ""),
+                    )
+                ),
+                class_="admin-layout",
+            ),
+        ]
+        if _is_main_panel_nav(request):
+            return await interaction_response(
+                request,
+                ok_fragment(
+                    main_panel(*body),
+                    oob=(side_nav_oob(request, auth),),
+                    push_url=app_path(request, "/admin/users"),
+                ),
+            )
         return _render_page(
             app_shell(
-                page_heading("Administration", "Users and invitations", "Provision accounts, review status, and control application access.",
-                             ui.user_match_count(listing["total_users"])),
-                html.div(
-                    html.section(
-                        html.div(html.h2("Directory"), html.p("All application-managed identities."), class_="panel-heading"),
-                        ui.user_directory(
-                            listing["users"], csrf_token=csrf, query=listing["user_query"],
-                            status_filter=listing["status_filter"], page=listing["current_page"],
-                            page_count=listing["page_count"], success=listing.get("user_success", ""),
-                        ),
-                        class_="panel panel-main",
-                    ),
-                    html.aside(
-                        ui.invitation_panel(
-                            invitations, roles, csrf_token=csrf,
-                            success=invitation_notices.get(notice, ""),
-                        )
-                    ),
-                    class_="admin-layout",
-                ),
+                *body,
                 request=request, settings=settings, auth=auth, page_title="User administration", csrf_token=csrf,
             ),
             request=request, authenticated=True,
@@ -1011,12 +1103,19 @@ def register_routes(app: Hedron) -> None:
             return RedirectResponse(app_path(request, "/admin/users?notice=invitation-queued"), status_code=303)
         if not is_htmx_request(request):
             raise HTTPException(status_code=response_status, detail=error or "Invitation error")
-        return _render_fragment(
-            ui.invitation_panel(
-                invitations, roles, csrf_token=auth.session.csrf_token, error=error,
-                success="Invitation queued for delivery." if not error else "",
-            ),
-            status_code=response_status, request=request)
+        panel = ui.invitation_panel(
+            invitations, roles, csrf_token=auth.session.csrf_token, error=error,
+            success="Invitation queued for delivery." if not error else "",
+        )
+        if error:
+            return await interaction_response(
+                request,
+                ok_fragment(panel, status_code=response_status, toast=error, toast_tone="danger"),
+            )
+        return await interaction_response(
+            request,
+            ok_fragment(panel, toast="Invitation queued for delivery."),
+        )
 
     async def _admin_user_mutation(request, user_id, auth, db, settings, *, action: str, q="", status="", page=1):
         await require_csrf(request, auth.session.csrf_token)
@@ -1027,6 +1126,7 @@ def register_routes(app: Hedron) -> None:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         notice = "status-updated"
+        toast = "The account status was updated."
         if action == "toggle":
             if user.id == auth.user.id:
                 raise HTTPException(status_code=400, detail="You cannot disable your own account")
@@ -1051,6 +1151,7 @@ def register_routes(app: Hedron) -> None:
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             notice = "registration-approved"
+            toast = "The registration was approved."
         elif action == "deny":
             try:
                 deny_self_registration(
@@ -1059,16 +1160,25 @@ def register_routes(app: Hedron) -> None:
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             notice = "registration-denied"
+            toast = "The registration was denied."
         if not is_htmx_request(request):
             return RedirectResponse(_user_listing_path(request, query=q, status_filter=status, page=page, notice=notice), status_code=303)
         listing = _user_listing_values(db, query=q, status_filter=status, page=page)
-        return _render_fragment(
-            ui.user_table(
-                listing["users"], csrf_token=auth.session.csrf_token,
-                query=listing["user_query"], status_filter=listing["status_filter"],
-                page=listing["current_page"], page_count=listing["page_count"],
+        return await interaction_response(
+            request,
+            ok_fragment(
+                html.div(
+                    ui.user_table(
+                        listing["users"], csrf_token=auth.session.csrf_token,
+                        query=listing["user_query"], status_filter=listing["status_filter"],
+                        page=listing["current_page"], page_count=listing["page_count"],
+                        total_users=listing["total_users"], page_size=ADMIN_PAGE_SIZE,
+                    ),
+                    ui.user_match_count(listing["total_users"], oob=True),
+                ),
+                toast=toast,
             ),
-            ui.user_match_count(listing["total_users"], oob=True), request=request)
+        )
 
     @app.post("/admin/users/{user_id}/toggle", include_in_schema=False)
     async def toggle_user(
@@ -1113,13 +1223,18 @@ def register_routes(app: Hedron) -> None:
             return RedirectResponse(app_path(request, "/admin/users?notice=invitation-revoked"), status_code=303)
         invitations = list(db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all())
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
-        return _render_fragment(
-            ui.invitation_panel(invitations, roles, csrf_token=auth.session.csrf_token, success="The invitation was revoked."),
-            request=request,
+        return await interaction_response(
+            request,
+            ok_fragment(
+                ui.invitation_panel(
+                    invitations, roles, csrf_token=auth.session.csrf_token, success="The invitation was revoked."
+                ),
+                toast="The invitation was revoked.",
+            ),
         )
 
     @app.get("/admin/audit", include_in_schema=False)
-    def audit_page(
+    async def audit_page(
         request: Request, event_type: str = "", outcome: str = "", page: int = 1,
         auth: AuthContext = Depends(require_admin), db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
     ):
@@ -1150,15 +1265,40 @@ def register_routes(app: Hedron) -> None:
         results = ui.audit_results(
             events, event_type_filter=et, outcome_filter=oc,
             current_page=page, page_count=page_count, total_events=total,
+            page_size=AUDIT_PAGE_SIZE,
         )
-        if is_htmx_request(request):
-            return _render_fragment(results, ui.audit_match_count(total, oob=True), request=request)
+        if is_htmx_request(request) and not _is_main_panel_nav(request):
+            return await interaction_response(
+                request,
+                ok_fragment(html.div(results, ui.audit_match_count(total, oob=True))),
+            )
         csrf = auth.session.csrf_token
+        body = [
+            page_heading(
+                "Administration",
+                "Audit activity",
+                "Security-relevant actions recorded by the application.",
+                ui.audit_match_count(total),
+            ),
+            html.section(
+                ui.audit_results_lazy(event_type=et, outcome=oc, page=page)
+                if not (et or oc or page > 1)
+                else results,
+                class_="panel",
+            ),
+        ]
+        if _is_main_panel_nav(request):
+            return await interaction_response(
+                request,
+                ok_fragment(
+                    main_panel(*body),
+                    oob=(side_nav_oob(request, auth),),
+                    push_url=app_path(request, "/admin/audit"),
+                ),
+            )
         return _render_page(
             app_shell(
-                page_heading("Administration", "Audit activity", "Security-relevant actions recorded by the application.",
-                             ui.audit_match_count(total)),
-                html.section(results, class_="panel"),
+                *body,
                 request=request, settings=settings, auth=auth, page_title="Audit activity", csrf_token=csrf,
             ),
             request=request, authenticated=True,

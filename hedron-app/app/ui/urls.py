@@ -42,6 +42,7 @@ def hx_attrs(
     push_url: str | bool | None = None,
     include: str | None = None,
     select: str | None = None,
+    indicator: str | None = None,
 ) -> dict[str, Any]:
     """Build hyphenated HTMX attributes accepted by Hedron's HTML allowlist."""
     key = f"hx-{method.lower()}"
@@ -64,4 +65,6 @@ def hx_attrs(
         attrs["hx-include"] = include
     if select is not None:
         attrs["hx-select"] = select
+    if indicator is not None:
+        attrs["hx-indicator"] = indicator
     return attrs
