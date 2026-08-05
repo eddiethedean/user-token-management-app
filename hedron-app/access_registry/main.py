@@ -1,0 +1,234 @@
+"""Hedron Access Registry application factory."""
+
+from __future__ import annotations
+
+import logging
+import re
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from urllib.parse import urlencode
+
+from fastapi import HTTPException, Request
+from fastapi.exception_handlers import (
+    http_exception_handler,
+    request_validation_exception_handler,
+)
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from hedron import Hedron, html
+from hedron.security.policy import SecurityPolicy
+from sqlalchemy import text
+
+from hedron.responses import render_component_response
+from hedron_core import RenderMode
+
+from access_registry.config import get_settings
+from access_registry.database import SessionLocal
+from access_registry.dependencies import clear_auth_cookies, set_auth_cookies
+from access_registry.routing import WorkbenchPathMiddleware, app_base_url, app_path, is_htmx_request
+from access_registry.schema import assert_schema_current
+from access_registry.services.auth import ensure_default_roles
+from access_registry.ui.layout import alert_box, app_shell
+from access_registry.ui.partials import request_error
+from access_registry.ui.routes import register_routes
+
+settings = get_settings()
+log = logging.getLogger(__name__)
+REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}\Z")
+
+# Access Registry owns CSRF; disable Hedron's Starlette-session CSRF.
+AR_SECURITY = SecurityPolicy(
+    csrf_enabled=False,
+    security_headers=False,  # AR middleware sets headers
+    explorer_enabled=False,
+    private_authenticated_cache=True,
+    content_security_policy=None,
+)
+
+
+@asynccontextmanager
+async def lifespan(_: Hedron) -> AsyncIterator[None]:
+    if settings.app_env != "test":
+        assert_schema_current()
+    with SessionLocal() as db:
+        ensure_default_roles(db)
+    yield
+
+
+app = Hedron(
+    title=settings.app_name,
+    version="0.1.0",
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None,
+    lifespan=lifespan,
+    security=AR_SECURITY,
+    session_secret=settings.csrf_secret,
+    enable_sessions=False,
+    explorer="off",
+    default_styles=False,
+)
+app.add_middleware(WorkbenchPathMiddleware)
+
+static_directory = Path(__file__).resolve().parent / "static"
+app.mount("/assets", StaticFiles(directory=static_directory), name="assets")
+
+register_routes(app)
+
+
+@app.middleware("http")
+async def security_and_session_middleware(request: Request, call_next):
+    supplied_request_id = request.headers.get("x-request-id", "")
+    request.state.request_id = (
+        supplied_request_id
+        if REQUEST_ID_PATTERN.fullmatch(supplied_request_id)
+        else str(uuid.uuid4())
+    )
+    response = await call_next(request)
+    rotated = getattr(request.state, "rotated_tokens", None)
+    if rotated:
+        set_auth_cookies(response, rotated, settings, request)
+    response.headers["X-Request-ID"] = request.state.request_id
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+        "font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
+        "form-action 'self'"
+    )
+    if not str(request.scope.get("path", "")).startswith(("/assets/", "/hedron-static/", "/hedron-assets/")):
+        response.headers["Cache-Control"] = "no-store"
+    if settings.is_production:
+        hsts = "max-age=31536000"
+        if settings.hsts_include_subdomains:
+            hsts += "; includeSubDomains"
+        response.headers["Strict-Transport-Security"] = hsts
+    return response
+
+
+@app.exception_handler(HTTPException)
+async def friendly_http_errors(request: Request, exc: HTTPException):
+    is_htmx = is_htmx_request(request)
+    accepts_html = "text/html" in request.headers.get("accept", "")
+    if exc.status_code == 401 and (accepts_html or is_htmx):
+        next_path = str(request.scope.get("path") or "/")
+        mount_path = app_base_url(request)
+        if mount_path and next_path == mount_path:
+            next_path = "/"
+        elif mount_path and next_path.startswith(f"{mount_path}/"):
+            next_path = next_path[len(mount_path) :]
+        if request.url.query:
+            next_path += f"?{request.url.query}"
+        response = RedirectResponse(
+            app_path(request, f"/login?{urlencode({'next': next_path})}"), status_code=303
+        )
+        clear_auth_cookies(response, settings, request)
+        if is_htmx:
+            response.headers["HX-Redirect"] = str(response.headers["location"])
+        return response
+    detail = exc.detail if isinstance(exc.detail, str) else "The request could not be completed."
+    if is_htmx:
+        response = render_component_response(
+            request_error(detail),
+            request=request,
+            mode=RenderMode.FRAGMENT,
+            status_code=exc.status_code,
+            extra_headers=exc.headers,
+        )
+        response.headers["HX-Retarget"] = "#global-feedback"
+        response.headers["HX-Reswap"] = "innerHTML"
+        return response
+    if exc.status_code == 429 and accepts_html:
+        page = app_shell(
+            html.div(
+                html.h1("Too many requests"),
+                html.p(f"Please wait {(exc.headers or {}).get('Retry-After', '60')} seconds and try again."),
+                class_="panel auth-card",
+            ),
+            request=request,
+            settings=settings,
+            auth=None,
+            page_title="Too many requests",
+        )
+        return render_component_response(
+            page,
+            request=request,
+            mode=RenderMode.PAGE,
+            status_code=429,
+            extra_headers=exc.headers,
+        )
+    if accepts_html and 400 <= exc.status_code < 600:
+        if exc.status_code == 403:
+            detail = "You do not have permission to perform this action."
+        elif exc.status_code == 404:
+            detail = "The requested page or record was not found."
+        page = app_shell(
+            html.div(
+                html.h1("Request error"),
+                alert_box(detail),
+                html.p(f"Status {exc.status_code}"),
+                class_="panel auth-card",
+            ),
+            request=request,
+            settings=settings,
+            auth=None,
+            page_title="Request error",
+        )
+        return render_component_response(
+            page,
+            request=request,
+            mode=RenderMode.PAGE,
+            status_code=exc.status_code,
+            extra_headers=exc.headers,
+        )
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(RequestValidationError)
+async def friendly_validation_errors(request: Request, exc: RequestValidationError):
+    if not is_htmx_request(request) and "text/html" not in request.headers.get("accept", ""):
+        return await request_validation_exception_handler(request, exc)
+    message = "Check the submitted values and try again."
+    if is_htmx_request(request):
+        response = render_component_response(
+            request_error(message),
+            request=request,
+            mode=RenderMode.FRAGMENT,
+            status_code=422,
+        )
+        response.headers["HX-Retarget"] = "#global-feedback"
+        response.headers["HX-Reswap"] = "innerHTML"
+        return response
+    page = app_shell(
+        html.div(html.h1("Request error"), alert_box(message), class_="panel auth-card"),
+        request=request,
+        settings=settings,
+        auth=None,
+        page_title="Request error",
+    )
+    return render_component_response(
+        page,
+        request=request,
+        mode=RenderMode.PAGE,
+        status_code=422,
+    )
+
+
+@app.get("/health", include_in_schema=False)
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/ready", include_in_schema=False)
+def ready() -> JSONResponse:
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+    except Exception:
+        log.exception("Readiness database check failed")
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+    return JSONResponse({"status": "ready"})
