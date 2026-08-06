@@ -8,10 +8,9 @@ from hedron import Hedron, InteractionResult, html
 from sqlalchemy import select
 from starlette.responses import Response
 
-from app.dependencies import AdminAuth, DbSession, SettingsDep
+from app.dependencies import AdminAuth, DbSession, RequireCsrf, SettingsDep
 from app.models import Invitation, Role, User, UserStatus
 from app.routing import app_path, is_htmx_request
-from app.security.csrf import require_csrf
 from app.services.audit import AUDIT_PAGE_SIZE, list_audit_events, record_event
 from app.services.auth import (
     approve_self_registration,
@@ -168,10 +167,10 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
+        _csrf: RequireCsrf,
         email: EmailForm,
         role: RoleForm = "user",
     ) -> Response:
-        await require_csrf(request, auth.session.csrf_token)
         error = ""
         field_errors: dict[str, str] = {}
         response_status = 200
@@ -223,7 +222,6 @@ def register_admin_routes(app: Hedron) -> None:
     async def _admin_user_mutation(
         request, user_id, auth, db, settings, *, action: str, q="", status="", page=1
     ) -> Response:
-        await require_csrf(request, auth.session.csrf_token)
         if not lock_administrator_action(db, auth.user):
             db.rollback()
             raise HTTPException(status_code=403, detail="Administrator required")
@@ -310,6 +308,7 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
+        _csrf: RequireCsrf,
         q: ListingQueryForm = "",
         status: ListingStatusForm = "",
         page: ListingPageForm = 1,
@@ -325,6 +324,7 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
+        _csrf: RequireCsrf,
         q: ListingQueryForm = "",
         status: ListingStatusForm = "",
         page: ListingPageForm = 1,
@@ -340,6 +340,7 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
+        _csrf: RequireCsrf,
         q: ListingQueryForm = "",
         status: ListingStatusForm = "",
         page: ListingPageForm = 1,
@@ -355,8 +356,8 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
+        _csrf: RequireCsrf,
     ) -> Response:
-        await require_csrf(request, auth.session.csrf_token)
         invitation = db.get(Invitation, invitation_id)
         if not invitation:
             raise HTTPException(status_code=404, detail="Invitation not found")

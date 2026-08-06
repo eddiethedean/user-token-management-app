@@ -11,6 +11,7 @@ from app.dependencies import (
     Auth,
     DbSession,
     OptionalAuth,
+    RequireCsrf,
     SettingsDep,
     clear_auth_cookies,
     set_auth_cookies,
@@ -18,7 +19,6 @@ from app.dependencies import (
 from app.routing import app_path
 from app.security.csrf import (
     clear_preauth_csrf_cookie,
-    require_csrf,
     require_preauth_csrf,
 )
 from app.services.auth import (
@@ -132,8 +132,8 @@ def register_login_routes(app: Hedron) -> None:
         auth: Auth,
         db: DbSession,
         settings: SettingsDep,
+        _csrf: RequireCsrf,
     ) -> Response:
-        await require_csrf(request, auth.session.csrf_token)
         revoke_session(db, auth.session, actor=auth.user, request=request)
         response = RedirectResponse(app_path(request, "/login"), status_code=303)
         clear_auth_cookies(response, settings, request)

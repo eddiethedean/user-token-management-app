@@ -25,7 +25,6 @@ from hedron_core import RenderMode
 from sqlalchemy import text
 
 from app.config import get_settings
-from app.database import SessionLocal
 from app.dependencies import clear_auth_cookies, set_auth_cookies
 from app.logging_config import bind_request_id, clear_request_id, configure_logging
 from app.routing import WorkbenchPathMiddleware, app_base_url, app_path, is_htmx_request
@@ -46,12 +45,22 @@ AR_SECURITY = access_registry_security_policy()
 
 
 @asynccontextmanager
-async def lifespan(_: Hedron) -> AsyncIterator[None]:
-    if settings.app_env != "test":
+async def lifespan(app: Hedron) -> AsyncIterator[None]:
+    from app.database import SessionLocal, engine
+
+    cfg = get_settings()
+    app.state.settings = cfg
+    app.state.ready = False
+    if cfg.app_env != "test":
         assert_schema_current()
     with SessionLocal() as db:
         ensure_default_roles(db)
-    yield
+    app.state.ready = True
+    try:
+        yield
+    finally:
+        app.state.ready = False
+        engine.dispose()
 
 
 app = Hedron(
@@ -246,7 +255,11 @@ def health() -> dict[str, str]:
 
 
 @app.get("/ready", include_in_schema=False)
-def ready() -> JSONResponse:
+def ready(request: Request) -> JSONResponse:
+    if not getattr(request.app.state, "ready", False):
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+    from app.database import SessionLocal
+
     try:
         with SessionLocal() as db:
             db.execute(text("SELECT 1"))

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, Response, status
+from fastapi import Depends, Form, Header, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,6 +11,7 @@ from app.config import Settings, get_settings
 from app.database import get_db
 from app.models import RefreshSession, User, utcnow
 from app.routing import cookie_path
+from app.security.csrf import assert_csrf
 from app.security.tokens import AccessTokenError, decode_access_token, hash_token
 from app.services.auth import SessionTokens, TokenFlowError, rotate_session
 
@@ -98,6 +99,19 @@ def require_admin(context: Auth) -> AuthContext:
 
 
 AdminAuth = Annotated[AuthContext, Depends(require_admin)]
+
+
+def enforce_session_csrf(
+    auth: Auth,
+    csrf_token: Annotated[str, Form(max_length=256)] = "",
+    x_csrf_token: Annotated[str | None, Header()] = None,
+) -> None:
+    """Validate session CSRF from ``X-CSRF-Token`` or form ``csrf_token``."""
+    submitted = (x_csrf_token or "").strip() or csrf_token
+    assert_csrf(submitted, auth.session.csrf_token)
+
+
+RequireCsrf = Annotated[None, Depends(enforce_session_csrf)]
 
 
 def get_session_by_refresh_token(

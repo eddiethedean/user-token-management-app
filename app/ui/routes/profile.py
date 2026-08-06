@@ -6,9 +6,8 @@ from fastapi import Request
 from hedron import Hedron, html
 from starlette.responses import Response
 
-from app.dependencies import Auth, DbSession, SettingsDep
+from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.routing import app_path
-from app.security.csrf import require_csrf
 from app.services.accounts import ProfileValues, update_profile
 from app.ui import partials as ui
 from app.ui.http import mutation_response, render_authenticated_view
@@ -77,12 +76,12 @@ def register_profile_routes(app: Hedron) -> None:
         request: Request,
         auth: Auth,
         db: DbSession,
+        _csrf: RequireCsrf,
         full_name: FullNameForm = "",
         organization: OrganizationForm = "",
         job_title: JobTitleForm = "",
         phone: PhoneForm = "",
     ) -> Response:
-        await require_csrf(request, auth.session.csrf_token)
         update_profile(
             db,
             user=auth.user,

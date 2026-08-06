@@ -8,10 +8,9 @@ from hedron import Hedron, InteractionResult, html
 from sqlalchemy import select
 from starlette.responses import Response
 
-from app.dependencies import Auth, DbSession, SettingsDep, clear_auth_cookies
+from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep, clear_auth_cookies
 from app.models import RefreshSession, UserSecret
 from app.routing import app_path, is_htmx_request
-from app.security.csrf import require_csrf
 from app.security.passwords import PasswordPolicyError
 from app.services.accounts import (
     CurrentPasswordError,
@@ -111,11 +110,11 @@ def register_security_routes(app: Hedron) -> None:
         auth: Auth,
         db: DbSession,
         settings: SettingsDep,
+        _csrf: RequireCsrf,
         current_password: PasswordForm,
         new_password: PasswordForm,
         new_password_confirm: PasswordForm,
     ) -> Response:
-        await require_csrf(request, auth.session.csrf_token)
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=403, detail="Password changes are disabled")
         error = ""
@@ -195,8 +194,8 @@ def register_security_routes(app: Hedron) -> None:
         auth: Auth,
         db: DbSession,
         settings: SettingsDep,
+        _csrf: RequireCsrf,
     ) -> Response:
-        await require_csrf(request, auth.session.csrf_token)
         session = db.get(RefreshSession, session_id)
         if not session or session.user_id != auth.user.id:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -224,9 +223,9 @@ def register_security_routes(app: Hedron) -> None:
         auth: Auth,
         db: DbSession,
         settings: SettingsDep,
+        _csrf: RequireCsrf,
         token: SecretTokenForm,
     ) -> Response:
-        await require_csrf(request, auth.session.csrf_token)
         try:
             specification = require_secret_provider(provider)
             stored = store_user_secret(
@@ -284,8 +283,8 @@ def register_security_routes(app: Hedron) -> None:
         auth: Auth,
         db: DbSession,
         settings: SettingsDep,
+        _csrf: RequireCsrf,
     ) -> Response:
-        await require_csrf(request, auth.session.csrf_token)
         try:
             specification = require_secret_provider(provider)
             deleted = delete_user_secret(db, user=auth.user, provider=provider, request=request)
