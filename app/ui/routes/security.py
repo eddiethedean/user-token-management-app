@@ -28,7 +28,7 @@ from app.services.secrets import (
     store_user_secret,
 )
 from app.ui import partials as ui
-from app.ui.http import render_authenticated_view, render_page
+from app.ui.http import mutation_response, render_authenticated_view, render_page
 from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.layout import alert_box, app_shell, page_heading
 from app.ui.params import NoticeQuery, PasswordForm, SecretTokenForm
@@ -206,14 +206,11 @@ def register_security_routes(app: Hedron) -> None:
         if not session or session.user_id != auth.user.id:
             raise HTTPException(status_code=404, detail="Session not found")
         revoke_session(db, session, actor=auth.user, request=request)
-        if not is_htmx_request(request):
-            return RedirectResponse(
-                app_path(request, "/security?notice=session-revoked"), status_code=303
-            )
         values = security_page_values(db, auth.user, settings)
-        return await interaction_response(
+        return await mutation_response(
             request,
-            ok_fragment(
+            redirect=app_path(request, "/security?notice=session-revoked"),
+            fragment=ok_fragment(
                 html.div(
                     ui.session_list(
                         values["sessions"], auth=auth, csrf_token=auth.session.csrf_token
@@ -256,12 +253,6 @@ def register_security_routes(app: Hedron) -> None:
             )
             error = str(exc)
             response_status = 503 if isinstance(exc, SecretStorageError) else 400
-        if not is_htmx_request(request):
-            if not error:
-                return RedirectResponse(
-                    app_path(request, "/security?notice=secret-saved"), status_code=303
-                )
-            raise HTTPException(status_code=response_status, detail=error)
         events = security_page_values(db, auth.user, settings)["events"]
         slot = ui.secret_slot(
             specification,
@@ -271,6 +262,8 @@ def register_security_routes(app: Hedron) -> None:
             success=f"{specification.label} API token saved." if not error else "",
         )
         if error:
+            if not is_htmx_request(request):
+                raise HTTPException(status_code=response_status, detail=error)
             return await interaction_response(
                 request,
                 ok_fragment(
@@ -280,9 +273,10 @@ def register_security_routes(app: Hedron) -> None:
                     toast_tone="danger",
                 ),
             )
-        return await interaction_response(
+        return await mutation_response(
             request,
-            ok_fragment(
+            redirect=app_path(request, "/security?notice=secret-saved"),
+            fragment=ok_fragment(
                 html.div(slot, ui.security_activity(events, oob=True)),
                 toast=f"{specification.label} API token saved.",
             ),
@@ -304,14 +298,11 @@ def register_security_routes(app: Hedron) -> None:
             raise HTTPException(status_code=404, detail="API token provider not found") from exc
         if not deleted:
             raise HTTPException(status_code=404, detail="API token is not configured.")
-        if not is_htmx_request(request):
-            return RedirectResponse(
-                app_path(request, "/security?notice=secret-deleted"), status_code=303
-            )
         events = security_page_values(db, auth.user, settings)["events"]
-        return await interaction_response(
+        return await mutation_response(
             request,
-            ok_fragment(
+            redirect=app_path(request, "/security?notice=secret-deleted"),
+            fragment=ok_fragment(
                 html.div(
                     ui.secret_slot(
                         specification,

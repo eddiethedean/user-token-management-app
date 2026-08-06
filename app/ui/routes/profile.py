@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 from fastapi import Request
-from fastapi.responses import RedirectResponse
 from hedron import Hedron, html
 from starlette.responses import Response
 
 from app.dependencies import Auth, DbSession, SettingsDep
-from app.routing import app_path, is_htmx_request
+from app.routing import app_path
 from app.security.csrf import require_csrf
 from app.services.accounts import ProfileValues, update_profile
 from app.ui import partials as ui
-from app.ui.http import render_authenticated_view
-from app.ui.interactions import interaction_response, ok_fragment
+from app.ui.http import mutation_response, render_authenticated_view
+from app.ui.interactions import ok_fragment
 from app.ui.layout import alert_box, page_heading
 from app.ui.params import (
     FullNameForm,
@@ -92,11 +91,10 @@ def register_profile_routes(app: Hedron) -> None:
             ),
             request=request,
         )
-        if not is_htmx_request(request):
-            return RedirectResponse(app_path(request, "/profile?updated=true"), status_code=303)
-        return await interaction_response(
+        return await mutation_response(
             request,
-            ok_fragment(
+            redirect=app_path(request, "/profile?updated=true"),
+            fragment=ok_fragment(
                 html.div(
                     *ui.profile_response(auth, csrf_token=auth.session.csrf_token, success="")
                 ),

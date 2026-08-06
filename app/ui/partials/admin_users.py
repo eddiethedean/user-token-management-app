@@ -20,6 +20,7 @@ from hedron import (
 from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.models import Invitation, Role, User, UserStatus
+from app.ui.forms import csrf_hidden, hidden_field, submit_button
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.partials.shared import _filter_base_path, hedron_pagination
 from app.ui.urls import form_action, hx_attrs
@@ -51,10 +52,10 @@ def user_table(
             for action, label in (("approve", "Approve"), ("deny", "Deny")):
                 actions.append(
                     Form(
-                        html.input(type="hidden", name="csrf_token", value=csrf_token),
-                        html.input(type="hidden", name="q", value=query),
-                        html.input(type="hidden", name="status", value=status_filter),
-                        html.input(type="hidden", name="page", value=str(page)),
+                        csrf_hidden(csrf_token),
+                        hidden_field("q", query),
+                        hidden_field("status", status_filter),
+                        hidden_field("page", str(page)),
                         html.button(
                             label, class_="button button-small button-action", type="submit"
                         ),
@@ -74,10 +75,10 @@ def user_table(
             action_label = "Disable" if is_active else "Enable"
             dialog_id = f"toggle-user-{user.id}"
             toggle_form = Form(
-                html.input(type="hidden", name="csrf_token", value=csrf_token),
-                html.input(type="hidden", name="q", value=query),
-                html.input(type="hidden", name="status", value=status_filter),
-                html.input(type="hidden", name="page", value=str(page)),
+                csrf_hidden(csrf_token),
+                hidden_field("q", query),
+                hidden_field("status", status_filter),
+                hidden_field("page", str(page)),
                 html.button(
                     action_label,
                     class_="button button-small button-action",
@@ -189,7 +190,7 @@ def user_directory(
                     value=status_filter or None,
                 ),
             ),
-            html.button("Filter", class_="button button-secondary button-small", type="submit"),
+            submit_button("Filter", variant="secondary", small=True),
             class_="filter-form",
             action=form_action("admin/users"),
             method="get",
@@ -252,7 +253,7 @@ def invitation_panel(
                         "Revoke invitation",
                         html.p(f"Revoke the invitation for {invitation.email_original}?"),
                         Form(
-                            html.input(type="hidden", name="csrf_token", value=csrf_token),
+                            csrf_hidden(csrf_token),
                             html.button(
                                 "Revoke invitation",
                                 class_="button button-danger",
@@ -294,7 +295,7 @@ def invitation_panel(
         alert_box(top_error),
         alert_box(success, kind="success"),
         Form(
-            html.input(type="hidden", name="csrf_token", value=csrf_token),
+            csrf_hidden(csrf_token),
             FormField(
                 name="email",
                 label="Government email",

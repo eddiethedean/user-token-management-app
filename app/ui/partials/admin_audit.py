@@ -20,6 +20,7 @@ from hedron import (
 from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.models import AuditEvent
+from app.ui.forms import submit_button
 from app.ui.layout import INDICATOR
 from app.ui.partials.shared import _filter_base_path, hedron_pagination
 from app.ui.urls import form_action, hx_attrs, page_href
@@ -83,7 +84,7 @@ def _audit_filter_form(event_type_filter: str, outcome_filter: str) -> Form:
                 autocomplete="off",
             ),
         ),
-        html.button("Apply filters", class_="button button-secondary button-small", type="submit"),
+        submit_button("Apply filters", variant="secondary", small=True),
         (
             html.a(
                 "Clear",

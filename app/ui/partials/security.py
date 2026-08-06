@@ -25,6 +25,7 @@ from hedron_core import Component, HtmlAttrValue, NodeLike
 from app.dependencies import AuthContext
 from app.models import AuditEvent, RefreshSession
 from app.services.secrets import SecretProvider
+from app.ui.forms import csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.urls import form_action, hx_attrs, page_href
 
@@ -81,7 +82,7 @@ def password_form(
     return Section(
         alert_box(top_error),
         Form(
-            html.input(type="hidden", name="csrf_token", value=csrf_token),
+            csrf_hidden(csrf_token),
             _password_field(
                 "Current password",
                 "current_password",
@@ -100,7 +101,7 @@ def password_form(
                 autocomplete="new-password",
                 error=field_errors.get("new_password_confirm", ""),
             ),
-            html.button("Change password", class_="button button-primary", type="submit"),
+            submit_button("Change password"),
             class_="stack-form",
             action=form_action("security/password"),
             method="post",
@@ -152,7 +153,7 @@ def secret_slot(
         alert_box(success, kind="success"),
         html.p(metadata, class_="secret-metadata"),
         Form(
-            html.input(type="hidden", name="csrf_token", value=csrf_token),
+            csrf_hidden(csrf_token),
             FormField(
                 name="token",
                 label=f"{provider.label} API token",
@@ -196,7 +197,7 @@ def secret_slot(
                         f"Delete your {provider.label} API token? Runs using it will stop working."
                     ),
                     Form(
-                        html.input(type="hidden", name="csrf_token", value=csrf_token),
+                        csrf_hidden(csrf_token),
                         html.button(
                             "Delete token",
                             class_="button button-danger",
@@ -248,7 +249,7 @@ def session_list(
                     "Revoke session",
                     html.p("Revoke this browser session? The device will need to sign in again."),
                     Form(
-                        html.input(type="hidden", name="csrf_token", value=csrf_token),
+                        csrf_hidden(csrf_token),
                         html.button(
                             "Revoke session",
                             class_="button button-danger",

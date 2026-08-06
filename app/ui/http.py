@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from fastapi import Request
-from hedron import Card, Page, html
+from fastapi.responses import RedirectResponse
+from hedron import Card, InteractionResult, Page, html
 from hedron.responses import render_component_response
 from hedron_core import NodeLike, RenderMode
 from starlette.responses import Response
@@ -133,3 +134,15 @@ async def render_authenticated_view(
         authenticated=True,
         headers=headers,
     )
+
+
+async def mutation_response(
+    request: Request,
+    *,
+    redirect: str,
+    fragment: InteractionResult,
+) -> Response:
+    """Authenticated POST result: full-page 303 redirect, or HTMX InteractionResult."""
+    if not is_htmx_request(request):
+        return RedirectResponse(redirect, status_code=303)
+    return await interaction_response(request, fragment)

@@ -8,6 +8,7 @@ from hedron import Badge, Form, FormField, Heading, Section, TextInput, html
 from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
+from app.ui.forms import csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, account_summary, alert_box
 from app.ui.urls import form_action, hx_attrs, page_href
 
@@ -17,7 +18,7 @@ def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> Co
     return Section(
         alert_box(success, kind="success"),
         Form(
-            html.input(type="hidden", name="csrf_token", value=csrf_token),
+            csrf_hidden(csrf_token),
             html.div(
                 html.div(
                     FormField(
@@ -87,7 +88,7 @@ def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> Co
                 class_="field-grid",
             ),
             html.div(
-                html.button("Save changes", class_="button button-primary", type="submit"),
+                submit_button("Save changes"),
                 html.span("Saving…", class_="htmx-indicator"),
                 class_="form-actions",
             ),

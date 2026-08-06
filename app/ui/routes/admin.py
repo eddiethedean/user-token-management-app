@@ -29,7 +29,7 @@ from app.services.directory import (
     validate_directory_email,
 )
 from app.ui import partials as ui
-from app.ui.http import hx_target, is_filter_fragment, render_authenticated_view
+from app.ui.http import hx_target, is_filter_fragment, mutation_response, render_authenticated_view
 from app.ui.interactions import (
     audit_match_count_oob,
     interaction_response,
@@ -277,15 +277,13 @@ def register_admin_routes(app: Hedron) -> None:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             notice = "registration-denied"
             toast = "The registration was denied."
-        if not is_htmx_request(request):
-            return RedirectResponse(
-                user_listing_path(request, query=q, status_filter=status, page=page, notice=notice),
-                status_code=303,
-            )
         listing = user_listing_values(db, query=q, status_filter=status, page=page)
-        return await interaction_response(
+        return await mutation_response(
             request,
-            ok_fragment(
+            redirect=user_listing_path(
+                request, query=q, status_filter=status, page=page, notice=notice
+            ),
+            fragment=ok_fragment(
                 ui.user_table(
                     listing["users"],
                     csrf_token=auth.session.csrf_token,
@@ -368,17 +366,14 @@ def register_admin_routes(app: Hedron) -> None:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if not is_htmx_request(request):
-            return RedirectResponse(
-                app_path(request, "/admin/users?notice=invitation-revoked"), status_code=303
-            )
         invitations = list(
             db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all()
         )
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
-        return await interaction_response(
+        return await mutation_response(
             request,
-            ok_fragment(
+            redirect=app_path(request, "/admin/users?notice=invitation-revoked"),
+            fragment=ok_fragment(
                 ui.invitation_panel(
                     invitations,
                     roles,

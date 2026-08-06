@@ -24,6 +24,7 @@ from hedron_core.security import SafeUrl, UrlPurpose
 from app.config import Settings
 from app.dependencies import AuthContext
 from app.routing import app_path
+from app.ui.forms import csrf_hidden, submit_button
 from app.ui.urls import form_action, hx_attrs, page_href
 
 INDICATOR = "#global-request-indicator"
@@ -75,8 +76,8 @@ def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) ->
             class_="account-copy",
         ),
         html.form(
-            html.input(type="hidden", name="csrf_token", value=csrf_token),
-            html.button("Sign out", class_="button button-quiet button-small", type="submit"),
+            csrf_hidden(csrf_token),
+            submit_button("Sign out", quiet=True, small=True),
             action=form_action("logout"),
             method="post",
         ),
