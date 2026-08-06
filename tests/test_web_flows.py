@@ -170,7 +170,7 @@ def test_secret_save_and_delete_never_reveal_token(client, make_user) -> None:
         "/security/secrets/not-a-provider",
         data={"csrf_token": csrf_from(client.get("/security").text), "token": "x"},
     )
-    assert unknown.status_code == 404
+    assert unknown.status_code == 422
 
 
 def test_htmx_admin_directory_and_audit_fragments(client, htmx, make_user) -> None:
@@ -222,6 +222,12 @@ def test_htmx_admin_invitation_errors_and_missing_toggle(client, htmx) -> None:
         data={"csrf_token": csrf_from(client.get("/admin/users").text)},
     )
     assert missing.status_code == 404
+
+    invalid_id = client.post(
+        "/admin/users/not-a-uuid/toggle",
+        data={"csrf_token": csrf_from(client.get("/admin/users").text)},
+    )
+    assert invalid_id.status_code == 422
 
 
 def test_disable_user_invalidates_active_session(client, make_user, access_app) -> None:

@@ -31,7 +31,13 @@ from app.ui import partials as ui
 from app.ui.http import mutation_response, render_authenticated_view, render_page
 from app.ui.interactions import htmx_redirect, interaction_response, ok_fragment
 from app.ui.layout import alert_box, app_shell, page_heading
-from app.ui.params import NoticeQuery, PasswordForm, SecretTokenForm
+from app.ui.params import (
+    NoticeQuery,
+    PasswordForm,
+    SecretProviderPath,
+    SecretTokenForm,
+    SessionIdPath,
+)
 from app.ui.regions import SECURITY_ACTIVITY
 
 
@@ -184,7 +190,7 @@ def register_security_routes(app: Hedron) -> None:
 
     @app.post("/security/sessions/{session_id}/revoke", include_in_schema=False)
     async def revoke_session_submit(
-        session_id: str,
+        session_id: SessionIdPath,
         request: Request,
         auth: Auth,
         db: DbSession,
@@ -213,7 +219,7 @@ def register_security_routes(app: Hedron) -> None:
 
     @app.post("/security/secrets/{provider}", include_in_schema=False)
     async def secret_submit(
-        provider: str,
+        provider: SecretProviderPath,
         request: Request,
         auth: Auth,
         db: DbSession,
@@ -273,7 +279,7 @@ def register_security_routes(app: Hedron) -> None:
 
     @app.post("/security/secrets/{provider}/delete", include_in_schema=False)
     async def secret_delete_submit(
-        provider: str,
+        provider: SecretProviderPath,
         request: Request,
         auth: Auth,
         db: DbSession,

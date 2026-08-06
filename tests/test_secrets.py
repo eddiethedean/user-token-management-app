@@ -120,7 +120,7 @@ def test_secret_validation_ownership_and_tampering(client, make_user) -> None:
         "/security/secrets/custom",
         data={"csrf_token": csrf, "token": "custom-secret-token"},
     )
-    assert unknown.status_code == 404
+    assert unknown.status_code == 422
 
     saved = client.post(
         "/security/secrets/mss",

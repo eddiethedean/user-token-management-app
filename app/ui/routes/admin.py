@@ -40,6 +40,7 @@ from app.ui.layout import page_heading
 from app.ui.params import (
     EmailForm,
     EventTypeQuery,
+    InvitationIdPath,
     ListingPageForm,
     ListingQueryForm,
     ListingStatusForm,
@@ -49,6 +50,7 @@ from app.ui.params import (
     RoleForm,
     SearchQuery,
     StatusFilterQuery,
+    UserIdPath,
 )
 from app.ui.regions import AUDIT_MATCH_COUNT, AUDIT_RESULTS
 
@@ -303,7 +305,7 @@ def register_admin_routes(app: Hedron) -> None:
 
     @app.post("/admin/users/{user_id}/toggle", include_in_schema=False)
     async def toggle_user(
-        user_id: str,
+        user_id: UserIdPath,
         request: Request,
         auth: AdminAuth,
         db: DbSession,
@@ -318,7 +320,7 @@ def register_admin_routes(app: Hedron) -> None:
 
     @app.post("/admin/users/{user_id}/approve", include_in_schema=False)
     async def approve_user(
-        user_id: str,
+        user_id: UserIdPath,
         request: Request,
         auth: AdminAuth,
         db: DbSession,
@@ -333,7 +335,7 @@ def register_admin_routes(app: Hedron) -> None:
 
     @app.post("/admin/users/{user_id}/deny", include_in_schema=False)
     async def deny_user(
-        user_id: str,
+        user_id: UserIdPath,
         request: Request,
         auth: AdminAuth,
         db: DbSession,
@@ -348,7 +350,7 @@ def register_admin_routes(app: Hedron) -> None:
 
     @app.post("/admin/invitations/{invitation_id}/revoke", include_in_schema=False)
     async def revoke_invitation_submit(
-        invitation_id: str,
+        invitation_id: InvitationIdPath,
         request: Request,
         auth: AdminAuth,
         db: DbSession,
