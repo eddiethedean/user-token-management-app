@@ -14,6 +14,116 @@ The SIPR authorizing organization must select the applicable CNSS/DoD requiremen
 NIST and OWASP references here support engineering reasoning but do not decide that authorization
 boundary.
 
+**Operator surface:** Access Registry is a **browser HTMX UI** with cookie sessions — not a public
+REST/OpenAPI resource API. Bearer-style Advana/ADE/MSS values are stored encrypted for authorized
+users; they are not how the application authenticates HTTP callers. Day-to-day setup lives in the
+[README](README.md) and [docs/](docs/); use this file for the decision register and production gate.
+
+## Reporting a vulnerability
+
+Do **not** open a public issue for security-sensitive reports.
+
+1. Prefer [GitHub Security Advisories](https://github.com/eddiethedean/user-token-management-app/security/advisories/new)
+   (private vulnerability reporting) when enabled on the repository.
+2. Otherwise email the maintainer listed in [pyproject.toml](pyproject.toml) with a description,
+   impact, and reproduction steps. Allow reasonable time for a fix before public disclosure.
+
+Please omit production secrets, live tokens, and unnecessary personal data from reports.
+
+## Production security gate
+
+Do not represent a deployment as production-ready until the system owner records evidence for every
+item below. Items marked **code gap** require application work; the remainder require deployment or
+authorization evidence.
+
+- [ ] The privacy and security officials have determined whether making the application's profile,
+      account activity, and session metadata available invokes the federal AAL2 minimum. If it does,
+      `AUTHENTICATION_MODE=trusted_header` is used behind an approved phishing-resistant CAC/MFA
+      identity-aware proxy, or another approved federation path replaces local password sign-in.
+- [ ] For any remaining password-only use, the identity and authenticator risk assessment explicitly
+      accepts email-verified access for the information and functions in scope.
+- [ ] The NIPR and SIPR authorization boundaries, data flows, administrators, secrets, databases,
+      SMTP relays, logs, backups, and pipelines are separate and documented.
+- [ ] `APP_ENV=production`, `COOKIE_SECURE=true`, the stable HTTPS `PUBLIC_BASE_URL`, PostgreSQL
+      `DATABASE_URL`, exact `ALLOWED_EMAIL_DOMAINS`, approved issuer/audience values, SMTP with
+      STARTTLS, sent-body redaction, and the approved offline password blocklist are set. Production
+      startup validation passes.
+- [ ] If directory validation is enabled, the source's authority, attribute currency, privacy use,
+      exact URL/response contract, CA trust, bearer-secret handling, fail-open/fail-closed policy,
+      DNS behavior, and network egress allowlist are approved and monitored. It is not represented as
+      authentication, CAC validation, identity proofing, clearance, or authorization.
+- [ ] High-entropy, enclave-unique JWT and session secrets are injected from an approved store;
+      access, audit, incident, and rotation procedures are recorded.
+- [ ] High-entropy API-token encryption keys are injected separately from JWT/session secrets; old
+      referenced key versions remain available, protected backups and recovery are tested, and the
+      exact cryptographic module and operational environment have the required validation evidence.
+- [ ] Before user API tokens reach run code, the run supervisor uses an explicit minimal environment
+      that cannot inherit the master-key ring, grants only selected provider slots, isolates users and
+      runs, redacts logs/artifacts, and records each use. Arbitrary granted code is treated as capable
+      of exfiltrating its token.
+- [ ] For local Posit Connect execution, `Applications.InheritSystemEnvVars=false` is set and verified;
+      separately, the application run supervisor passes an explicit child environment containing no
+      parent secrets except the selected provider token. Secret values never enter command arguments,
+      URLs, logs, artifacts, exception reports, or crash dumps.
+- [ ] The atomic API-token key-usage counter is monitored, its per-key ceiling is approved well below
+      the applicable SP 800-38D bound, rotation occurs early, and an approved rewrap procedure is
+      tested before retiring old keys.
+- [ ] Token-management authentication strength and any step-up/reauthentication requirement are
+      approved for the value of the stored credentials; provider-side issuance uses the minimum
+      possible scope and lifetime, and revocation/rotation procedures are tested.
+- [ ] The configured offline common/compromised-password blocklist is approved, versioned, updated,
+      and tested without disclosing candidate passwords outside the enclave.
+- [ ] The selected Argon2 parameters are recorded and benchmarked, or the exact FIPS-validated
+      PBKDF2 module/configuration/operational environment is evidenced.
+- [ ] TLS is approved end to end; HTTP is unavailable or redirected appropriately; Secure cookies,
+      HSTS, and certificates have been tested at the external URL.
+- [ ] Direct app-server access is blocked and the trusted proxy overwrites security-relevant
+      forwarding headers; every immediate proxy address is explicitly in `TRUSTED_PROXY_IPS`, and
+      `X-Forwarded-For` is not used for authorization.
+- [ ] In `trusted_header` mode, the identity-aware proxy strips every client-supplied identity
+      header, performs the approved authentication, injects exactly one normalized account email,
+      and has tests proving header spoofing cannot bypass the proxy boundary.
+- [ ] Cookie set, refresh, deletion, path isolation, SameSite, and expiry have been tested through
+      both Connect and Workbench routes.
+- [ ] The atomic five-failure terminal password disablement and approved reset/rebinding procedure
+      are exercised against production PostgreSQL, monitored for denial-of-service abuse, and
+      reflected in help-desk recovery procedures.
+- [ ] Database-backed source/account throttling is enabled and tested on production PostgreSQL;
+      ingress volumetric throttling, progressive delay/device-risk controls, enumeration timing
+      tests and alerting are approved; signed pre-authentication CSRF behavior is verified through
+      the production proxy.
+- [ ] Conditional capability-consumption and refresh-family replay tests pass concurrently on the
+      production PostgreSQL version and topology.
+- [ ] `Cache-Control: no-store` behavior is verified through the production proxy for authenticated
+      and token-bearing responses.
+- [ ] The dedicated email worker is supervised; SMTP transport is approved; batch metrics, retry
+      backlog, and dead letters are monitored; the operator requeue procedure is tested.
+- [ ] Sent outbox bodies are redacted; pending/dead-letter retention is approved; proxy,
+      application, SMTP, and SIEM logs redact registration/invitation/reset query tokens.
+- [ ] PostgreSQL security, Alembic migration/adoption rehearsal, backup encryption, restore testing,
+      retention, availability, and least-privilege credentials are approved. The release procedure
+      migrates before application startup and never uses a migration to bootstrap an administrator.
+- [ ] Audit events flow to protected centralized storage with time synchronization, retention,
+      monitoring, alerts, access review, and incident-response integration.
+- [ ] Administrator lifecycle, dual-control/break-glass needs, periodic access review, and prompt
+      deprovisioning are documented.
+- [ ] Dependency locking, vulnerability scanning, Hedron/HTMX provenance review, patching, and
+      release approval are part of the deployment pipeline.
+- [ ] Unit and HTMX fragment security tests pass; security tests also pass in the exact
+      production-equivalent proxy and database topology; penetration testing and authorization
+      review are complete at the required impact level.
+
+## Contents
+
+- [Reporting a vulnerability](#reporting-a-vulnerability)
+- [Production security gate](#production-security-gate)
+- [Status vocabulary](#status-vocabulary)
+- [Evidence and claim discipline](#evidence-and-claim-discipline)
+- [Assurance boundary](#assurance-boundary)
+- [Threat model and trust boundaries](#threat-model-and-trust-boundaries)
+- [Decision register](#decision-register)
+- [Reference index](#reference-index)
+
 ## Status vocabulary
 
 - **Implemented** — present in the repository version reviewed for this record. Automated tests
@@ -492,10 +602,11 @@ also preserves HTTP safe-method semantics and makes automated link inspection le
 
 **Gaps and deployment controls:**
 
-- Raw URLs necessarily appear in the email body and can therefore exist in `email_outbox.body_text`,
-  SMTP systems, mailbox storage, browser history, and proxy request logs. The README statement that
-  all such tokens are “stored only as hashes” is intentionally narrowed: it is true only of the
-  registration, invitation, reset, and session token columns.
+- Raw capability URLs necessarily appear in the email body and can therefore exist in
+  `email_outbox.body_text`, SMTP systems, mailbox storage, browser history, and proxy request logs.
+  Database columns for registration, invitation, reset, and session tokens store HMAC digests only;
+  plaintext tokens are not retained in those columns after issue. Outbox and mail paths are a
+  separate residual-risk surface until bodies are redacted after delivery.
 - Restrict database/outbox access, encrypt storage and backups as required, define the shortest
   workable outbox retention, and purge or redact bodies after delivery. Configure every proxy and
   log collector to redact query parameter `token`; never put tokens in audit details.
@@ -912,89 +1023,6 @@ their records are rewrapped by an approved procedure or deleted.
 - [PostgreSQL pgcrypto security limitations](https://www.postgresql.org/docs/current/pgcrypto.html#PGCRYPTO-NOTES)
   explain why cryptographic operations and key handling are kept in the application rather than the
   database server.
-
-## Production security gate
-
-Do not represent a deployment as production-ready until the system owner records evidence for every
-item below. Items marked **code gap** require application work; the remainder require deployment or
-authorization evidence.
-
-- [ ] The privacy and security officials have determined whether making the application's profile,
-      account activity, and session metadata available invokes the federal AAL2 minimum. If it does,
-      `AUTHENTICATION_MODE=trusted_header` is used behind an approved phishing-resistant CAC/MFA
-      identity-aware proxy, or another approved federation path replaces local password sign-in.
-- [ ] For any remaining password-only use, the identity and authenticator risk assessment explicitly
-      accepts email-verified access for the information and functions in scope.
-- [ ] The NIPR and SIPR authorization boundaries, data flows, administrators, secrets, databases,
-      SMTP relays, logs, backups, and pipelines are separate and documented.
-- [ ] `APP_ENV=production`, `COOKIE_SECURE=true`, the stable HTTPS `PUBLIC_BASE_URL`, PostgreSQL
-      `DATABASE_URL`, exact `ALLOWED_EMAIL_DOMAINS`, approved issuer/audience values, SMTP with
-      STARTTLS, sent-body redaction, and the approved offline password blocklist are set. Production
-      startup validation passes.
-- [ ] If directory validation is enabled, the source's authority, attribute currency, privacy use,
-      exact URL/response contract, CA trust, bearer-secret handling, fail-open/fail-closed policy,
-      DNS behavior, and network egress allowlist are approved and monitored. It is not represented as
-      authentication, CAC validation, identity proofing, clearance, or authorization.
-- [ ] High-entropy, enclave-unique JWT and session secrets are injected from an approved store;
-      access, audit, incident, and rotation procedures are recorded.
-- [ ] High-entropy API-token encryption keys are injected separately from JWT/session secrets; old
-      referenced key versions remain available, protected backups and recovery are tested, and the
-      exact cryptographic module and operational environment have the required validation evidence.
-- [ ] Before user API tokens reach run code, the run supervisor uses an explicit minimal environment
-      that cannot inherit the master-key ring, grants only selected provider slots, isolates users and
-      runs, redacts logs/artifacts, and records each use. Arbitrary granted code is treated as capable
-      of exfiltrating its token.
-- [ ] For local Posit Connect execution, `Applications.InheritSystemEnvVars=false` is set and verified;
-      separately, the application run supervisor passes an explicit child environment containing no
-      parent secrets except the selected provider token. Secret values never enter command arguments,
-      URLs, logs, artifacts, exception reports, or crash dumps.
-- [ ] The atomic API-token key-usage counter is monitored, its per-key ceiling is approved well below
-      the applicable SP 800-38D bound, rotation occurs early, and an approved rewrap procedure is
-      tested before retiring old keys.
-- [ ] Token-management authentication strength and any step-up/reauthentication requirement are
-      approved for the value of the stored credentials; provider-side issuance uses the minimum
-      possible scope and lifetime, and revocation/rotation procedures are tested.
-- [ ] The configured offline common/compromised-password blocklist is approved, versioned, updated,
-      and tested without disclosing candidate passwords outside the enclave.
-- [ ] The selected Argon2 parameters are recorded and benchmarked, or the exact FIPS-validated
-      PBKDF2 module/configuration/operational environment is evidenced.
-- [ ] TLS is approved end to end; HTTP is unavailable or redirected appropriately; Secure cookies,
-      HSTS, and certificates have been tested at the external URL.
-- [ ] Direct app-server access is blocked and the trusted proxy overwrites security-relevant
-      forwarding headers; every immediate proxy address is explicitly in `TRUSTED_PROXY_IPS`, and
-      `X-Forwarded-For` is not used for authorization.
-- [ ] In `trusted_header` mode, the identity-aware proxy strips every client-supplied identity
-      header, performs the approved authentication, injects exactly one normalized account email,
-      and has tests proving header spoofing cannot bypass the proxy boundary.
-- [ ] Cookie set, refresh, deletion, path isolation, SameSite, and expiry have been tested through
-      both Connect and Workbench routes.
-- [ ] The atomic five-failure terminal password disablement and approved reset/rebinding procedure
-      are exercised against production PostgreSQL, monitored for denial-of-service abuse, and
-      reflected in help-desk recovery procedures.
-- [ ] Database-backed source/account throttling is enabled and tested on production PostgreSQL;
-      ingress volumetric throttling, progressive delay/device-risk controls, enumeration timing
-      tests and alerting are approved; signed pre-authentication CSRF behavior is verified through
-      the production proxy.
-- [ ] Conditional capability-consumption and refresh-family replay tests pass concurrently on the
-      production PostgreSQL version and topology.
-- [ ] `Cache-Control: no-store` behavior is verified through the production proxy for authenticated
-      and token-bearing responses.
-- [ ] The dedicated email worker is supervised; SMTP transport is approved; batch metrics, retry
-      backlog, and dead letters are monitored; the operator requeue procedure is tested.
-- [ ] Sent outbox bodies are redacted; pending/dead-letter retention is approved; proxy,
-      application, SMTP, and SIEM logs redact registration/invitation/reset query tokens.
-- [ ] PostgreSQL security, Alembic migration/adoption rehearsal, backup encryption, restore testing,
-      retention, availability, and least-privilege credentials are approved. The release procedure
-      migrates before application startup and never uses a migration to bootstrap an administrator.
-- [ ] Audit events flow to protected centralized storage with time synchronization, retention,
-      monitoring, alerts, access review, and incident-response integration.
-- [ ] Administrator lifecycle, dual-control/break-glass needs, periodic access review, and prompt
-      deprovisioning are documented.
-- [ ] Dependency locking, vulnerability scanning, Hedron/HTMX provenance review, patching, and
-      release approval are part of the deployment pipeline.
-- [ ] Unit and HTMX fragment security tests pass; security tests also pass in the exact
-      production-equivalent proxy and database topology; penetration testing and authorization
-      review are complete at the required impact level.
 
 ## Reference index
 

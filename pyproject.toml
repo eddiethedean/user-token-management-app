@@ -5,8 +5,34 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "access-registry"
 version = "0.1.0"
-description = "Access Registry — government-email user and token management (Hedron UI)"
+description = "Access Registry — administrator-approved government-email accounts and encrypted Advana/ADE/MSS API tokens (Hedron + HTMX UI)"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
+authors = [{ name = "Odo Matthews", email = "odosmatthews@gmail.com" }]
+keywords = [
+  "access-registry",
+  "fastapi",
+  "hedron",
+  "htmx",
+  "authentication",
+  "api-tokens",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Web Environment",
+  "Framework :: FastAPI",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+]
 dependencies = [
   "alembic>=1.16,<2",
   "cryptography>=46,<47",
@@ -30,6 +56,13 @@ dev = [
   "pytest-cov>=6.2,<7",
   "ruff>=0.12,<1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/eddiethedean/user-token-management-app"
+Repository = "https://github.com/eddiethedean/user-token-management-app"
+Issues = "https://github.com/eddiethedean/user-token-management-app/issues"
+Documentation = "https://github.com/eddiethedean/user-token-management-app#readme"
+Changelog = "https://github.com/eddiethedean/user-token-management-app/blob/main/CHANGELOG.md"
 
 [project.scripts]
 access-registry = "app.cli:main"

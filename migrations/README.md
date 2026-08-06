@@ -1,11 +1,52 @@
 # Schema migrations
 
-Run migrations explicitly before starting or deploying the application:
+Run migrations **before** starting or deploying the application. Startup and `create-admin` refuse to
+continue if the database is not at Alembic head.
+
+## Commands
 
 ```bash
+# Upgrade to head (normal path for new and existing Alembic-managed DBs)
 python -m app migrate
+
+# Show current revision vs expected head
+python -m app schema-status
+
+# Legacy databases created outside Alembic (verified stamp, then upgrade)
+# Take a recoverable backup first.
+python -m app migrate --adopt-existing
 ```
 
-Account creation and role assignment are intentionally not performed by Alembic revisions. Use
-`python -m app create-admin --email … --password-env ADMIN_BOOTSTRAP_PASSWORD` after the schema is
-current (or the console script `access-registry create-admin …`).
+Equivalent: `access-registry migrate …` / `make migrate` / `make schema-status`.
+
+## Adopt existing (`--adopt-existing`)
+
+Use only when the database has Access Registry tables but **no** `alembic_version` row (for example
+an old `create_all()` environment). The command:
+
+1. Verifies known core tables and column shapes against the SQLAlchemy metadata.
+2. Rejects partial or unknown intermediate schemas.
+3. Stamps the matching historical revision.
+4. Runs `upgrade` to head.
+
+If the database is already Alembic-managed, omit `--adopt-existing` and run plain `migrate`.
+
+## Operational rules
+
+- **Backup** before adopt or major upgrades; rehearse restore on PostgreSQL.
+- **No admin bootstrap in migrations** — create or promote administrators with
+  `python -m app create-admin --email …` after the schema is current.
+- **Downgrades** exist in revision scripts for operator recovery drills. They may remove schema and
+  data. They are not an application feature for undoing user actions; prefer restore-from-backup for
+  production incidents.
+- Keep NIPR and SIPR (or other enclaves) on separate databases, credentials, and key material.
+
+## After migrate
+
+```bash
+python -m app schema-status
+ADMIN_BOOTSTRAP_PASSWORD='…' python -m app create-admin \
+  --email admin@example.gov --password-env ADMIN_BOOTSTRAP_PASSWORD
+```
+
+See [docs/deploy.md](../docs/deploy.md) and [docs/troubleshooting.md](../docs/troubleshooting.md).
