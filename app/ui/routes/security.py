@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import Form, HTTPException, Request
+from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, html
 from sqlalchemy import select
@@ -31,6 +31,7 @@ from app.ui import partials as ui
 from app.ui.http import render_authenticated_view, render_page
 from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.layout import alert_box, app_shell, page_heading
+from app.ui.params import NoticeQuery, PasswordForm, SecretTokenForm
 
 
 def register_security_routes(app: Hedron) -> None:
@@ -40,7 +41,7 @@ def register_security_routes(app: Hedron) -> None:
         auth: Auth,
         db: DbSession,
         settings: SettingsDep,
-        notice: str = "",
+        notice: NoticeQuery = "",
     ) -> Response:
         request.state.hedron_authenticated = True
         notices = {
@@ -112,9 +113,9 @@ def register_security_routes(app: Hedron) -> None:
         auth: Auth,
         db: DbSession,
         settings: SettingsDep,
-        current_password: str = Form(max_length=128),
-        new_password: str = Form(max_length=128),
-        new_password_confirm: str = Form(max_length=128),
+        current_password: PasswordForm,
+        new_password: PasswordForm,
+        new_password_confirm: PasswordForm,
     ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         if settings.authentication_mode != "local_password":
@@ -231,7 +232,7 @@ def register_security_routes(app: Hedron) -> None:
         auth: Auth,
         db: DbSession,
         settings: SettingsDep,
-        token: str = Form(max_length=8192),
+        token: SecretTokenForm,
     ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         try:

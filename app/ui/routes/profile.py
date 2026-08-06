@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import Form, Request
+from fastapi import Request
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, html
 from starlette.responses import Response
@@ -15,6 +15,13 @@ from app.ui import partials as ui
 from app.ui.http import render_authenticated_view
 from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.layout import alert_box, page_heading
+from app.ui.params import (
+    FullNameForm,
+    JobTitleForm,
+    OrganizationForm,
+    PhoneForm,
+    UpdatedQuery,
+)
 
 
 def register_profile_routes(app: Hedron) -> None:
@@ -23,7 +30,7 @@ def register_profile_routes(app: Hedron) -> None:
         request: Request,
         auth: Auth,
         settings: SettingsDep,
-        updated: bool = False,
+        updated: UpdatedQuery = False,
     ) -> Response:
         request.state.hedron_authenticated = True
         csrf = auth.session.csrf_token
@@ -71,10 +78,10 @@ def register_profile_routes(app: Hedron) -> None:
         request: Request,
         auth: Auth,
         db: DbSession,
-        full_name: str = Form(default=""),
-        organization: str = Form(default=""),
-        job_title: str = Form(default=""),
-        phone: str = Form(default=""),
+        full_name: FullNameForm = "",
+        organization: OrganizationForm = "",
+        job_title: JobTitleForm = "",
+        phone: PhoneForm = "",
     ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         update_profile(

@@ -79,7 +79,6 @@ SECRET_SLOT_MSS = FragmentRegion(
     selector="#secret-slot-mss",
     description="MSS API token slot",
 )
-SECRET_SLOT_PREFIX = SECRET_SLOT_ADVANA  # backward-compatible alias
 INVITATION_PANEL = FragmentRegion(
     id="invitation-panel",
     selector="#invitation-panel",
@@ -94,11 +93,6 @@ USER_DIRECTORY_BODY = FragmentRegion(
     id="user-directory-body",
     selector="#user-directory-body",
     description="Administrator user directory table body",
-)
-USER_TABLE = FragmentRegion(
-    id="user-table",
-    selector="#user-table",
-    description="Administrator user table (legacy alias)",
 )
 AUDIT_RESULTS = FragmentRegion(
     id="audit-results-region",

@@ -20,7 +20,7 @@ def _rebind_database() -> None:
     dbmod.engine.dispose()
     new_engine = create_engine(
         settings.database_url,
-        **dbmod._engine_options(settings.database_url),
+        **dbmod._engine_options(settings.database_url, settings),
     )
     if new_engine.dialect.name == "sqlite":
 

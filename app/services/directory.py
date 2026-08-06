@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 import httpx2
 from fastapi import Request
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.config import Settings
 from app.models import User, UserStatus
@@ -140,7 +140,7 @@ def list_users_page(
 ) -> tuple[list[User], int, int]:
     """Return a page of directory users matching optional search/status filters."""
     page = max(1, page)
-    statement = select(User)
+    statement = select(User).options(selectinload(User.roles))
     count_statement = select(func.count()).select_from(User)
     conditions = []
     cleaned_query = query.strip()[:160]

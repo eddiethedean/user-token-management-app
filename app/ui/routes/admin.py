@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import Form, HTTPException, Request
+from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, html
 from sqlalchemy import select
@@ -37,6 +37,19 @@ from app.ui.interactions import (
     user_match_count_oob,
 )
 from app.ui.layout import page_heading
+from app.ui.params import (
+    EmailForm,
+    EventTypeQuery,
+    ListingPageForm,
+    ListingQueryForm,
+    ListingStatusForm,
+    NoticeQuery,
+    OutcomeQuery,
+    PageQuery,
+    RoleForm,
+    SearchQuery,
+    StatusFilterQuery,
+)
 
 
 def register_admin_routes(app: Hedron) -> None:
@@ -46,10 +59,10 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
-        q: str = "",
-        status: str = "",
-        page: int = 1,
-        notice: str = "",
+        q: SearchQuery = "",
+        status: StatusFilterQuery = "",
+        page: PageQuery = 1,
+        notice: NoticeQuery = "",
     ) -> Response:
         request.state.hedron_authenticated = True
         user_notices = {
@@ -152,8 +165,8 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
-        email: str = Form(max_length=320),
-        role: str = Form(default="user", max_length=64),
+        email: EmailForm,
+        role: RoleForm = "user",
     ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         error = ""
@@ -296,9 +309,9 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
-        q: str = Form(default=""),
-        status: str = Form(default=""),
-        page: int = Form(default=1),
+        q: ListingQueryForm = "",
+        status: ListingStatusForm = "",
+        page: ListingPageForm = 1,
     ) -> Response:
         return await _admin_user_mutation(
             request, user_id, auth, db, settings, action="toggle", q=q, status=status, page=page
@@ -311,9 +324,9 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
-        q: str = Form(default=""),
-        status: str = Form(default=""),
-        page: int = Form(default=1),
+        q: ListingQueryForm = "",
+        status: ListingStatusForm = "",
+        page: ListingPageForm = 1,
     ) -> Response:
         return await _admin_user_mutation(
             request, user_id, auth, db, settings, action="approve", q=q, status=status, page=page
@@ -326,9 +339,9 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
-        q: str = Form(default=""),
-        status: str = Form(default=""),
-        page: int = Form(default=1),
+        q: ListingQueryForm = "",
+        status: ListingStatusForm = "",
+        page: ListingPageForm = 1,
     ) -> Response:
         return await _admin_user_mutation(
             request, user_id, auth, db, settings, action="deny", q=q, status=status, page=page
@@ -382,9 +395,9 @@ def register_admin_routes(app: Hedron) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
-        event_type: str = "",
-        outcome: str = "",
-        page: int = 1,
+        event_type: EventTypeQuery = "",
+        outcome: OutcomeQuery = "",
+        page: PageQuery = 1,
     ) -> Response:
         request.state.hedron_authenticated = True
         events, total, page, et, oc = list_audit_events(

@@ -12,11 +12,11 @@ from fastapi import Request
 from app.config import Settings
 from app.models import Role, User
 from app.routing import (
-    _safe_base_path,
     app_base_url,
     app_path,
     cookie_path,
     normalize_workbench_scope,
+    safe_base_path,
 )
 from app.security.client import client_ip
 from app.security.csrf import issue_preauth_csrf, validate_preauth_csrf
@@ -212,7 +212,7 @@ def test_jwt_rejects_tampering_wrong_audience_and_malformed_subject() -> None:
     ],
 )
 def test_proxy_base_path_rejects_unsafe_values(value: str) -> None:
-    assert _safe_base_path(value, allow_absolute_url=True) == ""
+    assert safe_base_path(value, allow_absolute_url=True) == ""
 
 
 def test_workbench_scope_strips_root_path_when_uvicorn_includes_it_in_path() -> None:

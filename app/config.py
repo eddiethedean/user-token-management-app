@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     hsts_include_subdomains: bool = False
     trusted_proxy_ips: str = ""
 
+    db_pool_size: int = Field(default=5, ge=1, le=100)
+    db_max_overflow: int = Field(default=10, ge=0, le=100)
+    db_pool_timeout: int = Field(default=30, ge=1, le=300)
+    db_pool_recycle: int = Field(default=1800, ge=0, le=86400)
+
     rate_limit_enabled: bool = True
     rate_limit_window_seconds: int = Field(default=60, ge=10, le=3600)
     rate_limit_login_per_source: int = Field(default=30, ge=1, le=1000)

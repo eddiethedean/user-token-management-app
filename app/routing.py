@@ -114,19 +114,14 @@ def safe_base_path(value: str, *, allow_absolute_url: bool = False, strict: bool
     return path
 
 
-def _safe_base_path(value: str, *, allow_absolute_url: bool = False) -> str:
-    """Backward-compatible alias for request mount-path sanitization."""
-    return safe_base_path(value, allow_absolute_url=allow_absolute_url, strict=False)
-
-
 def app_base_url(request: Request) -> str:
     """Resolve the external mount path for Connect, Workbench, or a root deployment."""
     connect_base = ""
     if is_trusted_direct_proxy(request, get_settings()):
-        connect_base = _safe_base_path(
+        connect_base = safe_base_path(
             request.headers.get("rstudio-connect-app-base-url", ""), allow_absolute_url=True
         )
-    workbench_or_asgi_base = _safe_base_path(str(request.scope.get("root_path", "")))
+    workbench_or_asgi_base = safe_base_path(str(request.scope.get("root_path", "")))
     return connect_base or workbench_or_asgi_base
 
 

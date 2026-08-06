@@ -5,21 +5,28 @@ from collections.abc import Generator
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 
 
 class Base(DeclarativeBase):
     pass
 
 
-def _engine_options(database_url: str) -> dict:
+def _engine_options(database_url: str, settings: Settings | None = None) -> dict:
     if database_url.startswith("sqlite"):
         return {"connect_args": {"check_same_thread": False}}
-    return {"pool_pre_ping": True}
+    cfg = settings or get_settings()
+    return {
+        "pool_pre_ping": True,
+        "pool_size": cfg.db_pool_size,
+        "max_overflow": cfg.db_max_overflow,
+        "pool_timeout": cfg.db_pool_timeout,
+        "pool_recycle": cfg.db_pool_recycle,
+    }
 
 
 settings = get_settings()
-engine = create_engine(settings.database_url, **_engine_options(settings.database_url))
+engine = create_engine(settings.database_url, **_engine_options(settings.database_url, settings))
 
 
 if engine.dialect.name == "sqlite":

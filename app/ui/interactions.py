@@ -33,7 +33,6 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.INVITATION_PANEL,
     region_defs.USER_DIRECTORY,
     region_defs.USER_DIRECTORY_BODY,
-    region_defs.USER_TABLE,
     region_defs.USER_MATCH_COUNT,
     region_defs.AUDIT_RESULTS,
     region_defs.AUDIT_RESULTS_BODY,

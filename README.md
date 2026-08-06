@@ -57,10 +57,13 @@ python -m app.cli email-worker
 ## Quality checks
 
 ```bash
-ruff check app tests
-ruff format --check app tests
-basedpyright
-pytest
+make check
+```
+
+Apply database migrations:
+
+```bash
+make migrate
 ```
 
 ## Posit Connect

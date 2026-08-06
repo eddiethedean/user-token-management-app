@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -27,6 +28,7 @@ import app.hedron_compat  # noqa: F401 — Hedron 0.15 build-module shim
 from app.config import get_settings
 from app.database import SessionLocal
 from app.dependencies import clear_auth_cookies, set_auth_cookies
+from app.logging_config import bind_request_id, clear_request_id, configure_logging
 from app.routing import WorkbenchPathMiddleware, app_base_url, app_path, is_htmx_request
 from app.schema import assert_schema_current
 from app.services.auth import ensure_default_roles
@@ -35,6 +37,7 @@ from app.ui.partials import request_error
 from app.ui.routes import register_routes
 from app.ui.security_policy import access_registry_security_policy
 
+configure_logging()
 settings = get_settings()
 log = logging.getLogger(__name__)
 REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}\Z")
@@ -80,7 +83,20 @@ async def security_and_session_middleware(request: Request, call_next):
         if REQUEST_ID_PATTERN.fullmatch(supplied_request_id)
         else str(uuid.uuid4())
     )
-    response = await call_next(request)
+    bind_request_id(request.state.request_id)
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        log.exception(
+            "request failed method=%s path=%s duration_ms=%s",
+            request.method,
+            request.url.path,
+            duration_ms,
+        )
+        clear_request_id()
+        raise
     rotated = getattr(request.state, "rotated_tokens", None)
     if rotated:
         set_auth_cookies(response, rotated, settings, request)
@@ -103,6 +119,15 @@ async def security_and_session_middleware(request: Request, call_next):
         if settings.hsts_include_subdomains:
             hsts += "; includeSubDomains"
         response.headers["Strict-Transport-Security"] = hsts
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    log.info(
+        "method=%s path=%s status=%s duration_ms=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    clear_request_id()
     return response
 
 
