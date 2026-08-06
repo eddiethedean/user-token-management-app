@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import Request
+from fastapi import Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron
 from starlette.responses import Response
@@ -40,7 +40,7 @@ def register_invitation_routes(app: Hedron) -> None:
             token=token,
             invitation=invitation,
             error=error,
-            status_code=400 if error else 200,
+            status_code=status.HTTP_400_BAD_REQUEST if error else status.HTTP_200_OK,
         )
 
     @app.post("/invitations/accept", include_in_schema=False)
@@ -67,7 +67,9 @@ def register_invitation_routes(app: Hedron) -> None:
                 password=password,
                 request=request,
             )
-            return RedirectResponse(app_path(request, "/login"), status_code=303)
+            return RedirectResponse(
+                app_path(request, "/login"), status_code=status.HTTP_303_SEE_OTHER
+            )
         except (TokenFlowError, PasswordPolicyError, ValueError) as exc:
             error = str(exc)
         return render_invitation_page(
@@ -77,5 +79,5 @@ def register_invitation_routes(app: Hedron) -> None:
             invitation=invitation,
             full_name=full_name,
             error=error,
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
         )

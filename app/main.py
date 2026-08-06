@@ -9,19 +9,21 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlencode
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response, status
 from fastapi.exception_handlers import (
     http_exception_handler,
     request_validation_exception_handler,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from hedron import Card, Heading, Hedron, html
 from hedron.responses import render_component_response
 from hedron_core import RenderMode
+from pydantic import BaseModel
 from sqlalchemy import text
 
 from app.config import get_settings
@@ -143,7 +145,7 @@ async def security_and_session_middleware(request: Request, call_next):
 async def friendly_http_errors(request: Request, exc: HTTPException):
     is_htmx = is_htmx_request(request)
     accepts_html = "text/html" in request.headers.get("accept", "")
-    if exc.status_code == 401 and (accepts_html or is_htmx):
+    if exc.status_code == status.HTTP_401_UNAUTHORIZED and (accepts_html or is_htmx):
         next_path = str(request.scope.get("path") or "/")
         mount_path = app_base_url(request)
         if mount_path and next_path == mount_path:
@@ -153,7 +155,8 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         if request.url.query:
             next_path += f"?{request.url.query}"
         response = RedirectResponse(
-            app_path(request, f"/login?{urlencode({'next': next_path})}"), status_code=303
+            app_path(request, f"/login?{urlencode({'next': next_path})}"),
+            status_code=status.HTTP_303_SEE_OTHER,
         )
         clear_auth_cookies(response, settings, request)
         if is_htmx:
@@ -171,7 +174,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         response.headers["HX-Retarget"] = "#global-feedback"
         response.headers["HX-Reswap"] = "innerHTML"
         return response
-    if exc.status_code == 429 and accepts_html:
+    if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS and accepts_html:
         page = app_shell(
             Card(
                 Heading("Too many requests", level=1),
@@ -189,13 +192,13 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
             page,
             request=request,
             mode=RenderMode.PAGE,
-            status_code=429,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             extra_headers=exc.headers,
         )
     if accepts_html and 400 <= exc.status_code < 600:
-        if exc.status_code == 403:
+        if exc.status_code == status.HTTP_403_FORBIDDEN:
             detail = "You do not have permission to perform this action."
-        elif exc.status_code == 404:
+        elif exc.status_code == status.HTTP_404_NOT_FOUND:
             detail = "The requested page or record was not found."
         page = app_shell(
             Card(
@@ -229,7 +232,7 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
             request_error(message),
             request=request,
             mode=RenderMode.FRAGMENT,
-            status_code=422,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
         response.headers["HX-Retarget"] = "#global-feedback"
         response.headers["HX-Reswap"] = "innerHTML"
@@ -245,19 +248,28 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
         page,
         request=request,
         mode=RenderMode.PAGE,
-        status_code=422,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
     )
 
 
-@app.get("/health", include_in_schema=False)
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+class HealthStatus(BaseModel):
+    status: Literal["ok"]
 
 
-@app.get("/ready", include_in_schema=False)
-def ready(request: Request) -> JSONResponse:
+class ReadyStatus(BaseModel):
+    status: Literal["ready", "unavailable"]
+
+
+@app.get("/health", include_in_schema=False, response_model=HealthStatus)
+def health() -> HealthStatus:
+    return HealthStatus(status="ok")
+
+
+@app.get("/ready", include_in_schema=False, response_model=ReadyStatus)
+def ready(request: Request, response: Response) -> ReadyStatus:
     if not getattr(request.app.state, "ready", False):
-        return JSONResponse({"status": "unavailable"}, status_code=503)
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return ReadyStatus(status="unavailable")
     from app.database import SessionLocal
 
     try:
@@ -265,5 +277,6 @@ def ready(request: Request) -> JSONResponse:
             db.execute(text("SELECT 1"))
     except Exception:
         log.exception("Readiness database check failed")
-        return JSONResponse({"status": "unavailable"}, status_code=503)
-    return JSONResponse({"status": "ready"})
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return ReadyStatus(status="unavailable")
+    return ReadyStatus(status="ready")

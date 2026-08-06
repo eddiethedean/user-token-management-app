@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from fastapi import Request
+from fastapi import Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Card, InteractionResult, Page, html
 from hedron.responses import render_component_response
@@ -144,5 +144,5 @@ async def mutation_response(
 ) -> Response:
     """Authenticated POST result: full-page 303 redirect, or HTMX InteractionResult."""
     if not is_htmx_request(request):
-        return RedirectResponse(redirect, status_code=303)
+        return RedirectResponse(redirect, status_code=status.HTTP_303_SEE_OTHER)
     return await interaction_response(request, fragment)

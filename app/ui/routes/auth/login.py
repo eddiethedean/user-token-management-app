@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron
 from starlette.responses import Response
@@ -51,7 +51,9 @@ def register_login_routes(app: Hedron) -> None:
         password: PasswordNoticeQuery = "",
     ) -> Response:
         if auth:
-            return RedirectResponse(app_path(request, safe_next(next)), status_code=303)
+            return RedirectResponse(
+                app_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
+            )
         return render_login_page(
             request,
             settings,
@@ -73,7 +75,9 @@ def register_login_routes(app: Hedron) -> None:
     ) -> Response:
         require_preauth_csrf(request, preauth_csrf_token, settings)
         if settings.authentication_mode != "local_password":
-            raise HTTPException(status_code=403, detail="Password sign-in is disabled")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Password sign-in is disabled"
+            )
         check_rate_limit(
             db,
             settings,
@@ -89,13 +93,15 @@ def register_login_routes(app: Hedron) -> None:
             return render_login_page(
                 request,
                 settings,
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 error=str(exc),
                 email=email,
                 next=safe_next(next),
             )
         tokens = create_session(db, settings, user, request)
-        response = RedirectResponse(app_path(request, safe_next(next)), status_code=303)
+        response = RedirectResponse(
+            app_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
+        )
         set_auth_cookies(response, tokens, settings, request)
         clear_preauth_csrf_cookie(response, request, settings)
         return response
@@ -119,9 +125,11 @@ def register_login_routes(app: Hedron) -> None:
         try:
             user = authenticate_trusted_identity(db, settings, request)
         except AuthenticationError as exc:
-            raise HTTPException(status_code=401, detail=str(exc)) from exc
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
         tokens = create_session(db, settings, user, request)
-        response = RedirectResponse(app_path(request, safe_next(next)), status_code=303)
+        response = RedirectResponse(
+            app_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
+        )
         set_auth_cookies(response, tokens, settings, request)
         clear_preauth_csrf_cookie(response, request, settings)
         return response
@@ -135,6 +143,8 @@ def register_login_routes(app: Hedron) -> None:
         _csrf: RequireCsrf,
     ) -> Response:
         revoke_session(db, auth.session, actor=auth.user, request=request)
-        response = RedirectResponse(app_path(request, "/login"), status_code=303)
+        response = RedirectResponse(
+            app_path(request, "/login"), status_code=status.HTTP_303_SEE_OTHER
+        )
         clear_auth_cookies(response, settings, request)
         return response

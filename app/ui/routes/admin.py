@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, InteractionResult, html
 from sqlalchemy import select
@@ -173,7 +173,7 @@ def register_admin_routes(app: Hedron) -> None:
     ) -> Response:
         error = ""
         field_errors: dict[str, str] = {}
-        response_status = 200
+        response_status = status.HTTP_200_OK
         try:
             await validate_directory_email(email, settings)
             create_invitation(
@@ -182,7 +182,7 @@ def register_admin_routes(app: Hedron) -> None:
         except DirectoryUnavailableError as exc:
             error = str(exc)
             field_errors["invite_email"] = error
-            response_status = 503
+            response_status = status.HTTP_503_SERVICE_UNAVAILABLE
         except ValueError as exc:
             error = str(exc)
             lowered = error.lower()
@@ -190,14 +190,15 @@ def register_admin_routes(app: Hedron) -> None:
                 field_errors["invite_role"] = error
             else:
                 field_errors["invite_email"] = error
-            response_status = 400
+            response_status = status.HTTP_400_BAD_REQUEST
         invitations = list(
             db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all()
         )
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         if not is_htmx_request(request) and not error:
             return RedirectResponse(
-                app_path(request, "/admin/users?notice=invitation-queued"), status_code=303
+                app_path(request, "/admin/users?notice=invitation-queued"),
+                status_code=status.HTTP_303_SEE_OTHER,
             )
         if not is_htmx_request(request):
             raise HTTPException(status_code=response_status, detail=error or "Invitation error")
@@ -220,27 +221,35 @@ def register_admin_routes(app: Hedron) -> None:
         )
 
     async def _admin_user_mutation(
-        request, user_id, auth, db, settings, *, action: str, q="", status="", page=1
+        request, user_id, auth, db, settings, *, action: str, q="", status_filter="", page=1
     ) -> Response:
         if not lock_administrator_action(db, auth.user):
             db.rollback()
-            raise HTTPException(status_code=403, detail="Administrator required")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Administrator required"
+            )
         user = db.get(User, user_id)
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         notice = "status-updated"
         toast = "The account status was updated."
         if action == "toggle":
             if user.id == auth.user.id:
-                raise HTTPException(status_code=400, detail="You cannot disable your own account")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="You cannot disable your own account",
+                )
             if user.status == UserStatus.PENDING.value:
-                raise HTTPException(status_code=400, detail="Use the registration approval action")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Use the registration approval action",
+                )
             if user.status == UserStatus.DISABLED.value and (
                 not user.email_verified_at
                 or (settings.authentication_mode == "local_password" and not user.password_hash)
             ):
                 raise HTTPException(
-                    status_code=400,
+                    status_code=status.HTTP_400_BAD_REQUEST,
                     detail="This account cannot be enabled until its government email is verified",
                 )
             user.status = (
@@ -266,7 +275,9 @@ def register_admin_routes(app: Hedron) -> None:
                     db, settings, user=user, administrator=auth.user, request=request
                 )
             except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+                ) from exc
             notice = "registration-approved"
             toast = "The registration was approved."
         elif action == "deny":
@@ -275,14 +286,16 @@ def register_admin_routes(app: Hedron) -> None:
                     db, settings, user=user, administrator=auth.user, request=request
                 )
             except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+                ) from exc
             notice = "registration-denied"
             toast = "The registration was denied."
-        listing = user_listing_values(db, query=q, status_filter=status, page=page)
+        listing = user_listing_values(db, query=q, status_filter=status_filter, page=page)
         return await mutation_response(
             request,
             redirect=user_listing_path(
-                request, query=q, status_filter=status, page=page, notice=notice
+                request, query=q, status_filter=status_filter, page=page, notice=notice
             ),
             fragment=ok_fragment(
                 ui.user_table(
@@ -314,7 +327,15 @@ def register_admin_routes(app: Hedron) -> None:
         page: ListingPageForm = 1,
     ) -> Response:
         return await _admin_user_mutation(
-            request, user_id, auth, db, settings, action="toggle", q=q, status=status, page=page
+            request,
+            user_id,
+            auth,
+            db,
+            settings,
+            action="toggle",
+            q=q,
+            status_filter=status,
+            page=page,
         )
 
     @app.post("/admin/users/{user_id}/approve", include_in_schema=False)
@@ -330,7 +351,15 @@ def register_admin_routes(app: Hedron) -> None:
         page: ListingPageForm = 1,
     ) -> Response:
         return await _admin_user_mutation(
-            request, user_id, auth, db, settings, action="approve", q=q, status=status, page=page
+            request,
+            user_id,
+            auth,
+            db,
+            settings,
+            action="approve",
+            q=q,
+            status_filter=status,
+            page=page,
         )
 
     @app.post("/admin/users/{user_id}/deny", include_in_schema=False)
@@ -346,7 +375,15 @@ def register_admin_routes(app: Hedron) -> None:
         page: ListingPageForm = 1,
     ) -> Response:
         return await _admin_user_mutation(
-            request, user_id, auth, db, settings, action="deny", q=q, status=status, page=page
+            request,
+            user_id,
+            auth,
+            db,
+            settings,
+            action="deny",
+            q=q,
+            status_filter=status,
+            page=page,
         )
 
     @app.post("/admin/invitations/{invitation_id}/revoke", include_in_schema=False)
@@ -360,7 +397,9 @@ def register_admin_routes(app: Hedron) -> None:
     ) -> Response:
         invitation = db.get(Invitation, invitation_id)
         if not invitation:
-            raise HTTPException(status_code=404, detail="Invitation not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
+            )
         try:
             revoke_invitation(
                 db,
@@ -369,7 +408,7 @@ def register_admin_routes(app: Hedron) -> None:
                 request=request,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         invitations = list(
             db.scalars(select(Invitation).order_by(Invitation.created_at.desc()).limit(25)).all()
         )
@@ -483,7 +522,9 @@ def register_admin_routes(app: Hedron) -> None:
     ) -> InteractionResult | RedirectResponse:
         request.state.hedron_authenticated = True
         if not is_htmx_request(request):
-            return RedirectResponse(app_path(request, "/admin/audit"), status_code=303)
+            return RedirectResponse(
+                app_path(request, "/admin/audit"), status_code=status.HTTP_303_SEE_OTHER
+            )
         try:
             events, total, page, et, oc = list_audit_events(
                 db, event_type=event_type, outcome=outcome, page=page

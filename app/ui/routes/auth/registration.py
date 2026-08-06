@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import Request
+from fastapi import Request, status
 from hedron import Hedron
 from starlette.responses import Response
 
@@ -57,7 +57,9 @@ def register_registration_routes(app: Hedron) -> None:
             return render_register_page(
                 request,
                 settings,
-                status_code=503 if isinstance(exc, DirectoryUnavailableError) else 400,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE
+                if isinstance(exc, DirectoryUnavailableError)
+                else status.HTTP_400_BAD_REQUEST,
                 error=str(exc),
                 email=email,
                 full_name=full_name,
@@ -65,7 +67,7 @@ def register_registration_routes(app: Hedron) -> None:
         return render_register_page(
             request,
             settings,
-            status_code=202,
+            status_code=status.HTTP_202_ACCEPTED,
             success=(
                 "Request received. If the address is eligible, check your government email for "
                 "a verification link. After verification, an administrator must approve the "
@@ -92,7 +94,7 @@ def register_registration_routes(app: Hedron) -> None:
             token=token,
             verification=verification,
             error=error,
-            status_code=400 if error else 200,
+            status_code=status.HTTP_400_BAD_REQUEST if error else status.HTTP_200_OK,
         )
 
     @app.post("/registration/verify", include_in_schema=False)
@@ -131,5 +133,10 @@ def register_registration_routes(app: Hedron) -> None:
         except (TokenFlowError, PasswordPolicyError) as exc:
             error = str(exc)
         return render_verify_page(
-            request, settings, token=token, verification=verification, error=error, status_code=400
+            request,
+            settings,
+            token=token,
+            verification=verification,
+            error=error,
+            status_code=status.HTTP_400_BAD_REQUEST,
         )

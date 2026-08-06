@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron
 from starlette.responses import Response
@@ -25,7 +25,7 @@ def register_password_routes(app: Hedron) -> None:
     @app.get("/password/forgot", include_in_schema=False)
     def forgot_page(request: Request, settings: SettingsDep):
         if settings.authentication_mode != "local_password":
-            raise HTTPException(status_code=404, detail="Not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
         return render_forgot_page(request, settings)
 
     @app.post("/password/forgot", include_in_schema=False)
@@ -36,7 +36,7 @@ def register_password_routes(app: Hedron) -> None:
         email: EmailForm,
     ) -> Response:
         if settings.authentication_mode != "local_password":
-            raise HTTPException(status_code=404, detail="Not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
         check_rate_limit(
             db,
             settings,
@@ -61,14 +61,18 @@ def register_password_routes(app: Hedron) -> None:
         settings: SettingsDep,
     ) -> Response:
         if settings.authentication_mode != "local_password":
-            raise HTTPException(status_code=404, detail="Not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
         error = ""
         try:
             get_valid_password_reset(db, settings, token)
         except TokenFlowError as exc:
             error = str(exc)
         return render_reset_page(
-            request, settings, token=token, error=error, status_code=400 if error else 200
+            request,
+            settings,
+            token=token,
+            error=error,
+            status_code=status.HTTP_400_BAD_REQUEST if error else status.HTTP_200_OK,
         )
 
     @app.post("/password/reset", include_in_schema=False)
@@ -81,15 +85,21 @@ def register_password_routes(app: Hedron) -> None:
         password_confirm: PasswordConfirmForm,
     ) -> Response:
         if settings.authentication_mode != "local_password":
-            raise HTTPException(status_code=404, detail="Not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
         try:
             if password != password_confirm:
                 raise PasswordPolicyError("Passwords do not match.")
             complete_password_reset(
                 db, settings, raw_token=token, password=password, request=request
             )
-            return RedirectResponse(app_path(request, "/login?password=changed"), status_code=303)
+            return RedirectResponse(
+                app_path(request, "/login?password=changed"), status_code=status.HTTP_303_SEE_OTHER
+            )
         except (TokenFlowError, PasswordPolicyError) as exc:
             return render_reset_page(
-                request, settings, token=token, error=str(exc), status_code=400
+                request,
+                settings,
+                token=token,
+                error=str(exc),
+                status_code=status.HTTP_400_BAD_REQUEST,
             )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, InteractionResult, html
 from sqlalchemy import select
@@ -97,7 +97,9 @@ def register_security_routes(app: Hedron) -> None:
     ) -> InteractionResult | RedirectResponse:
         request.state.hedron_authenticated = True
         if not is_htmx_request(request):
-            return RedirectResponse(app_path(request, "/security"), status_code=303)
+            return RedirectResponse(
+                app_path(request, "/security"), status_code=status.HTTP_303_SEE_OTHER
+            )
         try:
             values = security_page_values(db, auth.user, settings)
             return ok_fragment(ui.security_activity(values["events"]))
@@ -116,7 +118,9 @@ def register_security_routes(app: Hedron) -> None:
         new_password_confirm: PasswordForm,
     ) -> Response:
         if settings.authentication_mode != "local_password":
-            raise HTTPException(status_code=403, detail="Password changes are disabled")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Password changes are disabled"
+            )
         error = ""
         field_errors: dict[str, str] = {}
         if new_password != new_password_confirm:
@@ -147,7 +151,7 @@ def register_security_routes(app: Hedron) -> None:
                 clear_auth_cookies(response, settings, request)
                 return response
             response = RedirectResponse(
-                app_path(request, "/login?password=changed"), status_code=303
+                app_path(request, "/login?password=changed"), status_code=status.HTTP_303_SEE_OTHER
             )
             clear_auth_cookies(response, settings, request)
             return response
@@ -160,7 +164,7 @@ def register_security_routes(app: Hedron) -> None:
                         error=error,
                         field_errors=field_errors,
                     ),
-                    status_code=400,
+                    status_code=status.HTTP_400_BAD_REQUEST,
                 ),
             )
         csrf = auth.session.csrf_token
@@ -181,7 +185,7 @@ def register_security_routes(app: Hedron) -> None:
                 page_title="Security",
                 csrf_token=csrf,
             ),
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             headers={"Cache-Control": "no-store"},
             request=request,
             authenticated=True,
@@ -198,7 +202,7 @@ def register_security_routes(app: Hedron) -> None:
     ) -> Response:
         session = db.get(RefreshSession, session_id)
         if not session or session.user_id != auth.user.id:
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         revoke_session(db, session, actor=auth.user, request=request)
         values = security_page_values(db, auth.user, settings)
         return await mutation_response(
@@ -232,13 +236,13 @@ def register_security_routes(app: Hedron) -> None:
                 db, settings, user=auth.user, provider=provider, token=token, request=request
             )
             error = ""
-            response_status = 200
+            response_status = status.HTTP_200_OK
         except (ValueError, SecretStorageError) as exc:
             try:
                 specification = require_secret_provider(provider)
             except ValueError as provider_exc:
                 raise HTTPException(
-                    status_code=404, detail="API token provider not found"
+                    status_code=status.HTTP_404_NOT_FOUND, detail="API token provider not found"
                 ) from provider_exc
             stored = db.scalar(
                 select(UserSecret).where(
@@ -246,7 +250,11 @@ def register_security_routes(app: Hedron) -> None:
                 )
             )
             error = str(exc)
-            response_status = 503 if isinstance(exc, SecretStorageError) else 400
+            response_status = (
+                status.HTTP_503_SERVICE_UNAVAILABLE
+                if isinstance(exc, SecretStorageError)
+                else status.HTTP_400_BAD_REQUEST
+            )
         events = security_page_values(db, auth.user, settings)["events"]
         slot = ui.secret_slot(
             specification,
@@ -289,9 +297,13 @@ def register_security_routes(app: Hedron) -> None:
             specification = require_secret_provider(provider)
             deleted = delete_user_secret(db, user=auth.user, provider=provider, request=request)
         except ValueError as exc:
-            raise HTTPException(status_code=404, detail="API token provider not found") from exc
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="API token provider not found"
+            ) from exc
         if not deleted:
-            raise HTTPException(status_code=404, detail="API token is not configured.")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="API token is not configured."
+            )
         events = security_page_values(db, auth.user, settings)["events"]
         return await mutation_response(
             request,
