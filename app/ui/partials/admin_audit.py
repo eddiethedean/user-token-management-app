@@ -12,6 +12,7 @@ from hedron import (
     FormField,
     Lazy,
     Loading,
+    RefreshButton,
     Section,
     Table,
     TextInput,
@@ -23,7 +24,19 @@ from app.models import AuditEvent
 from app.ui.forms import submit_button
 from app.ui.layout import INDICATOR
 from app.ui.partials.shared import _filter_base_path, hedron_pagination
+from app.ui.regions import AUDIT_RESULTS
 from app.ui.urls import form_action, hx_attrs, page_href
+
+
+def _audit_results_path(*, event_type: str = "", outcome: str = "", page: int = 1) -> str:
+    params: dict[str, str] = {}
+    if event_type:
+        params["event_type"] = event_type
+    if outcome:
+        params["outcome"] = outcome
+    if page > 1:
+        params["page"] = str(page)
+    return "/admin/audit/results" + (f"?{urlencode(params)}" if params else "")
 
 
 def audit_match_count(total: int, *, oob: bool = False) -> NodeLike:
@@ -31,6 +44,51 @@ def audit_match_count(total: int, *, oob: bool = False) -> NodeLike:
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.span(f"{total} matching events", **attrs)
+
+
+def audit_refresh_button(*, event_type: str = "", outcome: str = "", page: int = 1) -> NodeLike:
+    path = _audit_results_path(event_type=event_type, outcome=outcome, page=page)
+    return html.div(
+        RefreshButton.for_region(AUDIT_RESULTS, href=path, label="Refresh"),
+        class_="lazy-refresh",
+    )
+
+
+def audit_panel(
+    events: list[AuditEvent],
+    *,
+    event_type_filter: str,
+    outcome_filter: str,
+    current_page: int,
+    page_count: int,
+    total_events: int,
+    page_size: int = 50,
+    lazy: bool = False,
+) -> NodeLike:
+    """Audit panel with RefreshButton outside the swappable results region."""
+    refresh = audit_refresh_button(
+        event_type=event_type_filter,
+        outcome=outcome_filter,
+        page=current_page,
+    )
+    body: NodeLike
+    if lazy:
+        body = audit_results_lazy(
+            event_type=event_type_filter,
+            outcome=outcome_filter,
+            page=current_page,
+        )
+    else:
+        body = audit_results(
+            events,
+            event_type_filter=event_type_filter,
+            outcome_filter=outcome_filter,
+            current_page=current_page,
+            page_count=page_count,
+            total_events=total_events,
+            page_size=page_size,
+        )
+    return html.div(refresh, body, class_="audit-panel")
 
 
 def audit_results(
@@ -168,14 +226,7 @@ def audit_results_error(
     outcome: str = "",
     page: int = 1,
 ) -> NodeLike:
-    params: dict[str, str] = {}
-    if event_type:
-        params["event_type"] = event_type
-    if outcome:
-        params["outcome"] = outcome
-    if page > 1:
-        params["page"] = str(page)
-    path = "/admin/audit" + (f"?{urlencode(params)}" if params else "")
+    path = _audit_results_path(event_type=event_type, outcome=outcome, page=page)
     return html.div(
         ErrorState(message, retry_href=path, target="#audit-results-region"),
         id="audit-results-region",
@@ -184,14 +235,7 @@ def audit_results_error(
 
 
 def audit_results_lazy(*, event_type: str = "", outcome: str = "", page: int = 1) -> Lazy:
-    params: dict[str, str] = {}
-    if event_type:
-        params["event_type"] = event_type
-    if outcome:
-        params["outcome"] = outcome
-    if page > 1:
-        params["page"] = str(page)
-    path = "/admin/audit" + (f"?{urlencode(params)}" if params else "")
+    path = _audit_results_path(event_type=event_type, outcome=outcome, page=page)
     return Lazy(
         ref=ComponentRef(
             logical_id="audit-results",

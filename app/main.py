@@ -24,7 +24,6 @@ from hedron.responses import render_component_response
 from hedron_core import RenderMode
 from sqlalchemy import text
 
-import app.hedron_compat  # noqa: F401 — Hedron 0.15 build-module shim
 from app.config import get_settings
 from app.database import SessionLocal
 from app.dependencies import clear_auth_cookies, set_auth_cookies

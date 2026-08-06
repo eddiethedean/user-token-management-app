@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
-from hedron import Hedron, html
+from hedron import Hedron, InteractionResult, html
 from sqlalchemy import select
 from starlette.responses import Response
 
@@ -29,9 +29,10 @@ from app.services.secrets import (
 )
 from app.ui import partials as ui
 from app.ui.http import mutation_response, render_authenticated_view, render_page
-from app.ui.interactions import interaction_response, ok_fragment
+from app.ui.interactions import htmx_redirect, interaction_response, ok_fragment
 from app.ui.layout import alert_box, app_shell, page_heading
 from app.ui.params import NoticeQuery, PasswordForm, SecretTokenForm
+from app.ui.regions import SECURITY_ACTIVITY
 
 
 def register_security_routes(app: Hedron) -> None:
@@ -82,30 +83,21 @@ def register_security_routes(app: Hedron) -> None:
             headers={"Cache-Control": "no-store"},
         )
 
-    @app.get("/security/activity", include_in_schema=False)
+    @app.fragment("/security/activity", region=SECURITY_ACTIVITY, include_in_schema=False)
     async def security_activity_fragment(
         request: Request,
         auth: Auth,
         db: DbSession,
         settings: SettingsDep,
-    ) -> Response:
+    ) -> InteractionResult | RedirectResponse:
         request.state.hedron_authenticated = True
-        if is_htmx_request(request):
-            try:
-                values = security_page_values(db, auth.user, settings)
-                return await interaction_response(
-                    request,
-                    ok_fragment(ui.security_activity(values["events"])),
-                )
-            except Exception:
-                return await interaction_response(
-                    request,
-                    ok_fragment(
-                        ui.security_activity_error(),
-                        status_code=200,
-                    ),
-                )
-        return RedirectResponse(app_path(request, "/security"), status_code=303)
+        if not is_htmx_request(request):
+            return RedirectResponse(app_path(request, "/security"), status_code=303)
+        try:
+            values = security_page_values(db, auth.user, settings)
+            return ok_fragment(ui.security_activity(values["events"]))
+        except Exception:
+            return ok_fragment(ui.security_activity_error())
 
     @app.post("/security/password", include_in_schema=False)
     async def password_change_submit(
@@ -145,10 +137,7 @@ def register_security_routes(app: Hedron) -> None:
             if is_htmx_request(request):
                 response = await interaction_response(
                     request,
-                    ok_fragment(
-                        html.div(),
-                        redirect=app_path(request, "/login?password=changed"),
-                    ),
+                    htmx_redirect(app_path(request, "/login?password=changed")),
                 )
                 clear_auth_cookies(response, settings, request)
                 return response

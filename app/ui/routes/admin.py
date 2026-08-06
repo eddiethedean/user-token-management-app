@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 from fastapi.responses import RedirectResponse
-from hedron import Hedron, html
+from hedron import Hedron, InteractionResult, html
 from sqlalchemy import select
 from starlette.responses import Response
 
@@ -50,6 +50,7 @@ from app.ui.params import (
     SearchQuery,
     StatusFilterQuery,
 )
+from app.ui.regions import AUDIT_MATCH_COUNT, AUDIT_RESULTS
 
 
 def register_admin_routes(app: Hedron) -> None:
@@ -441,9 +442,16 @@ def register_admin_routes(app: Hedron) -> None:
                 ui.audit_match_count(total),
             ),
             html.section(
-                ui.audit_results_lazy(event_type=et, outcome=oc, page=page)
-                if not (et or oc or page > 1)
-                else results,
+                ui.audit_panel(
+                    events,
+                    event_type_filter=et,
+                    outcome_filter=oc,
+                    current_page=page,
+                    page_count=page_count,
+                    total_events=total,
+                    page_size=AUDIT_PAGE_SIZE,
+                    lazy=not (et or oc or page > 1),
+                ),
                 class_="panel",
             ),
         ]
@@ -456,3 +464,45 @@ def register_admin_routes(app: Hedron) -> None:
             csrf_token=csrf,
             push_path="/admin/audit",
         )
+
+    @app.fragment(
+        "/admin/audit/results",
+        regions=(AUDIT_RESULTS, AUDIT_MATCH_COUNT),
+        include_in_schema=False,
+    )
+    async def audit_results_fragment(
+        request: Request,
+        auth: AdminAuth,
+        db: DbSession,
+        event_type: EventTypeQuery = "",
+        outcome: OutcomeQuery = "",
+        page: PageQuery = 1,
+    ) -> InteractionResult | RedirectResponse:
+        request.state.hedron_authenticated = True
+        if not is_htmx_request(request):
+            return RedirectResponse(app_path(request, "/admin/audit"), status_code=303)
+        try:
+            events, total, page, et, oc = list_audit_events(
+                db, event_type=event_type, outcome=outcome, page=page
+            )
+            page_count = max(1, (total + AUDIT_PAGE_SIZE - 1) // AUDIT_PAGE_SIZE)
+            return ok_fragment(
+                ui.audit_results(
+                    events,
+                    event_type_filter=et,
+                    outcome_filter=oc,
+                    current_page=page,
+                    page_count=page_count,
+                    total_events=total,
+                    page_size=AUDIT_PAGE_SIZE,
+                ),
+                oob=(audit_match_count_oob(total),),
+            )
+        except Exception:
+            return ok_fragment(
+                ui.audit_results_error(
+                    event_type=event_type or "",
+                    outcome=outcome or "",
+                    page=page,
+                )
+            )

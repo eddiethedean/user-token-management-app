@@ -10,6 +10,7 @@ from hedron.testing import (
     assert_html_contains,
     assert_page_document,
     assert_renders,
+    assert_ui_targets_subset_of_regions,
     fastapi_fixture,
     fragment_client,
     render_html,
@@ -17,6 +18,7 @@ from hedron.testing import (
 from hedron_core import RenderMode
 
 from app.ui import partials as ui
+from app.ui.interactions import APP_REGIONS
 from app.ui.layout import alert_box, page_heading
 
 
@@ -399,5 +401,23 @@ def test_audit_results_lazy_uses_hedron_lazy() -> None:
     html = render_html(ui.audit_results_lazy())
     assert 'id="audit-results-region"' in html
     assert "hedron-loading" in html
-    assert 'hx-get="/admin/audit"' in html
+    assert 'hx-get="/admin/audit/results"' in html
     assert "Loading audit activity" in html
+
+
+def test_audit_panel_includes_refresh_button() -> None:
+    html = render_html(
+        ui.audit_panel(
+            [],
+            event_type_filter="",
+            outcome_filter="",
+            current_page=1,
+            page_count=1,
+            total_events=0,
+            lazy=True,
+        )
+    )
+    assert "lazy-refresh" in html
+    assert 'hx-get="/admin/audit/results"' in html
+    assert 'hx-target="#audit-results-region"' in html
+    assert_ui_targets_subset_of_regions(html, APP_REGIONS)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from urllib.parse import parse_qs, urlparse
 
-from hedron.testing import AdapterResponse
+from hedron.testing import AdapterResponse, AppScenario
 from sqlalchemy import select
 
 from app.database import SessionLocal
@@ -108,6 +108,28 @@ def fixture_login(
     login_page = fixture.get("/login")
     token = login_csrf_from(login_page.body)
     return fixture.post(
+        "/login",
+        data={
+            "email": email,
+            "password": password,
+            "next": next_path,
+            "preauth_csrf_token": token,
+        },
+        cookies=login_page.cookies,
+    )
+
+
+def scenario_login(
+    scenario: AppScenario,
+    email: str = ADMIN_EMAIL,
+    password: str = ADMIN_PASSWORD,
+    *,
+    next_path: str = "/profile",
+) -> AdapterResponse:
+    """Sign in through AppScenario and return the landing document."""
+    login_page = scenario.get("/login")
+    token = login_csrf_from(login_page.body)
+    return scenario.post(
         "/login",
         data={
             "email": email,

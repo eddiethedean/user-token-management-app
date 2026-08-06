@@ -208,6 +208,29 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .panel h2 { margin-bottom: 5px; font-size: 1.28rem; font-weight: 780; letter-spacing: -0.025em; }
 .panel h3 { font-size: 0.8rem; }
 .panel-heading p, .split-panel > div > p { margin: 0; color: var(--muted); font-size: 0.82rem; }
+.audit-panel { display: grid; gap: 16px; }
+.lazy-refresh { display: flex; justify-content: flex-end; }
+.lazy-refresh button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  color: #c9d0e2;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.67rem;
+  font-weight: 800;
+  line-height: 1.2;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+.lazy-refresh button:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.24);
+}
 .content-grid { display: grid; gap: 24px; }
 .profile-grid { grid-template-columns: minmax(0, 1.55fr) minmax(270px, 0.74fr); }
 

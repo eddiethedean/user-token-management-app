@@ -14,6 +14,7 @@ from hedron import (
     Heading,
     Lazy,
     Loading,
+    RefreshButton,
     Section,
     Tabs,
     Text,
@@ -27,6 +28,7 @@ from app.models import AuditEvent, RefreshSession
 from app.services.secrets import SecretProvider
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, alert_box
+from app.ui.regions import SECURITY_ACTIVITY
 from app.ui.urls import form_action, hx_attrs, page_href
 
 
@@ -337,6 +339,17 @@ def security_activity_error(
     )
 
 
+def security_activity_refresh() -> NodeLike:
+    return html.div(
+        RefreshButton.for_region(
+            SECURITY_ACTIVITY,
+            href="/security/activity",
+            label="Refresh",
+        ),
+        class_="lazy-refresh",
+    )
+
+
 def security_activity_lazy() -> Lazy:
     """Deferred activity panel loaded via Hedron Lazy after first paint."""
     return Lazy(
@@ -416,8 +429,11 @@ def security_tabs(
             "Activity",
             Section(
                 html.div(
-                    Heading("Recent security activity", level=2),
-                    Text("Latest events associated with your account."),
+                    html.div(
+                        Heading("Recent security activity", level=2),
+                        Text("Latest events associated with your account."),
+                    ),
+                    security_activity_refresh(),
                     class_="panel-heading",
                 ),
                 security_activity_lazy(),

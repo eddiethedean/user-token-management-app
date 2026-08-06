@@ -6,7 +6,14 @@ from collections.abc import Sequence
 from typing import Literal
 
 from fastapi import Request
-from hedron import FragmentRegion, InteractionPolicy, InteractionResult, OobUpdate, Toast
+from hedron import (
+    FragmentRegion,
+    InteractionPolicy,
+    InteractionResult,
+    OobUpdate,
+    Toast,
+)
+from hedron import swap as build_swap
 from hedron.routing.route import HedronRoute
 from hedron_core import NodeLike, RenderMode
 from starlette.responses import Response
@@ -90,7 +97,7 @@ def audit_match_count_oob(total: int) -> OobUpdate:
 
 
 def ok_fragment(
-    content: NodeLike,
+    content: NodeLike | None,
     *,
     oob: Sequence[OobUpdate] = (),
     push_url: str | bool | None = None,
@@ -102,21 +109,25 @@ def ok_fragment(
     swap: str | None = None,
     reswap: str | None = None,
 ) -> InteractionResult:
-    extras = list(oob)
-    if toast:
-        extras.append(toast_oob(toast, tone=toast_tone))
-    return InteractionResult(
-        content=content,
-        status_code=status_code,
-        oob=tuple(extras),
+    """Build an InteractionResult via Hedron ``swap``, with AR toast-host + policy."""
+    return build_swap(
+        content,
+        toast=toast_oob(toast, tone=toast_tone) if toast else None,
+        oob=oob,
         push_url=push_url,
         redirect=redirect,
-        policy=APP_POLICY,
+        status_code=status_code,
         region_id=region_id,
         swap=swap,
         reswap=reswap,
+        policy=APP_POLICY,
         cache="no-store",
     )
+
+
+def htmx_redirect(url: str) -> InteractionResult:
+    """HX-Redirect InteractionResult with Access Registry policy defaults."""
+    return build_swap(None, redirect=url, policy=APP_POLICY, cache="no-store")
 
 
 async def _convert_interaction_result(

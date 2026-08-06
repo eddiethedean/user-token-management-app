@@ -1,6 +1,6 @@
 """Robust Hedron interaction tests — shell swaps, toasts, dialogs, regions, redirects.
 
-Uses hedron.testing helpers (fastapi_fixture, fragment_client, assert_*) throughout.
+Uses hedron.testing helpers (AppScenario, fastapi_fixture, fragment_client, assert_*) throughout.
 """
 
 from __future__ import annotations
@@ -9,11 +9,16 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from hedron.testing import (
+    AppScenario,
     assert_budget,
     assert_fragment_body,
     assert_html_contains,
+    assert_oob_present,
     assert_page_document,
     assert_renders,
+    assert_shell_dual_path,
+    assert_toast_markup,
+    assert_ui_targets_subset_of_regions,
     fastapi_fixture,
     fragment_client,
     render_html,
@@ -26,6 +31,7 @@ from app.database import SessionLocal
 from app.models import RefreshSession
 from app.security.tokens import decode_access_token
 from app.ui import partials as ui
+from app.ui.interactions import APP_REGIONS
 from app.ui.layout import alert_box, main_panel, page_heading
 from tests.helpers import (
     ADMIN_PASSWORD,
@@ -134,7 +140,25 @@ def test_undeclared_hx_target_is_rejected(htmx) -> None:
         },
         headers={"HX-Target": "#not-a-declared-region", "Accept": "text/html"},
     )
+    # AR's HTTPException handler opaques FragmentRegionError details for clients;
+    # status 403 is the fail-closed contract exercised here.
     assert rejected.status_code == 403
+
+
+def test_shell_dual_path_security(client) -> None:
+    from tests.helpers import web_login
+
+    web_login(client)
+    fragment = as_adapter(
+        client.get(
+            "/security",
+            headers={"HX-Request": "true", "HX-Target": "#main-panel", "Accept": "text/html"},
+        )
+    )
+    document = as_adapter(client.get("/security"))
+    assert_shell_dual_path(fragment, document, fragment_contains="main-panel")
+    assert_html_contains(fragment, "security-tabs")
+    assert_hx_push_url(fragment)
 
 
 def test_profile_mutation_toast_and_identity_oob(htmx) -> None:
@@ -154,10 +178,8 @@ def test_profile_mutation_toast_and_identity_oob(htmx) -> None:
     adapter = as_adapter(response)
     assert_fragment_body(adapter, contains="profile-form-region")
     assert_html_contains(adapter, "Interaction Admin")
-    assert_html_contains(adapter, "hedron-toast")
-    assert_html_contains(adapter, "Your profile has been updated")
-    assert_html_contains(adapter, 'id="toast-host"')
-    assert 'hx-swap-oob="outerHTML"' in response.text
+    assert_toast_markup(adapter, contains="Your profile has been updated")
+    assert_oob_present(adapter, contains="toast-host")
     assert "Vary" in response.headers
 
 
@@ -253,6 +275,29 @@ def test_security_activity_lazy_fragment(htmx) -> None:
     assert "hedron-loading" not in response.text
 
 
+def test_security_activity_undeclared_target_rejected(htmx) -> None:
+    htmx_login(htmx)
+    rejected = htmx.get(
+        "/security/activity",
+        headers={"HX-Target": "#not-a-declared-region", "Accept": "text/html"},
+    )
+    # Route allowlist is SECURITY_ACTIVITY only; AR opaques the Hedron diagnostic body.
+    assert rejected.status_code == 403
+
+
+def test_app_scenario_document_asserts(page) -> None:
+    """AppScenario assert helpers over fastapi_fixture document responses."""
+    scenario = AppScenario.from_fixture(page)
+    profile = fixture_login(page)
+    scenario.assert_page_document(profile)
+    scenario.assert_html_contains('id="main-panel"', response=profile)
+    security = page.get("/security")
+    scenario.assert_page_document(security)
+    scenario.assert_html_contains("security-tabs", response=security)
+    scenario.assert_html_contains("lazy-refresh", response=security)
+    assert_ui_targets_subset_of_regions(security.body, APP_REGIONS)
+
+
 def test_admin_invite_and_toggle_toasts(htmx, make_user) -> None:
     target = make_user("toggle.target@example.gov")
     htmx_login(htmx, next_path="/admin/users")
@@ -321,14 +366,26 @@ def test_admin_directory_and_audit_filter_fragments(htmx, make_user) -> None:
     assert_fragment_body(audit_adapter, contains="audit-results-region")
     assert_no_document_shell(audit_adapter)
 
+    lazy = htmx.get(
+        "/admin/audit/results",
+        headers={"HX-Target": "#audit-results-region", "Accept": "text/html"},
+    )
+    lazy_adapter = as_adapter(lazy)
+    assert_fragment_body(lazy_adapter, contains="audit-results-region")
+    assert_oob_present(lazy_adapter, contains="audit-match-count")
+    assert_no_document_shell(lazy_adapter)
+
 
 def test_audit_full_page_lazy_placeholder(page) -> None:
     fixture_login(page, next_path="/admin/audit")
     audit = page.get("/admin/audit")
     assert_page_document(audit)
     assert_html_contains(audit, "Loading audit activity")
-    assert_html_contains(audit, 'hx-get="/admin/audit"')
+    assert_html_contains(audit, 'hx-get="/admin/audit/results"')
     assert_html_contains(audit, 'id="audit-results-region"')
+    assert_html_contains(audit, "lazy-refresh")
+    assert_html_contains(audit, 'hx-target="#audit-results-region"')
+    assert_ui_targets_subset_of_regions(audit.body, APP_REGIONS)
 
 
 def test_non_admin_cannot_nav_swap_admin_panels(htmx, make_user) -> None:
@@ -411,6 +468,9 @@ def test_security_tabs_and_lazy_activity_render() -> None:
     assert "Activity" in html
     assert 'hx-get="/security/activity"' in html
     assert "hedron-loading" in html
+    assert "lazy-refresh" in html
+    assert 'hx-target="#security-activity"' in html
+    assert_ui_targets_subset_of_regions(html, APP_REGIONS)
 
 
 def test_fastapi_fixture_admin_round_trip(access_app, make_user) -> None:
