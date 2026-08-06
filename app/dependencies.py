@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -15,6 +16,9 @@ from app.services.auth import SessionTokens, TokenFlowError, rotate_session
 
 ACCESS_COOKIE = "access_registry_access"
 REFRESH_COOKIE = "access_registry_refresh"
+
+DbSession = Annotated[Session, Depends(get_db)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 @dataclass
@@ -34,8 +38,8 @@ def _bearer_token(request: Request) -> str | None:
 
 def get_optional_auth(
     request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
+    db: DbSession,
+    settings: SettingsDep,
 ) -> AuthContext | None:
     bearer = _bearer_token(request)
     access_token = bearer or request.cookies.get(ACCESS_COOKIE)
@@ -71,7 +75,10 @@ def get_optional_auth(
     return AuthContext(user=rotated.session.user, session=rotated.session)
 
 
-def require_auth(context: AuthContext | None = Depends(get_optional_auth)) -> AuthContext:
+OptionalAuth = Annotated[AuthContext | None, Depends(get_optional_auth)]
+
+
+def require_auth(context: OptionalAuth) -> AuthContext:
     if not context:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -81,10 +88,16 @@ def require_auth(context: AuthContext | None = Depends(get_optional_auth)) -> Au
     return context
 
 
-def require_admin(context: AuthContext = Depends(require_auth)) -> AuthContext:
+Auth = Annotated[AuthContext, Depends(require_auth)]
+
+
+def require_admin(context: Auth) -> AuthContext:
     if "administrator" not in context.user.role_names:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator required")
     return context
+
+
+AdminAuth = Annotated[AuthContext, Depends(require_admin)]
 
 
 def get_session_by_refresh_token(

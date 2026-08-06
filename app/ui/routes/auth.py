@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, Form, HTTPException, Request
+from fastapi import Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from hedron import (
     Card,
@@ -19,16 +19,15 @@ from hedron import (
     Form as HedronForm,
 )
 from hedron_core import NodeLike
-from sqlalchemy.orm import Session
 from starlette.responses import Response
 
-from app.config import Settings, get_settings
-from app.database import get_db
+from app.config import Settings
 from app.dependencies import (
-    AuthContext,
+    Auth,
+    DbSession,
+    OptionalAuth,
+    SettingsDep,
     clear_auth_cookies,
-    get_optional_auth,
-    require_auth,
     set_auth_cookies,
 )
 from app.models import Invitation, RegistrationVerification
@@ -68,10 +67,10 @@ def register_auth_routes(app: Hedron) -> None:
     @app.get("/login", include_in_schema=False)
     def login_page(
         request: Request,
+        auth: OptionalAuth,
+        settings: SettingsDep,
         next: str = "/profile",
         password: str = "",
-        auth: AuthContext | None = Depends(get_optional_auth),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         if auth:
             return RedirectResponse(app_path(request, safe_next(next)), status_code=303)
@@ -87,12 +86,12 @@ def register_auth_routes(app: Hedron) -> None:
     @app.post("/login", include_in_schema=False)
     def login_submit(
         request: Request,
+        db: DbSession,
+        settings: SettingsDep,
         email: str = Form(),
         password: str = Form(max_length=128),
         preauth_csrf_token: str = Form(default="", max_length=256),
         next: str = Form(default="/profile", max_length=2048),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         require_preauth_csrf(request, preauth_csrf_token, settings)
         if settings.authentication_mode != "local_password":
@@ -126,10 +125,10 @@ def register_auth_routes(app: Hedron) -> None:
     @app.post("/login/federated", include_in_schema=False)
     def federated_login_submit(
         request: Request,
+        db: DbSession,
+        settings: SettingsDep,
         next: str = Form(default="/profile", max_length=2048),
         preauth_csrf_token: str = Form(default="", max_length=256),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         require_preauth_csrf(request, preauth_csrf_token, settings)
         check_rate_limit(
@@ -296,16 +295,16 @@ def register_auth_routes(app: Hedron) -> None:
         return response
 
     @app.get("/register", include_in_schema=False)
-    def registration_page(request: Request, settings: Settings = Depends(get_settings)):
+    def registration_page(request: Request, settings: SettingsDep):
         return _register_html(request, settings)
 
     @app.post("/register", include_in_schema=False)
     async def registration_submit(
         request: Request,
+        db: DbSession,
+        settings: SettingsDep,
         email: str = Form(max_length=320),
         full_name: str = Form(default="", max_length=160),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         check_rate_limit(
             db,
@@ -399,8 +398,8 @@ def register_auth_routes(app: Hedron) -> None:
     def registration_verification_page(
         request: Request,
         token: str,
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
+        db: DbSession,
+        settings: SettingsDep,
     ) -> Response:
         error = ""
         verification = None
@@ -420,11 +419,11 @@ def register_auth_routes(app: Hedron) -> None:
     @app.post("/registration/verify", include_in_schema=False)
     def registration_verification_submit(
         request: Request,
+        db: DbSession,
+        settings: SettingsDep,
         token: str = Form(max_length=512),
         password: str = Form(default="", max_length=128),
         password_confirm: str = Form(default="", max_length=128),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         check_rate_limit(
             db,
@@ -527,9 +526,9 @@ def register_auth_routes(app: Hedron) -> None:
     @app.post("/logout", include_in_schema=False)
     async def logout_submit(
         request: Request,
-        auth: AuthContext = Depends(require_auth),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
     ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         revoke_session(db, auth.session, actor=auth.user, request=request)
@@ -538,7 +537,7 @@ def register_auth_routes(app: Hedron) -> None:
         return response
 
     @app.get("/password/forgot", include_in_schema=False)
-    def forgot_page(request: Request, settings: Settings = Depends(get_settings)):
+    def forgot_page(request: Request, settings: SettingsDep):
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=404, detail="Not found")
         return _forgot_html(request, settings)
@@ -546,9 +545,9 @@ def register_auth_routes(app: Hedron) -> None:
     @app.post("/password/forgot", include_in_schema=False)
     def forgot_submit(
         request: Request,
+        db: DbSession,
+        settings: SettingsDep,
         email: str = Form(max_length=320),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=404, detail="Not found")
@@ -604,8 +603,8 @@ def register_auth_routes(app: Hedron) -> None:
     def reset_page(
         request: Request,
         token: str,
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
+        db: DbSession,
+        settings: SettingsDep,
     ) -> Response:
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=404, detail="Not found")
@@ -621,11 +620,11 @@ def register_auth_routes(app: Hedron) -> None:
     @app.post("/password/reset", include_in_schema=False)
     def reset_submit(
         request: Request,
+        db: DbSession,
+        settings: SettingsDep,
         token: str = Form(max_length=512),
         password: str = Form(max_length=128),
         password_confirm: str = Form(max_length=128),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=404, detail="Not found")
@@ -697,8 +696,8 @@ def register_auth_routes(app: Hedron) -> None:
     def invitation_page(
         request: Request,
         token: str,
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
+        db: DbSession,
+        settings: SettingsDep,
     ) -> Response:
         error = ""
         invitation = None
@@ -718,12 +717,12 @@ def register_auth_routes(app: Hedron) -> None:
     @app.post("/invitations/accept", include_in_schema=False)
     def invitation_submit(
         request: Request,
+        db: DbSession,
+        settings: SettingsDep,
         token: str = Form(max_length=512),
         full_name: str = Form(default="", max_length=160),
         password: str = Form(default="", max_length=128),
         password_confirm: str = Form(default="", max_length=128),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         invitation = None
         error = ""

@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, Form, HTTPException, Request
+from fastapi import Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, html
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 from starlette.responses import Response
 
-from app.config import Settings, get_settings
-from app.database import get_db
-from app.dependencies import AuthContext, clear_auth_cookies, require_auth
+from app.dependencies import Auth, DbSession, SettingsDep, clear_auth_cookies
 from app.models import RefreshSession, UserSecret
 from app.routing import app_path, is_htmx_request
 from app.security.csrf import require_csrf
@@ -40,10 +37,10 @@ def register_security_routes(app: Hedron) -> None:
     @app.get("/security", include_in_schema=False)
     async def security_page(
         request: Request,
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
         notice: str = "",
-        auth: AuthContext = Depends(require_auth),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         request.state.hedron_authenticated = True
         notices = {
@@ -87,9 +84,9 @@ def register_security_routes(app: Hedron) -> None:
     @app.get("/security/activity", include_in_schema=False)
     async def security_activity_fragment(
         request: Request,
-        auth: AuthContext = Depends(require_auth),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
     ) -> Response:
         request.state.hedron_authenticated = True
         if is_htmx_request(request):
@@ -112,12 +109,12 @@ def register_security_routes(app: Hedron) -> None:
     @app.post("/security/password", include_in_schema=False)
     async def password_change_submit(
         request: Request,
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
         current_password: str = Form(max_length=128),
         new_password: str = Form(max_length=128),
         new_password_confirm: str = Form(max_length=128),
-        auth: AuthContext = Depends(require_auth),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         if settings.authentication_mode != "local_password":
@@ -199,9 +196,9 @@ def register_security_routes(app: Hedron) -> None:
     async def revoke_session_submit(
         session_id: str,
         request: Request,
-        auth: AuthContext = Depends(require_auth),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
     ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         session = db.get(RefreshSession, session_id)
@@ -231,10 +228,10 @@ def register_security_routes(app: Hedron) -> None:
     async def secret_submit(
         provider: str,
         request: Request,
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
         token: str = Form(max_length=8192),
-        auth: AuthContext = Depends(require_auth),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         try:
@@ -294,9 +291,9 @@ def register_security_routes(app: Hedron) -> None:
     async def secret_delete_submit(
         provider: str,
         request: Request,
-        auth: AuthContext = Depends(require_auth),
-        db: Session = Depends(get_db),
-        settings: Settings = Depends(get_settings),
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
     ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         try:

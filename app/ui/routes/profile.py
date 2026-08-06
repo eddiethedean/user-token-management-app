@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, Form, Request
+from fastapi import Form, Request
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, html
-from sqlalchemy.orm import Session
 from starlette.responses import Response
 
-from app.config import Settings, get_settings
-from app.database import get_db
-from app.dependencies import AuthContext, require_auth
+from app.dependencies import Auth, DbSession, SettingsDep
 from app.routing import app_path, is_htmx_request
 from app.security.csrf import require_csrf
 from app.services.accounts import ProfileValues, update_profile
@@ -24,9 +21,9 @@ def register_profile_routes(app: Hedron) -> None:
     @app.get("/profile", include_in_schema=False)
     async def profile_page(
         request: Request,
+        auth: Auth,
+        settings: SettingsDep,
         updated: bool = False,
-        auth: AuthContext = Depends(require_auth),
-        settings: Settings = Depends(get_settings),
     ) -> Response:
         request.state.hedron_authenticated = True
         csrf = auth.session.csrf_token
@@ -72,12 +69,12 @@ def register_profile_routes(app: Hedron) -> None:
     @app.post("/profile", include_in_schema=False)
     async def profile_submit(
         request: Request,
+        auth: Auth,
+        db: DbSession,
         full_name: str = Form(default=""),
         organization: str = Form(default=""),
         job_title: str = Form(default=""),
         phone: str = Form(default=""),
-        auth: AuthContext = Depends(require_auth),
-        db: Session = Depends(get_db),
     ) -> Response:
         await require_csrf(request, auth.session.csrf_token)
         update_profile(
