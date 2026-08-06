@@ -2,67 +2,85 @@
 
 from __future__ import annotations
 
-from hedron import html
-from hedron_core import HtmlAttrValue, NodeLike
+from typing import Any
+
+from hedron import Badge, Form, FormField, Heading, Section, TextInput, html
+from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
 from app.ui.layout import INDICATOR, account_summary, alert_box
 from app.ui.urls import form_action, hx_attrs, page_href
 
 
-def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> NodeLike:
+def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> Component[Any]:
     user = auth.user
-    return html.div(
+    return Section(
         alert_box(success, kind="success"),
-        html.form(
+        Form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
             html.div(
                 html.div(
-                    html.label("Government email", for_="email"),
-                    html.input(id="email", value=user.email_original, disabled=True),
-                    html.p(
-                        "Verified addresses can only be changed through an administrator.",
-                        class_="field-help",
+                    FormField(
+                        name="email",
+                        label="Government email",
+                        id="email",
+                        help="Verified addresses can only be changed through an administrator.",
+                        control=TextInput(
+                            "email",
+                            id="email",
+                            type="email",
+                            value=user.email_original,
+                            disabled=True,
+                        ),
                     ),
                     class_="field-full",
                 ),
                 html.div(
-                    html.label("Full name", for_="full_name"),
-                    html.input(
-                        id="full_name",
+                    FormField(
                         name="full_name",
-                        value=user.full_name or "",
-                        autocomplete="name",
-                        maxlength="160",
+                        label="Full name",
+                        id="full_name",
+                        control=TextInput(
+                            "full_name",
+                            id="full_name",
+                            value=user.full_name or "",
+                            autocomplete="name",
+                        ),
                     ),
                     class_="field-full",
                 ),
-                html.div(
-                    html.label("Organization", for_="organization"),
-                    html.input(
+                FormField(
+                    name="organization",
+                    label="Organization",
+                    id="organization",
+                    control=TextInput(
+                        "organization",
                         id="organization",
-                        name="organization",
                         value=user.organization or "",
-                        maxlength="160",
                     ),
                 ),
-                html.div(
-                    html.label("Job title", for_="job_title"),
-                    html.input(
+                FormField(
+                    name="job_title",
+                    label="Job title",
+                    id="job_title",
+                    control=TextInput(
+                        "job_title",
                         id="job_title",
-                        name="job_title",
                         value=user.job_title or "",
-                        maxlength="160",
                     ),
                 ),
                 html.div(
-                    html.label("Work phone", for_="phone"),
-                    html.input(
-                        id="phone",
+                    FormField(
                         name="phone",
-                        value=user.phone or "",
-                        autocomplete="tel",
-                        maxlength="40",
+                        label="Work phone",
+                        id="phone",
+                        control=TextInput(
+                            "phone",
+                            id="phone",
+                            type="tel",
+                            value=user.phone or "",
+                            autocomplete="tel",
+                        ),
                     ),
                     class_="field-full",
                 ),
@@ -89,6 +107,7 @@ def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> No
 
 
 def profile_identity(auth: AuthContext, *, oob: bool = False) -> NodeLike:
+    """Identity aside keeps html.* for hx-swap-oob; uses Badge for status."""
     user = auth.user
     attrs: dict[str, HtmlAttrValue] = {"id": "profile-identity", "class_": "panel identity-panel"}
     if oob:
@@ -99,12 +118,12 @@ def profile_identity(auth: AuthContext, *, oob: bool = False) -> NodeLike:
     )
     return html.aside(
         html.div(initial, class_="identity-avatar"),
-        html.h2(user.full_name or "Account holder"),
+        Heading(user.full_name or "Account holder", level=2),
         html.p(user.email_original),
         html.dl(
             html.div(
                 html.dt("Account status"),
-                html.dd(html.span(user.status, class_="pill pill-active")),
+                html.dd(Badge(user.status, tone="success")),
             ),
             html.div(
                 html.dt("Access level"),

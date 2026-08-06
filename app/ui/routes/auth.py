@@ -4,7 +4,20 @@ from __future__ import annotations
 
 from fastapi import Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from hedron import Hedron, html
+from hedron import (
+    Card,
+    FormField,
+    Heading,
+    Hedron,
+    Section,
+    Stack,
+    Text,
+    TextInput,
+    html,
+)
+from hedron import (
+    Form as HedronForm,
+)
 from hedron_core import NodeLike
 from sqlalchemy.orm import Session
 from starlette.responses import Response
@@ -155,10 +168,10 @@ def register_auth_routes(app: Hedron) -> None:
                 html.p(html.strong(title), html.small(detail)),
             )
 
-        intro = html.div(
+        intro = Stack(
             html.p("Controlled access", class_="eyebrow"),
-            html.h1("Your identity, managed with clarity."),
-            html.p(
+            Heading("Your identity, managed with clarity.", level=1),
+            Text(
                 "Access your profile, review active sessions, and manage the security "
                 "of your government application account."
             ),
@@ -173,11 +186,12 @@ def register_auth_routes(app: Hedron) -> None:
                 aria={"label": "Security features"},
             ),
             class_="auth-intro",
+            gap="0.75rem",
         )
 
         card_children: list[NodeLike] = [
             html.p("Account access", class_="eyebrow"),
-            html.h2("Sign in"),
+            Heading("Sign in", level=2),
             html.p(
                 "Continue through the approved identity-aware proxy using your CAC or "
                 "federated credential."
@@ -192,7 +206,7 @@ def register_auth_routes(app: Hedron) -> None:
             card_children.append(alert_box(error))
         if federated:
             card_children.append(
-                html.form(
+                HedronForm(
                     html.input(type="hidden", name="next", value=next),
                     html.input(type="hidden", name="preauth_csrf_token", value=preauth),
                     html.button(
@@ -213,32 +227,34 @@ def register_auth_routes(app: Hedron) -> None:
             )
         else:
             card_children.append(
-                html.form(
+                HedronForm(
                     html.input(type="hidden", name="next", value=next),
                     html.input(type="hidden", name="preauth_csrf_token", value=preauth),
-                    html.label("Government email", for_="email"),
-                    html.input(
-                        id="email",
+                    FormField(
                         name="email",
-                        type="email",
-                        value=email,
+                        label="Government email",
+                        id="email",
                         required=True,
-                        autocomplete="username",
-                        maxlength="320",
-                        autofocus=True,
+                        control=TextInput(
+                            "email",
+                            id="email",
+                            type="email",
+                            value=email,
+                            required=True,
+                            autocomplete="username",
+                        ),
                     ),
                     html.div(
                         html.label("Password", for_="password"),
                         html.a("Forgot password?", href=page_href("password/forgot")),
                         class_="label-row",
                     ),
-                    html.input(
+                    TextInput(
+                        "password",
                         id="password",
-                        name="password",
                         type="password",
                         required=True,
                         autocomplete="current-password",
-                        maxlength="128",
                     ),
                     html.button(
                         "Show password",
@@ -267,9 +283,9 @@ def register_auth_routes(app: Hedron) -> None:
                 )
             )
 
-        layout = html.section(
+        layout = Section(
             intro,
-            html.div(*card_children, class_="auth-card"),
+            Card(*card_children, class_="auth-card"),
             class_="auth-layout",
         )
         page = app_shell(
@@ -335,14 +351,29 @@ def register_auth_routes(app: Hedron) -> None:
         email: str = "",
         full_name: str = "",
     ) -> Response:
-        body = [html.h1("Request access"), alert_box(error), alert_box(success, kind="success")]
+        body = [
+            Heading("Request access", level=1),
+            alert_box(error),
+            alert_box(success, kind="success"),
+        ]
         if not success:
             body.append(
-                html.form(
-                    html.label("Government email", for_="email"),
-                    html.input(id="email", name="email", type="email", value=email, required=True),
-                    html.label("Full name", for_="full_name"),
-                    html.input(id="full_name", name="full_name", value=full_name),
+                HedronForm(
+                    FormField(
+                        name="email",
+                        label="Government email",
+                        id="email",
+                        required=True,
+                        control=TextInput(
+                            "email", id="email", type="email", value=email, required=True
+                        ),
+                    ),
+                    FormField(
+                        name="full_name",
+                        label="Full name",
+                        id="full_name",
+                        control=TextInput("full_name", id="full_name", value=full_name),
+                    ),
                     html.button(
                         "Submit request", class_="button button-primary button-wide", type="submit"
                     ),
@@ -436,30 +467,35 @@ def register_auth_routes(app: Hedron) -> None:
         status_code: int = 200,
     ) -> Response:
         body = [
-            html.h1("Verify registration"),
+            Heading("Verify registration", level=1),
             alert_box(error),
             alert_box(success, kind="success"),
         ]
         if not success and not error:
-            fields = [html.input(type="hidden", name="token", value=token)]
+            fields: list = [html.input(type="hidden", name="token", value=token)]
             if settings.authentication_mode == "local_password":
                 fields.extend(
                     [
-                        html.label("Password", for_="password"),
-                        html.input(
-                            id="password",
+                        FormField(
                             name="password",
-                            type="password",
+                            label="Password",
+                            id="password",
                             required=True,
-                            minlength="15",
+                            control=TextInput(
+                                "password", id="password", type="password", required=True
+                            ),
                         ),
-                        html.label("Confirm password", for_="password_confirm"),
-                        html.input(
-                            id="password_confirm",
+                        FormField(
                             name="password_confirm",
-                            type="password",
+                            label="Confirm password",
+                            id="password_confirm",
                             required=True,
-                            minlength="15",
+                            control=TextInput(
+                                "password_confirm",
+                                id="password_confirm",
+                                type="password",
+                                required=True,
+                            ),
                         ),
                     ]
                 )
@@ -467,7 +503,7 @@ def register_auth_routes(app: Hedron) -> None:
                 html.button("Verify", class_="button button-primary button-wide", type="submit")
             )
             body.append(
-                html.form(
+                HedronForm(
                     *fields,
                     action=form_action("registration/verify"),
                     method="post",
@@ -533,12 +569,17 @@ def register_auth_routes(app: Hedron) -> None:
         )
 
     def _forgot_html(request: Request, settings: Settings, *, success: str = "") -> Response:
-        body = [html.h1("Forgot password"), alert_box(success, kind="success")]
+        body = [Heading("Forgot password", level=1), alert_box(success, kind="success")]
         if not success:
             body.append(
-                html.form(
-                    html.label("Government email", for_="email"),
-                    html.input(id="email", name="email", type="email", required=True),
+                HedronForm(
+                    FormField(
+                        name="email",
+                        label="Government email",
+                        id="email",
+                        required=True,
+                        control=TextInput("email", id="email", type="email", required=True),
+                    ),
                     html.button(
                         "Send reset link", class_="button button-primary button-wide", type="submit"
                     ),
@@ -606,26 +647,31 @@ def register_auth_routes(app: Hedron) -> None:
         error: str = "",
         status_code: int = 200,
     ) -> Response:
-        body = [html.h1("Reset password"), alert_box(error)]
+        body = [Heading("Reset password", level=1), alert_box(error)]
         if not error or token:
             body.append(
-                html.form(
+                HedronForm(
                     html.input(type="hidden", name="token", value=token),
-                    html.label("New password", for_="password"),
-                    html.input(
-                        id="password",
+                    FormField(
                         name="password",
-                        type="password",
+                        label="New password",
+                        id="password",
                         required=True,
-                        minlength="15",
+                        control=TextInput(
+                            "password", id="password", type="password", required=True
+                        ),
                     ),
-                    html.label("Confirm password", for_="password_confirm"),
-                    html.input(
-                        id="password_confirm",
+                    FormField(
                         name="password_confirm",
-                        type="password",
+                        label="Confirm password",
+                        id="password_confirm",
                         required=True,
-                        minlength="15",
+                        control=TextInput(
+                            "password_confirm",
+                            id="password_confirm",
+                            type="password",
+                            required=True,
+                        ),
                     ),
                     html.button(
                         "Update password", class_="button button-primary button-wide", type="submit"
@@ -716,32 +762,41 @@ def register_auth_routes(app: Hedron) -> None:
         error: str = "",
         status_code: int = 200,
     ) -> Response:
-        body = [html.h1("Accept invitation"), alert_box(error)]
+        body = [Heading("Accept invitation", level=1), alert_box(error)]
         if invitation and not error:
             fields = [
                 html.input(type="hidden", name="token", value=token),
                 html.p(f"Invited as {invitation.email_original} ({invitation.role_name})"),
-                html.label("Full name", for_="full_name"),
-                html.input(id="full_name", name="full_name", value=full_name),
+                FormField(
+                    name="full_name",
+                    label="Full name",
+                    id="full_name",
+                    control=TextInput("full_name", id="full_name", value=full_name),
+                ),
             ]
             if settings.authentication_mode == "local_password":
                 fields.extend(
                     [
-                        html.label("Password", for_="password"),
-                        html.input(
-                            id="password",
+                        FormField(
                             name="password",
-                            type="password",
+                            label="Password",
+                            id="password",
                             required=True,
-                            minlength="15",
+                            control=TextInput(
+                                "password", id="password", type="password", required=True
+                            ),
                         ),
-                        html.label("Confirm password", for_="password_confirm"),
-                        html.input(
-                            id="password_confirm",
+                        FormField(
                             name="password_confirm",
-                            type="password",
+                            label="Confirm password",
+                            id="password_confirm",
                             required=True,
-                            minlength="15",
+                            control=TextInput(
+                                "password_confirm",
+                                id="password_confirm",
+                                type="password",
+                                required=True,
+                            ),
                         ),
                     ]
                 )
@@ -751,7 +806,7 @@ def register_auth_routes(app: Hedron) -> None:
                 )
             )
             body.append(
-                html.form(
+                HedronForm(
                     *fields,
                     action=form_action("invitations/accept"),
                     method="post",

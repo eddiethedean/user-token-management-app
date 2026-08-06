@@ -389,8 +389,8 @@ def test_password_form_field_errors() -> None:
             field_errors={"new_password_confirm": "New passwords do not match."},
         )
     )
-    assert 'id="field-error-new_password_confirm"' in html
-    assert "field-error is-active" in html
+    assert 'id="new_password_confirm-error"' in html
+    assert "hedron-field-error" in html
     assert "do not match" in html
     assert 'aria-invalid="true"' in html
 

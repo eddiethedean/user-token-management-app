@@ -2,14 +2,30 @@
 
 from __future__ import annotations
 
-from hedron import ComponentRef, Dialog, ErrorState, Lazy, Loading, Tabs, html
-from hedron_core import HtmlAttrValue, NodeLike
+from typing import Any
+
+from hedron import (
+    Badge,
+    ComponentRef,
+    Dialog,
+    ErrorState,
+    Form,
+    FormField,
+    Heading,
+    Lazy,
+    Loading,
+    Section,
+    Tabs,
+    Text,
+    TextInput,
+    html,
+)
+from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
 from app.models import AuditEvent, RefreshSession
 from app.services.secrets import SecretProvider
 from app.ui.layout import INDICATOR, alert_box
-from app.ui.partials.shared import field_error
 from app.ui.urls import form_action, hx_attrs, page_href
 
 
@@ -18,24 +34,23 @@ def _password_field(
     field_id: str,
     *,
     autocomplete: str,
-    minlength: str | None = None,
     error: str = "",
-) -> list[NodeLike]:
-    attrs: dict[str, HtmlAttrValue] = {
-        "id": field_id,
-        "name": field_id,
-        "type": "password",
-        "required": True,
-        "autocomplete": autocomplete,
-        "maxlength": "128",
-    }
-    if minlength:
-        attrs["minlength"] = minlength
-    if error:
-        attrs["aria"] = {"invalid": "true", "describedby": f"field-error-{field_id}"}
-    return [
-        html.label(label, for_=field_id),
-        html.input(**attrs),
+) -> NodeLike:
+    return html.div(
+        FormField(
+            name=field_id,
+            label=label,
+            id=field_id,
+            required=True,
+            error=error or None,
+            control=TextInput(
+                field_id,
+                id=field_id,
+                type="password",
+                autocomplete=autocomplete,
+                required=True,
+            ),
+        ),
         html.button(
             "Show password",
             class_="password-toggle",
@@ -43,8 +58,8 @@ def _password_field(
             data={"password-toggle": field_id},
             aria={"pressed": "false"},
         ),
-        field_error(field_id, error),
-    ]
+        class_="password-field",
+    )
 
 
 def password_form(
@@ -53,38 +68,36 @@ def password_form(
     error: str = "",
     success: str = "",
     field_errors: dict[str, str] | None = None,
-) -> NodeLike:
+) -> Component[Any]:
     field_errors = field_errors or {}
     if success:
-        return html.div(
+        return Section(
             alert_box(success, kind="success"),
             html.a("Return to sign in", class_="button button-primary", href=page_href("/login")),
             id="password-form-region",
             class_="form-column",
         )
     top_error = error if error and not field_errors else ""
-    return html.div(
+    return Section(
         alert_box(top_error),
-        html.form(
+        Form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
-            *_password_field(
+            _password_field(
                 "Current password",
                 "current_password",
                 autocomplete="current-password",
                 error=field_errors.get("current_password", ""),
             ),
-            *_password_field(
+            _password_field(
                 "New password",
                 "new_password",
                 autocomplete="new-password",
-                minlength="15",
                 error=field_errors.get("new_password", ""),
             ),
-            *_password_field(
+            _password_field(
                 "Confirm new password",
                 "new_password_confirm",
                 autocomplete="new-password",
-                minlength="15",
                 error=field_errors.get("new_password_confirm", ""),
             ),
             html.button("Change password", class_="button button-primary", type="submit"),
@@ -111,7 +124,7 @@ def secret_slot(
     csrf_token: str,
     error: str = "",
     success: str = "",
-) -> NodeLike:
+) -> Component[Any]:
     configured = secret is not None
     if configured:
         metadata = (
@@ -120,38 +133,38 @@ def secret_slot(
         )
     else:
         metadata = f"No {provider.label} token is available to your runs."
-    return html.div(
+    return Section(
         html.div(
             html.div(
                 html.span(provider.mark, class_="secret-provider-mark", aria={"hidden": "true"}),
                 html.div(
-                    html.h3(provider.label),
+                    Heading(provider.label, level=3),
                     html.code(provider.environment_variable),
                 ),
             ),
-            html.span(
+            Badge(
                 "Configured" if configured else "Not configured",
-                class_=f"pill {'pill-active' if configured else 'pill-muted'}",
+                tone="success" if configured else "neutral",
             ),
             class_="secret-card-heading",
         ),
         alert_box(error),
         alert_box(success, kind="success"),
         html.p(metadata, class_="secret-metadata"),
-        html.form(
+        Form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
-            html.label(
-                f"{provider.label} API token", for_=f"{provider.name}-token", class_="sr-only"
-            ),
-            html.input(
-                id=f"{provider.name}-token",
+            FormField(
                 name="token",
-                type="password",
-                autocomplete="new-password",
-                minlength="8",
-                maxlength="8192",
-                placeholder=f"Paste {provider.label} API token",
-                required=True,
+                label=f"{provider.label} API token",
+                id=f"{provider.name}-token",
+                control=TextInput(
+                    "token",
+                    id=f"{provider.name}-token",
+                    type="password",
+                    autocomplete="new-password",
+                    required=True,
+                    placeholder=f"Paste {provider.label} API token",
+                ),
             ),
             html.button(
                 "Replace" if configured else "Save",
@@ -182,7 +195,7 @@ def secret_slot(
                     html.p(
                         f"Delete your {provider.label} API token? Runs using it will stop working."
                     ),
-                    html.form(
+                    Form(
                         html.input(type="hidden", name="csrf_token", value=csrf_token),
                         html.button(
                             "Delete token",
@@ -216,12 +229,12 @@ def session_list(
     *,
     auth: AuthContext,
     csrf_token: str,
-) -> NodeLike:
-    rows = []
+) -> Component[Any]:
+    rows: list[NodeLike] = []
     for session in sessions:
         is_current = session.id == auth.session.id
         if is_current:
-            action_node: NodeLike = html.span("Current", class_="pill pill-active")
+            action_node: NodeLike = Badge("Current", tone="success")
         else:
             dialog_id = f"revoke-session-{session.id}"
             action_node = html.div(
@@ -234,7 +247,7 @@ def session_list(
                 Dialog(
                     "Revoke session",
                     html.p("Revoke this browser session? The device will need to sign in again."),
-                    html.form(
+                    Form(
                         html.input(type="hidden", name="csrf_token", value=csrf_token),
                         html.button(
                             "Revoke session",
@@ -273,7 +286,7 @@ def session_list(
         )
     if not rows:
         rows.append(html.p("No active sessions.", class_="empty-state"))
-    return html.div(*rows, id="session-list", class_="session-list")
+    return Section(*rows, id="session-list", class_="session-list")
 
 
 def session_count(sessions: list[RefreshSession], *, oob: bool = False) -> NodeLike:
@@ -287,7 +300,7 @@ def security_activity(events: list[AuditEvent], *, oob: bool = False) -> NodeLik
     attrs: dict[str, HtmlAttrValue] = {"id": "security-activity", "class_": "event-list"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
-    items = []
+    items: list[NodeLike] = []
     for event in events:
         title = event.event_type.replace(".", " ").title()
         items.append(
@@ -323,7 +336,7 @@ def security_activity_error(
     )
 
 
-def security_activity_lazy() -> NodeLike:
+def security_activity_lazy() -> Lazy:
     """Deferred activity panel loaded via Hedron Lazy after first paint."""
     return Lazy(
         ref=ComponentRef(
@@ -343,16 +356,16 @@ def security_tabs(
     secret_slots,
     sessions: list[RefreshSession],
     auth: AuthContext,
-) -> NodeLike:
+) -> Tabs:
     panels: list[tuple[str, NodeLike]] = []
     if local_password:
         panels.append(
             (
                 "Password",
-                html.section(
+                Section(
                     html.div(
-                        html.h2("Change password"),
-                        html.p(
+                        Heading("Change password", level=2),
+                        Text(
                             "Changing your password signs out every active session, including this one."
                         ),
                     ),
@@ -364,10 +377,10 @@ def security_tabs(
     panels.append(
         (
             "Tokens",
-            html.section(
+            Section(
                 html.div(
-                    html.h2("API tokens"),
-                    html.p(
+                    Heading("API tokens", level=2),
+                    Text(
                         "Add only an approved service token. Saved values are encrypted and cannot be viewed again."
                     ),
                     class_="panel-heading",
@@ -383,11 +396,11 @@ def security_tabs(
     panels.append(
         (
             "Sessions",
-            html.section(
+            Section(
                 html.div(
                     html.div(
-                        html.h2("Active sessions"),
-                        html.p("Revoke any browser or client you no longer recognize."),
+                        Heading("Active sessions", level=2),
+                        Text("Revoke any browser or client you no longer recognize."),
                     ),
                     session_count(sessions),
                     class_="panel-heading",
@@ -400,10 +413,10 @@ def security_tabs(
     panels.append(
         (
             "Activity",
-            html.section(
+            Section(
                 html.div(
-                    html.h2("Recent security activity"),
-                    html.p("Latest events associated with your account."),
+                    Heading("Recent security activity", level=2),
+                    Text("Latest events associated with your account."),
                     class_="panel-heading",
                 ),
                 security_activity_lazy(),

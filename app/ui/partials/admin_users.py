@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
-from hedron import Dialog, html
-from hedron_core import HtmlAttrValue, NodeLike
+from typing import Any
+
+from hedron import (
+    Badge,
+    Dialog,
+    Form,
+    FormField,
+    Heading,
+    Section,
+    Select,
+    Table,
+    Text,
+    TextInput,
+    html,
+)
+from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.models import Invitation, Role, User, UserStatus
 from app.ui.layout import INDICATOR, alert_box
-from app.ui.partials.shared import _filter_base_path, field_error, hedron_pagination
+from app.ui.partials.shared import _filter_base_path, hedron_pagination
 from app.ui.urls import form_action, hx_attrs
 
 
@@ -28,14 +42,15 @@ def user_table(
     page_count: int,
     total_users: int | None = None,
     page_size: int = 50,
-) -> NodeLike:
-    rows = []
+) -> Component[Any]:
+    """Directory body with Hedron Table; action cells keep Form/Dialog nodes."""
+    rows: list[list[NodeLike]] = []
     for user in users:
-        actions = []
+        actions: list[NodeLike] = []
         if user.status == UserStatus.PENDING.value:
             for action, label in (("approve", "Approve"), ("deny", "Deny")):
                 actions.append(
-                    html.form(
+                    Form(
                         html.input(type="hidden", name="csrf_token", value=csrf_token),
                         html.input(type="hidden", name="q", value=query),
                         html.input(type="hidden", name="status", value=status_filter),
@@ -58,7 +73,7 @@ def user_table(
             is_active = user.status == UserStatus.ACTIVE.value
             action_label = "Disable" if is_active else "Enable"
             dialog_id = f"toggle-user-{user.id}"
-            toggle_form = html.form(
+            toggle_form = Form(
                 html.input(type="hidden", name="csrf_token", value=csrf_token),
                 html.input(type="hidden", name="q", value=query),
                 html.input(type="hidden", name="status", value=status_filter),
@@ -101,12 +116,12 @@ def user_table(
             else:
                 actions.append(toggle_form)
         rows.append(
-            html.tr(
-                html.td(html.strong(user.email_original), html.small(user.full_name or "")),
-                html.td(user.status),
-                html.td(", ".join(user.role_names) or "user"),
-                html.td(*actions, class_="table-actions"),
-            )
+            [
+                html.div(html.strong(user.email_original), html.small(user.full_name or "")),
+                user.status,
+                ", ".join(user.role_names) or "user",
+                html.div(*actions, class_="table-actions"),
+            ]
         )
     total = (
         total_users
@@ -114,23 +129,16 @@ def user_table(
         else max(0, (page_count - 1) * page_size + len(users))
     )
     base = _filter_base_path("/admin/users", q=query, status=status_filter)
-    return html.div(
-        html.div(
-            html.table(
-                html.thead(
-                    html.tr(
-                        html.th("Account"),
-                        html.th("Status"),
-                        html.th("Roles"),
-                        html.th("Actions"),
-                    )
-                ),
-                html.tbody(*rows)
-                if rows
-                else html.tbody(html.tr(html.td("No users found.", colspan="4"))),
-            ),
-            class_="table-wrap",
-        ),
+    table: NodeLike
+    if rows:
+        table = Table(["Account", "Status", "Roles", "Actions"], rows)
+    else:
+        table = Table(
+            ["Account", "Status", "Roles", "Actions"],
+            [["No users found.", "", "", ""]],
+        )
+    return Section(
+        html.div(table, class_="table-wrap"),
         hedron_pagination(
             page=page,
             page_size=page_size,
@@ -153,21 +161,33 @@ def user_directory(
     total_users: int | None = None,
     page_size: int = 50,
     success: str = "",
-) -> NodeLike:
-    return html.div(
+) -> Component[Any]:
+    status_options = [("", "All"), *[(item.value, item.value) for item in UserStatus]]
+    return Section(
         alert_box(success, kind="success"),
-        html.form(
-            html.label("Search", for_="user-query"),
-            html.input(id="user-query", name="q", value=query, placeholder="email or name"),
-            html.label("Status", for_="status-filter"),
-            html.select(
-                html.option("All", value="", selected=not status_filter),
-                *[
-                    html.option(item.value, value=item.value, selected=status_filter == item.value)
-                    for item in UserStatus
-                ],
-                id="status-filter",
+        Form(
+            FormField(
+                name="q",
+                label="Search",
+                id="user-query",
+                control=TextInput(
+                    "q",
+                    id="user-query",
+                    value=query,
+                    placeholder="email or name",
+                    type="search",
+                ),
+            ),
+            FormField(
                 name="status",
+                label="Status",
+                id="status-filter",
+                control=Select(
+                    "status",
+                    status_options,
+                    id="status-filter",
+                    value=status_filter or None,
+                ),
             ),
             html.button("Filter", class_="button button-secondary button-small", type="submit"),
             class_="filter-form",
@@ -207,17 +227,17 @@ def invitation_panel(
     error: str = "",
     success: str = "",
     field_errors: dict[str, str] | None = None,
-) -> NodeLike:
+) -> Component[Any]:
     field_errors = field_errors or {}
-    pending_rows = []
+    pending_rows: list[NodeLike] = []
     for invitation in invitations:
         if invitation.accepted_at:
-            pill = ("accepted", "pill-active")
+            pill = Badge("accepted", tone="success")
         elif invitation.revoked_at:
-            pill = ("revoked", "pill-muted")
+            pill = Badge("revoked", tone="neutral")
         else:
-            pill = ("pending", "pill-pending")
-        actions = [html.span(pill[0], class_=f"pill {pill[1]}")]
+            pill = Badge("pending", tone="warning")
+        actions: list[NodeLike] = [pill]
         if not invitation.accepted_at and not invitation.revoked_at:
             dialog_id = f"revoke-invite-{invitation.id}"
             actions.append(
@@ -231,7 +251,7 @@ def invitation_panel(
                     Dialog(
                         "Revoke invitation",
                         html.p(f"Revoke the invitation for {invitation.email_original}?"),
-                        html.form(
+                        Form(
                             html.input(type="hidden", name="csrf_token", value=csrf_token),
                             html.button(
                                 "Revoke invitation",
@@ -268,39 +288,39 @@ def invitation_panel(
     email_error = field_errors.get("invite_email", "")
     role_error = field_errors.get("invite_role", "")
     top_error = error if error and not field_errors else ""
-    email_attrs: dict[str, HtmlAttrValue] = {
-        "id": "invite_email",
-        "name": "email",
-        "type": "email",
-        "required": True,
-    }
-    if email_error:
-        email_attrs["aria"] = {
-            "invalid": "true",
-            "describedby": "field-error-invite_email",
-        }
-    return html.div(
-        html.h2("Invitations"),
-        html.p("Send a government-email invitation with an initial role."),
+    return Section(
+        Heading("Invitations", level=2),
+        Text("Send a government-email invitation with an initial role."),
         alert_box(top_error),
         alert_box(success, kind="success"),
-        html.form(
+        Form(
             html.input(type="hidden", name="csrf_token", value=csrf_token),
-            html.label("Government email", for_="invite_email"),
-            html.input(**email_attrs),
-            field_error("invite_email", email_error),
-            html.label("Initial role", for_="invite_role"),
-            html.select(
-                *[html.option(role.name.title(), value=role.name) for role in roles],
-                id="invite_role",
-                name="role",
-                **(
-                    {"aria": {"invalid": "true", "describedby": "field-error-invite_role"}}
-                    if role_error
-                    else {}
+            FormField(
+                name="email",
+                label="Government email",
+                id="invite_email",
+                required=True,
+                error=email_error or None,
+                control=TextInput(
+                    "email",
+                    id="invite_email",
+                    type="email",
+                    required=True,
                 ),
             ),
-            field_error("invite_role", role_error),
+            FormField(
+                name="role",
+                label="Initial role",
+                id="invite_role",
+                required=True,
+                error=role_error or None,
+                control=Select(
+                    "role",
+                    [(role.name, role.name.title()) for role in roles],
+                    id="invite_role",
+                    required=True,
+                ),
+            ),
             html.button(
                 "Send invitation", class_="button button-primary button-wide", type="submit"
             ),

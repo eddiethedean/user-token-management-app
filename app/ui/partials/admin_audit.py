@@ -2,10 +2,22 @@
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlencode
 
-from hedron import ComponentRef, ErrorState, Lazy, Loading, html
-from hedron_core import HtmlAttrValue, NodeLike
+from hedron import (
+    ComponentRef,
+    ErrorState,
+    Form,
+    FormField,
+    Lazy,
+    Loading,
+    Section,
+    Table,
+    TextInput,
+    html,
+)
+from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.models import AuditEvent
 from app.ui.layout import INDICATOR
@@ -29,8 +41,8 @@ def audit_results(
     page_count: int,
     total_events: int,
     page_size: int = 50,
-) -> NodeLike:
-    return html.div(
+) -> Component[Any]:
+    return Section(
         _audit_filter_form(event_type_filter, outcome_filter),
         audit_results_body(
             events,
@@ -45,23 +57,27 @@ def audit_results(
     )
 
 
-def _audit_filter_form(event_type_filter: str, outcome_filter: str) -> NodeLike:
-    return html.form(
-        html.div(
-            html.label("Event type", for_="event-type-filter"),
-            html.input(
+def _audit_filter_form(event_type_filter: str, outcome_filter: str) -> Form:
+    return Form(
+        FormField(
+            name="event_type",
+            label="Event type",
+            id="event-type-filter",
+            control=TextInput(
+                "event_type",
                 id="event-type-filter",
-                name="event_type",
                 value=event_type_filter,
                 placeholder="auth.login",
                 autocomplete="off",
             ),
         ),
-        html.div(
-            html.label("Outcome", for_="outcome-filter"),
-            html.input(
+        FormField(
+            name="outcome",
+            label="Outcome",
+            id="outcome-filter",
+            control=TextInput(
+                "outcome",
                 id="outcome-filter",
-                name="outcome",
                 value=outcome_filter,
                 placeholder="success",
                 autocomplete="off",
@@ -110,42 +126,29 @@ def audit_results_body(
     page_count: int,
     total_events: int,
     page_size: int = 50,
-) -> NodeLike:
-    rows = [
-        html.tr(
-            html.td(event.occurred_at.strftime("%Y-%m-%d %H:%M")),
-            html.td(event.event_type),
-            html.td(event.outcome),
-            html.td(event.source_ip or ""),
-            html.td((event.detail or "")[:120]),
-        )
-        for event in events
-    ]
+) -> Component[Any]:
+    _ = page_count
+    headers = ["When", "Event", "Outcome", "Source", "Detail"]
+    if events:
+        rows: list[list[NodeLike]] = [
+            [
+                event.occurred_at.strftime("%Y-%m-%d %H:%M"),
+                event.event_type,
+                event.outcome,
+                event.source_ip or "",
+                (event.detail or "")[:120],
+            ]
+            for event in events
+        ]
+    else:
+        rows = [[f"No events ({total_events} total).", "", "", "", ""]]
     base = _filter_base_path(
         "/admin/audit",
         event_type=event_type_filter,
         outcome=outcome_filter,
     )
-    return html.div(
-        html.div(
-            html.table(
-                html.thead(
-                    html.tr(
-                        html.th("When"),
-                        html.th("Event"),
-                        html.th("Outcome"),
-                        html.th("Source"),
-                        html.th("Detail"),
-                    )
-                ),
-                html.tbody(*rows)
-                if rows
-                else html.tbody(
-                    html.tr(html.td(f"No events ({total_events} total).", colspan="5"))
-                ),
-            ),
-            class_="table-wrap",
-        ),
+    return Section(
+        html.div(Table(headers, rows), class_="table-wrap"),
         hedron_pagination(
             page=current_page,
             page_size=page_size,
@@ -179,7 +182,7 @@ def audit_results_error(
     )
 
 
-def audit_results_lazy(*, event_type: str = "", outcome: str = "", page: int = 1) -> NodeLike:
+def audit_results_lazy(*, event_type: str = "", outcome: str = "", page: int = 1) -> Lazy:
     params: dict[str, str] = {}
     if event_type:
         params["event_type"] = event_type

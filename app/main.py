@@ -18,11 +18,12 @@ from fastapi.exception_handlers import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from hedron import Hedron, html
+from hedron import Card, Heading, Hedron, html
 from hedron.responses import render_component_response
 from hedron_core import RenderMode
 from sqlalchemy import text
 
+import app.hedron_compat  # noqa: F401 — Hedron 0.15 build-module shim
 from app.config import get_settings
 from app.database import SessionLocal
 from app.dependencies import clear_auth_cookies, set_auth_cookies
@@ -139,8 +140,8 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         return response
     if exc.status_code == 429 and accepts_html:
         page = app_shell(
-            html.div(
-                html.h1("Too many requests"),
+            Card(
+                Heading("Too many requests", level=1),
                 html.p(
                     f"Please wait {(exc.headers or {}).get('Retry-After', '60')} seconds and try again."
                 ),
@@ -164,8 +165,8 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         elif exc.status_code == 404:
             detail = "The requested page or record was not found."
         page = app_shell(
-            html.div(
-                html.h1("Request error"),
+            Card(
+                Heading("Request error", level=1),
                 alert_box(detail),
                 html.p(f"Status {exc.status_code}"),
                 class_="panel auth-card",
@@ -201,7 +202,7 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
         response.headers["HX-Reswap"] = "innerHTML"
         return response
     page = app_shell(
-        html.div(html.h1("Request error"), alert_box(message), class_="panel auth-card"),
+        Card(Heading("Request error", level=1), alert_box(message), class_="panel auth-card"),
         request=request,
         settings=settings,
         auth=None,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from fastapi import Request
-from hedron import Page, html
+from hedron import Card, Page, html
 from hedron.responses import render_component_response
 from hedron_core import NodeLike, RenderMode
 from starlette.responses import Response
@@ -95,8 +95,8 @@ def render_fragment(
     )
 
 
-def auth_card(*children: NodeLike) -> NodeLike:
-    return html.div(*children, class_="panel auth-card")
+def auth_card(*children: NodeLike) -> Card:
+    return Card(*children, class_="panel auth-card")
 
 
 async def render_authenticated_view(

@@ -30,7 +30,6 @@ from app.ui.partials.security import (
 )
 from app.ui.partials.shared import (
     _filter_base_path,
-    field_error,
     hedron_pagination,
     request_error,
 )
@@ -44,7 +43,6 @@ __all__ = [
     "audit_results_body",
     "audit_results_error",
     "audit_results_lazy",
-    "field_error",
     "hedron_pagination",
     "invitation_panel",
     "password_form",

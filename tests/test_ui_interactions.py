@@ -180,7 +180,7 @@ def test_password_htmx_error_fragment_and_success_redirect(htmx) -> None:
     assert mismatch.status_code == 400
     assert_html_contains(adapter, "password-form-region")
     assert_html_contains(adapter, "do not match")
-    assert_html_contains(adapter, "field-error-new_password_confirm")
+    assert_html_contains(adapter, "new_password_confirm-error")
     assert_no_document_shell(adapter)
 
     success = htmx.post(

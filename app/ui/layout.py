@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import Request
-from hedron import Fragment, OobUpdate, Page, Text, html
-from hedron_core import HtmlAttrValue, NodeLike
+from hedron import (
+    Alert,
+    Footer,
+    Fragment,
+    Header,
+    Heading,
+    OobUpdate,
+    Page,
+    Section,
+    Stack,
+    Text,
+    html,
+)
+from hedron_core import Component, HtmlAttrValue, NodeLike
 from hedron_core.security import SafeUrl, UrlPurpose
 
 from app.config import Settings
@@ -22,9 +36,9 @@ HTMX_CONFIG = (
 )
 
 
-def document_head(*, page_title: str, app_name: str) -> NodeLike:
+def document_head(*, page_title: str, app_name: str) -> Fragment:
     title = f"{page_title} · {app_name}" if page_title else app_name
-    return html.div(
+    return Fragment(
         html.meta(name="color-scheme", content="dark"),
         html.meta(name="theme-color", content="#080d1a"),
         html.meta(name="htmx-config", content=HTMX_CONFIG),
@@ -36,15 +50,15 @@ def document_head(*, page_title: str, app_name: str) -> NodeLike:
     )
 
 
-def alert_box(message: str, *, kind: str = "error") -> NodeLike:
+def alert_box(message: str, *, kind: str = "error") -> Alert | Fragment:
     if not message:
-        return html.div()
-    role = "status" if kind == "success" else "alert"
-    css = f"alert alert-{'success' if kind == 'success' else 'error'}"
-    return html.div(Text(message), class_=css, role=role)
+        return Fragment()
+    tone = "success" if kind == "success" else "danger"
+    return Alert(message, tone=tone)
 
 
 def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) -> NodeLike:
+    """Account chrome; stays on html.* so hx-swap-oob and nested form attrs remain valid."""
     user = auth.user
     attrs: dict[str, HtmlAttrValue] = {"id": "account-summary", "class_": "account-summary"}
     if oob:
@@ -114,6 +128,7 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
 
 
 def side_nav(request: Request, auth: AuthContext, *, oob: bool = False) -> NodeLike:
+    """Side nav keeps html.nav for aria-label and optional hx-swap-oob."""
     attrs: dict[str, HtmlAttrValue] = {
         "id": "side-nav",
         "class_": "side-nav",
@@ -180,7 +195,7 @@ def app_shell(
     ]
     if auth and csrf_token:
         header_children.append(account_summary(auth, csrf_token=csrf_token))
-    header = html.header(
+    header = Header(
         html.div(*header_children, class_="page-width header-inner"),
         class_="site-header",
     )
@@ -193,7 +208,7 @@ def app_shell(
         aria={"live": "polite"},
     )
     skip = html.a("Skip to main content", class_="skip-link", href=page_href("/#main-content"))
-    footer = html.footer(
+    footer = Footer(
         html.div(
             html.span(settings.app_name),
             html.span(
@@ -206,8 +221,9 @@ def app_shell(
     if auth:
         content = html.div(
             side_nav(request, auth),
+            # html.main keeps tabindex for skip-link focus management.
             html.main(
-                html.div(*body, id="main-panel", class_="main-panel"),
+                main_panel(*body),
                 id="main-content",
                 class_="main-content",
                 tabindex="-1",
@@ -231,18 +247,19 @@ def app_shell(
     )
 
 
-def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> NodeLike:
-    return html.div(
+def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> Stack:
+    return Stack(
         html.div(
             html.p(eyebrow, class_="eyebrow"),
-            html.h1(title),
-            html.p(lead),
+            Heading(title, level=1),
+            Text(lead),
         ),
         *extra,
         class_="page-heading",
+        gap="0px",
     )
 
 
-def main_panel(*body: NodeLike) -> NodeLike:
+def main_panel(*body: NodeLike) -> Component[Any]:
     """Authenticated main panel root used for in-shell HTMX navigation swaps."""
-    return html.div(*body, id="main-panel", class_="main-panel")
+    return Section(*body, id="main-panel", class_="main-panel")
