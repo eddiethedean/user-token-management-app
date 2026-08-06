@@ -13,6 +13,7 @@ from app.security.passwords import PasswordPolicyError
 from app.services.auth import TokenFlowError, accept_invitation, get_valid_invitation
 from app.ui.params import (
     FlowTokenForm,
+    FlowTokenQuery,
     FullNameForm,
     OptionalPasswordConfirmForm,
     OptionalPasswordForm,
@@ -24,7 +25,7 @@ def register_invitation_routes(app: Hedron) -> None:
     @app.get("/invitations/accept", include_in_schema=False)
     def invitation_page(
         request: Request,
-        token: str,
+        token: FlowTokenQuery,
         db: DbSession,
         settings: SettingsDep,
     ) -> Response:

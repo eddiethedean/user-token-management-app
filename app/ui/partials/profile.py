@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from hedron import Badge, Form, FormField, Heading, Section, TextInput, html
+from fastapi import Request
+from hedron import Badge, Form, FormField, Heading, OobUpdate, Section, TextInput, html
 from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
@@ -13,7 +14,9 @@ from app.ui.layout import INDICATOR, account_summary, alert_box
 from app.ui.urls import form_action, hx_attrs, page_href
 
 
-def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> Component[Any]:
+def profile_form(
+    request: Request, auth: AuthContext, *, csrf_token: str, success: str = ""
+) -> Component[Any]:
     user = auth.user
     return Section(
         alert_box(success, kind="success"),
@@ -93,9 +96,10 @@ def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> Co
                 class_="form-actions",
             ),
             class_="stack-form",
-            action=form_action("profile"),
+            action=form_action(request, "profile"),
             method="post",
             **hx_attrs(
+                request,
                 path="profile",
                 target="#profile-form-region",
                 sync="this:drop",
@@ -107,7 +111,7 @@ def profile_form(auth: AuthContext, *, csrf_token: str, success: str = "") -> Co
     )
 
 
-def profile_identity(auth: AuthContext, *, oob: bool = False) -> NodeLike:
+def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) -> NodeLike:
     """Identity aside keeps html.* for hx-swap-oob; uses Badge for status."""
     user = auth.user
     attrs: dict[str, HtmlAttrValue] = {"id": "profile-identity", "class_": "panel identity-panel"}
@@ -143,15 +147,26 @@ def profile_identity(auth: AuthContext, *, oob: bool = False) -> NodeLike:
         html.a(
             "Review account security",
             class_="button button-secondary button-wide",
-            href=page_href("/security"),
+            href=page_href(request, "/security"),
         ),
         **attrs,
     )
 
 
-def profile_response(auth: AuthContext, *, csrf_token: str, success: str) -> list[NodeLike]:
-    return [
-        profile_form(auth, csrf_token=csrf_token, success=success),
-        account_summary(auth, csrf_token=csrf_token, oob=True),
-        profile_identity(auth, oob=True),
-    ]
+def profile_response(
+    request: Request, auth: AuthContext, *, csrf_token: str, success: str
+) -> tuple[Component[Any], tuple[OobUpdate, OobUpdate]]:
+    form = profile_form(request, auth, csrf_token=csrf_token, success=success)
+    oob = (
+        OobUpdate(
+            content=account_summary(request, auth, csrf_token=csrf_token, oob=False),
+            element_id="account-summary",
+            swap="outerHTML",
+        ),
+        OobUpdate(
+            content=profile_identity(request, auth, oob=False),
+            element_id="profile-identity",
+            swap="outerHTML",
+        ),
+    )
+    return form, oob

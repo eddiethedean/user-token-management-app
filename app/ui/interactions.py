@@ -96,6 +96,26 @@ def audit_match_count_oob(total: int) -> OobUpdate:
     )
 
 
+def session_count_oob(count: int) -> OobUpdate:
+    from hedron import html
+
+    return OobUpdate(
+        content=html.span(str(count), class_="count-badge"),
+        element_id="session-count",
+        swap="outerHTML",
+    )
+
+
+def security_activity_oob(events) -> OobUpdate:
+    from app.ui.partials.security import security_activity
+
+    return OobUpdate(
+        content=security_activity(events, oob=False),
+        element_id="security-activity",
+        swap="outerHTML",
+    )
+
+
 def ok_fragment(
     content: NodeLike | None,
     *,

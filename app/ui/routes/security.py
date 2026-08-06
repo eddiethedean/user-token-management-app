@@ -6,6 +6,7 @@ from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, InteractionResult, html
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import Response
 
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep, clear_auth_cookies
@@ -28,7 +29,13 @@ from app.services.secrets import (
 )
 from app.ui import partials as ui
 from app.ui.http import mutation_response, render_authenticated_view, render_page
-from app.ui.interactions import htmx_redirect, interaction_response, ok_fragment
+from app.ui.interactions import (
+    htmx_redirect,
+    interaction_response,
+    ok_fragment,
+    security_activity_oob,
+    session_count_oob,
+)
 from app.ui.layout import alert_box, app_shell, page_heading
 from app.ui.params import (
     NoticeQuery,
@@ -68,6 +75,7 @@ def register_security_routes(app: Hedron) -> None:
             alert_box(values["security_success"], kind="success"),
             html.div(
                 ui.security_tabs(
+                    request,
                     csrf_token=csrf,
                     local_password=values["local_password"],
                     secret_slots=values["secret_slots"],
@@ -103,8 +111,11 @@ def register_security_routes(app: Hedron) -> None:
         try:
             values = security_page_values(db, auth.user, settings)
             return ok_fragment(ui.security_activity(values["events"]))
-        except Exception:
-            return ok_fragment(ui.security_activity_error())
+        except SQLAlchemyError:
+            return ok_fragment(
+                ui.security_activity_error(request),
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
     @app.post("/security/password", include_in_schema=False)
     async def password_change_submit(
@@ -160,6 +171,7 @@ def register_security_routes(app: Hedron) -> None:
                 request,
                 ok_fragment(
                     ui.password_form(
+                        request,
                         csrf_token=auth.session.csrf_token,
                         error=error,
                         field_errors=field_errors,
@@ -176,7 +188,9 @@ def register_security_routes(app: Hedron) -> None:
                     "Manage your password, API tokens, sessions, and recent account activity.",
                 ),
                 html.section(
-                    ui.password_form(csrf_token=csrf, error=error, field_errors=field_errors),
+                    ui.password_form(
+                        request, csrf_token=csrf, error=error, field_errors=field_errors
+                    ),
                     class_="panel",
                 ),
                 request=request,
@@ -209,12 +223,15 @@ def register_security_routes(app: Hedron) -> None:
             request,
             redirect=app_path(request, "/security?notice=session-revoked"),
             fragment=ok_fragment(
-                html.div(
-                    ui.session_list(
-                        values["sessions"], auth=auth, csrf_token=auth.session.csrf_token
-                    ),
-                    ui.session_count(values["sessions"], oob=True),
-                    ui.security_activity(values["events"], oob=True),
+                ui.session_list(
+                    request,
+                    values["sessions"],
+                    auth=auth,
+                    csrf_token=auth.session.csrf_token,
+                ),
+                oob=(
+                    session_count_oob(len(values["sessions"])),
+                    security_activity_oob(values["events"]),
                 ),
                 toast="The browser session was revoked.",
             ),
@@ -257,6 +274,7 @@ def register_security_routes(app: Hedron) -> None:
             )
         events = security_page_values(db, auth.user, settings)["events"]
         slot = ui.secret_slot(
+            request,
             specification,
             stored,
             csrf_token=auth.session.csrf_token,
@@ -269,7 +287,8 @@ def register_security_routes(app: Hedron) -> None:
             return await interaction_response(
                 request,
                 ok_fragment(
-                    html.div(slot, ui.security_activity(events, oob=True)),
+                    slot,
+                    oob=(security_activity_oob(events),),
                     status_code=response_status,
                     toast=error,
                     toast_tone="danger",
@@ -279,7 +298,8 @@ def register_security_routes(app: Hedron) -> None:
             request,
             redirect=app_path(request, "/security?notice=secret-saved"),
             fragment=ok_fragment(
-                html.div(slot, ui.security_activity(events, oob=True)),
+                slot,
+                oob=(security_activity_oob(events),),
                 toast=f"{specification.label} API token saved.",
             ),
         )
@@ -309,15 +329,14 @@ def register_security_routes(app: Hedron) -> None:
             request,
             redirect=app_path(request, "/security?notice=secret-deleted"),
             fragment=ok_fragment(
-                html.div(
-                    ui.secret_slot(
-                        specification,
-                        None,
-                        csrf_token=auth.session.csrf_token,
-                        success=f"{specification.label} API token deleted.",
-                    ),
-                    ui.security_activity(events, oob=True),
+                ui.secret_slot(
+                    request,
+                    specification,
+                    None,
+                    csrf_token=auth.session.csrf_token,
+                    success=f"{specification.label} API token deleted.",
                 ),
+                oob=(security_activity_oob(events),),
                 toast=f"{specification.label} API token deleted.",
             ),
         )

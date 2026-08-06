@@ -41,9 +41,18 @@ def settings(access_app, monkeypatch):
 
 def test_no_directory_url_returns_none(access_app, monkeypatch):
     monkeypatch.setenv("DIRECTORY_LOOKUP_URL", "")
+    monkeypatch.setenv("DIRECTORY_LOOKUP_REQUIRED", "false")
     get_settings.cache_clear()
     result = _run(validate_directory_email("user@example.gov", get_settings()))
     assert result is None
+
+
+def test_required_directory_without_url_raises(access_app, monkeypatch):
+    monkeypatch.setenv("DIRECTORY_LOOKUP_URL", "")
+    monkeypatch.setenv("DIRECTORY_LOOKUP_REQUIRED", "true")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError, match="DIRECTORY_LOOKUP_URL"):
+        get_settings()
 
 
 def test_success_returns_record(settings):

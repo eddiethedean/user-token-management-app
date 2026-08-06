@@ -25,6 +25,7 @@ from hedron.testing import (
 )
 from hedron_core import RenderMode
 from sqlalchemy import select
+from starlette.requests import Request
 
 from app.config import get_settings
 from app.database import SessionLocal
@@ -45,6 +46,25 @@ from tests.helpers import (
     fixture_login,
     htmx_login,
 )
+
+
+def _request(root_path: str = "") -> Request:
+    return Request(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/",
+            "raw_path": b"/",
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 0),
+            "server": ("test", 80),
+            "root_path": root_path,
+        }
+    )
 
 
 def test_auth_and_shell_pages_are_documents(page) -> None:
@@ -427,7 +447,7 @@ def test_component_renders_via_hedron_assert_renders() -> None:
         ),
     ]
     html = assert_renders(
-        ui.session_list(sessions, auth=auth, csrf_token="csrf"),
+        ui.session_list(_request(), sessions, auth=auth, csrf_token="csrf"),
         contains="hedron-dialog",
     )
     assert "data-hedron-dialog-open" in html
@@ -454,6 +474,7 @@ def test_security_tabs_and_lazy_activity_render() -> None:
     )
     html = render_html(
         ui.security_tabs(
+            _request(),
             csrf_token="csrf",
             local_password=True,
             secret_slots=[],

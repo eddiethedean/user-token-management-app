@@ -54,10 +54,10 @@ def register_profile_routes(app: Hedron) -> None:
                         ),
                         class_="panel-heading",
                     ),
-                    ui.profile_form(auth, csrf_token=csrf),
+                    ui.profile_form(request, auth, csrf_token=csrf),
                     class_="panel panel-main",
                 ),
-                ui.profile_identity(auth),
+                ui.profile_identity(request, auth),
                 class_="content-grid profile-grid",
             ),
         ]
@@ -90,13 +90,15 @@ def register_profile_routes(app: Hedron) -> None:
             ),
             request=request,
         )
+        form, oob = ui.profile_response(
+            request, auth, csrf_token=auth.session.csrf_token, success=""
+        )
         return await mutation_response(
             request,
             redirect=app_path(request, "/profile?updated=true"),
             fragment=ok_fragment(
-                html.div(
-                    *ui.profile_response(auth, csrf_token=auth.session.csrf_token, success="")
-                ),
+                form,
+                oob=oob,
                 toast="Your profile has been updated.",
             ),
         )

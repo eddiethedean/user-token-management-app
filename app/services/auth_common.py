@@ -64,12 +64,9 @@ def ensure_default_roles(db: Session) -> None:
     db.commit()
 
 
-def _lock_role_catalog(db: Session) -> dict[str, Role]:
-    """Serialize low-volume enrollment writes against stable role rows."""
-    return {
-        role.name: role
-        for role in db.scalars(select(Role).order_by(Role.name).with_for_update()).all()
-    }
+def _lock_role(db: Session, name: str) -> Role | None:
+    """Serialize enrollment writes against a single role row."""
+    return db.scalar(select(Role).where(Role.name == name).with_for_update())
 
 
 def lock_administrator_action(db: Session, actor: User) -> bool:

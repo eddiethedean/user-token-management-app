@@ -16,6 +16,7 @@ from app.dependencies import AuthContext
 from app.routing import app_path, is_htmx_request
 from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.layout import app_shell, main_panel, side_nav_oob
+from app.ui.urls import mounted_path
 
 
 def hx_target(request: Request) -> str:
@@ -73,7 +74,10 @@ def render_page(
     )
     # Hedron forbids <script> nodes in the tree; inject AR progressive-enhancement JS here.
     html_text = bytes(response.body).decode(response.charset or "utf-8")
-    app_script = '<script src="/assets/app.js" defer></script>'
+    script_src = (
+        mounted_path(request, "/assets/app.js") if request is not None else "/assets/app.js"
+    )
+    app_script = f'<script src="{script_src}" defer></script>'
     if "app.js" not in html_text:
         if "</body>" in html_text:
             html_text = html_text.replace("</body>", f"{app_script}</body>", 1)

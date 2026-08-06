@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi import Request
 from hedron import (
     Badge,
     ComponentRef,
@@ -29,7 +30,7 @@ from app.services.secrets import SecretProvider
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.regions import SECURITY_ACTIVITY
-from app.ui.urls import form_action, hx_attrs, page_href
+from app.ui.urls import form_action, hx_attrs, mounted_path, page_href
 
 
 def _password_field(
@@ -66,6 +67,7 @@ def _password_field(
 
 
 def password_form(
+    request: Request,
     *,
     csrf_token: str,
     error: str = "",
@@ -76,7 +78,11 @@ def password_form(
     if success:
         return Section(
             alert_box(success, kind="success"),
-            html.a("Return to sign in", class_="button button-primary", href=page_href("/login")),
+            html.a(
+                "Return to sign in",
+                class_="button button-primary",
+                href=page_href(request, "/login"),
+            ),
             id="password-form-region",
             class_="form-column",
         )
@@ -105,9 +111,10 @@ def password_form(
             ),
             submit_button("Change password"),
             class_="stack-form",
-            action=form_action("security/password"),
+            action=form_action(request, "security/password"),
             method="post",
             **hx_attrs(
+                request,
                 path="security/password",
                 target="#password-form-region",
                 sync="this:drop",
@@ -121,6 +128,7 @@ def password_form(
 
 
 def secret_slot(
+    request: Request,
     provider: SecretProvider,
     secret,
     *,
@@ -175,9 +183,10 @@ def secret_slot(
                 type="submit",
             ),
             class_="secret-form",
-            action=form_action(f"security/secrets/{provider.name}"),
+            action=form_action(request, f"security/secrets/{provider.name}"),
             method="post",
             **hx_attrs(
+                request,
                 path=f"security/secrets/{provider.name}",
                 target=f"#secret-slot-{provider.name}",
                 sync="closest .secret-card:drop",
@@ -205,9 +214,10 @@ def secret_slot(
                             class_="button button-danger",
                             type="submit",
                         ),
-                        action=form_action(f"security/secrets/{provider.name}/delete"),
+                        action=form_action(request, f"security/secrets/{provider.name}/delete"),
                         method="post",
                         **hx_attrs(
+                            request,
                             path=f"security/secrets/{provider.name}/delete",
                             target=f"#secret-slot-{provider.name}",
                             sync="closest .secret-card:drop",
@@ -228,6 +238,7 @@ def secret_slot(
 
 
 def session_list(
+    request: Request,
     sessions: list[RefreshSession],
     *,
     auth: AuthContext,
@@ -257,9 +268,10 @@ def session_list(
                             class_="button button-danger",
                             type="submit",
                         ),
-                        action=form_action(f"security/sessions/{session.id}/revoke"),
+                        action=form_action(request, f"security/sessions/{session.id}/revoke"),
                         method="post",
                         **hx_attrs(
+                            request,
                             path=f"security/sessions/{session.id}/revoke",
                             target="#session-list",
                             sync="#session-list:drop",
@@ -324,13 +336,15 @@ def security_activity(events: list[AuditEvent], *, oob: bool = False) -> NodeLik
 
 
 def security_activity_error(
+    request: Request,
     message: str = "Could not load security activity.",
 ) -> NodeLike:
     """ErrorState wrapped so Lazy outerHTML swaps keep a stable region id."""
+    activity_path = mounted_path(request, "/security/activity")
     return html.div(
         ErrorState(
             message,
-            retry_href="/security/activity",
+            retry_href=activity_path,
             target="#security-activity",
         ),
         id="security-activity",
@@ -339,23 +353,23 @@ def security_activity_error(
     )
 
 
-def security_activity_refresh() -> NodeLike:
+def security_activity_refresh(request: Request) -> NodeLike:
     return html.div(
         RefreshButton.for_region(
             SECURITY_ACTIVITY,
-            href="/security/activity",
+            href=mounted_path(request, "/security/activity"),
             label="Refresh",
         ),
         class_="lazy-refresh",
     )
 
 
-def security_activity_lazy() -> Lazy:
+def security_activity_lazy(request: Request) -> Lazy:
     """Deferred activity panel loaded via Hedron Lazy after first paint."""
     return Lazy(
         ref=ComponentRef(
             logical_id="security-activity",
-            path="/security/activity",
+            path=mounted_path(request, "/security/activity"),
             swap="outerHTML",
         ),
         placeholder=Loading("Loading activity…"),
@@ -364,6 +378,7 @@ def security_activity_lazy() -> Lazy:
 
 
 def security_tabs(
+    request: Request,
     *,
     csrf_token: str,
     local_password: bool,
@@ -383,7 +398,7 @@ def security_tabs(
                             "Changing your password signs out every active session, including this one."
                         ),
                     ),
-                    password_form(csrf_token=csrf_token),
+                    password_form(request, csrf_token=csrf_token),
                     class_="panel split-panel",
                 ),
             )
@@ -400,7 +415,7 @@ def security_tabs(
                     class_="panel-heading",
                 ),
                 html.div(
-                    *[secret_slot(p, s, csrf_token=csrf_token) for p, s in secret_slots],
+                    *[secret_slot(request, p, s, csrf_token=csrf_token) for p, s in secret_slots],
                     class_="secret-grid",
                 ),
                 class_="panel",
@@ -419,7 +434,7 @@ def security_tabs(
                     session_count(sessions),
                     class_="panel-heading",
                 ),
-                session_list(sessions, auth=auth, csrf_token=csrf_token),
+                session_list(request, sessions, auth=auth, csrf_token=csrf_token),
                 class_="panel",
             ),
         )
@@ -433,10 +448,10 @@ def security_tabs(
                         Heading("Recent security activity", level=2),
                         Text("Latest events associated with your account."),
                     ),
-                    security_activity_refresh(),
+                    security_activity_refresh(request),
                     class_="panel-heading",
                 ),
-                security_activity_lazy(),
+                security_activity_lazy(request),
                 class_="panel",
             ),
         )

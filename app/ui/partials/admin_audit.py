@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlencode
 
+from fastapi import Request
 from hedron import (
     ComponentRef,
     ErrorState,
@@ -25,10 +26,12 @@ from app.ui.forms import submit_button
 from app.ui.layout import INDICATOR
 from app.ui.partials.shared import _filter_base_path, hedron_pagination
 from app.ui.regions import AUDIT_RESULTS
-from app.ui.urls import form_action, hx_attrs, page_href
+from app.ui.urls import form_action, hx_attrs, mounted_path, page_href
 
 
-def _audit_results_path(*, event_type: str = "", outcome: str = "", page: int = 1) -> str:
+def _audit_results_path(
+    request: Request, *, event_type: str = "", outcome: str = "", page: int = 1
+) -> str:
     params: dict[str, str] = {}
     if event_type:
         params["event_type"] = event_type
@@ -36,7 +39,8 @@ def _audit_results_path(*, event_type: str = "", outcome: str = "", page: int = 
         params["outcome"] = outcome
     if page > 1:
         params["page"] = str(page)
-    return "/admin/audit/results" + (f"?{urlencode(params)}" if params else "")
+    path = mounted_path(request, "/admin/audit/results")
+    return path + (f"?{urlencode(params)}" if params else "")
 
 
 def audit_match_count(total: int, *, oob: bool = False) -> NodeLike:
@@ -46,8 +50,10 @@ def audit_match_count(total: int, *, oob: bool = False) -> NodeLike:
     return html.span(f"{total} matching events", **attrs)
 
 
-def audit_refresh_button(*, event_type: str = "", outcome: str = "", page: int = 1) -> NodeLike:
-    path = _audit_results_path(event_type=event_type, outcome=outcome, page=page)
+def audit_refresh_button(
+    request: Request, *, event_type: str = "", outcome: str = "", page: int = 1
+) -> NodeLike:
+    path = _audit_results_path(request, event_type=event_type, outcome=outcome, page=page)
     return html.div(
         RefreshButton.for_region(AUDIT_RESULTS, href=path, label="Refresh"),
         class_="lazy-refresh",
@@ -55,6 +61,7 @@ def audit_refresh_button(*, event_type: str = "", outcome: str = "", page: int =
 
 
 def audit_panel(
+    request: Request,
     events: list[AuditEvent],
     *,
     event_type_filter: str,
@@ -67,6 +74,7 @@ def audit_panel(
 ) -> NodeLike:
     """Audit panel with RefreshButton outside the swappable results region."""
     refresh = audit_refresh_button(
+        request,
         event_type=event_type_filter,
         outcome=outcome_filter,
         page=current_page,
@@ -74,12 +82,14 @@ def audit_panel(
     body: NodeLike
     if lazy:
         body = audit_results_lazy(
+            request,
             event_type=event_type_filter,
             outcome=outcome_filter,
             page=current_page,
         )
     else:
         body = audit_results(
+            request,
             events,
             event_type_filter=event_type_filter,
             outcome_filter=outcome_filter,
@@ -92,6 +102,7 @@ def audit_panel(
 
 
 def audit_results(
+    request: Request,
     events: list[AuditEvent],
     *,
     event_type_filter: str,
@@ -102,8 +113,9 @@ def audit_results(
     page_size: int = 50,
 ) -> Component[Any]:
     return Section(
-        _audit_filter_form(event_type_filter, outcome_filter),
+        _audit_filter_form(request, event_type_filter, outcome_filter),
         audit_results_body(
+            request,
             events,
             event_type_filter=event_type_filter,
             outcome_filter=outcome_filter,
@@ -116,7 +128,7 @@ def audit_results(
     )
 
 
-def _audit_filter_form(event_type_filter: str, outcome_filter: str) -> Form:
+def _audit_filter_form(request: Request, event_type_filter: str, outcome_filter: str) -> Form:
     return Form(
         FormField(
             name="event_type",
@@ -147,8 +159,9 @@ def _audit_filter_form(event_type_filter: str, outcome_filter: str) -> Form:
             html.a(
                 "Clear",
                 class_="button button-quiet button-small",
-                href=page_href("admin/audit"),
+                href=page_href(request, "admin/audit"),
                 **hx_attrs(
+                    request,
                     method="get",
                     path="admin/audit",
                     target="#audit-results-region",
@@ -160,10 +173,11 @@ def _audit_filter_form(event_type_filter: str, outcome_filter: str) -> Form:
             else html.div()
         ),
         class_="filter-form",
-        action=form_action("admin/audit"),
+        action=form_action(request, "admin/audit"),
         method="get",
         aria={"label": "Filter audit events"},
         **hx_attrs(
+            request,
             method="get",
             path="admin/audit",
             trigger="submit, input changed delay:350ms",
@@ -177,6 +191,7 @@ def _audit_filter_form(event_type_filter: str, outcome_filter: str) -> Form:
 
 
 def audit_results_body(
+    request: Request,
     events: list[AuditEvent],
     *,
     event_type_filter: str,
@@ -202,6 +217,7 @@ def audit_results_body(
     else:
         rows = [[f"No events ({total_events} total).", "", "", "", ""]]
     base = _filter_base_path(
+        request,
         "/admin/audit",
         event_type=event_type_filter,
         outcome=outcome_filter,
@@ -220,13 +236,14 @@ def audit_results_body(
 
 
 def audit_results_error(
+    request: Request,
     message: str = "Could not load audit activity.",
     *,
     event_type: str = "",
     outcome: str = "",
     page: int = 1,
 ) -> NodeLike:
-    path = _audit_results_path(event_type=event_type, outcome=outcome, page=page)
+    path = _audit_results_path(request, event_type=event_type, outcome=outcome, page=page)
     return html.div(
         ErrorState(message, retry_href=path, target="#audit-results-region"),
         id="audit-results-region",
@@ -234,8 +251,10 @@ def audit_results_error(
     )
 
 
-def audit_results_lazy(*, event_type: str = "", outcome: str = "", page: int = 1) -> Lazy:
-    path = _audit_results_path(event_type=event_type, outcome=outcome, page=page)
+def audit_results_lazy(
+    request: Request, *, event_type: str = "", outcome: str = "", page: int = 1
+) -> Lazy:
+    path = _audit_results_path(request, event_type=event_type, outcome=outcome, page=page)
     return Lazy(
         ref=ComponentRef(
             logical_id="audit-results",

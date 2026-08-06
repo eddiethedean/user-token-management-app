@@ -9,6 +9,7 @@ from starlette.responses import Response
 
 from app.dependencies import DbSession, SettingsDep
 from app.routing import app_path
+from app.security.csrf import require_preauth_csrf
 from app.security.passwords import PasswordPolicyError
 from app.services.auth import (
     TokenFlowError,
@@ -17,7 +18,14 @@ from app.services.auth import (
     request_password_reset,
 )
 from app.services.rate_limit import check_rate_limit
-from app.ui.params import EmailForm, FlowTokenForm, PasswordConfirmForm, PasswordForm
+from app.ui.params import (
+    EmailForm,
+    FlowTokenForm,
+    FlowTokenQuery,
+    PasswordConfirmForm,
+    PasswordForm,
+    PreauthCsrfForm,
+)
 from app.ui.partials.auth import render_forgot_page, render_reset_page
 
 
@@ -34,9 +42,11 @@ def register_password_routes(app: Hedron) -> None:
         db: DbSession,
         settings: SettingsDep,
         email: EmailForm,
+        preauth_csrf_token: PreauthCsrfForm = "",
     ) -> Response:
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        require_preauth_csrf(request, preauth_csrf_token, settings)
         check_rate_limit(
             db,
             settings,
@@ -56,7 +66,7 @@ def register_password_routes(app: Hedron) -> None:
     @app.get("/password/reset", include_in_schema=False)
     def reset_page(
         request: Request,
-        token: str,
+        token: FlowTokenQuery,
         db: DbSession,
         settings: SettingsDep,
     ) -> Response:

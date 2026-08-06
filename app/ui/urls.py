@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi import Request
 from hedron_core.security import SafeUrl, UrlPurpose
+
+from app.routing import app_path
 
 
 def _abs_path(path: str) -> str:
@@ -16,20 +19,30 @@ def _abs_path(path: str) -> str:
     return f"/{path}"
 
 
-def page_href(path: str) -> SafeUrl:
-    return SafeUrl.parse(_abs_path(path), purpose=UrlPurpose.NAVIGATION)
+def mounted_path(request: Request, path: str) -> str:
+    """Application path prefixed with the external deployment mount."""
+    return app_path(request, _abs_path(path))
 
 
-def form_action(path: str) -> SafeUrl:
-    return SafeUrl.parse(_abs_path(path), purpose=UrlPurpose.FORM_ACTION)
+def page_href(request: Request, path: str) -> SafeUrl:
+    return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.NAVIGATION)
 
 
-def hx_path(path: str) -> SafeUrl:
+def form_action(request: Request, path: str) -> SafeUrl:
+    return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.FORM_ACTION)
+
+
+def hx_path(request: Request, path: str) -> SafeUrl:
     # Hedron requires purpose=navigation for hx-* URL attributes.
-    return SafeUrl.parse(_abs_path(path), purpose=UrlPurpose.NAVIGATION)
+    return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.NAVIGATION)
+
+
+def asset_href(request: Request, path: str) -> SafeUrl:
+    return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.ASSET)
 
 
 def hx_attrs(
+    request: Request,
     *,
     method: str = "post",
     path: str,
@@ -47,7 +60,7 @@ def hx_attrs(
 ) -> dict[str, Any]:
     """Build hyphenated HTMX attributes accepted by Hedron's HTML allowlist."""
     key = f"hx-{method.lower()}"
-    attrs: dict[str, Any] = {key: hx_path(path)}
+    attrs: dict[str, Any] = {key: hx_path(request, path)}
     if target is not None:
         attrs["hx-target"] = target
     if swap is not None:
@@ -61,7 +74,12 @@ def hx_attrs(
     if confirm is not None:
         attrs["hx-confirm"] = confirm
     if push_url is not None:
-        attrs["hx-push-url"] = "true" if push_url is True else str(push_url)
+        if push_url is True:
+            attrs["hx-push-url"] = "true"
+        elif push_url is False:
+            attrs["hx-push-url"] = "false"
+        else:
+            attrs["hx-push-url"] = mounted_path(request, str(push_url))
     if include is not None:
         attrs["hx-include"] = include
     if select is not None:

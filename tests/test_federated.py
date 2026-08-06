@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.database import SessionLocal
 from app.models import User
 from app.services.auth import create_invitation
-from tests.helpers import ADMIN_EMAIL, as_adapter, login_csrf_from
+from tests.helpers import ADMIN_EMAIL, as_adapter, login_csrf_from, preauth_post
 
 
 def test_federated_login_page_and_proxy_allowlist(access_app) -> None:
@@ -113,9 +113,8 @@ def test_federated_registration_verification_skips_password(client) -> None:
     try:
         settings.authentication_mode = "trusted_header"
         assert (
-            client.post(
-                "/register",
-                data={"email": email, "full_name": "Federated Reg"},
+            preauth_post(
+                client, "/register", {"email": email, "full_name": "Federated Reg"}
             ).status_code
             == 202
         )

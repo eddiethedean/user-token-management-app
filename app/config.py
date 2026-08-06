@@ -175,6 +175,10 @@ class Settings(BaseSettings):
             _ = self.trusted_proxy_ip_set
         except ValueError as exc:
             raise ValueError("TRUSTED_PROXY_IPS must contain only IP addresses") from exc
+        if self.directory_lookup_required and not self.directory_lookup_url:
+            raise ValueError(
+                "DIRECTORY_LOOKUP_URL is required when DIRECTORY_LOOKUP_REQUIRED is true"
+            )
         if self.directory_lookup_url:
             parsed_directory_url = urlsplit(self.directory_lookup_url)
             try:
@@ -265,10 +269,16 @@ class Settings(BaseSettings):
                     )
             elif not self.trusted_proxy_ip_set:
                 raise ValueError("Trusted-header authentication requires TRUSTED_PROXY_IPS")
+            if self.directory_lookup_required and not self.directory_lookup_url:
+                raise ValueError(
+                    "DIRECTORY_LOOKUP_URL is required when DIRECTORY_LOOKUP_REQUIRED is true"
+                )
             if self.directory_lookup_url and urlsplit(self.directory_lookup_url).scheme != "https":
                 raise ValueError("DIRECTORY_LOOKUP_URL must use HTTPS in production")
             if self.directory_lookup_url and not self.directory_lookup_verify_tls:
                 raise ValueError("DIRECTORY_LOOKUP_VERIFY_TLS must be true in production")
+            if not self.rate_limit_enabled:
+                raise ValueError("RATE_LIMIT_ENABLED must be true in production")
             if not self.email_redact_sent_bodies:
                 raise ValueError("EMAIL_REDACT_SENT_BODIES must be true in production")
             if not self.password_blocklist_path:

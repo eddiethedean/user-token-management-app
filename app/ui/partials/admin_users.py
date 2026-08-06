@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from fastapi import Request
 from hedron import (
     Badge,
     Dialog,
@@ -34,6 +35,7 @@ def user_match_count(total: int, *, oob: bool = False) -> NodeLike:
 
 
 def user_table(
+    request: Request,
     users: list[User],
     *,
     csrf_token: str,
@@ -59,9 +61,10 @@ def user_table(
                         html.button(
                             label, class_="button button-small button-action", type="submit"
                         ),
-                        action=form_action(f"admin/users/{user.id}/{action}"),
+                        action=form_action(request, f"admin/users/{user.id}/{action}"),
                         method="post",
                         **hx_attrs(
+                            request,
                             path=f"admin/users/{user.id}/{action}",
                             target="#user-directory-body",
                             include="closest form",
@@ -84,9 +87,10 @@ def user_table(
                     class_="button button-small button-action",
                     type="submit",
                 ),
-                action=form_action(f"admin/users/{user.id}/toggle"),
+                action=form_action(request, f"admin/users/{user.id}/toggle"),
                 method="post",
                 **hx_attrs(
+                    request,
                     path=f"admin/users/{user.id}/toggle",
                     target="#user-directory-body",
                     disabled_elt="find button",
@@ -129,7 +133,7 @@ def user_table(
         if total_users is not None
         else max(0, (page_count - 1) * page_size + len(users))
     )
-    base = _filter_base_path("/admin/users", q=query, status=status_filter)
+    base = _filter_base_path(request, "/admin/users", q=query, status=status_filter)
     table: NodeLike
     if rows:
         table = Table(["Account", "Status", "Roles", "Actions"], rows)
@@ -152,6 +156,7 @@ def user_table(
 
 
 def user_directory(
+    request: Request,
     users: list[User],
     *,
     csrf_token: str,
@@ -192,10 +197,11 @@ def user_directory(
             ),
             submit_button("Filter", variant="secondary", small=True),
             class_="filter-form",
-            action=form_action("admin/users"),
+            action=form_action(request, "admin/users"),
             method="get",
             aria={"label": "Filter users"},
             **hx_attrs(
+                request,
                 method="get",
                 path="admin/users",
                 trigger="submit, input changed delay:350ms",
@@ -207,6 +213,7 @@ def user_directory(
             ),
         ),
         user_table(
+            request,
             users,
             csrf_token=csrf_token,
             query=query,
@@ -221,6 +228,7 @@ def user_directory(
 
 
 def invitation_panel(
+    request: Request,
     invitations: list[Invitation],
     roles: list[Role],
     *,
@@ -259,9 +267,12 @@ def invitation_panel(
                                 class_="button button-danger",
                                 type="submit",
                             ),
-                            action=form_action(f"admin/invitations/{invitation.id}/revoke"),
+                            action=form_action(
+                                request, f"admin/invitations/{invitation.id}/revoke"
+                            ),
                             method="post",
                             **hx_attrs(
+                                request,
                                 path=f"admin/invitations/{invitation.id}/revoke",
                                 target="#invitation-panel",
                                 sync="#invitation-panel:drop",
@@ -326,9 +337,10 @@ def invitation_panel(
                 "Send invitation", class_="button button-primary button-wide", type="submit"
             ),
             class_="stack-form",
-            action=form_action("admin/invitations"),
+            action=form_action(request, "admin/invitations"),
             method="post",
             **hx_attrs(
+                request,
                 path="admin/invitations",
                 target="#invitation-panel",
                 sync="#invitation-panel:drop",

@@ -15,6 +15,7 @@ from tests.helpers import (
     csrf_from,
     latest_email_token,
     login_csrf_from,
+    preauth_post,
     web_login,
 )
 
@@ -85,11 +86,11 @@ def test_session_csrf_required_for_profile_mutation(client) -> None:
 
 
 def test_password_recovery_flow(client) -> None:
-    unknown = client.post("/password/forgot", data={"email": "unknown@example.gov"})
+    unknown = preauth_post(client, "/password/forgot", {"email": "unknown@example.gov"})
     assert unknown.status_code == 200
     assert "reset link was sent" in unknown.text.lower() or "account exists" in unknown.text.lower()
 
-    requested = client.post("/password/forgot", data={"email": ADMIN_EMAIL})
+    requested = preauth_post(client, "/password/forgot", {"email": ADMIN_EMAIL})
     assert requested.status_code == 200
     token = latest_email_token(ADMIN_EMAIL, subject_like="%password%")
     page = client.get(f"/password/reset?token={token}")
@@ -213,19 +214,19 @@ def test_registration_and_reset_rate_limits(client) -> None:
     settings.rate_limit_reset_per_source = 1
     settings.rate_limit_reset_per_account = 1
     try:
-        first = client.post(
-            "/register",
-            data={"email": "rate.reg@example.gov", "full_name": "Rate Reg"},
+        first = preauth_post(
+            client, "/register", {"email": "rate.reg@example.gov", "full_name": "Rate Reg"}
         )
-        limited = client.post(
-            "/register",
-            data={"email": "rate.reg@example.gov", "full_name": "Rate Reg"},
+        limited = preauth_post(
+            client, "/register", {"email": "rate.reg@example.gov", "full_name": "Rate Reg"}
         )
         assert first.status_code == 202
         assert limited.status_code == 429
 
-        reset_first = client.post("/password/forgot", data={"email": "rate.reset@example.gov"})
-        reset_limited = client.post("/password/forgot", data={"email": "rate.reset@example.gov"})
+        reset_first = preauth_post(client, "/password/forgot", {"email": "rate.reset@example.gov"})
+        reset_limited = preauth_post(
+            client, "/password/forgot", {"email": "rate.reset@example.gov"}
+        )
         assert reset_first.status_code == 200
         assert reset_limited.status_code == 429
     finally:
@@ -413,7 +414,7 @@ def test_password_change_and_reset_validation_edges(client) -> None:
     assert missing_session.status_code == 404
 
     client.cookies.clear()
-    assert client.post("/password/forgot", data={"email": ADMIN_EMAIL}).status_code == 200
+    assert preauth_post(client, "/password/forgot", {"email": ADMIN_EMAIL}).status_code == 200
     token = latest_email_token(ADMIN_EMAIL, subject_like="%password%")
     mismatch_reset = client.post(
         "/password/reset",
@@ -451,14 +452,14 @@ def test_password_reset_supersedes_prior_and_rejects_expiry(client) -> None:
 
     from app.models import PasswordReset, utcnow
 
-    unknown = client.post("/password/forgot", data={"email": "nobody@example.gov"})
+    unknown = preauth_post(client, "/password/forgot", {"email": "nobody@example.gov"})
     assert unknown.status_code == 200
     with SessionLocal() as db:
         assert db.scalar(select(PasswordReset)) is None
 
-    assert client.post("/password/forgot", data={"email": ADMIN_EMAIL}).status_code == 200
+    assert preauth_post(client, "/password/forgot", {"email": ADMIN_EMAIL}).status_code == 200
     first_token = latest_email_token(ADMIN_EMAIL, subject_like="%password%")
-    assert client.post("/password/forgot", data={"email": ADMIN_EMAIL}).status_code == 200
+    assert preauth_post(client, "/password/forgot", {"email": ADMIN_EMAIL}).status_code == 200
     second_token = latest_email_token(ADMIN_EMAIL, subject_like="%password%")
     assert first_token != second_token
 
@@ -480,3 +481,47 @@ def test_password_reset_supersedes_prior_and_rejects_expiry(client) -> None:
     )
     assert expired.status_code == 400
     assert "invalid or expired" in expired.text.lower()
+
+
+def test_register_and_forgot_require_preauth_csrf(client) -> None:
+    missing_register = client.post(
+        "/register",
+        data={"email": "csrf.reg@example.gov", "full_name": "CSRF Reg"},
+    )
+    assert missing_register.status_code == 403
+
+    missing_forgot = client.post("/password/forgot", data={"email": ADMIN_EMAIL})
+    assert missing_forgot.status_code == 403
+
+
+def test_login_mount_prefixes_forms_and_assets(client) -> None:
+    response = client.get(
+        "/login",
+        headers={"RStudio-Connect-App-Base-URL": "https://connect.example.gov/content/abc"},
+    )
+    # Without a trusted proxy peer the Connect header is ignored; cookies still use root.
+    assert 'action="/login"' in response.text or 'action="https://' not in response.text
+
+    from starlette.requests import Request
+
+    from app.ui.urls import form_action, mounted_path, page_href
+
+    mounted = Request(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/login",
+            "raw_path": b"/login",
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 0),
+            "server": ("test", 80),
+            "root_path": "/content/abc",
+        }
+    )
+    assert mounted_path(mounted, "/login") == "/content/abc/login"
+    assert str(form_action(mounted, "login")).endswith("/content/abc/login")
+    assert str(page_href(mounted, "/assets/theme.css")).endswith("/content/abc/assets/theme.css")

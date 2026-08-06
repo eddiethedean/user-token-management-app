@@ -17,7 +17,7 @@ from app.security.email import normalize_email
 from app.security.passwords import PasswordService, validate_password
 from app.security.tokens import hash_token, random_token
 from app.services.audit import record_event
-from app.services.auth_common import TokenFlowError, _lock_role_catalog
+from app.services.auth_common import TokenFlowError, _lock_role
 from app.services.mailer import queue_email
 
 
@@ -31,10 +31,12 @@ def create_invitation(
     request: Request | None = None,
 ) -> tuple[Invitation, str]:
     canonical, original = normalize_email(email, settings)
-    role = _lock_role_catalog(db).get(role_name)
+    role = _lock_role(db, role_name)
     if db.scalar(select(User).where(User.email == canonical)):
+        db.rollback()
         raise ValueError("An account already exists for that email address.")
     if not role:
+        db.rollback()
         raise ValueError("Select a valid role.")
     now = utcnow()
     for prior in db.scalars(

@@ -13,17 +13,18 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.models import RefreshSession, RefreshTokenHistory, User, UserStatus, utcnow
 from app.security.client import is_trusted_direct_proxy
-from app.security.email import normalize_email
+from app.security.email import EmailPolicyError, normalize_email
 from app.security.passwords import PasswordService
 from app.security.tokens import create_access_token, hash_token, random_token
 from app.services.audit import client_ip, record_event
 from app.services.auth_common import (
     AccountLockedError,
     AuthenticationError,
-    RegistrationPendingError,
     SessionTokens,
     TokenFlowError,
 )
+
+_GENERIC_AUTH_FAILURE = "Unable to sign in with those credentials."
 
 
 def authenticate_user(
@@ -33,21 +34,23 @@ def authenticate_user(
     password: str,
     request: Request | None = None,
 ) -> User:
-    canonical, _ = normalize_email(email, settings)
+    password_service = PasswordService(settings)
+    try:
+        canonical, _ = normalize_email(email, settings)
+    except EmailPolicyError:
+        password_service.verify(password, None)
+        raise AuthenticationError(_GENERIC_AUTH_FAILURE) from None
     user = db.scalar(select(User).where(User.email == canonical))
     now = utcnow()
-    password_service = PasswordService(settings)
     valid = password_service.verify(password, user.password_hash if user else None)
     if user and user.failed_login_attempts >= 5:
         record_event(db, "auth.login", request=request, target=user, outcome="locked")
         db.commit()
-        raise AccountLockedError("Unable to sign in with those credentials.")
+        raise AccountLockedError(_GENERIC_AUTH_FAILURE)
     if user and valid and user.status == UserStatus.PENDING.value and user.email_verified_at:
         record_event(db, "auth.login", request=request, target=user, outcome="pending_approval")
         db.commit()
-        raise RegistrationPendingError(
-            "Your registration is awaiting administrator approval. You cannot sign in yet."
-        )
+        raise AuthenticationError(_GENERIC_AUTH_FAILURE)
     if not user or not valid or not user.is_active or not user.email_verified_at:
         if user and user.is_active and user.email_verified_at:
             attempts = db.scalar(
@@ -63,7 +66,7 @@ def authenticate_user(
             outcome = "failure" if attempts is not None else "locked"
             record_event(db, "auth.login", request=request, target=user, outcome=outcome)
         db.commit()
-        raise AuthenticationError("Unable to sign in with those credentials.")
+        raise AuthenticationError(_GENERIC_AUTH_FAILURE)
     authenticated_user_id = db.scalar(
         update(User)
         .where(User.id == user.id, User.failed_login_attempts < 5)
@@ -74,7 +77,7 @@ def authenticate_user(
     if not authenticated_user_id:
         record_event(db, "auth.login", request=request, target=user, outcome="locked")
         db.commit()
-        raise AccountLockedError("Unable to sign in with those credentials.")
+        raise AccountLockedError(_GENERIC_AUTH_FAILURE)
     db.refresh(user)
     if user.password_hash and password_service.needs_rehash(user.password_hash):
         user.password_hash = password_service.hash(password)

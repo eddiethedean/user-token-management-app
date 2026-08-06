@@ -12,6 +12,7 @@ from app.models import AuditEvent, RefreshSession, User, UserSecret, utcnow
 from app.security.passwords import PasswordService, validate_password
 from app.services.audit import record_event
 from app.services.auth import revoke_all_sessions
+from app.services.mailer import queue_email
 from app.services.secrets import SecretProvider, list_user_secrets
 
 
@@ -84,6 +85,13 @@ def change_password(
     user.security_version += 1
     revoke_all_sessions(db, user)
     record_event(db, "password.changed", request=request, actor=user, target=user)
+    queue_email(
+        db,
+        user.email_original,
+        f"Your {settings.app_name} password was changed",
+        "Your password was changed and existing sessions were revoked. "
+        "If you did not perform this action, contact the service desk immediately.",
+    )
     db.commit()
 
 

@@ -8,7 +8,7 @@ from app.services.auth_common import (
     RegistrationPendingError,
     SessionTokens,
     TokenFlowError,
-    _lock_role_catalog,
+    _lock_role,
     ensure_default_roles,
     lock_administrator_action,
 )
@@ -45,7 +45,7 @@ __all__ = [
     "RegistrationPendingError",
     "SessionTokens",
     "TokenFlowError",
-    "_lock_role_catalog",
+    "_lock_role",
     "accept_invitation",
     "approve_self_registration",
     "authenticate_trusted_identity",

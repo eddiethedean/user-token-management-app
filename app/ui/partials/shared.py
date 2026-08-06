@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
+from fastapi import Request
 from hedron import Alert, Fragment, Pagination
 
 from app.ui.layout import alert_box
@@ -30,11 +31,14 @@ def hedron_pagination(
     )
 
 
-def _filter_base_path(path: str, **params: str) -> str:
+def _filter_base_path(request: Request, path: str, **params: str) -> str:
+    from app.ui.urls import mounted_path
+
     cleaned = {key: value for key, value in params.items() if value}
+    base = mounted_path(request, path)
     if not cleaned:
-        return path
-    return f"{path}?{urlencode(cleaned)}"
+        return base
+    return f"{base}?{urlencode(cleaned)}"
 
 
 def request_error(message: str) -> Alert | Fragment:

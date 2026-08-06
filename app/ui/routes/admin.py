@@ -6,6 +6,7 @@ from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, InteractionResult, html
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import Response
 
 from app.dependencies import AdminAuth, DbSession, RequireCsrf, SettingsDep
@@ -81,6 +82,7 @@ def register_admin_routes(app: Hedron) -> None:
         )
         csrf = auth.session.csrf_token
         directory = ui.user_directory(
+            request,
             listing["users"],
             csrf_token=csrf,
             query=listing["user_query"],
@@ -95,6 +97,7 @@ def register_admin_routes(app: Hedron) -> None:
             target = hx_target(request)
             if target == "#user-directory-body":
                 body = ui.user_table(
+                    request,
                     listing["users"],
                     csrf_token=csrf,
                     query=listing["user_query"],
@@ -142,6 +145,7 @@ def register_admin_routes(app: Hedron) -> None:
                 ),
                 html.aside(
                     ui.invitation_panel(
+                        request,
                         invitations,
                         roles,
                         csrf_token=csrf,
@@ -203,6 +207,7 @@ def register_admin_routes(app: Hedron) -> None:
         if not is_htmx_request(request):
             raise HTTPException(status_code=response_status, detail=error or "Invitation error")
         panel = ui.invitation_panel(
+            request,
             invitations,
             roles,
             csrf_token=auth.session.csrf_token,
@@ -258,7 +263,10 @@ def register_admin_routes(app: Hedron) -> None:
                 else UserStatus.ACTIVE.value
             )
             user.security_version += 1
-            if not user.is_active:
+            if user.is_active:
+                user.failed_login_attempts = 0
+                user.locked_until = None
+            else:
                 revoke_all_sessions(db, user)
             record_event(
                 db,
@@ -299,6 +307,7 @@ def register_admin_routes(app: Hedron) -> None:
             ),
             fragment=ok_fragment(
                 ui.user_table(
+                    request,
                     listing["users"],
                     csrf_token=auth.session.csrf_token,
                     query=listing["user_query"],
@@ -418,6 +427,7 @@ def register_admin_routes(app: Hedron) -> None:
             redirect=app_path(request, "/admin/users?notice=invitation-revoked"),
             fragment=ok_fragment(
                 ui.invitation_panel(
+                    request,
                     invitations,
                     roles,
                     csrf_token=auth.session.csrf_token,
@@ -443,6 +453,7 @@ def register_admin_routes(app: Hedron) -> None:
         )
         page_count = max(1, (total + AUDIT_PAGE_SIZE - 1) // AUDIT_PAGE_SIZE)
         results = ui.audit_results(
+            request,
             events,
             event_type_filter=et,
             outcome_filter=oc,
@@ -455,6 +466,7 @@ def register_admin_routes(app: Hedron) -> None:
             target = hx_target(request)
             if target == "#audit-results-body":
                 body = ui.audit_results_body(
+                    request,
                     events,
                     event_type_filter=et,
                     outcome_filter=oc,
@@ -485,6 +497,7 @@ def register_admin_routes(app: Hedron) -> None:
             ),
             html.section(
                 ui.audit_panel(
+                    request,
                     events,
                     event_type_filter=et,
                     outcome_filter=oc,
@@ -532,6 +545,7 @@ def register_admin_routes(app: Hedron) -> None:
             page_count = max(1, (total + AUDIT_PAGE_SIZE - 1) // AUDIT_PAGE_SIZE)
             return ok_fragment(
                 ui.audit_results(
+                    request,
                     events,
                     event_type_filter=et,
                     outcome_filter=oc,
@@ -542,11 +556,13 @@ def register_admin_routes(app: Hedron) -> None:
                 ),
                 oob=(audit_match_count_oob(total),),
             )
-        except Exception:
+        except SQLAlchemyError:
             return ok_fragment(
                 ui.audit_results_error(
+                    request,
                     event_type=event_type or "",
                     outcome=outcome or "",
                     page=page,
-                )
+                ),
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             )

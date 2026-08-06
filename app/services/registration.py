@@ -8,6 +8,7 @@ from typing import Any, cast
 from fastapi import Request
 from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -22,7 +23,7 @@ from app.security.email import normalize_email
 from app.security.passwords import PasswordService, validate_password
 from app.security.tokens import hash_token, random_token
 from app.services.audit import client_ip, record_event
-from app.services.auth_common import TokenFlowError, _lock_role_catalog
+from app.services.auth_common import TokenFlowError, _lock_role
 from app.services.mailer import queue_email
 from app.services.sessions import revoke_all_sessions
 
@@ -36,14 +37,16 @@ def request_self_registration(
     request: Request | None = None,
 ) -> None:
     canonical, original = normalize_email(email, settings)
-    role = _lock_role_catalog(db).get("user")
+    role = _lock_role(db, "user")
     if not role:
+        db.rollback()
         raise RuntimeError("The default user role is unavailable.")
     user = db.scalar(select(User).where(User.email == canonical))
     now = utcnow()
 
     if user:
         if user.status != UserStatus.PENDING.value or user.email_verified_at:
+            db.rollback()
             return
         db.execute(
             update(Invitation)
@@ -82,10 +85,14 @@ def request_self_registration(
             email_original=original,
             full_name=full_name.strip()[:160],
             status=UserStatus.PENDING.value,
-            roles=[role] if role else [],
+            roles=[role],
         )
         db.add(user)
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            return
         record_event(db, "registration.requested", request=request, target=user)
 
     db.execute(

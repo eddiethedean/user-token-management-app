@@ -87,6 +87,10 @@ async def validate_directory_email(
     """Validate enrollment eligibility; this does not authenticate or identity-proof the user."""
     canonical_email, _ = normalize_email(email, settings)
     if not settings.directory_lookup_url:
+        if settings.directory_lookup_required:
+            raise DirectoryUnavailableError(
+                "Directory eligibility lookup is required but not configured."
+            )
         return None
     headers = {"Accept": "application/json"}
     if settings.directory_lookup_bearer_token:

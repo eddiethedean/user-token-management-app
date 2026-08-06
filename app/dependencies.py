@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, Form, Header, HTTPException, Request, Response, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -12,7 +11,7 @@ from app.database import get_db
 from app.models import RefreshSession, User, utcnow
 from app.routing import cookie_path
 from app.security.csrf import assert_csrf
-from app.security.tokens import AccessTokenError, decode_access_token, hash_token
+from app.security.tokens import AccessTokenError, decode_access_token
 from app.services.auth import SessionTokens, TokenFlowError, rotate_session
 
 ACCESS_COOKIE = "access_registry_access"
@@ -114,16 +113,6 @@ def enforce_session_csrf(
 RequireCsrf = Annotated[None, Depends(enforce_session_csrf)]
 
 
-def get_session_by_refresh_token(
-    db: Session, settings: Settings, raw_refresh: str
-) -> RefreshSession | None:
-    return db.scalar(
-        select(RefreshSession).where(
-            RefreshSession.refresh_token_hash == hash_token(raw_refresh, settings.session_pepper)
-        )
-    )
-
-
 def set_auth_cookies(
     response: Response, tokens: SessionTokens, settings: Settings, request: Request
 ) -> None:
@@ -139,10 +128,11 @@ def set_auth_cookies(
         max_age=tokens.access_expires_in,
         **common,
     )
+    refresh_remaining = int((tokens.session.absolute_expires_at - utcnow()).total_seconds())
     response.set_cookie(
         REFRESH_COOKIE,
         tokens.refresh_token,
-        max_age=settings.refresh_token_hours * 3600,
+        max_age=max(0, refresh_remaining),
         **common,
     )
 

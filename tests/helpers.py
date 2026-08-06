@@ -36,6 +36,14 @@ def login_csrf_from(html: str) -> str:
     return match.group(1)
 
 
+def preauth_post(client, path: str, data: dict, *, page_path: str | None = None):
+    """GET the form page for a preauth CSRF cookie/field, then POST with both."""
+    page = client.get(page_path or path)
+    token = login_csrf_from(page.text)
+    payload = {**data, "preauth_csrf_token": token}
+    return client.post(path, data=payload)
+
+
 def as_adapter(response) -> AdapterResponse:
     """Wrap a Starlette/TestClient response for Hedron assert helpers."""
     return AdapterResponse(

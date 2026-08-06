@@ -19,13 +19,11 @@ from hedron import (
     html,
 )
 from hedron_core import Component, HtmlAttrValue, NodeLike
-from hedron_core.security import SafeUrl, UrlPurpose
 
 from app.config import Settings
 from app.dependencies import AuthContext
-from app.routing import app_path
 from app.ui.forms import csrf_hidden, submit_button
-from app.ui.urls import form_action, hx_attrs, page_href
+from app.ui.urls import asset_href, form_action, hx_attrs, page_href
 
 INDICATOR = "#global-request-indicator"
 
@@ -37,7 +35,7 @@ HTMX_CONFIG = (
 )
 
 
-def document_head(*, page_title: str, app_name: str) -> Fragment:
+def document_head(*, request: Request, page_title: str, app_name: str) -> Fragment:
     title = f"{page_title} · {app_name}" if page_title else app_name
     return Fragment(
         html.meta(name="color-scheme", content="dark"),
@@ -46,7 +44,7 @@ def document_head(*, page_title: str, app_name: str) -> Fragment:
         html.title(title),
         html.link(
             rel="stylesheet",
-            href=SafeUrl.parse("/assets/theme.css", purpose=UrlPurpose.ASSET),
+            href=asset_href(request, "/assets/theme.css"),
         ),
     )
 
@@ -58,7 +56,9 @@ def alert_box(message: str, *, kind: str = "error") -> Alert | Fragment:
     return Alert(message, tone=tone)
 
 
-def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) -> NodeLike:
+def account_summary(
+    request: Request, auth: AuthContext, *, csrf_token: str, oob: bool = False
+) -> NodeLike:
     """Account chrome; stays on html.* so hx-swap-oob and nested form attrs remain valid."""
     user = auth.user
     attrs: dict[str, HtmlAttrValue] = {"id": "account-summary", "class_": "account-summary"}
@@ -78,7 +78,7 @@ def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) ->
         html.form(
             csrf_hidden(csrf_token),
             submit_button("Sign out", quiet=True, small=True),
-            action=form_action("logout"),
+            action=form_action(request, "logout"),
             method="post",
         ),
         **attrs,
@@ -87,16 +87,18 @@ def account_summary(auth: AuthContext, *, csrf_token: str, oob: bool = False) ->
 
 def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
     path = str(request.scope.get("path") or "/")
+    normalized = path.rstrip("/") or "/"
 
     def link(href: str, number: str, label: str) -> NodeLike:
-        normalized = path.rstrip("/") or "/"
-        active = "active" if normalized == href or normalized.endswith(href) else ""
+        href_norm = href.rstrip("/") or "/"
+        active = "active" if normalized == href_norm else ""
         return html.a(
             html.span(number, aria={"hidden": "true"}),
             f" {label}",
             class_=f"nav-link {active}".strip(),
-            href=page_href(href),
+            href=page_href(request, href),
             **hx_attrs(
+                request,
                 method="get",
                 path=href.lstrip("/"),
                 target="#main-panel",
@@ -172,7 +174,6 @@ def app_shell(
     page_title: str,
     csrf_token: str = "",
 ) -> Page:
-    _ = app_path
     banner = html.div(
         html.div(
             html.span("▦", class_="flag-mark", aria={"hidden": "true"}),
@@ -190,12 +191,12 @@ def app_shell(
             ),
             html.span("Protected workspace", class_="brand-chip"),
             class_="brand",
-            href=page_href("/"),
+            href=page_href(request, "/"),
             aria={"label": f"{settings.app_name} home"},
         )
     ]
     if auth and csrf_token:
-        header_children.append(account_summary(auth, csrf_token=csrf_token))
+        header_children.append(account_summary(request, auth, csrf_token=csrf_token))
     header = Header(
         html.div(*header_children, class_="page-width header-inner"),
         class_="site-header",
@@ -208,7 +209,9 @@ def app_shell(
         role="status",
         aria={"live": "polite"},
     )
-    skip = html.a("Skip to main content", class_="skip-link", href=page_href("/#main-content"))
+    skip = html.a(
+        "Skip to main content", class_="skip-link", href=page_href(request, "/#main-content")
+    )
     footer = Footer(
         html.div(
             html.span(settings.app_name),
@@ -244,7 +247,7 @@ def app_shell(
         content,
         footer,
         title=page_title or settings.app_name,
-        head=document_head(page_title=page_title, app_name=settings.app_name),
+        head=document_head(request=request, page_title=page_title, app_name=settings.app_name),
     )
 
 

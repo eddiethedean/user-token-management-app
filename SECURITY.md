@@ -269,15 +269,19 @@ that evidence.
 **Status:** Implemented in the application; perimeter and progressive controls remain gaps.
 
 **Decision:** Login uses the same user-facing failure for a missing user, bad password, disabled or
-unverified account, and active lockout. A fixed dummy password is verified with the configured
-password scheme when no verifier exists or an oversized candidate is supplied. Five consecutive
-failures atomically disable local-password authentication until a successful password-reset/rebinding
-flow; an ordinary later login cannot clear that terminal state. Registration, login, and reset paths
+unverified account, pending-approval registration, disallowed email domain, and active lockout. A
+fixed dummy password is verified with the configured password scheme when no verifier exists, an
+oversized candidate is supplied, or the email fails domain policy. Five consecutive failures
+atomically disable local-password authentication (`failed_login_attempts >= 5`) until a successful
+password-reset, authenticated password change, administrator enable, or `create-admin` rebinding
+flow; an ordinary later login cannot clear that terminal state. The `locked_until` column is cleared
+on unlock paths but is not used as a timed lockout deadline. Registration, login, and reset paths
 additionally increment atomic fixed-window buckets for
 both source address and normalized account email in the shared application database. Bucket keys are
 HMAC-SHA-256 digests under the session pepper, expired buckets are deleted, denials return
 `Retry-After`, and denials are audited without recording the raw bucket key. Authentication outcomes
-are audited.
+are audited (including server-only `pending_approval` outcomes that still present the generic client
+message).
 
 **Rationale:** Generic responses and comparable expensive work reduce account enumeration. The
 terminal per-account action and shared source/account windows constrain bursts and provide useful
@@ -409,12 +413,11 @@ explains the attributes and cookie-prefix tradeoffs.
 **Status:** Implemented.
 
 **Decision:** Each database session has an independent random CSRF value. All authenticated
-state-changing browser and cookie-authenticated API requests must return it in a form field or
+state-changing browser requests must return it in a form field or
 `X-CSRF-Token` header; comparison is constant-time. `SameSite=Lax` is defense in depth, not the sole
-control. Authorization-header bearer requests are exempt because browsers do not attach that header
-automatically cross-site. Password and federated login forms use a separate one-hour signed
-double-submit token in an `HttpOnly`, `SameSite=Strict` cookie scoped to the application mount;
-`CSRF_SECRET` signs that pre-authentication token.
+control. Password, federated login, self-registration, and forgot-password forms use a separate
+one-hour signed double-submit token in an `HttpOnly`, `SameSite=Strict` cookie scoped to the
+application mount; `CSRF_SECRET` signs that pre-authentication token.
 
 **Rationale:** Cookies are automatically sent by the browser, so authentication alone cannot
 distinguish a forged cross-site request. A server-held synchronizer value supplies that distinction.
@@ -446,22 +449,24 @@ requires random session secrets, invalidation on logout, protected transport, ex
 mechanism. [OWASP Session Management, Session Expiration](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html#session-expiration)
 recommends server-side idle and absolute timeouts.
 
-### SD-12 — Separate browser-cookie and API-bearer behavior
+### SD-12 — Prefer cookie sessions for the HTMX UI
 
-**Status:** Implemented.
+**Status:** Implemented (cookie-session UI; no separate public JSON auth API).
 
-**Decision:** `/api/v1/auth/token` returns an access JWT in JSON for API clients and also establishes
-the browser cookie session. Subsequent API requests may use `Authorization: Bearer`. If a bearer token
-is present it is authoritative; an invalid bearer request does not silently fall back to a valid
-cookie. Authenticated business mutations using cookies require CSRF; bearer-authenticated mutations
-do not.
+**Decision:** Access Registry is a cookie-session HTMX application. Successful login sets HttpOnly
+access and refresh cookies scoped to the deployment mount. Optional `Authorization: Bearer` may
+carry the same access JWT for clients that already hold it, but there is no `/api/v1/auth/token`
+JSON issuance endpoint and bearer credentials do not skip CSRF: authenticated mutations still require
+the session synchronizer when the request authenticates through the browser cookie session. If a
+bearer token is present it is authoritative for identity lookup; an invalid bearer request does not
+silently fall back to a valid cookie.
 
-**Rationale:** Explicit precedence avoids credential confusion and makes the CSRF rule depend on the
-credential actually used. Both modes still require the same live database session and authorization
-checks. The refresh endpoint and automatic refresh during normal navigation are session-maintenance
-exceptions: they rotate a cookie credential without a CSRF token and rely on `SameSite=Lax`, the
-same-origin response boundary, and the attacker's inability to read the new token. Review this
-exception if cross-origin clients or cookie policy change.
+**Rationale:** A single browser UI surface keeps CSRF rules simple and avoids maintaining a parallel
+public API. Automatic cookie attachment still requires CSRF protection for state-changing requests.
+The refresh path during normal navigation is a session-maintenance exception: it rotates a cookie
+credential without a CSRF token and relies on `SameSite=Lax`, the same-origin response boundary, and
+the attacker's inability to read the new token. Review this exception if cross-origin clients or
+cookie policy change.
 
 **Evidence:** [RFC 6750 section 2](https://www.rfc-editor.org/rfc/rfc6750.html#section-2)
 defines Authorization-header bearer use and warns clients not to use more than one token transport
@@ -565,8 +570,10 @@ and retention in the [primary publication](https://doi.org/10.6028/NIST.SP.800-5
 `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a restrictive `Permissions-Policy`, and a
 Content Security Policy limited to same-origin scripts, styles, fonts, and connections, with
 `frame-ancestors 'none'`, `base-uri 'self'`, and `form-action 'self'`. Production adds one-year HSTS;
-`includeSubDomains` is enabled only with `HSTS_INCLUDE_SUBDOMAINS=true`. HTMX and CSS are vendored and served through `app.frontend()` with no SPA
-fallback and no runtime CDN or Node dependency.
+`includeSubDomains` is enabled only with `HSTS_INCLUDE_SUBDOMAINS=true`. Application CSS and
+progressive-enhancement JavaScript are served from `/assets` via Starlette `StaticFiles`; Hedron's
+own assets are served under `/hedron-static/`. There is no SPA fallback and no runtime CDN or Node
+dependency.
 
 **Rationale:** These headers reduce script injection impact, clickjacking, MIME confusion, referrer
 leakage, browser feature exposure, and transport downgrade. Self-hosting enables `script-src 'self'`
@@ -584,9 +591,8 @@ affects descendant hosts.
   describes CSP as defense in depth for XSS and data injection.
 - [OWASP TLS](https://cheatsheetseries.owasp.org/cheatsheets/Transport_Layer_Security_Cheat_Sheet.html)
   recommends `Cache-Control: no-store` for sensitive responses and HSTS for HTTPS applications.
-- [FastAPI Frontend](https://fastapi.tiangolo.com/tutorial/frontend/) confirms that
-  `app.frontend()` serves existing static files, runs through normal middleware, and can disable
-  fallback.
+- [Starlette StaticFiles](https://www.starlette.io/staticfiles/) confirms that mounted static
+  directories serve existing files through normal ASGI middleware without SPA fallback.
 
 ### SD-17 — Require TLS and production-safe startup configuration
 
@@ -594,8 +600,9 @@ affects descendant hosts.
 
 **Decision:** Production configuration refuses to start with insecure cookies, a non-HTTPS or
 malformed public URL, SQLite, console email, SMTP without a host and STARTTLS, missing domain
-allowlists, weak placeholder application secrets, retained delivered email bodies, or a missing
-offline password blocklist. PostgreSQL must use the installed `psycopg` driver. Invalid ports,
+allowlists, weak placeholder application secrets, retained delivered email bodies, a missing
+offline password blocklist, disabled application rate limits, or `DIRECTORY_LOOKUP_REQUIRED` without
+a configured HTTPS directory URL. PostgreSQL must use the installed `psycopg` driver. Invalid ports,
 unsafe header-bearing configuration values, malformed routing paths, and missing configured CA
 bundle files also fail validation. Interactive API documentation is disabled in production. TLS is
 expected to terminate at the approved Posit/reverse-proxy boundary; HSTS and Secure cookies are
@@ -652,8 +659,8 @@ transaction, applies bounded exponential backoff, emits per-batch delivery metri
 exhausted messages as dead letters. Operators can explicitly requeue all or one approved dead
 letter. The SMTP backend uses STARTTLS with hostname and certificate validation through the system
 trust store or `SMTP_CA_BUNDLE`, plus optional relay authentication. The application sends
-registration/invitation/reset URLs and account-status or password-change notifications, never
-passwords.
+registration/invitation/reset URLs and account-status or password-change notifications (including
+authenticated password changes from the security page), never passwords.
 
 **Rationale:** Transactional queuing avoids losing a message when the surrounding database operation
 commits. Change notifications give users an independent signal of possible compromise.
@@ -683,8 +690,9 @@ supports excluding or specially protecting token and session values.
 `RStudio-Connect-App-Base-URL` only when the direct peer is allowlisted, or from the ASGI `root_path`
 used by Workbench. Values are reduced to a
 same-origin absolute path and values containing protocol-relative paths, backslashes, query strings,
-fragments, or control characters are rejected. The result prefixes application links and scopes
-cookies. A narrow middleware also handles duplicate ASGI root paths, Workbench
+fragments, or control characters are rejected. The result prefixes application links, form actions,
+HTMX paths, static asset URLs, and scopes cookies. A narrow middleware also handles duplicate ASGI
+root paths, Workbench
 `/proxy/<port>/...` mounts, and encoded absolute-URL paths. Source IP accepts the first
 `X-Forwarded-For` value only when the direct peer is in the explicit `TRUSTED_PROXY_IPS` allowlist;
 malformed values are ignored.

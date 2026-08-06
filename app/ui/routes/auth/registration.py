@@ -7,6 +7,7 @@ from hedron import Hedron
 from starlette.responses import Response
 
 from app.dependencies import DbSession, SettingsDep
+from app.security.csrf import require_preauth_csrf
 from app.security.passwords import PasswordPolicyError
 from app.services.auth import (
     TokenFlowError,
@@ -19,9 +20,11 @@ from app.services.rate_limit import check_rate_limit
 from app.ui.params import (
     EmailForm,
     FlowTokenForm,
+    FlowTokenQuery,
     FullNameForm,
     OptionalPasswordConfirmForm,
     OptionalPasswordForm,
+    PreauthCsrfForm,
 )
 from app.ui.partials.auth import render_register_page, render_verify_page
 
@@ -38,7 +41,9 @@ def register_registration_routes(app: Hedron) -> None:
         settings: SettingsDep,
         email: EmailForm,
         full_name: FullNameForm = "",
+        preauth_csrf_token: PreauthCsrfForm = "",
     ) -> Response:
+        require_preauth_csrf(request, preauth_csrf_token, settings)
         check_rate_limit(
             db,
             settings,
@@ -78,7 +83,7 @@ def register_registration_routes(app: Hedron) -> None:
     @app.get("/registration/verify", include_in_schema=False)
     def registration_verification_page(
         request: Request,
-        token: str,
+        token: FlowTokenQuery,
         db: DbSession,
         settings: SettingsDep,
     ) -> Response:

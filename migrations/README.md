@@ -7,4 +7,5 @@ python -m app migrate
 ```
 
 Account creation and role assignment are intentionally not performed by Alembic revisions. Use
-`python -m app.cli create-admin --email ...` after the schema is current.
+`python -m app create-admin --email … --password-env ADMIN_BOOTSTRAP_PASSWORD` after the schema is
+current (or the console script `access-registry create-admin …`).

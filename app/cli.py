@@ -77,7 +77,7 @@ def create_admin(email: str, password: str | None = None) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="utm")
+    parser = argparse.ArgumentParser(prog="access-registry")
     subparsers = parser.add_subparsers(dest="command", required=True)
     admin_parser = subparsers.add_parser("create-admin", help="Create or promote an administrator")
     admin_parser.add_argument("--email", required=True)

@@ -89,7 +89,7 @@ def render_login_page(
                 hidden_field("next", next),
                 hidden_field("preauth_csrf_token", preauth),
                 submit_button("Continue with federated sign-in", wide=True),
-                action=form_action("login/federated"),
+                action=form_action(request, "login/federated"),
                 method="post",
                 class_="stack-form",
             )
@@ -121,7 +121,7 @@ def render_login_page(
                 ),
                 html.div(
                     html.label("Password", for_="password"),
-                    html.a("Forgot password?", href=page_href("password/forgot")),
+                    html.a("Forgot password?", href=page_href(request, "password/forgot")),
                     class_="label-row",
                 ),
                 TextInput(
@@ -139,7 +139,7 @@ def render_login_page(
                     aria={"pressed": "false"},
                 ),
                 submit_button("Sign in securely", wide=True),
-                action=form_action("login"),
+                action=form_action(request, "login"),
                 method="post",
                 class_="stack-form",
             )
@@ -147,7 +147,7 @@ def render_login_page(
         card_children.append(
             html.p(
                 "Need an account? ",
-                html.a("Request access", href=page_href("register")),
+                html.a("Request access", href=page_href(request, "register")),
                 ". You must verify your government email and receive administrator "
                 "approval before signing in.",
                 class_="card-footnote",
@@ -175,6 +175,7 @@ def render_register_page(
     email: str = "",
     full_name: str = "",
 ) -> Response:
+    preauth = issue_preauth_csrf(settings)
     body: list[NodeLike] = [
         Heading("Request access", level=1),
         alert_box(error),
@@ -183,6 +184,7 @@ def render_register_page(
     if not success:
         body.append(
             HedronForm(
+                hidden_field("preauth_csrf_token", preauth),
                 FormField(
                     name="email",
                     label="Government email",
@@ -199,13 +201,13 @@ def render_register_page(
                     control=TextInput("full_name", id="full_name", value=full_name),
                 ),
                 submit_button("Submit request", wide=True),
-                action=form_action("register"),
+                action=form_action(request, "register"),
                 method="post",
                 class_="stack-form",
             )
         )
-    body.append(html.p(html.a("Back to sign in", href=page_href("login"))))
-    return render_page(
+    body.append(html.p(html.a("Back to sign in", href=page_href(request, "login"))))
+    response = render_page(
         app_shell(
             auth_card(*body),
             request=request,
@@ -216,6 +218,9 @@ def render_register_page(
         status_code=status_code,
         request=request,
     )
+    if not success:
+        set_preauth_csrf_cookie(response, request, preauth, settings)
+    return response
 
 
 def render_verify_page(
@@ -266,13 +271,13 @@ def render_verify_page(
         body.append(
             HedronForm(
                 *fields,
-                action=form_action("registration/verify"),
+                action=form_action(request, "registration/verify"),
                 method="post",
                 class_="stack-form",
             )
         )
     elif error:
-        body.append(html.p(html.a("Request access again", href=page_href("register"))))
+        body.append(html.p(html.a("Request access again", href=page_href(request, "register"))))
     return render_page(
         app_shell(
             auth_card(*body),
@@ -287,6 +292,7 @@ def render_verify_page(
 
 
 def render_forgot_page(request: Request, settings: Settings, *, success: str = "") -> Response:
+    preauth = issue_preauth_csrf(settings)
     body: list[NodeLike] = [
         Heading("Forgot password", level=1),
         alert_box(success, kind="success"),
@@ -294,6 +300,7 @@ def render_forgot_page(request: Request, settings: Settings, *, success: str = "
     if not success:
         body.append(
             HedronForm(
+                hidden_field("preauth_csrf_token", preauth),
                 FormField(
                     name="email",
                     label="Government email",
@@ -302,13 +309,13 @@ def render_forgot_page(request: Request, settings: Settings, *, success: str = "
                     control=TextInput("email", id="email", type="email", required=True),
                 ),
                 submit_button("Send reset link", wide=True),
-                action=form_action("password/forgot"),
+                action=form_action(request, "password/forgot"),
                 method="post",
                 class_="stack-form",
             )
         )
-    body.append(html.p(html.a("Back to sign in", href=page_href("login"))))
-    return render_page(
+    body.append(html.p(html.a("Back to sign in", href=page_href(request, "login"))))
+    response = render_page(
         app_shell(
             auth_card(*body),
             request=request,
@@ -318,6 +325,9 @@ def render_forgot_page(request: Request, settings: Settings, *, success: str = "
         ),
         request=request,
     )
+    if not success:
+        set_preauth_csrf_cookie(response, request, preauth, settings)
+    return response
 
 
 def render_reset_page(
@@ -353,7 +363,7 @@ def render_reset_page(
                     ),
                 ),
                 submit_button("Update password", wide=True),
-                action=form_action("password/reset"),
+                action=form_action(request, "password/reset"),
                 method="post",
                 class_="stack-form",
             )
@@ -423,7 +433,7 @@ def render_invitation_page(
         body.append(
             HedronForm(
                 *fields,
-                action=form_action("invitations/accept"),
+                action=form_action(request, "invitations/accept"),
                 method="post",
                 class_="stack-form",
             )

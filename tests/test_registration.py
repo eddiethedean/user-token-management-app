@@ -14,6 +14,7 @@ from tests.helpers import (
     csrf_from,
     latest_email_token,
     login_csrf_from,
+    preauth_post,
     web_login,
 )
 
@@ -42,9 +43,8 @@ def test_registration_rejects_unapproved_domain(client) -> None:
 
     from app.models import RegistrationVerification
 
-    response = client.post(
-        "/register",
-        data={"email": "outsider@example.com", "full_name": "Outsider"},
+    response = preauth_post(
+        client, "/register", {"email": "outsider@example.com", "full_name": "Outsider"}
     )
     assert response.status_code == 400
     assert "domain" in response.text.lower()
@@ -54,9 +54,8 @@ def test_registration_rejects_unapproved_domain(client) -> None:
 
 
 def test_registration_verify_approve_and_sign_in(client) -> None:
-    submitted = client.post(
-        "/register",
-        data={"email": REGISTRATION_EMAIL, "full_name": "Self Registered"},
+    submitted = preauth_post(
+        client, "/register", {"email": REGISTRATION_EMAIL, "full_name": "Self Registered"}
     )
     assert submitted.status_code == 202
     assert "verification link" in submitted.text.lower()
@@ -84,7 +83,16 @@ def test_registration_verify_approve_and_sign_in(client) -> None:
         },
     )
     assert blocked.status_code == 400
-    assert "approval" in blocked.text.lower()
+    assert "Unable to sign in with those credentials." in blocked.text
+    assert "awaiting administrator approval" not in blocked.text.lower()
+    with SessionLocal() as db:
+        pending_audit = db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.event_type == "auth.login",
+                AuditEvent.outcome == "pending_approval",
+            )
+        )
+        assert pending_audit is not None
 
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.email == REGISTRATION_EMAIL))
@@ -120,10 +128,7 @@ def test_registration_verify_approve_and_sign_in(client) -> None:
 def test_admin_can_deny_pending_registration(client) -> None:
     email = "self.denied@example.gov"
     assert (
-        client.post(
-            "/register",
-            data={"email": email, "full_name": "Denied User"},
-        ).status_code
+        preauth_post(client, "/register", {"email": email, "full_name": "Denied User"}).status_code
         == 202
     )
     token = latest_email_token(email, subject_like="Verify your%registration")
@@ -157,10 +162,7 @@ def test_admin_can_deny_pending_registration(client) -> None:
 def test_admin_cannot_approve_before_email_verification(client) -> None:
     email = "unverified.pending@example.gov"
     assert (
-        client.post(
-            "/register",
-            data={"email": email, "full_name": "Unverified"},
-        ).status_code
+        preauth_post(client, "/register", {"email": email, "full_name": "Unverified"}).status_code
         == 202
     )
     with SessionLocal() as db:
@@ -234,10 +236,7 @@ def test_expired_and_forged_registration_links_do_not_set_credentials(client) ->
 
     email = "expired.reg@example.gov"
     assert (
-        client.post(
-            "/register",
-            data={"email": email, "full_name": "Expired Reg"},
-        ).status_code
+        preauth_post(client, "/register", {"email": email, "full_name": "Expired Reg"}).status_code
         == 202
     )
     token = latest_email_token(email, subject_like="Verify your%registration")
@@ -286,9 +285,8 @@ def test_self_registration_revokes_prior_invitation(client) -> None:
         invitation_id = invitation.id
 
     assert (
-        client.post(
-            "/register",
-            data={"email": email, "full_name": "Self After Invite"},
+        preauth_post(
+            client, "/register", {"email": email, "full_name": "Self After Invite"}
         ).status_code
         == 202
     )
@@ -303,17 +301,10 @@ def test_registration_coalesces_and_does_not_enumerate_existing(client) -> None:
     from app.models import EmailOutbox
 
     email = "coalesce.reg@example.gov"
-    first = client.post(
-        "/register",
-        data={"email": email, "full_name": "First Name"},
-    )
-    second = client.post(
-        "/register",
-        data={"email": email, "full_name": "Changed Name"},
-    )
-    existing = client.post(
-        "/register",
-        data={"email": ADMIN_EMAIL, "full_name": "Claimed Administrator"},
+    first = preauth_post(client, "/register", {"email": email, "full_name": "First Name"})
+    second = preauth_post(client, "/register", {"email": email, "full_name": "Changed Name"})
+    existing = preauth_post(
+        client, "/register", {"email": ADMIN_EMAIL, "full_name": "Claimed Administrator"}
     )
     assert first.status_code == second.status_code == existing.status_code == 202
     assert "verification" in first.text.lower()

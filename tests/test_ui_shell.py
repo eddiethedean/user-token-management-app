@@ -16,10 +16,30 @@ from hedron.testing import (
     render_html,
 )
 from hedron_core import RenderMode
+from starlette.requests import Request
 
 from app.ui import partials as ui
 from app.ui.interactions import APP_REGIONS
 from app.ui.layout import alert_box, page_heading
+
+
+def _request(root_path: str = "") -> Request:
+    return Request(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/",
+            "raw_path": b"/",
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 0),
+            "server": ("test", 80),
+            "root_path": root_path,
+        }
+    )
 
 
 def _preauth_token(html: str) -> str:
@@ -50,6 +70,7 @@ def test_register_page_document(access_app) -> None:
     response = fixture.get("/register")
     assert_page_document(response)
     assert_html_contains(response, "Request access")
+    assert_html_contains(response, 'name="preauth_csrf_token"')
 
 
 def test_login_then_profile_via_fastapi_fixture(access_app) -> None:
@@ -143,7 +164,7 @@ def test_profile_form_render_html() -> None:
             role_names=["administrator"],
         )
     )
-    html = render_html(ui.profile_form(auth, csrf_token="test-csrf"))
+    html = render_html(ui.profile_form(_request(), auth, csrf_token="test-csrf"))
     assert 'id="profile-form-region"' in html
     assert 'name="csrf_token"' in html
     assert 'value="Ada Admin"' in html
@@ -151,14 +172,16 @@ def test_profile_form_render_html() -> None:
 
 
 def test_password_form_render_html() -> None:
-    html = render_html(ui.password_form(csrf_token="pw-csrf"))
+    html = render_html(ui.password_form(_request(), csrf_token="pw-csrf"))
     assert 'id="password-form-region"' in html
     assert 'hx-post="/security/password"' in html
     assert 'data-password-toggle="new_password"' in html
 
 
 def test_password_form_success_swaps_to_sign_in() -> None:
-    html = render_html(ui.password_form(csrf_token="pw-csrf", success="Password changed."))
+    html = render_html(
+        ui.password_form(_request(), csrf_token="pw-csrf", success="Password changed.")
+    )
     assert "Password changed." in html
     assert "Return to sign in" in html
     assert 'hx-post="/security/password"' not in html
@@ -167,6 +190,7 @@ def test_password_form_success_swaps_to_sign_in() -> None:
 def test_user_directory_fragment_render() -> None:
     html = render_html(
         ui.user_directory(
+            _request(),
             [],
             csrf_token="admin-csrf",
             query="",
@@ -200,14 +224,16 @@ def test_session_list_and_secret_slot_render_html() -> None:
             source_ip="10.0.0.2",
         ),
     ]
-    session_html = render_html(ui.session_list(sessions, auth=auth, csrf_token="sess-csrf"))
+    session_html = render_html(
+        ui.session_list(_request(), sessions, auth=auth, csrf_token="sess-csrf")
+    )
     assert 'id="session-list"' in session_html
     assert "Current" in session_html
     assert "Revoke" in session_html
     assert "security/sessions/other-session/revoke" in session_html
     assert "data-hedron-dialog-open" in session_html
 
-    slot = render_html(ui.secret_slot(SECRET_PROVIDERS[0], None, csrf_token="sec-csrf"))
+    slot = render_html(ui.secret_slot(_request(), SECRET_PROVIDERS[0], None, csrf_token="sec-csrf"))
     assert 'id="secret-slot-advana"' in slot
     assert "ADVANA_API_TOKEN" in slot
     assert "security/secrets/advana" in slot
@@ -227,6 +253,7 @@ def test_audit_results_and_invitation_panel_render_html() -> None:
     ]
     audit = render_html(
         ui.audit_results(
+            _request(),
             events,
             event_type_filter="auth.login",
             outcome_filter="",
@@ -240,6 +267,7 @@ def test_audit_results_and_invitation_panel_render_html() -> None:
 
     panel = render_html(
         ui.invitation_panel(
+            _request(),
             [],
             [SimpleNamespace(name="user"), SimpleNamespace(name="administrator")],
             csrf_token="inv-csrf",
@@ -354,7 +382,9 @@ def test_session_list_uses_dialog_confirm(access_app) -> None:
             source_ip="10.0.0.2",
         ),
     ]
-    session_html = render_html(ui.session_list(sessions, auth=auth, csrf_token="sess-csrf"))
+    session_html = render_html(
+        ui.session_list(_request(), sessions, auth=auth, csrf_token="sess-csrf")
+    )
     assert 'data-hedron-dialog-open="#revoke-session-other-session"' in session_html
     assert 'id="revoke-session-other-session"' in session_html
     assert "hedron-dialog" in session_html
@@ -377,7 +407,7 @@ def test_admin_pagination_uses_hedron_markup() -> None:
 
 
 def test_security_activity_lazy_placeholder() -> None:
-    html = render_html(ui.security_activity_lazy())
+    html = render_html(ui.security_activity_lazy(_request()))
     assert 'id="security-activity"' in html
     assert "hedron-loading" in html
     assert 'hx-get="/security/activity"' in html
@@ -387,6 +417,7 @@ def test_security_activity_lazy_placeholder() -> None:
 def test_password_form_field_errors() -> None:
     html = render_html(
         ui.password_form(
+            _request(),
             csrf_token="csrf",
             field_errors={"new_password_confirm": "New passwords do not match."},
         )
@@ -398,7 +429,7 @@ def test_password_form_field_errors() -> None:
 
 
 def test_audit_results_lazy_uses_hedron_lazy() -> None:
-    html = render_html(ui.audit_results_lazy())
+    html = render_html(ui.audit_results_lazy(_request()))
     assert 'id="audit-results-region"' in html
     assert "hedron-loading" in html
     assert 'hx-get="/admin/audit/results"' in html
@@ -408,6 +439,7 @@ def test_audit_results_lazy_uses_hedron_lazy() -> None:
 def test_audit_panel_includes_refresh_button() -> None:
     html = render_html(
         ui.audit_panel(
+            _request(),
             [],
             event_type_filter="",
             outcome_filter="",
