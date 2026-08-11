@@ -89,10 +89,12 @@ def run_server(*, host: str, port: int, reload: bool = False) -> None:
 
     hint = workbench_launch_hint(port)
     if hint:
+        login = hint.rstrip("/") + "/login"
         print(f"Posit Workbench URL: {hint}", flush=True)
+        print(f"Open this login URL: {login}", flush=True)
         print(
-            "Open that /s/…/p/… session URL (not /proxy/<port>/). "
-            "HTML links are rooted at the session mount.",
+            "Do not open /proxy/<port>/ and do not combine it with /s/…/p/… "
+            "(that yields /proxy/<port>/s/…/login → 404).",
             flush=True,
         )
     else:

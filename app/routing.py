@@ -186,6 +186,14 @@ def app_path(request: Request, path: str) -> str:
     return f"{app_base_url(request)}{normalized}"
 
 
+def _request_under_mount(request: Request, mount: str) -> bool:
+    """True when the ASGI path is already under ``mount`` (session or proxy prefix)."""
+    if not mount:
+        return False
+    path = str(request.scope.get("path") or "/")
+    return path == mount or path.startswith(f"{mount}/")
+
+
 def redirect_path(request: Request, path: str) -> str:
     """Build a ``Location`` / ``HX-Redirect`` target safe behind Workbench Proxied Servers.
 
@@ -193,7 +201,12 @@ def redirect_path(request: Request, path: str) -> str:
     ``/proxy/<port>/`` and that prefix was stripped (or would be rewritten again), emit a
     **relative** target such as ``login`` instead of ``/proxy/8000/login``.
 
-    Session mounts (``/s/…/p/…``) and Connect base URLs remain host-absolute under the mount.
+    Also use relative redirects when Uvicorn ``root_path`` is the session mount
+    (``/s/…/p/…``) but this request arrived via Proxied Servers (path is ``/login``,
+    not under ``/s/…``). Absolute ``Location: /s/…/login`` would be rewritten to the
+    broken ``/proxy/8000/s/…/login``.
+
+    Session mounts keep host-absolute Locations only when the request is under that mount.
 
     See https://github.com/eddiethedean/jwt-user-management/tree/main/fastapi_workbench
     """
@@ -201,6 +214,8 @@ def redirect_path(request: Request, path: str) -> str:
     mount = _request_mount_path(request)
     # Workbench Proxied Servers rewrites absolute Location by prefixing /proxy/<port>.
     if mount and _PROXY_ONLY.match(mount):
+        mount = ""
+    elif mount and _SESSION_MOUNT.match(mount) and not _request_under_mount(request, mount):
         mount = ""
     if mount:
         return mount if normalized == "/" else f"{mount}{normalized}"

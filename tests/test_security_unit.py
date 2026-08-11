@@ -343,6 +343,33 @@ def test_workbench_session_mount_keeps_absolute_redirects(monkeypatch) -> None:
     assert redirect_path(Request(normalized), "/login") == "/s/session/p/679ea2ac/login"
 
 
+def test_workbench_session_root_via_proxied_servers_uses_relative_redirect(
+    monkeypatch,
+) -> None:
+    """Uvicorn root_path=/s/… but request path=/ → Proxied Servers; avoid /proxy/8000/s/…."""
+    monkeypatch.setenv("RS_SERVER_URL", "https://workbench.socom.mil")
+    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "https",
+            "server": ("workbench.socom.mil", 443),
+            "path": "/",
+            "raw_path": b"/",
+            "root_path": "/s/e886e3c9ab5a7de8990d1/p/679ea2ac",
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 1),
+        }
+    )
+    from app.routing import app_path, redirect_path
+
+    assert redirect_path(request, "/login") == "login"
+    # HTML may still point at the session mount (host-absolute; not Location-rewritten).
+    assert app_path(request, "/login") == "/s/e886e3c9ab5a7de8990d1/p/679ea2ac/login"
+
+
 def test_forwarded_source_is_used_only_for_an_explicitly_trusted_proxy() -> None:
     untrusted = settings(trusted_proxy_ips="")
     trusted = settings(trusted_proxy_ips="10.0.0.10")
