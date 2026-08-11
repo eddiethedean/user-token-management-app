@@ -17,3 +17,5 @@ manifest.json
 test-results/
 tmp-compare*/
 tmp-avatar/
+# Operator-supplied deployment files such as the approved password blocklist.
+deployment/

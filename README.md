@@ -133,17 +133,29 @@ Auth modes: [docs/auth-modes.md](docs/auth-modes.md).
 Production refuses insecure settings (HTTPS `PUBLIC_BASE_URL`, `COOKIE_SECURE`, Postgres,
 SMTP, rate limits, and more). Checklist: [SECURITY.md — Production security gate](SECURITY.md#production-security-gate).
 
-## Deploy
+## Posit Workbench and Connect
+
+The full [step-by-step Posit guide](docs/deploy.md) covers Python 3.11 setup, installation,
+configuration, migrations, administrator bootstrap, Workbench proxy startup, production secrets,
+PostgreSQL, SMTP, Hedron assets, Connect publishing, the email worker, and verification.
+
+Workbench development setup begins with:
 
 ```bash
-rsconnect deploy fastapi \
-  -n <server-name> \
-  --entrypoint app.main:app \
-  ./
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e ".[dev]"
+cp .env.example .env
+python -m app migrate
+python -m app create-admin --email admin@example.gov
+python -m app serve --reload
 ```
 
-Full Connect/Workbench notes (mount cookies, trusted proxies, email worker, secrets):
-[docs/deploy.md](docs/deploy.md).
+Do not use those development defaults on Connect. The production path requires PostgreSQL, SMTP,
+strong secrets, secure cookies, a password blocklist, migrations before startup, a Hedron build,
+and a separately supervised email worker. Follow every Connect step in the deployment guide before
+publishing `app.main:app`.
 
 ## Contributing
 

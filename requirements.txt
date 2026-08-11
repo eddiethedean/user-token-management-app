@@ -1,0 +1,15 @@
+# Runtime dependencies for Posit Connect. Keep synchronized with [project].dependencies.
+# Floors are the broad Python 3.11 baseline; upper versions remain open.
+alembic>=1.13.1
+cryptography>=42.0.8
+email-validator>=2.2
+fastapi>=0.141.1
+hedron>=0.26.1
+httpx2>=2.9.1
+pyjwt>=2.8
+pydantic-settings>=2.2.1
+pwdlib[argon2]>=0.2
+psycopg[binary]>=3.1.18
+python-multipart>=0.0.20
+sqlalchemy>=2.0
+uvicorn[standard]>=0.30
