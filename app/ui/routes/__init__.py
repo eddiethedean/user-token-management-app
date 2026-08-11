@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse
 from hedron import Hedron
 
 from app.dependencies import OptionalAuth
-from app.routing import app_path
+from app.routing import redirect_path
 from app.ui.routes.admin import register_admin_routes
 from app.ui.routes.auth import register_auth_routes
 from app.ui.routes.profile import register_profile_routes
@@ -18,7 +18,7 @@ def register_routes(app: Hedron) -> None:
     @app.page("/", include_in_schema=False)
     def home(request: Request, auth: OptionalAuth):
         return RedirectResponse(
-            app_path(request, "/profile" if auth else "/login"),
+            redirect_path(request, "/profile" if auth else "/login"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
 

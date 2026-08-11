@@ -29,7 +29,12 @@ from sqlalchemy import text
 from app.config import get_settings
 from app.dependencies import clear_auth_cookies, set_auth_cookies
 from app.logging_config import bind_request_id, clear_request_id, configure_logging
-from app.routing import WorkbenchPathMiddleware, app_base_url, app_path, is_htmx_request
+from app.routing import (
+    WorkbenchPathMiddleware,
+    app_base_url,
+    is_htmx_request,
+    redirect_path,
+)
 from app.schema import assert_schema_current
 from app.services.auth import ensure_default_roles
 from app.ui.layout import alert_box, app_shell
@@ -155,7 +160,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         if request.url.query:
             next_path += f"?{request.url.query}"
         response = RedirectResponse(
-            app_path(request, f"/login?{urlencode({'next': next_path})}"),
+            redirect_path(request, f"/login?{urlencode({'next': next_path})}"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         clear_auth_cookies(response, settings, request)

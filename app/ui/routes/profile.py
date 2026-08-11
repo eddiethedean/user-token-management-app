@@ -7,7 +7,7 @@ from hedron import Hedron, html
 from starlette.responses import Response
 
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
-from app.routing import app_path
+from app.routing import redirect_path
 from app.services.accounts import ProfileValues, update_profile
 from app.ui import partials as ui
 from app.ui.http import mutation_response, render_authenticated_view
@@ -111,7 +111,7 @@ def register_profile_routes(app: Hedron) -> None:
         )
         return await mutation_response(
             request,
-            redirect=app_path(request, "/profile?updated=true"),
+            redirect=redirect_path(request, "/profile?updated=true"),
             fragment=ok_fragment(
                 form,
                 oob=oob,

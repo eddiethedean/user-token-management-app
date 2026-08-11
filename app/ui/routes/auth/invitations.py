@@ -8,7 +8,7 @@ from hedron import Hedron
 from starlette.responses import Response
 
 from app.dependencies import DbSession, SettingsDep
-from app.routing import app_path
+from app.routing import redirect_path
 from app.security.passwords import PasswordPolicyError
 from app.services.auth import TokenFlowError, accept_invitation, get_valid_invitation
 from app.ui.params import (
@@ -69,7 +69,7 @@ def register_invitation_routes(app: Hedron) -> None:
                 request=request,
             )
             return RedirectResponse(
-                app_path(request, "/login"), status_code=status.HTTP_303_SEE_OTHER
+                redirect_path(request, "/login"), status_code=status.HTTP_303_SEE_OTHER
             )
         except (TokenFlowError, PasswordPolicyError, ValueError) as exc:
             error = str(exc)

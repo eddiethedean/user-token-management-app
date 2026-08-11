@@ -82,7 +82,7 @@ def run_server(*, host: str, port: int, reload: bool = False) -> None:
     if hint:
         print(f"Posit Workbench URL: {hint}", flush=True)
         print(
-            f"Prefer that session URL. Proxied Servers (/proxy/{port}/) also works after redirects.",
+            f"Prefer that session URL. Proxied Servers (/proxy/{port}/) uses relative redirects.",
             flush=True,
         )
     else:

@@ -15,6 +15,7 @@ from app.security.client import is_trusted_direct_proxy
 _PROXY_ROOT = re.compile(r"^/proxy/\d+(?P<mount>/.*)$")
 _SESSION_MOUNT = re.compile(r"^(?P<root>/s/[^/]+/p/[^/]+)(?P<rest>/.*)?$")
 _PROXY_MOUNT = re.compile(r"^(?P<root>/proxy/\d+)(?P<rest>/.*)?$")
+_PROXY_ONLY = re.compile(r"^/proxy/\d+$")
 
 
 def _raw_path(path: str) -> bytes:
@@ -30,9 +31,10 @@ def workbench_is_active() -> bool:
 
 
 def inferred_proxy_root_path() -> str:
-    """Synthesize ``/proxy/<port>`` when Proxied Servers strips that prefix before forwarding.
+    """Return ``/proxy/<port>`` for HTML link generation under stripped Proxied Servers.
 
-    Absolute redirects to ``/login`` otherwise escape to the Workbench host root and 404.
+    Do **not** put this value in redirect ``Location`` headers: Workbench rewrites absolute
+    Locations by prefixing ``/proxy/<port>`` again (see :func:`redirect_path`).
     """
     if not workbench_is_active():
         return ""
@@ -45,9 +47,9 @@ def inferred_proxy_root_path() -> str:
 def normalize_workbench_scope(scope: Scope) -> Scope:
     """Normalize Workbench path forms while retaining the externally visible mount as root_path.
 
-    Prefer discovering the mount from the request path. When Workbench Proxied Servers strips
-    ``/proxy/<port>`` before forwarding, synthesize that mount so absolute redirects/links stay
-    under the proxy. Session URLs (``/s/…/p/…``) still win when present on the path.
+    Discover ``/s/…/p/…`` or ``/proxy/<port>`` when those prefixes are still on the request
+    path. When Proxied Servers strips ``/proxy/<port>`` before forwarding, leave ``root_path``
+    empty and let :func:`app_base_url` / :func:`redirect_path` handle links vs redirects.
     """
     path = str(scope.get("path") or "/")
     root_path = str(scope.get("root_path") or "").rstrip("/")
@@ -91,11 +93,6 @@ def normalize_workbench_scope(scope: Scope) -> Scope:
                 path = rest if rest.startswith("/") else f"/{rest}"
                 changed = True
                 break
-        else:
-            inferred = inferred_proxy_root_path()
-            if inferred:
-                effective_root = inferred
-                changed = True
 
     if not changed:
         return scope
@@ -158,8 +155,8 @@ def safe_base_path(value: str, *, allow_absolute_url: bool = False, strict: bool
     return path
 
 
-def app_base_url(request: Request) -> str:
-    """Resolve the external mount path for Connect, Workbench, or a root deployment."""
+def _request_mount_path(request: Request) -> str:
+    """Real Connect/ASGI mount only — never the inferred Proxied Servers prefix."""
     connect_base = ""
     if is_trusted_direct_proxy(request, get_settings()):
         connect_base = safe_base_path(
@@ -169,10 +166,48 @@ def app_base_url(request: Request) -> str:
     return connect_base or workbench_or_asgi_base
 
 
+def app_base_url(request: Request) -> str:
+    """Resolve the external mount path for Connect, Workbench, or a root deployment.
+
+    Under stripped Proxied Servers this may return ``/proxy/<port>`` for HTML links and
+    cookies. Redirects must use :func:`redirect_path` instead so Workbench does not
+    double-prefix ``Location`` headers.
+    """
+    mount = _request_mount_path(request)
+    if mount:
+        return mount
+    return inferred_proxy_root_path()
+
+
 def app_path(request: Request, path: str) -> str:
     """Prefix an application-absolute path with its external deployment mount path."""
     normalized = path if path.startswith("/") else f"/{path}"
     return f"{app_base_url(request)}{normalized}"
+
+
+def redirect_path(request: Request, path: str) -> str:
+    """Build a ``Location`` / ``HX-Redirect`` target safe behind Workbench Proxied Servers.
+
+    Mirrors fastapi-workbench ``safe_redirect``: when the browser is already under
+    ``/proxy/<port>/`` and that prefix was stripped (or would be rewritten again), emit a
+    **relative** target such as ``login`` instead of ``/proxy/8000/login``.
+
+    Session mounts (``/s/…/p/…``) and Connect base URLs remain host-absolute under the mount.
+
+    See https://github.com/eddiethedean/jwt-user-management/tree/main/fastapi_workbench
+    """
+    normalized = path if path.startswith("/") else f"/{path}"
+    mount = _request_mount_path(request)
+    # Workbench Proxied Servers rewrites absolute Location by prefixing /proxy/<port>.
+    if mount and _PROXY_ONLY.match(mount):
+        mount = ""
+    if mount:
+        return mount if normalized == "/" else f"{mount}{normalized}"
+    if workbench_is_active():
+        if normalized == "/":
+            return "."
+        return normalized.lstrip("/") or "."
+    return normalized
 
 
 def is_htmx_request(request: Request) -> bool:

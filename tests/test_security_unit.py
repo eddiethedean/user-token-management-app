@@ -255,40 +255,73 @@ def test_workbench_scope_discovers_proxy_mount_from_path_without_root_path() -> 
     assert normalized["root_path"] == "/proxy/8000"
 
 
-def test_workbench_scope_infers_proxy_root_when_prefix_was_stripped(monkeypatch) -> None:
+def test_workbench_stripped_proxy_uses_relative_redirects(monkeypatch) -> None:
+    """fastapi-workbench pattern: never put /proxy/<port> in Location headers."""
     monkeypatch.setenv("UVICORN_ROOT_PATH", "https://workbench.socom.mil/s/session/p/679ea2ac/")
     monkeypatch.setenv("PORT", "8000")
     scope = {
         "type": "http",
+        "method": "GET",
+        "scheme": "https",
+        "server": ("workbench.socom.mil", 443),
         "path": "/",
         "raw_path": b"/",
         "root_path": "",
         "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 1),
     }
-    normalized = normalize_workbench_scope(scope)
-    assert normalized["path"] == "/"
-    assert normalized["root_path"] == "/proxy/8000"
+    # Prefix stripped by Proxied Servers — middleware leaves root_path empty.
+    assert normalize_workbench_scope(scope)["root_path"] == ""
 
-    from starlette.requests import Request
+    from app.routing import app_path, redirect_path
 
-    from app.routing import app_path
+    request = Request(scope)
+    assert redirect_path(request, "/login") == "login"
+    assert app_path(request, "/login") == "/proxy/8000/login"
 
-    assert app_path(Request(normalized), "/login") == "/proxy/8000/login"
+
+def test_workbench_proxy_root_path_still_uses_relative_redirects(monkeypatch) -> None:
+    monkeypatch.setenv("RS_SERVER_URL", "https://workbench.socom.mil")
+    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "https",
+            "server": ("workbench.socom.mil", 443),
+            "path": "/login",
+            "raw_path": b"/login",
+            "root_path": "/proxy/8000",
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 1),
+        }
+    )
+    from app.routing import redirect_path
+
+    assert redirect_path(request, "/login") == "login"
 
 
-def test_workbench_scope_prefers_session_path_over_inferred_proxy(monkeypatch) -> None:
-    monkeypatch.setenv("UVICORN_ROOT_PATH", "https://workbench.socom.mil/s/session/p/679ea2ac/")
-    monkeypatch.setenv("PORT", "8000")
+def test_workbench_session_mount_keeps_absolute_redirects(monkeypatch) -> None:
+    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
+    monkeypatch.delenv("RS_SERVER_URL", raising=False)
     scope = {
         "type": "http",
+        "method": "GET",
+        "scheme": "https",
+        "server": ("workbench.socom.mil", 443),
         "path": "/s/session/p/679ea2ac/",
         "raw_path": b"/s/session/p/679ea2ac/",
         "root_path": "",
         "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 1),
     }
     normalized = normalize_workbench_scope(scope)
-    assert normalized["path"] == "/"
-    assert normalized["root_path"] == "/s/session/p/679ea2ac"
+    from app.routing import redirect_path
+
+    assert redirect_path(Request(normalized), "/login") == "/s/session/p/679ea2ac/login"
 
 
 def test_forwarded_source_is_used_only_for_an_explicitly_trusted_proxy() -> None:
@@ -302,7 +335,9 @@ def test_forwarded_source_is_used_only_for_an_explicitly_trusted_proxy() -> None
     assert client_ip(malformed, trusted) == "10.0.0.10"
 
 
-def test_app_path_and_cookie_path_defaults() -> None:
+def test_app_path_and_cookie_path_defaults(monkeypatch) -> None:
+    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
+    monkeypatch.delenv("RS_SERVER_URL", raising=False)
     bare = Request(
         {
             "type": "http",

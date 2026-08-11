@@ -89,9 +89,10 @@ python -m app serve --reload
 ```
 
 `serve` prints the Workbench session URL when `UVICORN_ROOT_PATH` or `rserver-url` is available.
-**Prefer that `/s/…/p/…` URL.** Proxied Servers at `/proxy/8000/` also works: when Workbench strips
-the `/proxy/8000` prefix before forwarding, the app synthesizes it again for redirects and links.
-Do **not** combine the prefixes into `/proxy/8000/s/…/p/…`.
+**Prefer that `/s/…/p/…` URL.** Proxied Servers at `/proxy/8000/` also works: redirects use
+relative `Location` values (the [fastapi-workbench](https://github.com/eddiethedean/jwt-user-management/tree/main/fastapi_workbench)
+pattern) so Workbench does not double-prefix `/proxy/8000`. Do **not** combine the prefixes into
+`/proxy/8000/s/…/p/…`.
 
 If the Proxied Servers view is unavailable, ask Workbench for the external URL/prefix:
 

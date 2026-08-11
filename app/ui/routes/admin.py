@@ -11,7 +11,7 @@ from starlette.responses import Response
 
 from app.dependencies import AdminAuth, DbSession, RequireCsrf, SettingsDep
 from app.models import Invitation, Role, User, UserStatus
-from app.routing import app_path, is_htmx_request
+from app.routing import is_htmx_request, redirect_path
 from app.services.audit import AUDIT_PAGE_SIZE, list_audit_events, record_event
 from app.services.auth import (
     approve_self_registration,
@@ -226,7 +226,7 @@ def register_admin_routes(app: Hedron) -> None:
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         if not is_htmx_request(request) and not error:
             return RedirectResponse(
-                app_path(request, "/admin/users?notice=invitation-queued"),
+                redirect_path(request, "/admin/users?notice=invitation-queued"),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         if not is_htmx_request(request):
@@ -465,7 +465,7 @@ def register_admin_routes(app: Hedron) -> None:
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         return await mutation_response(
             request,
-            redirect=app_path(request, "/admin/users?notice=invitation-revoked"),
+            redirect=redirect_path(request, "/admin/users?notice=invitation-revoked"),
             fragment=ok_fragment(
                 ui.invitation_panel(
                     request,
@@ -587,7 +587,7 @@ def register_admin_routes(app: Hedron) -> None:
         request.state.hedron_authenticated = True
         if not is_htmx_request(request):
             return RedirectResponse(
-                app_path(request, "/admin/audit"), status_code=status.HTTP_303_SEE_OTHER
+                redirect_path(request, "/admin/audit"), status_code=status.HTTP_303_SEE_OTHER
             )
         try:
             events, total, page, et, oc = list_audit_events(

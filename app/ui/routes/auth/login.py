@@ -16,7 +16,7 @@ from app.dependencies import (
     clear_auth_cookies,
     set_auth_cookies,
 )
-from app.routing import app_path
+from app.routing import redirect_path
 from app.security.csrf import (
     clear_preauth_csrf_cookie,
     require_preauth_csrf,
@@ -52,7 +52,7 @@ def register_login_routes(app: Hedron) -> None:
     ) -> Response:
         if auth:
             return RedirectResponse(
-                app_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
+                redirect_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
             )
         return render_login_page(
             request,
@@ -100,7 +100,7 @@ def register_login_routes(app: Hedron) -> None:
             )
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
-            app_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
+            redirect_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
         )
         set_auth_cookies(response, tokens, settings, request)
         clear_preauth_csrf_cookie(response, request, settings)
@@ -128,7 +128,7 @@ def register_login_routes(app: Hedron) -> None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
-            app_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
+            redirect_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
         )
         set_auth_cookies(response, tokens, settings, request)
         clear_preauth_csrf_cookie(response, request, settings)
@@ -144,7 +144,7 @@ def register_login_routes(app: Hedron) -> None:
     ) -> Response:
         revoke_session(db, auth.session, actor=auth.user, request=request)
         response = RedirectResponse(
-            app_path(request, "/login"), status_code=status.HTTP_303_SEE_OTHER
+            redirect_path(request, "/login"), status_code=status.HTTP_303_SEE_OTHER
         )
         clear_auth_cookies(response, settings, request)
         return response
