@@ -77,7 +77,10 @@ migrations = ["README.md", "script.py.mako"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-q"
+addopts = "-q -m 'not workbench_docker'"
+markers = [
+  "workbench_docker: Posit Workbench Docker integration (opt-in via make workbench-test)",
+]
 
 [tool.coverage.run]
 source = ["app"]

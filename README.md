@@ -124,6 +124,9 @@ Schema must be current before `create-admin` or `serve` (startup checks).
 | `make create-admin` | Uses `ADMIN_EMAIL` (default `admin@example.gov`); set `ADMIN_BOOTSTRAP_PASSWORD` for non-interactive local mode |
 | `make email-worker` | Run the email worker |
 | `make check` | ruff + basedpyright + pytest (80% coverage gate) |
+| `make workbench-up` | Start licensed Posit Workbench + app Docker stack (needs `POSIT_WORKBENCH_KEY`) |
+| `make workbench-test` | Opt-in Workbench Docker integration tests |
+| `make workbench-down` | Graceful stop (important for license-key deactivation) |
 
 ## Configuration
 
@@ -151,6 +154,18 @@ python -m app migrate
 python -m app create-admin --email admin@example.gov
 python -m app serve --reload
 ```
+
+Optional local regression against a real Workbench image (put a trial key in `.env` only —
+never commit it):
+
+```bash
+# POSIT_WORKBENCH_KEY=… in .env
+make workbench-up
+make workbench-test
+make workbench-down
+```
+
+Details: [docker/README.md](docker/README.md).
 
 Do not use those development defaults on Connect. The production path requires PostgreSQL, SMTP,
 strong secrets, secure cookies, a password blocklist, migrations before startup, a Hedron build,

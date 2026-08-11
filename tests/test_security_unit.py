@@ -322,7 +322,37 @@ def test_workbench_proxy_root_path_still_uses_relative_redirects(monkeypatch) ->
     assert app_path(request, "/login") == "/proxy/8000/login"
 
 
-def test_workbench_session_mount_keeps_absolute_redirects(monkeypatch) -> None:
+def test_workbench_session_mount_uses_scheme_absolute_redirects(monkeypatch) -> None:
+    """Path-absolute /s/…/login is rewritten to /proxy/8000/s/…/login; use https://… instead."""
+    monkeypatch.setenv(
+        "UVICORN_ROOT_PATH",
+        "https://workbench.socom.mil/s/e886e3c9ab5a7de8990d1/p/679ea2ac/",
+    )
+    monkeypatch.setenv("RS_SERVER_URL", "https://workbench.socom.mil/")
+    mount = "/s/e886e3c9ab5a7de8990d1/p/679ea2ac"
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "https",
+            "server": ("workbench.socom.mil", 443),
+            "path": f"{mount}/",
+            "raw_path": f"{mount}/".encode(),
+            "root_path": mount,
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 1),
+        }
+    )
+    from app.routing import redirect_path
+
+    assert (
+        redirect_path(request, "/login")
+        == "https://workbench.socom.mil/s/e886e3c9ab5a7de8990d1/p/679ea2ac/login"
+    )
+
+
+def test_workbench_session_mount_without_origin_keeps_path_absolute(monkeypatch) -> None:
     monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
     monkeypatch.delenv("RS_SERVER_URL", raising=False)
     scope = {

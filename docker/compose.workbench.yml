@@ -1,0 +1,113 @@
+# Local Posit Workbench stack for Access Registry proxy integration tests.
+# Requires POSIT_WORKBENCH_KEY in the project .env (never commit that file).
+#
+# Usage:
+#   make workbench-up
+#   make workbench-test
+#   make workbench-down
+#
+# Always stop gracefully (stop_grace_period) so license-key activations can deactivate.
+
+name: access-registry-workbench
+
+services:
+  workbench:
+    image: ${PWB_IMAGE:-posit/workbench:latest}
+    stop_grace_period: 120s
+    ports:
+      - "${PWB_HOST_PORT:-8787}:8787"
+    environment:
+      PWB_LICENSE: ${POSIT_WORKBENCH_KEY:?Set POSIT_WORKBENCH_KEY in .env}
+      PWB_TESTUSER: ${PWB_TESTUSER:-posit}
+      # Must be ≥8 chars and must not contain the username (PAM policy in the image).
+      PWB_TESTUSER_PASSWD: ${PWB_TESTUSER_PASSWD:-Xk9#mQ2$vL8!nR4p}
+      # Reduce launcher flakiness in local smoke tests.
+      PWB_LAUNCHER: ${PWB_LAUNCHER:-false}
+    volumes:
+      - workbench-home:/home
+      - workbench-data:/var/lib/rstudio-server
+      - workbench-licensing:/var/lib/rstudio-licensing
+      - workbench-activation:/etc/rstudio-licensing
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:8787/ > /dev/null || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.app
+    stop_grace_period: 30s
+    environment:
+      APP_ENV: development
+      APP_NAME: Access Registry
+      PUBLIC_BASE_URL: http://127.0.0.1:8000
+      DATABASE_URL: sqlite:////data/access-registry.db
+      JWT_SECRET: workbench-docker-jwt-secret-at-least-32-bytes!!
+      SESSION_PEPPER: workbench-docker-session-pepper-32-bytes!
+      CSRF_SECRET: workbench-docker-csrf-secret-at-least-32b!
+      API_TOKEN_ENCRYPTION_KEYS: '{"development-v1":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}'
+      API_TOKEN_ACTIVE_KEY_ID: development-v1
+      AUTHENTICATION_MODE: local_password
+      COOKIE_SECURE: "false"
+      ALLOWED_EMAIL_DOMAINS: example.gov,example.mil,socom.mil
+      EMAIL_BACKEND: console
+      PASSWORD_HASH_SCHEME: pbkdf2_sha256
+      PBKDF2_ITERATIONS: "100000"
+      # Public origin used for scheme-absolute Locations (must not be path-absolute).
+      RS_SERVER_URL: http://127.0.0.1:8787/
+      UVICORN_ROOT_PATH: http://127.0.0.1:8787/s/docker-session/p/8000/
+      PORT: "8000"
+      ACCESS_REGISTRY_DEV_TRACE: "1"
+    ports:
+      - "${APP_HOST_PORT:-8000}:8000"
+    volumes:
+      - app-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    depends_on:
+      workbench:
+        condition: service_healthy
+
+  # Reproduces SOCOM Workbench rewriting path-absolute Location → /proxy/8000/…
+  location-rewrite:
+    image: python:3.11-slim-bookworm
+    working_dir: /opt/proxy
+    command:
+      [
+        "sh",
+        "-c",
+        "pip install --no-cache-dir 'uvicorn[standard]>=0.30' 'httpx>=0.27' 'starlette>=0.37' && python location_rewrite_proxy.py",
+      ]
+    environment:
+      REWRITE_UPSTREAM: http://app:8000
+      REWRITE_PROXY_PREFIX: /proxy/8000
+      REWRITE_PORT: "8788"
+    ports:
+      - "${REWRITE_HOST_PORT:-8788}:8788"
+    volumes:
+      - ./location_rewrite_proxy.py:/opt/proxy/location_rewrite_proxy.py:ro
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  workbench-home:
+  workbench-data:
+  workbench-licensing:
+  workbench-activation:
+  app-data:

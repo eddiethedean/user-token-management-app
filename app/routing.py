@@ -245,19 +245,35 @@ def _request_under_mount(request: Request, mount: str) -> bool:
     return path == mount or path.startswith(f"{mount}/")
 
 
+def workbench_public_origin() -> str:
+    """Return ``https://workbench…`` origin from Workbench env, or ``\"\"`` if unknown."""
+    configured = os.environ.get("UVICORN_ROOT_PATH", "").strip()
+    if configured:
+        parsed = urlsplit(configured)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    server = os.environ.get("RS_SERVER_URL", "").strip()
+    if server:
+        parsed = urlsplit(server)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+    return ""
+
+
 def redirect_path(request: Request, path: str) -> str:
     """Build a ``Location`` / ``HX-Redirect`` target safe behind Workbench Proxied Servers.
 
-    Mirrors fastapi-workbench ``safe_redirect``: when the browser is already under
-    ``/proxy/<port>/`` and that prefix was stripped (or would be rewritten again), emit a
-    **relative** target such as ``login`` instead of ``/proxy/8000/login``.
+    Workbench rewrites **path-absolute** ``Location`` values by prefixing ``/proxy/<port>``.
+    That turns a correct ``/s/…/p/…/login`` into the broken
+    ``/proxy/8000/s/…/p/…/login`` (HTTP 404). Evidence from SOCOM Workbench: the app
+    emitted ``Location: /s/…/login`` and the browser received the combined URL.
 
-    Also use relative redirects when Uvicorn ``root_path`` is the session mount
-    (``/s/…/p/…``) but this request arrived via Proxied Servers (path is ``/login``,
-    not under ``/s/…``). Absolute ``Location: /s/…/login`` would be rewritten to the
-    broken ``/proxy/8000/s/…/login``.
+    Mitigation:
 
-    Session mounts keep host-absolute Locations only when the request is under that mount.
+    - Session-mount requests: emit a **scheme-absolute** URL
+      (``https://workbench…/s/…/login``) so the proxy leaves ``Location`` alone.
+    - Proxied Servers / stripped-prefix requests: emit a **relative** target
+      (``login``) so the browser stays under ``/proxy/<port>/``.
 
     See https://github.com/eddiethedean/jwt-user-management/tree/main/fastapi_workbench
     """
@@ -273,7 +289,15 @@ def redirect_path(request: Request, path: str) -> str:
         mount = ""
         reason = "session-root-without-path→relative"
     if mount:
-        location = mount if normalized == "/" else f"{mount}{normalized}"
+        path_location = mount if normalized == "/" else f"{mount}{normalized}"
+        origin = workbench_public_origin() if workbench_is_active() else ""
+        if origin and _SESSION_MOUNT.match(mount):
+            # Avoid path-absolute Location → /proxy/<port> rewrite.
+            location = f"{origin}{path_location}"
+            reason = "session-mount→scheme-absolute"
+        else:
+            location = path_location
+            reason = "mount"
     elif workbench_is_active():
         reason = "workbench-relative" if reason == "mount" else reason
         location = "." if normalized == "/" else (normalized.lstrip("/") or ".")

@@ -10,7 +10,7 @@
 | Production refuses to start | Gate failed (HTTP URL, SQLite, insecure cookies, etc.) | Read the validation error; align with [.env.example](../.env.example) and [SECURITY.md](../SECURITY.md#production-security-gate) |
 | `Invalid ASGI root path … 'https://…'` on `serve` | Older builds rejected Workbench's full `UVICORN_ROOT_PATH` URL | Upgrade past the fix that extracts the path from that URL, or temporarily `unset UVICORN_ROOT_PATH` and rely on `rserver-url` |
 | `That email domain is not approved` on `create-admin` | Address not in `ALLOWED_EMAIL_DOMAINS` | Use an allowed domain (for example `admin@socom.mil`) or update `.env` |
-| 404 on `/proxy/8000/s/…/p/…/login` | Combined Proxied Servers + session mount (Workbench rewrote `Location: /s/…/login`) | Open **only** the printed `https://…/s/…/p/…/login` — never `/proxy/8000/…` for this app |
+| 404 on `/proxy/8000/s/…/p/…/login` | Workbench rewrote path-absolute `Location: /s/…/login` by prefixing `/proxy/8000` | Pull the scheme-absolute redirect fix; open the printed `https://…/s/…/p/…/login` URL; confirm traces show `reason='session-mount→scheme-absolute'` |
 | Workbench “page was not found” after `/proxy/8000/` → `/login` | Absolute `/login` escaped the proxy (older builds) | Pull the relative-redirect fix; or open the printed `/s/…/p/…` URL |
 | Links go to `/proxy/8000` instead of `/s/…/p/…` | Older builds invented a Proxied Servers prefix for hrefs | Pull the fastapi-workbench-style fix (Uvicorn `root_path` = session mount only); open the printed session URL |
 | Unstyled login / missing CSS under `/s/…/p/…` | Starlette 1.4 needs full `path` plus `root_path` for StaticFiles | Upgrade past the middleware fix that stops stripping the session prefix from `path` |

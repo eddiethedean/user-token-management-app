@@ -1,4 +1,4 @@
-.PHONY: check demo-check hedron-check hedron-build migrate install serve create-admin email-worker schema-status
+.PHONY: check demo-check hedron-check hedron-build migrate install serve create-admin email-worker schema-status workbench-up workbench-down workbench-test workbench-logs
 
 install:
 	python -m pip install -e ".[dev]"
@@ -41,6 +41,22 @@ hedron-check:
 hedron-build:
 	python -m hedron build
 
+# Posit Workbench Docker integration (requires POSIT_WORKBENCH_KEY in .env).
+# Prefer `make workbench-down` over docker kill so license-key slots can deactivate.
+workbench-up:
+	bash docker/workbench-compose.sh up -d --build --wait
+
+workbench-down:
+	bash docker/workbench-compose.sh down --remove-orphans
+
+workbench-logs:
+	bash docker/workbench-compose.sh logs --tail=200
+
+workbench-test:
+	ACCESS_REGISTRY_WORKBENCH_DOCKER=1 \
+	ACCESS_REGISTRY_WORKBENCH_RESET=$${ACCESS_REGISTRY_WORKBENCH_RESET:-1} \
+	ACCESS_REGISTRY_WORKBENCH_KEEP=$${ACCESS_REGISTRY_WORKBENCH_KEEP:-0} \
+	python -m pytest tests/test_workbench_docker.py -m workbench_docker --tb=short
 # Overridden after baseline measurement; default keeps local/CI honest.
 COV_FAIL_UNDER ?= 80
 
