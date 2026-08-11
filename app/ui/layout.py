@@ -52,7 +52,7 @@ def document_head(*, request: Request, page_title: str, app_name: str) -> Fragme
 def alert_box(message: str, *, kind: str = "error") -> Alert | Fragment:
     if not message:
         return Fragment()
-    tone = "success" if kind == "success" else "danger"
+    tone = {"success": "success", "info": "info", "warning": "warning"}.get(kind, "danger")
     return Alert(message, tone=tone)
 
 

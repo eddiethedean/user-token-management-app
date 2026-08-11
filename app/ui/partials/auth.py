@@ -37,6 +37,7 @@ def render_login_page(
     email: str = "",
     next: str = "/profile",
     success: str = "",
+    bootstrap_hint: str = "",
 ) -> Response:
     preauth = issue_preauth_csrf(settings)
     federated = settings.authentication_mode == "trusted_header"
@@ -81,6 +82,8 @@ def render_login_page(
     ]
     if success:
         card_children.append(alert_box(success, kind="success"))
+    if bootstrap_hint and not error:
+        card_children.append(alert_box(bootstrap_hint, kind="info"))
     if error:
         card_children.append(alert_box(error))
     if federated:

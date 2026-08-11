@@ -24,6 +24,7 @@ actions and may destroy data — they are not a supported “undo account” pat
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | Generic “invalid credentials” for a real user | Pending approval, wrong password, or disabled | Admin: check status; approve or enable. Enabling clears failed-attempt lockout |
+| Login 400 for `example@socom.mil` (or any address) on first Workbench run | No user in the SQLite DB yet, and/or `socom.mil` missing from `ALLOWED_EMAIL_DOMAINS` | Add `socom.mil` to `ALLOWED_EMAIL_DOMAINS`, then `python -m app migrate` and `ADMIN_BOOTSTRAP_PASSWORD='…' python -m app create-admin --email you@socom.mil --password-env ADMIN_BOOTSTRAP_PASSWORD`. Sign in with that email/password |
 | Account disabled after repeated failures | Five-failure terminal disablement | Admin enable + password reset / rebinding per local policy |
 | Federated users cannot use password form | `AUTHENTICATION_MODE=trusted_header` | Sign in through the proxy; see [auth-modes.md](auth-modes.md) |
 | Header auth never sees the user | Proxy not injecting / stripping identity header | Fix proxy; ensure app is not reachable without it |

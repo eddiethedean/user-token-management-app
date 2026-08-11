@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron
+from sqlalchemy import func, select
 from starlette.responses import Response
 
 from app.dependencies import (
@@ -16,6 +17,7 @@ from app.dependencies import (
     clear_auth_cookies,
     set_auth_cookies,
 )
+from app.models import User
 from app.routing import redirect_path
 from app.security.csrf import (
     clear_preauth_csrf_cookie,
@@ -40,12 +42,25 @@ from app.ui.params import (
 )
 from app.ui.partials.auth import render_login_page
 
+_BOOTSTRAP_HINT = (
+    "No accounts exist yet. An operator must create the first administrator, for example: "
+    "python -m app create-admin --email you@socom.mil"
+)
+
+
+def _bootstrap_hint(db: DbSession, settings: SettingsDep) -> str:
+    if settings.authentication_mode != "local_password":
+        return ""
+    count = db.scalar(select(func.count()).select_from(User)) or 0
+    return _BOOTSTRAP_HINT if count == 0 else ""
+
 
 def register_login_routes(app: Hedron) -> None:
     @app.page("/login", include_in_schema=False)
     def login_page(
         request: Request,
         auth: OptionalAuth,
+        db: DbSession,
         settings: SettingsDep,
         next: NextQuery = "/profile",
         password: PasswordNoticeQuery = "",
@@ -61,6 +76,7 @@ def register_login_routes(app: Hedron) -> None:
             success="Password changed. Sign in with your new password."
             if password == "changed"
             else "",
+            bootstrap_hint=_bootstrap_hint(db, settings),
         )
 
     @app.action("/login", include_in_schema=False)
@@ -97,6 +113,7 @@ def register_login_routes(app: Hedron) -> None:
                 error=str(exc),
                 email=email,
                 next=safe_next(next),
+                bootstrap_hint=_bootstrap_hint(db, settings),
             )
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(

@@ -58,7 +58,7 @@ DATABASE_URL=sqlite:///./access-registry.db
 AUTHENTICATION_MODE=local_password
 COOKIE_SECURE=false
 COOKIE_PATH=auto
-ALLOWED_EMAIL_DOMAINS=example.gov
+ALLOWED_EMAIL_DOMAINS=example.gov,example.mil,socom.mil
 EMAIL_BACKEND=console
 ```
 
@@ -73,13 +73,21 @@ Run that command three times and put the values in `JWT_SECRET`, `SESSION_PEPPER
 
 ## 2. Initialize and run the Workbench app
 
-Apply the schema and create the initial administrator. The interactive command keeps the password
+Apply the schema and create the initial administrator. Use an address on an allowed domain
+(for SOCOM Workbench, typically `you@socom.mil`). The interactive command keeps the password
 out of shell history:
 
 ```bash
 python -m app migrate
 python -m app schema-status
-python -m app create-admin --email admin@example.gov
+python -m app create-admin --email you@socom.mil
+```
+
+Or non-interactive:
+
+```bash
+ADMIN_BOOTSTRAP_PASSWORD='Your-Long-Password-15+' \
+  python -m app create-admin --email you@socom.mil --password-env ADMIN_BOOTSTRAP_PASSWORD
 ```
 
 The password must be 15–128 characters and must not contain the email local-part. Start the app:
