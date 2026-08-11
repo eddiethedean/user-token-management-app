@@ -17,10 +17,17 @@ def _normalize_root_path(value: str, *, allow_absolute_url: bool = False) -> str
 
 
 def detect_root_path(port: int) -> str:
-    """Discover Workbench's dynamic proxy path while remaining a no-op elsewhere."""
-    configured = os.environ.get("UVICORN_ROOT_PATH", "")
+    """Discover Workbench's dynamic proxy path while remaining a no-op elsewhere.
+
+    Workbench may export ``UVICORN_ROOT_PATH`` as either an ASGI path
+    (``/s/…/p/…``) or the full externally visible URL that ``rserver-url -l``
+    prints. Uvicorn only accepts the path component.
+    """
+    configured = os.environ.get("UVICORN_ROOT_PATH", "").strip()
     if configured:
-        return _normalize_root_path(configured)
+        # Accept absolute URLs here: recent Workbench sessions inject the full
+        # proxied URL into UVICORN_ROOT_PATH, matching rserver-url output.
+        return _normalize_root_path(configured, allow_absolute_url=True)
     if not os.environ.get("RS_SERVER_URL", "").strip():
         return ""
 

@@ -14,7 +14,8 @@ For both environments you need:
 
 - Python 3.11 and network access to the configured Python package repository;
 - this repository checked out in a writable directory;
-- `/usr/lib/rstudio-server/bin/rserver-url` on Workbench, unless `UVICORN_ROOT_PATH` is supplied;
+- `/usr/lib/rstudio-server/bin/rserver-url` on Workbench, unless `UVICORN_ROOT_PATH` is already set
+  to the session proxy path or full proxied URL;
 - a government-domain test email allowed by `ALLOWED_EMAIL_DOMAINS`.
 
 For Connect production you additionally need:
@@ -87,9 +88,10 @@ The password must be 15–128 characters and must not contain the email local-pa
 python -m app serve --reload
 ```
 
-`serve` detects Workbench through `RS_SERVER_URL` and supplies Uvicorn with the dynamic proxy root
-path. Open port 8000 from Workbench's **Proxied Servers** view. If that view is unavailable, open a
-second terminal, activate the same environment, and ask Workbench for the external URL/prefix:
+`serve` detects Workbench through `UVICORN_ROOT_PATH` (path or full proxied URL) or, when that is
+unset, `RS_SERVER_URL` plus `rserver-url`. Open port 8000 from Workbench's **Proxied Servers**
+view. If that view is unavailable, open a second terminal, activate the same environment, and ask
+Workbench for the external URL/prefix:
 
 ```bash
 /usr/lib/rstudio-server/bin/rserver-url -l 8000

@@ -8,6 +8,8 @@
 | `Already managed by Alembic` on adopt | DB already stamped | Use plain `migrate`, not `--adopt-existing` |
 | Adopt fails on missing/mismatched tables | Not a compatible legacy schema | Restore backup; do not force-stamp |
 | Production refuses to start | Gate failed (HTTP URL, SQLite, insecure cookies, etc.) | Read the validation error; align with [.env.example](../.env.example) and [SECURITY.md](../SECURITY.md#production-security-gate) |
+| `Invalid ASGI root path … 'https://…'` on `serve` | Older builds rejected Workbench's full `UVICORN_ROOT_PATH` URL | Upgrade past the fix that extracts the path from that URL, or temporarily `unset UVICORN_ROOT_PATH` and rely on `rserver-url` |
+| `That email domain is not approved` on `create-admin` | Address not in `ALLOWED_EMAIL_DOMAINS` | Use an allowed domain (for example `admin@socom.mil`) or update `.env` |
 
 Always take a recoverable backup before `migrate --adopt-existing`. Downgrades are manual operator
 actions and may destroy data — they are not a supported “undo account” path.
