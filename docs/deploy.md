@@ -88,10 +88,12 @@ The password must be 15–128 characters and must not contain the email local-pa
 python -m app serve --reload
 ```
 
-`serve` detects Workbench through `UVICORN_ROOT_PATH` (path or full proxied URL) or, when that is
-unset, `RS_SERVER_URL` plus `rserver-url`. Open port 8000 from Workbench's **Proxied Servers**
-view. If that view is unavailable, open a second terminal, activate the same environment, and ask
-Workbench for the external URL/prefix:
+`serve` prints the Workbench session URL when `UVICORN_ROOT_PATH` or `rserver-url` is available.
+Open **that** URL, or use Proxied Servers at `/proxy/8000/`. Do **not** combine them into
+`/proxy/8000/s/…/p/…` — that path 404s. Mount prefixes are derived per request, so both entry
+points work after a redirect to `/login`.
+
+If the Proxied Servers view is unavailable, ask Workbench for the external URL/prefix:
 
 ```bash
 /usr/lib/rstudio-server/bin/rserver-url -l 8000

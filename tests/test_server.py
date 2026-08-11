@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.server import detect_root_path
+from app.server import detect_root_path, workbench_launch_hint
 
 
 def test_detect_root_path_accepts_workbench_absolute_uvicorn_root(monkeypatch) -> None:
@@ -35,3 +35,15 @@ def test_detect_root_path_rejects_credentials_in_url(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="Invalid ASGI root path"):
         detect_root_path(8000)
+
+
+def test_workbench_launch_hint_preserves_full_injected_url(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "UVICORN_ROOT_PATH",
+        "https://workbench.socom.mil/s/e886e3c9ab5a7de8990d1/p/679ea2ac/",
+    )
+
+    assert (
+        workbench_launch_hint(8000)
+        == "https://workbench.socom.mil/s/e886e3c9ab5a7de8990d1/p/679ea2ac"
+    )

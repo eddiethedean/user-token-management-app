@@ -10,7 +10,10 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from app.config import get_settings
 from app.security.client import is_trusted_direct_proxy
 
+# Workbench Proxied Servers may expose /proxy/<port>/…; rserver-url uses /s/<id>/p/<id>/….
 _PROXY_ROOT = re.compile(r"^/proxy/\d+(?P<mount>/.*)$")
+_SESSION_MOUNT = re.compile(r"^(?P<root>/s/[^/]+/p/[^/]+)(?P<rest>/.*)?$")
+_PROXY_MOUNT = re.compile(r"^(?P<root>/proxy/\d+)(?P<rest>/.*)?$")
 
 
 def _raw_path(path: str) -> bytes:
@@ -18,7 +21,12 @@ def _raw_path(path: str) -> bytes:
 
 
 def normalize_workbench_scope(scope: Scope) -> Scope:
-    """Normalize Workbench path forms while retaining the externally visible mount as root_path."""
+    """Normalize Workbench path forms while retaining the externally visible mount as root_path.
+
+    Prefer discovering the mount from the request path. Forcing Uvicorn's ``root_path`` to the
+    ``/s/…/p/…`` session URL breaks Proxied Servers (``/proxy/<port>/``) because absolute
+    redirects under ``/s/…`` get rewritten to ``/proxy/<port>/s/…``.
+    """
     path = str(scope.get("path") or "/")
     root_path = str(scope.get("root_path") or "").rstrip("/")
     changed = False
@@ -52,6 +60,15 @@ def normalize_workbench_scope(scope: Scope) -> Scope:
                 path = path[len(mount) :] or "/"
                 effective_root = mount
                 changed = True
+    else:
+        for pattern in (_SESSION_MOUNT, _PROXY_MOUNT):
+            match = pattern.match(path)
+            if match:
+                effective_root = match.group("root")
+                rest = match.group("rest") or "/"
+                path = rest if rest.startswith("/") else f"/{rest}"
+                changed = True
+                break
 
     if not changed:
         return scope

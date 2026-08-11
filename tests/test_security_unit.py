@@ -229,6 +229,32 @@ def test_workbench_scope_strips_root_path_when_uvicorn_includes_it_in_path() -> 
     assert normalized["root_path"] == "/s/session/p/8000"
 
 
+def test_workbench_scope_discovers_session_mount_from_path_without_root_path() -> None:
+    scope = {
+        "type": "http",
+        "path": "/s/e886e3c9ab5a7de8990d1/p/679ea2ac/",
+        "raw_path": b"/s/e886e3c9ab5a7de8990d1/p/679ea2ac/",
+        "root_path": "",
+        "query_string": b"",
+    }
+    normalized = normalize_workbench_scope(scope)
+    assert normalized["path"] == "/"
+    assert normalized["root_path"] == "/s/e886e3c9ab5a7de8990d1/p/679ea2ac"
+
+
+def test_workbench_scope_discovers_proxy_mount_from_path_without_root_path() -> None:
+    scope = {
+        "type": "http",
+        "path": "/proxy/8000/login",
+        "raw_path": b"/proxy/8000/login",
+        "root_path": "",
+        "query_string": b"",
+    }
+    normalized = normalize_workbench_scope(scope)
+    assert normalized["path"] == "/login"
+    assert normalized["root_path"] == "/proxy/8000"
+
+
 def test_forwarded_source_is_used_only_for_an_explicitly_trusted_proxy() -> None:
     untrusted = settings(trusted_proxy_ips="")
     trusted = settings(trusted_proxy_ips="10.0.0.10")
