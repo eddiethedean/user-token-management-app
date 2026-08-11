@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from urllib.parse import unquote, urlsplit
 
 from fastapi import Request
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.config import get_settings
+from app.dev_trace import dev_trace, is_dev_trace_enabled, is_static_scope_path
 from app.security.client import is_trusted_direct_proxy
 
 # Workbench Proxied Servers may expose /proxy/<port>/…; rserver-url uses /s/<id>/p/<id>/….
@@ -112,8 +113,58 @@ class WorkbenchPathMiddleware:
     app: ASGIApp
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope.get("type") in {"http", "websocket"}:
-            scope = normalize_workbench_scope(scope)
+        if scope.get("type") not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+
+        path_before = str(scope.get("path") or "/")
+        root_before = str(scope.get("root_path") or "")
+        scope = normalize_workbench_scope(scope)
+        path_after = str(scope.get("path") or "/")
+        root_after = str(scope.get("root_path") or "")
+        route = route_path_from_scope(scope)
+        trace_http = (
+            scope.get("type") == "http"
+            and is_dev_trace_enabled()
+            and not is_static_scope_path(route)
+            and not is_static_scope_path(path_after)
+        )
+        if trace_http:
+            dev_trace(
+                "workbench.request",
+                method=scope.get("method"),
+                path_before=path_before,
+                path_after=path_after,
+                root_before=root_before,
+                root_after=root_after,
+                route=route,
+                workbench=workbench_is_active(),
+            )
+
+            async def send_with_trace(message: Message) -> None:
+                if message.get("type") == "http.response.start":
+                    status_code = int(message.get("status") or 0)
+                    headers = {
+                        key.decode("latin-1").casefold(): value.decode("latin-1")
+                        for key, value in message.get("headers") or []
+                    }
+                    location = headers.get("location")
+                    hx_redirect = headers.get("hx-redirect")
+                    if location or hx_redirect or status_code >= 300:
+                        dev_trace(
+                            "workbench.response",
+                            status=status_code,
+                            location=location,
+                            hx_redirect=hx_redirect,
+                            path=path_after,
+                            root_path=root_after,
+                            route=route,
+                        )
+                await send(message)
+
+            await self.app(scope, receive, send_with_trace)
+            return
+
         await self.app(scope, receive, send)
 
 
@@ -212,18 +263,34 @@ def redirect_path(request: Request, path: str) -> str:
     """
     normalized = path if path.startswith("/") else f"/{path}"
     mount = _request_mount_path(request)
+    raw_mount = mount
+    reason = "mount"
     # Workbench Proxied Servers rewrites absolute Location by prefixing /proxy/<port>.
     if mount and _PROXY_ONLY.match(mount):
         mount = ""
+        reason = "proxy-only-mount→relative"
     elif mount and _SESSION_MOUNT.match(mount) and not _request_under_mount(request, mount):
         mount = ""
+        reason = "session-root-without-path→relative"
     if mount:
-        return mount if normalized == "/" else f"{mount}{normalized}"
-    if workbench_is_active():
-        if normalized == "/":
-            return "."
-        return normalized.lstrip("/") or "."
-    return normalized
+        location = mount if normalized == "/" else f"{mount}{normalized}"
+    elif workbench_is_active():
+        reason = "workbench-relative" if reason == "mount" else reason
+        location = "." if normalized == "/" else (normalized.lstrip("/") or ".")
+    else:
+        reason = "absolute"
+        location = normalized
+    dev_trace(
+        "redirect_path",
+        target=normalized,
+        raw_mount=raw_mount,
+        under_mount=_request_under_mount(request, raw_mount),
+        reason=reason,
+        location=location,
+        path=str(request.scope.get("path") or "/"),
+        root_path=str(request.scope.get("root_path") or ""),
+    )
+    return location
 
 
 def is_htmx_request(request: Request) -> bool:

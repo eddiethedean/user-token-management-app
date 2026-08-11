@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 import uvicorn
 
+from app.dev_trace import dev_trace, is_dev_trace_enabled
 from app.routing import safe_base_path
 
 DEFAULT_RSERVER_URL = Path("/usr/lib/rstudio-server/bin/rserver-url")
@@ -99,6 +100,25 @@ def run_server(*, host: str, port: int, reload: bool = False) -> None:
         )
     else:
         print(f"Local URL: http://{host}:{port}", flush=True)
+
+    if is_dev_trace_enabled():
+        print(
+            "[access-registry:dev] Workbench request traces enabled "
+            "(APP_ENV=development). Watch for workbench.request / "
+            "redirect_path / workbench.response lines.",
+            flush=True,
+        )
+        dev_trace(
+            "serve.start",
+            host=host,
+            port=port,
+            reload=reload,
+            uvicorn_root_path=root_path,
+            env_UVICORN_ROOT_PATH=os.environ.get("UVICORN_ROOT_PATH", ""),
+            env_RS_SERVER_URL=os.environ.get("RS_SERVER_URL", ""),
+            env_PORT=os.environ.get("PORT", ""),
+            launch_hint=hint,
+        )
 
     # fastapi-workbench sets Uvicorn root_path to the session mount so hrefs and
     # form actions stay under /s/…/p/… instead of inventing /proxy/<port>.
