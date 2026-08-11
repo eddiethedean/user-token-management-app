@@ -1,4 +1,4 @@
-.PHONY: check hedron-check hedron-build migrate install serve create-admin email-worker schema-status
+.PHONY: check demo-check hedron-check hedron-build migrate install serve create-admin email-worker schema-status
 
 install:
 	python -m pip install -e ".[dev]"
@@ -25,11 +25,15 @@ email-worker:
 	python -m app email-worker
 
 check:
-	ruff check app tests
-	ruff format --check app tests
+	ruff check app tests demo-app
+	ruff format --check app tests demo-app
 	basedpyright app
 	$(MAKE) hedron-check
 	pytest --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
+	$(MAKE) demo-check
+
+demo-check:
+	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest demo-app/tests
 
 hedron-check:
 	python -m hedron --app app.main:app check --severity warning

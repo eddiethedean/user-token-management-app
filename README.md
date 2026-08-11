@@ -44,6 +44,7 @@ See [SECURITY.md](SECURITY.md).
 | Doc | Audience |
 |-----|----------|
 | [Quick start](#quick-start) (this README) | New operators |
+| [demo-app/README.md](demo-app/README.md) | Minimal Posit Workbench / Connect confidence check |
 | [docs/auth-modes.md](docs/auth-modes.md) | Choosing password vs trusted-header |
 | [docs/deploy.md](docs/deploy.md) | Posit Connect / Workbench production |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common failures |
@@ -60,6 +61,9 @@ See [SECURITY.md](SECURITY.md).
 - Network access to install dependencies from PyPI
 - **Development:** SQLite (default)
 - **Production:** PostgreSQL (`postgresql+psycopg://…`), HTTPS, SMTP — see [docs/deploy.md](docs/deploy.md)
+
+If you want to validate Posit Workbench and Connect before configuring the full application, start
+with the dependency-light [demo app](demo-app/README.md).
 
 ## Quick start
 
