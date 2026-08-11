@@ -30,13 +30,13 @@ from app.ui.partials.auth import render_forgot_page, render_reset_page
 
 
 def register_password_routes(app: Hedron) -> None:
-    @app.get("/password/forgot", include_in_schema=False)
+    @app.page("/password/forgot", include_in_schema=False)
     def forgot_page(request: Request, settings: SettingsDep):
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
         return render_forgot_page(request, settings)
 
-    @app.post("/password/forgot", include_in_schema=False)
+    @app.action("/password/forgot", include_in_schema=False)
     def forgot_submit(
         request: Request,
         db: DbSession,
@@ -63,7 +63,7 @@ def register_password_routes(app: Hedron) -> None:
             success="If the account exists and can sign in with a password, a reset link was sent.",
         )
 
-    @app.get("/password/reset", include_in_schema=False)
+    @app.page("/password/reset", include_in_schema=False)
     def reset_page(
         request: Request,
         token: FlowTokenQuery,
@@ -85,7 +85,7 @@ def register_password_routes(app: Hedron) -> None:
             status_code=status.HTTP_400_BAD_REQUEST if error else status.HTTP_200_OK,
         )
 
-    @app.post("/password/reset", include_in_schema=False)
+    @app.action("/password/reset", include_in_schema=False)
     def reset_submit(
         request: Request,
         db: DbSession,

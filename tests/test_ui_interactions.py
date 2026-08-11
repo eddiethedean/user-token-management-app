@@ -84,7 +84,7 @@ def test_auth_and_shell_pages_are_documents(page) -> None:
     assert_html_contains(profile, 'id="dialog-host"')
     assert_html_contains(profile, 'id="global-request-indicator"')
     assert_html_contains(profile, 'hx-select="#main-panel"')
-    assert_html_contains(profile, 'hx-select-oob="#side-nav"')
+    assert 'hx-select-oob="#side-nav"' not in profile.body
     assert_budget(profile.body, max_bytes=250_000)
 
 

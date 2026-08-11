@@ -1,4 +1,4 @@
-.PHONY: check migrate install serve create-admin email-worker schema-status
+.PHONY: check hedron-check hedron-build migrate install serve create-admin email-worker schema-status
 
 install:
 	python -m pip install -e ".[dev]"
@@ -28,7 +28,14 @@ check:
 	ruff check app tests
 	ruff format --check app tests
 	basedpyright app
+	$(MAKE) hedron-check
 	pytest --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
+
+hedron-check:
+	python -m hedron --app app.main:app check --severity warning
+
+hedron-build:
+	python -m hedron build
 
 # Overridden after baseline measurement; default keeps local/CI honest.
 COV_FAIL_UNDER ?= 80

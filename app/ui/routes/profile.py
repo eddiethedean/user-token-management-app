@@ -20,10 +20,22 @@ from app.ui.params import (
     PhoneForm,
     UpdatedQuery,
 )
+from app.ui.regions import (
+    ACCOUNT_SUMMARY,
+    MAIN_PANEL,
+    PROFILE_FORM,
+    PROFILE_IDENTITY,
+    SIDE_NAV,
+    TOAST_HOST,
+)
 
 
 def register_profile_routes(app: Hedron) -> None:
-    @app.get("/profile", include_in_schema=False)
+    @app.page(
+        "/profile",
+        fragment_regions=(MAIN_PANEL, SIDE_NAV),
+        include_in_schema=False,
+    )
     async def profile_page(
         request: Request,
         auth: Auth,
@@ -71,7 +83,11 @@ def register_profile_routes(app: Hedron) -> None:
             push_path="/profile",
         )
 
-    @app.post("/profile", include_in_schema=False)
+    @app.action(
+        "/profile",
+        fragment_regions=(PROFILE_FORM, PROFILE_IDENTITY, ACCOUNT_SUMMARY, TOAST_HOST),
+        include_in_schema=False,
+    )
     async def profile_submit(
         request: Request,
         auth: Auth,

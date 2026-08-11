@@ -21,7 +21,12 @@ def _abs_path(path: str) -> str:
 
 def mounted_path(request: Request, path: str) -> str:
     """Application path prefixed with the external deployment mount."""
-    return app_path(request, _abs_path(path))
+    path_part, separator, fragment = path.partition("#")
+    mounted = app_path(request, _abs_path(path_part))
+    # Hedron 0.26 rejects paths that normalize only by dropping a terminal slash.
+    # The root app URL is the one exception: without a mount it must remain "/".
+    normalized = mounted.rstrip("/") or "/"
+    return f"{normalized}#{fragment}" if separator else normalized
 
 
 def page_href(request: Request, path: str) -> SafeUrl:
@@ -38,7 +43,9 @@ def hx_path(request: Request, path: str) -> SafeUrl:
 
 
 def asset_href(request: Request, path: str) -> SafeUrl:
-    return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.ASSET)
+    # Hedron 0.26 validates URL purpose by HTML attribute: a stylesheet's
+    # ``href`` is a navigation URL even though the resource is an asset.
+    return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.NAVIGATION)
 
 
 def hx_attrs(

@@ -1,10 +1,10 @@
-"""Thin form markup helpers until Hedron ships CsrfField / themed Button."""
+"""Application-themed form helpers built on Hedron primitives."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from hedron import html
+from hedron import CsrfField, html
 from hedron_core import NodeLike
 
 
@@ -13,7 +13,7 @@ def hidden_field(name: str, value: str) -> NodeLike:
 
 
 def csrf_hidden(token: str, *, name: str = "csrf_token") -> NodeLike:
-    return hidden_field(name, token)
+    return CsrfField(name=name, token=token)
 
 
 def submit_button(

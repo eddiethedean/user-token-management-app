@@ -184,7 +184,6 @@ def _audit_filter_form(request: Request, event_type_filter: str, outcome_filter:
             target="#audit-results-region",
             push_url=True,
             sync="this:replace",
-            disabled_elt="find button",
             indicator=INDICATOR,
         ),
     )

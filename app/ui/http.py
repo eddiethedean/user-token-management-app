@@ -19,6 +19,41 @@ from app.ui.layout import app_shell, main_panel, side_nav_oob
 from app.ui.urls import mounted_path
 
 
+def _load_hedron_htmx_before_extensions(html_text: str) -> str:
+    """Keep Hedron 0.26's classic HTMX extensions behind the core runtime.
+
+    Hedron injects the core script at the end of ``body`` but its non-deferred
+    extensions into ``head``. Browsers consequently execute the extensions first.
+    Reordering the already-rendered local script tags avoids a runtime race while
+    retaining Hedron's pinned assets and CSP-safe URLs.
+    """
+    htmx_marker = "hedron-static/htmx.min.js"
+    extension_markers = (
+        "hedron-static/ext/head-support.js",
+        "hedron-static/ext/sse.js",
+    )
+    htmx_position = html_text.find(htmx_marker)
+    extension_positions = [
+        position for marker in extension_markers if (position := html_text.find(marker)) >= 0
+    ]
+    if htmx_position < 0 or not extension_positions or htmx_position < min(extension_positions):
+        return html_text
+    script_start = html_text.rfind("<script", 0, htmx_position)
+    script_end = html_text.find("</script>", htmx_position)
+    if script_start < 0 or script_end < 0:
+        return html_text
+    script_end += len("</script>")
+    htmx_script = html_text[script_start:script_end]
+    without_htmx = html_text[:script_start] + html_text[script_end:]
+    first_extension = min(
+        without_htmx.find(marker) for marker in extension_markers if without_htmx.find(marker) >= 0
+    )
+    insertion = without_htmx.rfind("<script", 0, first_extension)
+    if insertion < 0:
+        return html_text
+    return without_htmx[:insertion] + htmx_script + "\n" + without_htmx[insertion:]
+
+
 def hx_target(request: Request) -> str:
     raw = (request.headers.get("HX-Target") or "").strip()
     if raw and not raw.startswith(("#", ".", "[")) and " " not in raw:
@@ -73,7 +108,8 @@ def render_page(
         authenticated=authenticated,
     )
     # Hedron forbids <script> nodes in the tree; inject AR progressive-enhancement JS here.
-    html_text = bytes(response.body).decode(response.charset or "utf-8")
+    original_html = bytes(response.body).decode(response.charset or "utf-8")
+    html_text = _load_hedron_htmx_before_extensions(original_html)
     script_src = (
         mounted_path(request, "/assets/app.js") if request is not None else "/assets/app.js"
     )
@@ -83,6 +119,7 @@ def render_page(
             html_text = html_text.replace("</body>", f"{app_script}</body>", 1)
         else:
             html_text += app_script
+    if html_text != original_html:
         response.body = html_text.encode(response.charset or "utf-8")
         response.headers["content-length"] = str(len(response.body))
     return response

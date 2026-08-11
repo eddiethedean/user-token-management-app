@@ -14,7 +14,7 @@ from hedron import (
     Toast,
 )
 from hedron import swap as build_swap
-from hedron.routing.route import HedronRoute
+from hedron.responses import render_interaction
 from hedron_core import NodeLike, RenderMode
 from starlette.responses import Response
 
@@ -150,18 +150,15 @@ def htmx_redirect(url: str) -> InteractionResult:
     return build_swap(None, redirect=url, policy=APP_POLICY, cache="no-store")
 
 
-async def _convert_interaction_result(
+async def interaction_response(
     request: Request,
     result: InteractionResult,
     *,
-    authenticated: bool,
+    authenticated: bool = True,
 ) -> Response:
-    """Adapter around Hedron's private InteractionResult converter.
-
-    Hedron does not yet expose a stable public API for this conversion; isolate
-    the private call so upgrades only need a one-place change.
-    """
-    return await HedronRoute._convert_interaction_result(
+    """Render an InteractionResult through Hedron's public response API."""
+    request.state.hedron_authenticated = authenticated
+    return await render_interaction(
         request,
         result,
         mode=RenderMode.FRAGMENT,
@@ -170,14 +167,3 @@ async def _convert_interaction_result(
         authenticated=authenticated,
         fragment_regions=APP_REGIONS,
     )
-
-
-async def interaction_response(
-    request: Request,
-    result: InteractionResult,
-    *,
-    authenticated: bool = True,
-) -> Response:
-    """Render an InteractionResult through Hedron's converter."""
-    request.state.hedron_authenticated = authenticated
-    return await _convert_interaction_result(request, result, authenticated=authenticated)

@@ -42,7 +42,7 @@ from app.ui.partials.auth import render_login_page
 
 
 def register_login_routes(app: Hedron) -> None:
-    @app.get("/login", include_in_schema=False)
+    @app.page("/login", include_in_schema=False)
     def login_page(
         request: Request,
         auth: OptionalAuth,
@@ -63,7 +63,7 @@ def register_login_routes(app: Hedron) -> None:
             else "",
         )
 
-    @app.post("/login", include_in_schema=False)
+    @app.action("/login", include_in_schema=False)
     def login_submit(
         request: Request,
         db: DbSession,
@@ -106,7 +106,7 @@ def register_login_routes(app: Hedron) -> None:
         clear_preauth_csrf_cookie(response, request, settings)
         return response
 
-    @app.post("/login/federated", include_in_schema=False)
+    @app.action("/login/federated", include_in_schema=False)
     def federated_login_submit(
         request: Request,
         db: DbSession,
@@ -134,7 +134,7 @@ def register_login_routes(app: Hedron) -> None:
         clear_preauth_csrf_cookie(response, request, settings)
         return response
 
-    @app.post("/logout", include_in_schema=False)
+    @app.action("/logout", include_in_schema=False)
     async def logout_submit(
         request: Request,
         auth: Auth,

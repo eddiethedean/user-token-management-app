@@ -15,7 +15,7 @@ from app.ui.routes.security import register_security_routes
 
 
 def register_routes(app: Hedron) -> None:
-    @app.get("/", include_in_schema=False)
+    @app.page("/", include_in_schema=False)
     def home(request: Request, auth: OptionalAuth):
         return RedirectResponse(
             app_path(request, "/profile" if auth else "/login"),

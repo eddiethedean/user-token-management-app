@@ -11,7 +11,15 @@ operators expose the browser UI behind HTTPS and (optionally) an identity-aware 
 3. Set `APP_ENV=production` and satisfy startup validation (HTTPS `PUBLIC_BASE_URL`,
    `COOKIE_SECURE=true`, SMTP, rate limits, blocklist, and so on).
 4. Choose auth mode: [auth-modes.md](auth-modes.md).
-5. Backup the database, then migrate:
+5. Build the Hedron production manifest as part of the release artifact:
+
+```bash
+python -m hedron build
+```
+
+Hedron 0.26+ requires this manifest at production startup. Build it in the same
+workspace/image that you deploy; do not rely on runtime asset compilation.
+6. Backup the database, then migrate:
 
 ```bash
 python -m app migrate

@@ -289,7 +289,7 @@ def test_session_revoke_success(client, make_user, access_app) -> None:
     htmx = client.post(
         f"/security/sessions/{remote_id}/revoke",
         data={"csrf_token": csrf_from(client.get("/security").text)},
-        headers={"HX-Request": "true"},
+        headers={"HX-Request": "true", "HX-Target": "#session-list"},
     )
     assert htmx.status_code == 200
     assert 'id="session-list"' in htmx.text
@@ -353,7 +353,7 @@ def test_htmx_unauthenticated_redirect_and_admin_error_retarget(client) -> None:
     unauthenticated = client.post(
         "/profile",
         data={"csrf_token": "expired", "full_name": "Expired"},
-        headers={"HX-Request": "true"},
+        headers={"HX-Request": "true", "HX-Target": "#profile-form-region"},
     )
     assert unauthenticated.status_code == 303
     assert unauthenticated.headers.get("HX-Redirect", "").startswith("/login?next=")
@@ -368,7 +368,7 @@ def test_htmx_unauthenticated_redirect_and_admin_error_retarget(client) -> None:
     rejected = client.post(
         f"/admin/users/{admin_id}/toggle",
         data={"csrf_token": csrf},
-        headers={"HX-Request": "true"},
+        headers={"HX-Request": "true", "HX-Target": "#user-directory-body"},
     )
     assert rejected.status_code == 400
     assert rejected.headers.get("HX-Retarget") == "#global-feedback"
@@ -401,7 +401,7 @@ def test_password_change_and_reset_validation_edges(client) -> None:
             "new_password": "too-short",
             "new_password_confirm": "too-short",
         },
-        headers={"HX-Request": "true"},
+        headers={"HX-Request": "true", "HX-Target": "#password-form-region"},
     )
     assert weak.status_code == 400
     assert "at least 15" in weak.text
@@ -523,5 +523,6 @@ def test_login_mount_prefixes_forms_and_assets(client) -> None:
         }
     )
     assert mounted_path(mounted, "/login") == "/content/abc/login"
+    assert mounted_path(mounted, "/") == "/content/abc"
     assert str(form_action(mounted, "login")).endswith("/content/abc/login")
     assert str(page_href(mounted, "/assets/theme.css")).endswith("/content/abc/assets/theme.css")

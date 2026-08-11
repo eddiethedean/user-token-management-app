@@ -44,11 +44,26 @@ from app.ui.params import (
     SecretTokenForm,
     SessionIdPath,
 )
-from app.ui.regions import SECURITY_ACTIVITY
+from app.ui.regions import (
+    MAIN_PANEL,
+    PASSWORD_FORM,
+    SECRET_SLOT_ADE,
+    SECRET_SLOT_ADVANA,
+    SECRET_SLOT_MSS,
+    SECURITY_ACTIVITY,
+    SESSION_COUNT,
+    SESSION_LIST,
+    SIDE_NAV,
+    TOAST_HOST,
+)
 
 
 def register_security_routes(app: Hedron) -> None:
-    @app.get("/security", include_in_schema=False)
+    @app.page(
+        "/security",
+        fragment_regions=(MAIN_PANEL, SIDE_NAV),
+        include_in_schema=False,
+    )
     async def security_page(
         request: Request,
         auth: Auth,
@@ -117,7 +132,11 @@ def register_security_routes(app: Hedron) -> None:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-    @app.post("/security/password", include_in_schema=False)
+    @app.action(
+        "/security/password",
+        fragment_regions=(PASSWORD_FORM,),
+        include_in_schema=False,
+    )
     async def password_change_submit(
         request: Request,
         auth: Auth,
@@ -205,7 +224,11 @@ def register_security_routes(app: Hedron) -> None:
             authenticated=True,
         )
 
-    @app.post("/security/sessions/{session_id}/revoke", include_in_schema=False)
+    @app.action(
+        "/security/sessions/{session_id}/revoke",
+        fragment_regions=(SESSION_LIST, SESSION_COUNT, SECURITY_ACTIVITY, TOAST_HOST),
+        include_in_schema=False,
+    )
     async def revoke_session_submit(
         session_id: SessionIdPath,
         request: Request,
@@ -237,7 +260,17 @@ def register_security_routes(app: Hedron) -> None:
             ),
         )
 
-    @app.post("/security/secrets/{provider}", include_in_schema=False)
+    @app.action(
+        "/security/secrets/{provider}",
+        fragment_regions=(
+            SECRET_SLOT_ADVANA,
+            SECRET_SLOT_ADE,
+            SECRET_SLOT_MSS,
+            SECURITY_ACTIVITY,
+            TOAST_HOST,
+        ),
+        include_in_schema=False,
+    )
     async def secret_submit(
         provider: SecretProviderPath,
         request: Request,
@@ -304,7 +337,17 @@ def register_security_routes(app: Hedron) -> None:
             ),
         )
 
-    @app.post("/security/secrets/{provider}/delete", include_in_schema=False)
+    @app.action(
+        "/security/secrets/{provider}/delete",
+        fragment_regions=(
+            SECRET_SLOT_ADVANA,
+            SECRET_SLOT_ADE,
+            SECRET_SLOT_MSS,
+            SECURITY_ACTIVITY,
+            TOAST_HOST,
+        ),
+        include_in_schema=False,
+    )
     async def secret_delete_submit(
         provider: SecretProviderPath,
         request: Request,

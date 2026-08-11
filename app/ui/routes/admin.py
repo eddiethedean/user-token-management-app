@@ -52,11 +52,32 @@ from app.ui.params import (
     StatusFilterQuery,
     UserIdPath,
 )
-from app.ui.regions import AUDIT_MATCH_COUNT, AUDIT_RESULTS
+from app.ui.regions import (
+    AUDIT_MATCH_COUNT,
+    AUDIT_RESULTS,
+    AUDIT_RESULTS_BODY,
+    INVITATION_PANEL,
+    MAIN_PANEL,
+    SIDE_NAV,
+    TOAST_HOST,
+    USER_DIRECTORY,
+    USER_DIRECTORY_BODY,
+    USER_MATCH_COUNT,
+)
 
 
 def register_admin_routes(app: Hedron) -> None:
-    @app.get("/admin/users", include_in_schema=False)
+    @app.page(
+        "/admin/users",
+        fragment_regions=(
+            MAIN_PANEL,
+            SIDE_NAV,
+            USER_DIRECTORY,
+            USER_DIRECTORY_BODY,
+            USER_MATCH_COUNT,
+        ),
+        include_in_schema=False,
+    )
     async def users_page(
         request: Request,
         auth: AdminAuth,
@@ -165,7 +186,11 @@ def register_admin_routes(app: Hedron) -> None:
             push_path="/admin/users",
         )
 
-    @app.post("/admin/invitations", include_in_schema=False)
+    @app.action(
+        "/admin/invitations",
+        fragment_regions=(INVITATION_PANEL, TOAST_HOST),
+        include_in_schema=False,
+    )
     async def invite_submit(
         request: Request,
         auth: AdminAuth,
@@ -323,7 +348,11 @@ def register_admin_routes(app: Hedron) -> None:
             ),
         )
 
-    @app.post("/admin/users/{user_id}/toggle", include_in_schema=False)
+    @app.action(
+        "/admin/users/{user_id}/toggle",
+        fragment_regions=(USER_DIRECTORY_BODY, USER_MATCH_COUNT, TOAST_HOST),
+        include_in_schema=False,
+    )
     async def toggle_user(
         user_id: UserIdPath,
         request: Request,
@@ -347,7 +376,11 @@ def register_admin_routes(app: Hedron) -> None:
             page=page,
         )
 
-    @app.post("/admin/users/{user_id}/approve", include_in_schema=False)
+    @app.action(
+        "/admin/users/{user_id}/approve",
+        fragment_regions=(USER_DIRECTORY_BODY, USER_MATCH_COUNT, TOAST_HOST),
+        include_in_schema=False,
+    )
     async def approve_user(
         user_id: UserIdPath,
         request: Request,
@@ -371,7 +404,11 @@ def register_admin_routes(app: Hedron) -> None:
             page=page,
         )
 
-    @app.post("/admin/users/{user_id}/deny", include_in_schema=False)
+    @app.action(
+        "/admin/users/{user_id}/deny",
+        fragment_regions=(USER_DIRECTORY_BODY, USER_MATCH_COUNT, TOAST_HOST),
+        include_in_schema=False,
+    )
     async def deny_user(
         user_id: UserIdPath,
         request: Request,
@@ -395,7 +432,11 @@ def register_admin_routes(app: Hedron) -> None:
             page=page,
         )
 
-    @app.post("/admin/invitations/{invitation_id}/revoke", include_in_schema=False)
+    @app.action(
+        "/admin/invitations/{invitation_id}/revoke",
+        fragment_regions=(INVITATION_PANEL, TOAST_HOST),
+        include_in_schema=False,
+    )
     async def revoke_invitation_submit(
         invitation_id: InvitationIdPath,
         request: Request,
@@ -437,7 +478,17 @@ def register_admin_routes(app: Hedron) -> None:
             ),
         )
 
-    @app.get("/admin/audit", include_in_schema=False)
+    @app.page(
+        "/admin/audit",
+        fragment_regions=(
+            MAIN_PANEL,
+            SIDE_NAV,
+            AUDIT_RESULTS,
+            AUDIT_RESULTS_BODY,
+            AUDIT_MATCH_COUNT,
+        ),
+        include_in_schema=False,
+    )
     async def audit_page(
         request: Request,
         auth: AdminAuth,

@@ -50,6 +50,11 @@ under `migrations/versions/` (never bootstrap admins in migrations).
    `app/ui/routes/` (region root as `content`; siblings via `oob=`).
 5. Prefer `render_authenticated_view` for authenticated GETs that support main-panel nav swaps.
 
+Register browser GETs with `@app.page`, mutations with `@app.action`, and addressable lazy
+regions with `@app.fragment`. Declare the smallest applicable `fragment_regions` allowlist so
+Hedron's route audit remains useful. See [docs/hedron.md](docs/hedron.md) for the integration
+contract and upgrade checklist.
+
 Security-sensitive changes should be checked against [SECURITY.md](SECURITY.md) and covered by
 tests under `tests/` (especially `test_auth_security.py` and `test_secrets.py`).
 

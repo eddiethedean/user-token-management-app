@@ -22,7 +22,7 @@ from app.ui.partials.auth import render_invitation_page
 
 
 def register_invitation_routes(app: Hedron) -> None:
-    @app.get("/invitations/accept", include_in_schema=False)
+    @app.page("/invitations/accept", include_in_schema=False)
     def invitation_page(
         request: Request,
         token: FlowTokenQuery,
@@ -44,7 +44,7 @@ def register_invitation_routes(app: Hedron) -> None:
             status_code=status.HTTP_400_BAD_REQUEST if error else status.HTTP_200_OK,
         )
 
-    @app.post("/invitations/accept", include_in_schema=False)
+    @app.action("/invitations/accept", include_in_schema=False)
     def invitation_submit(
         request: Request,
         db: DbSession,

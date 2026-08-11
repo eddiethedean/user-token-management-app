@@ -44,6 +44,7 @@ def test_secret_slots_render_and_htmx_never_reveals_token(client, htmx, make_use
     saved = htmx.post(
         "/security/secrets/advana",
         data={"csrf_token": csrf, "token": ADVANA_TOKEN},
+        headers={"HX-Target": "#secret-slot-advana"},
     )
     adapter = as_adapter(saved)
     assert_fragment_body(adapter, contains="secret-slot-advana")
@@ -54,6 +55,7 @@ def test_secret_slots_render_and_htmx_never_reveals_token(client, htmx, make_use
     deleted = htmx.post(
         "/security/secrets/advana/delete",
         data={"csrf_token": csrf_from(htmx.get("/security").text)},
+        headers={"HX-Target": "#secret-slot-advana"},
     )
     assert_fragment_body(as_adapter(deleted), contains="secret-slot-advana")
     assert ADVANA_TOKEN not in deleted.text

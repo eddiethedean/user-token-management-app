@@ -30,11 +30,11 @@ from app.ui.partials.auth import render_register_page, render_verify_page
 
 
 def register_registration_routes(app: Hedron) -> None:
-    @app.get("/register", include_in_schema=False)
+    @app.page("/register", include_in_schema=False)
     def registration_page(request: Request, settings: SettingsDep):
         return render_register_page(request, settings)
 
-    @app.post("/register", include_in_schema=False)
+    @app.action("/register", include_in_schema=False)
     async def registration_submit(
         request: Request,
         db: DbSession,
@@ -80,7 +80,7 @@ def register_registration_routes(app: Hedron) -> None:
             ),
         )
 
-    @app.get("/registration/verify", include_in_schema=False)
+    @app.page("/registration/verify", include_in_schema=False)
     def registration_verification_page(
         request: Request,
         token: FlowTokenQuery,
@@ -102,7 +102,7 @@ def register_registration_routes(app: Hedron) -> None:
             status_code=status.HTTP_400_BAD_REQUEST if error else status.HTTP_200_OK,
         )
 
-    @app.post("/registration/verify", include_in_schema=False)
+    @app.action("/registration/verify", include_in_schema=False)
     def registration_verification_submit(
         request: Request,
         db: DbSession,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from types import SimpleNamespace
 
 from hedron.testing import (
@@ -120,6 +121,7 @@ def test_htmx_profile_update_returns_fragment(access_app) -> None:
             "job_title": "Tester",
             "phone": "",
         },
+        headers={"HX-Target": "#profile-form-region", "Accept": "text/html"},
     )
     adapter = AdapterResponse(response.status_code, response.text, dict(response.headers))
     assert_fragment_body(adapter, contains="profile-form-region")
@@ -295,8 +297,33 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, 'id="side-nav"')
     assert_html_contains(profile, 'hx-target="#main-panel"')
     assert_html_contains(profile, 'hx-select="#main-panel"')
-    assert_html_contains(profile, 'hx-select-oob="#side-nav"')
+    assert 'hx-select-oob="#side-nav"' not in profile.body
     assert_html_contains(profile, "historyCacheSize")
+
+
+def test_hedron_htmx_core_loads_before_extensions(page) -> None:
+    response = page.get("/login")
+    core = response.body.index("hedron-static/htmx.min.js")
+    head_support = response.body.index("hedron-static/ext/head-support.js")
+    sse = response.body.index("hedron-static/ext/sse.js")
+    assert core < head_support
+    assert core < sse
+
+
+def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
+    from hedron_core.registry import get_registry
+
+    _ = access_app
+    routes = [
+        route for route in get_registry().routes() if route.module.startswith("app.ui.routes")
+    ]
+    assert Counter(route.kind for route in routes) == {
+        "page": 11,
+        "action": 18,
+        "component": 2,
+    }
+    assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)
+    assert all("csrf" in route.htmx_inference for route in routes if route.kind == "action")
 
 
 def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:

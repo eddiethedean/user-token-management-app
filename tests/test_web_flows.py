@@ -212,6 +212,7 @@ def test_htmx_admin_invitation_errors_and_missing_toggle(client, htmx) -> None:
     bad_role = htmx.post(
         "/admin/invitations",
         data={"csrf_token": csrf, "email": "htmx.invite@example.gov", "role": "invalid"},
+        headers={"HX-Target": "#invitation-panel"},
     )
     assert bad_role.status_code == 400
     assert "role" in bad_role.text.lower()

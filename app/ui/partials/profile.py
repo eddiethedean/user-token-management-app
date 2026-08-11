@@ -103,7 +103,6 @@ def profile_form(
                 path="profile",
                 target="#profile-form-region",
                 sync="this:drop",
-                disabled_elt="find button",
                 indicator=INDICATOR,
             ),
         ),

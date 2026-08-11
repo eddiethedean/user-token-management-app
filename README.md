@@ -49,6 +49,7 @@ See [SECURITY.md](SECURITY.md).
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common failures |
 | [docs/faq.md](docs/faq.md) | Short answers |
 | [docs/architecture.md](docs/architecture.md) | Trust boundaries and layout |
+| [docs/hedron.md](docs/hedron.md) | Hedron integration and feature coverage |
 | [SECURITY.md](SECURITY.md) | Decision register + production gate |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development and UI contributions |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |
