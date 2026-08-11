@@ -89,9 +89,9 @@ python -m app serve --reload
 ```
 
 `serve` prints the Workbench session URL when `UVICORN_ROOT_PATH` or `rserver-url` is available.
-Open **that** URL, or use Proxied Servers at `/proxy/8000/`. Do **not** combine them into
-`/proxy/8000/s/…/p/…` — that path 404s. Mount prefixes are derived per request, so both entry
-points work after a redirect to `/login`.
+**Prefer that `/s/…/p/…` URL.** Proxied Servers at `/proxy/8000/` also works: when Workbench strips
+the `/proxy/8000` prefix before forwarding, the app synthesizes it again for redirects and links.
+Do **not** combine the prefixes into `/proxy/8000/s/…/p/…`.
 
 If the Proxied Servers view is unavailable, ask Workbench for the external URL/prefix:
 

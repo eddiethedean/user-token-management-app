@@ -255,6 +255,42 @@ def test_workbench_scope_discovers_proxy_mount_from_path_without_root_path() -> 
     assert normalized["root_path"] == "/proxy/8000"
 
 
+def test_workbench_scope_infers_proxy_root_when_prefix_was_stripped(monkeypatch) -> None:
+    monkeypatch.setenv("UVICORN_ROOT_PATH", "https://workbench.socom.mil/s/session/p/679ea2ac/")
+    monkeypatch.setenv("PORT", "8000")
+    scope = {
+        "type": "http",
+        "path": "/",
+        "raw_path": b"/",
+        "root_path": "",
+        "query_string": b"",
+    }
+    normalized = normalize_workbench_scope(scope)
+    assert normalized["path"] == "/"
+    assert normalized["root_path"] == "/proxy/8000"
+
+    from starlette.requests import Request
+
+    from app.routing import app_path
+
+    assert app_path(Request(normalized), "/login") == "/proxy/8000/login"
+
+
+def test_workbench_scope_prefers_session_path_over_inferred_proxy(monkeypatch) -> None:
+    monkeypatch.setenv("UVICORN_ROOT_PATH", "https://workbench.socom.mil/s/session/p/679ea2ac/")
+    monkeypatch.setenv("PORT", "8000")
+    scope = {
+        "type": "http",
+        "path": "/s/session/p/679ea2ac/",
+        "raw_path": b"/s/session/p/679ea2ac/",
+        "root_path": "",
+        "query_string": b"",
+    }
+    normalized = normalize_workbench_scope(scope)
+    assert normalized["path"] == "/"
+    assert normalized["root_path"] == "/s/session/p/679ea2ac"
+
+
 def test_forwarded_source_is_used_only_for_an_explicitly_trusted_proxy() -> None:
     untrusted = settings(trusted_proxy_ips="")
     trusted = settings(trusted_proxy_ips="10.0.0.10")

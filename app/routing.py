@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from urllib.parse import unquote, urlsplit
@@ -20,12 +21,33 @@ def _raw_path(path: str) -> bytes:
     return path.encode("utf-8", errors="surrogatepass")
 
 
+def workbench_is_active() -> bool:
+    """Return whether this process appears to be running inside Posit Workbench."""
+    return bool(
+        os.environ.get("RS_SERVER_URL", "").strip()
+        or os.environ.get("UVICORN_ROOT_PATH", "").strip()
+    )
+
+
+def inferred_proxy_root_path() -> str:
+    """Synthesize ``/proxy/<port>`` when Proxied Servers strips that prefix before forwarding.
+
+    Absolute redirects to ``/login`` otherwise escape to the Workbench host root and 404.
+    """
+    if not workbench_is_active():
+        return ""
+    port = os.environ.get("PORT", "8000").strip() or "8000"
+    if not port.isdigit():
+        return ""
+    return f"/proxy/{port}"
+
+
 def normalize_workbench_scope(scope: Scope) -> Scope:
     """Normalize Workbench path forms while retaining the externally visible mount as root_path.
 
-    Prefer discovering the mount from the request path. Forcing Uvicorn's ``root_path`` to the
-    ``/s/…/p/…`` session URL breaks Proxied Servers (``/proxy/<port>/``) because absolute
-    redirects under ``/s/…`` get rewritten to ``/proxy/<port>/s/…``.
+    Prefer discovering the mount from the request path. When Workbench Proxied Servers strips
+    ``/proxy/<port>`` before forwarding, synthesize that mount so absolute redirects/links stay
+    under the proxy. Session URLs (``/s/…/p/…``) still win when present on the path.
     """
     path = str(scope.get("path") or "/")
     root_path = str(scope.get("root_path") or "").rstrip("/")
@@ -69,6 +91,11 @@ def normalize_workbench_scope(scope: Scope) -> Scope:
                 path = rest if rest.startswith("/") else f"/{rest}"
                 changed = True
                 break
+        else:
+            inferred = inferred_proxy_root_path()
+            if inferred:
+                effective_root = inferred
+                changed = True
 
     if not changed:
         return scope

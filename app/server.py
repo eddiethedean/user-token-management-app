@@ -74,12 +74,15 @@ def workbench_launch_hint(port: int) -> str:
 
 
 def run_server(*, host: str, port: int, reload: bool = False) -> None:
+    # Expose the listen port so request middleware can synthesize /proxy/<port>
+    # when Workbench Proxied Servers strips that prefix before forwarding.
+    os.environ["PORT"] = str(port)
+
     hint = workbench_launch_hint(port)
     if hint:
         print(f"Posit Workbench URL: {hint}", flush=True)
         print(
-            "Open that URL (or Proxied Servers → /proxy/"
-            f"{port}/). Do not combine /proxy/{port}/ with /s/…/p/….",
+            f"Prefer that session URL. Proxied Servers (/proxy/{port}/) also works after redirects.",
             flush=True,
         )
     else:
