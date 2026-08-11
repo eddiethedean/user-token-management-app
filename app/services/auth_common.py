@@ -5,10 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
+from app.db_compat import insert_for
 from app.models import RefreshSession, Role, User
 
 
@@ -41,25 +40,11 @@ def ensure_default_roles(db: Session) -> None:
         "user": "Standard account holder",
         "administrator": "Can manage users, invitations, roles, and audit records",
     }
-    dialect = db.get_bind().dialect.name
     for name, description in defaults.items():
         values = {"name": name, "description": description}
-        if dialect == "postgresql":
-            statement = (
-                postgresql_insert(Role)
-                .values(**values)
-                .on_conflict_do_nothing(index_elements=[Role.name])
-            )
-        elif dialect == "sqlite":
-            statement = (
-                sqlite_insert(Role)
-                .values(**values)
-                .on_conflict_do_nothing(index_elements=[Role.name])
-            )
-        else:
-            if not db.scalar(select(Role.id).where(Role.name == name)):
-                db.add(Role(**values))
-            continue
+        statement = (
+            insert_for(db, Role).values(**values).on_conflict_do_nothing(index_elements=[Role.name])
+        )
         db.execute(statement)
     db.commit()
 

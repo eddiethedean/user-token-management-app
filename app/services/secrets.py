@@ -8,11 +8,10 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import Request
 from sqlalchemy import delete, select
-from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.db_compat import execute_dml, insert_for, supports_returning
 from app.models import ApiTokenKeyUsage, User, UserSecret, new_id, utcnow
 from app.services.audit import record_event
 
@@ -39,24 +38,28 @@ class SecretStorageError(RuntimeError):
 
 def _reserve_master_key_use(db: Session, settings: Settings, key_id: str) -> int:
     values = {"key_id": key_id, "wrap_count": 1, "updated_at": utcnow()}
-    dialect = db.get_bind().dialect.name
-    if dialect == "postgresql":
-        statement = postgresql_insert(ApiTokenKeyUsage).values(**values)
-    elif dialect == "sqlite":
-        statement = sqlite_insert(ApiTokenKeyUsage).values(**values)
-    else:
-        raise SecretStorageError(
-            f"API-token key accounting does not support database dialect {dialect!r}."
+    statement = (
+        insert_for(db, ApiTokenKeyUsage)
+        .values(**values)
+        .on_conflict_do_update(
+            index_elements=[ApiTokenKeyUsage.key_id],
+            set_={
+                "wrap_count": ApiTokenKeyUsage.wrap_count + 1,
+                "updated_at": values["updated_at"],
+            },
+            where=ApiTokenKeyUsage.wrap_count < settings.api_token_max_wraps_per_key,
         )
-    statement = statement.on_conflict_do_update(
-        index_elements=[ApiTokenKeyUsage.key_id],
-        set_={
-            "wrap_count": ApiTokenKeyUsage.wrap_count + 1,
-            "updated_at": values["updated_at"],
-        },
-        where=ApiTokenKeyUsage.wrap_count < settings.api_token_max_wraps_per_key,
-    ).returning(ApiTokenKeyUsage.wrap_count)
-    count = db.scalar(statement)
+    )
+    if supports_returning(db):
+        count = db.scalar(statement.returning(ApiTokenKeyUsage.wrap_count))
+    else:
+        result = execute_dml(db, statement)
+        if result.rowcount == 0:
+            count = None
+        else:
+            count = db.scalar(
+                select(ApiTokenKeyUsage.wrap_count).where(ApiTokenKeyUsage.key_id == key_id)
+            )
     if count is None:
         raise SecretStorageError(
             "The active API-token encryption key reached its usage limit; rotate the key."
@@ -148,12 +151,22 @@ def delete_user_secret(
 ) -> bool:
     specification = require_secret_provider(provider)
     db.scalar(select(User).where(User.id == user.id).with_for_update())
-    deleted_id = db.scalar(
+    remove = (
         delete(UserSecret)
         .where(UserSecret.user_id == user.id, UserSecret.provider == specification.name)
-        .returning(UserSecret.id)
         .execution_options(synchronize_session=False)
     )
+    if supports_returning(db):
+        deleted_id = db.scalar(remove.returning(UserSecret.id))
+    else:
+        # Capture the id before DELETE — a post-write SELECT cannot see the removed row.
+        existing = db.scalar(
+            select(UserSecret.id).where(
+                UserSecret.user_id == user.id, UserSecret.provider == specification.name
+            )
+        )
+        result = execute_dml(db, remove)
+        deleted_id = existing if result.rowcount else None
     if not deleted_id:
         db.rollback()
         return False

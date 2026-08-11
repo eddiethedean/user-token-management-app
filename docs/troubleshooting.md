@@ -11,6 +11,7 @@
 | `Invalid ASGI root path … 'https://…'` on `serve` | Older builds rejected Workbench's full `UVICORN_ROOT_PATH` URL | Upgrade past the fix that extracts the path from that URL, or temporarily `unset UVICORN_ROOT_PATH` and rely on `rserver-url` |
 | `That email domain is not approved` on `create-admin` | Address not in `ALLOWED_EMAIL_DOMAINS` | Use an allowed domain (for example `admin@socom.mil`) or update `.env` |
 | 404 on `/proxy/8000/s/…/p/…/login` | Workbench rewrote path-absolute `Location: /s/…/login` by prefixing `/proxy/8000` | Pull the scheme-absolute redirect fix; open the printed `https://…/s/…/p/…/login` URL; confirm traces show `reason='session-mount→scheme-absolute'` |
+| Login POST → 500 `near "RETURNING": syntax error` | Host SQLite older than 3.35 (no `RETURNING`) | Pull the SQLAlchemy compat helpers (`app/db_compat.py`): SQLite uses upsert/update + select; PostgreSQL keeps `RETURNING`. `git pull` and restart `serve` |
 | Workbench “page was not found” after `/proxy/8000/` → `/login` | Absolute `/login` escaped the proxy (older builds) | Pull the relative-redirect fix; or open the printed `/s/…/p/…` URL |
 | Links go to `/proxy/8000` instead of `/s/…/p/…` | Older builds invented a Proxied Servers prefix for hrefs | Pull the fastapi-workbench-style fix (Uvicorn `root_path` = session mount only); open the printed session URL |
 | Unstyled login / missing CSS under `/s/…/p/…` | Starlette 1.4 needs full `path` plus `root_path` for StaticFiles | Upgrade past the middleware fix that stops stripping the session prefix from `path` |

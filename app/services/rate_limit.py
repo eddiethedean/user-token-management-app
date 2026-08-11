@@ -5,12 +5,11 @@ import hmac
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy import delete
-from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.db_compat import insert_for, scalar_returning
 from app.models import RateLimitBucket, utcnow
 from app.security.client import client_ip
 from app.services.audit import record_event
@@ -44,18 +43,27 @@ def _increment(
         "count": 1,
         "expires_at": expires_at,
     }
-    dialect = db.get_bind().dialect.name
-    if dialect == "postgresql":
-        statement = postgresql_insert(RateLimitBucket).values(**values)
-    elif dialect == "sqlite":
-        statement = sqlite_insert(RateLimitBucket).values(**values)
-    else:
-        raise RuntimeError(f"Rate limiting does not support database dialect {dialect!r}")
-    statement = statement.on_conflict_do_update(
-        index_elements=["scope", "key_hash", "window_started_at"],
-        set_={"count": RateLimitBucket.count + 1, "expires_at": expires_at},
-    ).returning(RateLimitBucket.count)
-    return int(db.execute(statement).scalar_one())
+    statement = (
+        insert_for(db, RateLimitBucket)
+        .values(**values)
+        .on_conflict_do_update(
+            index_elements=["scope", "key_hash", "window_started_at"],
+            set_={"count": RateLimitBucket.count + 1, "expires_at": expires_at},
+        )
+    )
+    count = scalar_returning(
+        db,
+        statement,
+        RateLimitBucket.count,
+        fallback=lambda: db.scalar(
+            select(RateLimitBucket.count).where(
+                RateLimitBucket.scope == scope,
+                RateLimitBucket.key_hash == key_hash,
+                RateLimitBucket.window_started_at == window_started_at,
+            )
+        ),
+    )
+    return int(count or 0)
 
 
 def check_rate_limit(

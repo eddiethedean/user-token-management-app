@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any, cast
 
 from fastapi import Request
 from sqlalchemy import select, update
-from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.config import Settings
+from app.db_compat import execute_dml, scalar_returning
 from app.models import RefreshSession, RefreshTokenHistory, User, UserStatus, utcnow
 from app.security.client import is_trusted_direct_proxy
 from app.security.email import EmailPolicyError, normalize_email
@@ -53,27 +52,34 @@ def authenticate_user(
         raise AuthenticationError(_GENERIC_AUTH_FAILURE)
     if not user or not valid or not user.is_active or not user.email_verified_at:
         if user and user.is_active and user.email_verified_at:
-            attempts = db.scalar(
+            increment = (
                 update(User)
                 .where(User.id == user.id, User.failed_login_attempts < 5)
                 .values(
                     failed_login_attempts=User.failed_login_attempts + 1,
                     locked_until=None,
                 )
-                .returning(User.failed_login_attempts)
                 .execution_options(synchronize_session=False)
+            )
+
+            def _read_attempts() -> int | None:
+                db.refresh(user)
+                return user.failed_login_attempts
+
+            attempts = scalar_returning(
+                db, increment, User.failed_login_attempts, fallback=_read_attempts
             )
             outcome = "failure" if attempts is not None else "locked"
             record_event(db, "auth.login", request=request, target=user, outcome=outcome)
         db.commit()
         raise AuthenticationError(_GENERIC_AUTH_FAILURE)
-    authenticated_user_id = db.scalar(
+    clear_failures = (
         update(User)
         .where(User.id == user.id, User.failed_login_attempts < 5)
         .values(failed_login_attempts=0, locked_until=None, last_login_at=now)
-        .returning(User.id)
         .execution_options(synchronize_session=False)
     )
+    authenticated_user_id = scalar_returning(db, clear_failures, User.id, fallback=lambda: user.id)
     if not authenticated_user_id:
         record_event(db, "auth.login", request=request, target=user, outcome="locked")
         db.commit()
@@ -162,7 +168,7 @@ def rotate_session(
     token_hash = hash_token(raw_refresh, settings.session_pepper)
     replacement = random_token()
     replacement_hash = hash_token(replacement, settings.session_pepper)
-    rotated_id = db.scalar(
+    rotate = (
         update(RefreshSession)
         .where(
             RefreshSession.refresh_token_hash == token_hash,
@@ -174,8 +180,15 @@ def rotate_session(
             refresh_token_hash=replacement_hash,
             last_seen_at=now,
         )
-        .returning(RefreshSession.id)
         .execution_options(synchronize_session=False)
+    )
+    rotated_id = scalar_returning(
+        db,
+        rotate,
+        RefreshSession.id,
+        fallback=lambda: db.scalar(
+            select(RefreshSession.id).where(RefreshSession.refresh_token_hash == replacement_hash)
+        ),
     )
     if not rotated_id:
         replayed = db.scalar(
@@ -223,13 +236,14 @@ def revoke_session(
     actor: User,
     request: Request | None = None,
 ) -> None:
-    revoked = db.execute(
+    revoked = execute_dml(
+        db,
         update(RefreshSession)
         .where(RefreshSession.id == session.id, RefreshSession.revoked_at.is_(None))
         .values(revoked_at=utcnow())
-        .execution_options(synchronize_session=False)
+        .execution_options(synchronize_session=False),
     )
-    if cast(CursorResult[Any], revoked).rowcount == 1:
+    if revoked.rowcount == 1:
         record_event(db, "auth.session.revoked", request=request, actor=actor, target=session.user)
     db.commit()
 
