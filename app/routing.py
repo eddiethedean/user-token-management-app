@@ -30,26 +30,12 @@ def workbench_is_active() -> bool:
     )
 
 
-def inferred_proxy_root_path() -> str:
-    """Return ``/proxy/<port>`` for HTML link generation under stripped Proxied Servers.
-
-    Do **not** put this value in redirect ``Location`` headers: Workbench rewrites absolute
-    Locations by prefixing ``/proxy/<port>`` again (see :func:`redirect_path`).
-    """
-    if not workbench_is_active():
-        return ""
-    port = os.environ.get("PORT", "8000").strip() or "8000"
-    if not port.isdigit():
-        return ""
-    return f"/proxy/{port}"
-
-
 def normalize_workbench_scope(scope: Scope) -> Scope:
-    """Normalize Workbench path forms while retaining the externally visible mount as root_path.
+    """Set Workbench ``root_path`` without stripping ``path``.
 
-    Discover ``/s/…/p/…`` or ``/proxy/<port>`` when those prefixes are still on the request
-    path. When Proxied Servers strips ``/proxy/<port>`` before forwarding, leave ``root_path``
-    empty and let :func:`app_base_url` / :func:`redirect_path` handle links vs redirects.
+    Starlette 1.4 routes and StaticFiles use ``get_route_path(scope)``, which expects
+    ``path`` to still include the mount prefix when ``root_path`` is set. Stripping the
+    prefix (the Starlette 0.x habit) makes ``/assets/…`` 404 under ``/s/…/p/…``.
     """
     path = str(scope.get("path") or "/")
     root_path = str(scope.get("root_path") or "").rstrip("/")
@@ -73,34 +59,52 @@ def normalize_workbench_scope(scope: Scope) -> Scope:
             changed = True
 
     effective_root = root_path
-    if root_path and (path == root_path or path.startswith(f"{root_path}/")):
-        path = path[len(root_path) :] or "/"
-        changed = True
-    elif root_path:
-        proxy_match = _PROXY_ROOT.match(root_path)
-        if proxy_match:
-            mount = proxy_match.group("mount").rstrip("/")
-            if mount and (path == mount or path.startswith(f"{mount}/")):
-                path = path[len(mount) :] or "/"
-                effective_root = mount
-                changed = True
-    else:
+    if not root_path:
         for pattern in (_SESSION_MOUNT, _PROXY_MOUNT):
             match = pattern.match(path)
             if match:
                 effective_root = match.group("root")
-                rest = match.group("rest") or "/"
-                path = rest if rest.startswith("/") else f"/{rest}"
                 changed = True
                 break
+    else:
+        proxy_match = _PROXY_ROOT.match(root_path)
+        if proxy_match:
+            mount = proxy_match.group("mount").rstrip("/")
+            if mount and (path == mount or path.startswith(f"{mount}/")):
+                # root_path was /proxy/<port>/<session-mount>; keep path intact and
+                # expose only the session mount to URL helpers.
+                effective_root = mount
+                changed = True
 
     if not changed:
         return scope
     normalized = dict(scope)
-    normalized["path"] = path
-    normalized["raw_path"] = _raw_path(path)
+    if path != str(scope.get("path") or "/"):
+        normalized["path"] = path
+        normalized["raw_path"] = _raw_path(path)
     normalized["root_path"] = effective_root
     return normalized
+
+
+def route_path_from_scope(scope: Scope) -> str:
+    """Mount-relative path (Starlette ``get_route_path`` semantics without a private import)."""
+    path = str(scope.get("path") or "/")
+    root_path = str(scope.get("root_path") or "")
+    if not root_path:
+        return path
+    if not path.startswith(root_path):
+        return path
+    if path == root_path:
+        return "/"
+    if len(path) > len(root_path) and path[len(root_path)] == "/":
+        return path[len(root_path) :] or "/"
+    return path
+
+
+def application_path(request: Request) -> str:
+    """Return the mount-relative path Starlette uses for routing (leading ``/``)."""
+    route_path = route_path_from_scope(request.scope) or "/"
+    return route_path if route_path.startswith("/") else f"/{route_path}"
 
 
 @dataclass
@@ -169,14 +173,11 @@ def _request_mount_path(request: Request) -> str:
 def app_base_url(request: Request) -> str:
     """Resolve the external mount path for Connect, Workbench, or a root deployment.
 
-    Under stripped Proxied Servers this may return ``/proxy/<port>`` for HTML links and
-    cookies. Redirects must use :func:`redirect_path` instead so Workbench does not
-    double-prefix ``Location`` headers.
+    Mirrors fastapi-workbench ``base_path``: use the real ASGI ``root_path`` or Connect
+    base header only. Never invent ``/proxy/<port>`` — that sends session-URL users to the
+    wrong Workbench entry point.
     """
-    mount = _request_mount_path(request)
-    if mount:
-        return mount
-    return inferred_proxy_root_path()
+    return _request_mount_path(request)
 
 
 def app_path(request: Request, path: str) -> str:

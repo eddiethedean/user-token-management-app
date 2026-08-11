@@ -12,7 +12,8 @@
 | `That email domain is not approved` on `create-admin` | Address not in `ALLOWED_EMAIL_DOMAINS` | Use an allowed domain (for example `admin@socom.mil`) or update `.env` |
 | 404 on `/proxy/8000/s/…/p/…/login` | Combined Proxied Servers prefix with the session mount | Open either `https://…/s/…/p/…/` (printed at startup) **or** `/proxy/8000/` — never both |
 | Workbench “page was not found” after `/proxy/8000/` → `/login` | Absolute `/login` escaped the proxy (older builds) | Pull the relative-redirect fix; or open the printed `/s/…/p/…` URL |
-| 404 on `/proxy/8000/proxy/8000/login` | Absolute `/proxy/8000/…` Location was rewritten again by Workbench | Pull the fastapi-workbench-style relative `Location` fix |
+| Links go to `/proxy/8000` instead of `/s/…/p/…` | Older builds invented a Proxied Servers prefix for hrefs | Pull the fastapi-workbench-style fix (Uvicorn `root_path` = session mount only); open the printed session URL |
+| Unstyled login / missing CSS under `/s/…/p/…` | Starlette 1.4 needs full `path` plus `root_path` for StaticFiles | Upgrade past the middleware fix that stops stripping the session prefix from `path` |
 
 Always take a recoverable backup before `migrate --adopt-existing`. Downgrades are manual operator
 actions and may destroy data — they are not a supported “undo account” path.

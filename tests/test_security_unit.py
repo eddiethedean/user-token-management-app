@@ -224,9 +224,9 @@ def test_workbench_scope_strips_root_path_when_uvicorn_includes_it_in_path() -> 
         "query_string": b"",
     }
     normalized = normalize_workbench_scope(scope)
-    assert normalized["path"] == "/profile"
-    assert normalized["raw_path"] == b"/profile"
-    assert normalized["root_path"] == "/s/session/p/8000"
+    # Starlette 1.4 keeps the full path; get_route_path strips via root_path.
+    assert normalized is scope or normalized["path"] == "/s/session/p/8000/profile"
+    assert (normalized if normalized is not scope else scope)["root_path"] == "/s/session/p/8000"
 
 
 def test_workbench_scope_discovers_session_mount_from_path_without_root_path() -> None:
@@ -238,7 +238,7 @@ def test_workbench_scope_discovers_session_mount_from_path_without_root_path() -
         "query_string": b"",
     }
     normalized = normalize_workbench_scope(scope)
-    assert normalized["path"] == "/"
+    assert normalized["path"] == "/s/e886e3c9ab5a7de8990d1/p/679ea2ac/"
     assert normalized["root_path"] == "/s/e886e3c9ab5a7de8990d1/p/679ea2ac"
 
 
@@ -251,12 +251,30 @@ def test_workbench_scope_discovers_proxy_mount_from_path_without_root_path() -> 
         "query_string": b"",
     }
     normalized = normalize_workbench_scope(scope)
-    assert normalized["path"] == "/login"
+    assert normalized["path"] == "/proxy/8000/login"
     assert normalized["root_path"] == "/proxy/8000"
 
 
+def test_workbench_mounted_assets_are_served(monkeypatch) -> None:
+    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
+    monkeypatch.delenv("RS_SERVER_URL", raising=False)
+    from starlette.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app)
+    mount = "/s/e886e3c9ab5a7de8990d1/p/679ea2ac"
+    page = client.get(f"{mount}/login")
+    assert page.status_code == 200
+    assert f'href="{mount}/assets/theme.css"' in page.text
+    css = client.get(f"{mount}/assets/theme.css")
+    assert css.status_code == 200
+    assert "text/css" in css.headers.get("content-type", "")
+    assert client.get(f"{mount}/assets/app.js").status_code == 200
+
+
 def test_workbench_stripped_proxy_uses_relative_redirects(monkeypatch) -> None:
-    """fastapi-workbench pattern: never put /proxy/<port> in Location headers."""
+    """fastapi-workbench pattern: never invent /proxy/<port> for links or Locations."""
     monkeypatch.setenv("UVICORN_ROOT_PATH", "https://workbench.socom.mil/s/session/p/679ea2ac/")
     monkeypatch.setenv("PORT", "8000")
     scope = {
@@ -271,14 +289,14 @@ def test_workbench_stripped_proxy_uses_relative_redirects(monkeypatch) -> None:
         "headers": [],
         "client": ("127.0.0.1", 1),
     }
-    # Prefix stripped by Proxied Servers — middleware leaves root_path empty.
     assert normalize_workbench_scope(scope)["root_path"] == ""
 
     from app.routing import app_path, redirect_path
 
     request = Request(scope)
     assert redirect_path(request, "/login") == "login"
-    assert app_path(request, "/login") == "/proxy/8000/login"
+    # No invented /proxy/8000 — empty mount means app-absolute paths only.
+    assert app_path(request, "/login") == "/login"
 
 
 def test_workbench_proxy_root_path_still_uses_relative_redirects(monkeypatch) -> None:
@@ -298,9 +316,10 @@ def test_workbench_proxy_root_path_still_uses_relative_redirects(monkeypatch) ->
             "client": ("127.0.0.1", 1),
         }
     )
-    from app.routing import redirect_path
+    from app.routing import app_path, redirect_path
 
     assert redirect_path(request, "/login") == "login"
+    assert app_path(request, "/login") == "/proxy/8000/login"
 
 
 def test_workbench_session_mount_keeps_absolute_redirects(monkeypatch) -> None:

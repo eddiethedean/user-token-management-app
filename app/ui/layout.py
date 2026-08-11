@@ -86,7 +86,9 @@ def account_summary(
 
 
 def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
-    path = str(request.scope.get("path") or "/")
+    from app.routing import application_path
+
+    path = application_path(request)
     normalized = path.rstrip("/") or "/"
 
     def link(href: str, number: str, label: str) -> NodeLike:

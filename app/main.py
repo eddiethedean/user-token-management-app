@@ -31,7 +31,7 @@ from app.dependencies import clear_auth_cookies, set_auth_cookies
 from app.logging_config import bind_request_id, clear_request_id, configure_logging
 from app.routing import (
     WorkbenchPathMiddleware,
-    app_base_url,
+    application_path,
     is_htmx_request,
     redirect_path,
 )
@@ -125,9 +125,7 @@ async def security_and_session_middleware(request: Request, call_next):
         "font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
         "form-action 'self'"
     )
-    if not str(request.scope.get("path", "")).startswith(
-        ("/assets/", "/hedron-static/", "/hedron-assets/")
-    ):
+    if not application_path(request).startswith(("/assets/", "/hedron-static/", "/hedron-assets/")):
         response.headers["Cache-Control"] = "no-store"
     if settings.is_production:
         hsts = "max-age=31536000"
@@ -151,12 +149,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
     is_htmx = is_htmx_request(request)
     accepts_html = "text/html" in request.headers.get("accept", "")
     if exc.status_code == status.HTTP_401_UNAUTHORIZED and (accepts_html or is_htmx):
-        next_path = str(request.scope.get("path") or "/")
-        mount_path = app_base_url(request)
-        if mount_path and next_path == mount_path:
-            next_path = "/"
-        elif mount_path and next_path.startswith(f"{mount_path}/"):
-            next_path = next_path[len(mount_path) :]
+        next_path = application_path(request)
         if request.url.query:
             next_path += f"?{request.url.query}"
         response = RedirectResponse(
