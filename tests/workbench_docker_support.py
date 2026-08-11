@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -15,12 +17,18 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_HELPER = ROOT / "docker" / "workbench-compose.sh"
+APP_CONTAINER = "access-registry-workbench-app-1"
+WORKBENCH_CONTAINER = "access-registry-workbench-workbench-1"
 
 DEFAULT_WORKBENCH = "http://127.0.0.1:8787"
 DEFAULT_APP = "http://127.0.0.1:8000"
 DEFAULT_REWRITE = "http://127.0.0.1:8788"
 DEFAULT_USER = os.environ.get("PWB_TESTUSER", "posit")
 DEFAULT_PASSWORD = os.environ.get("PWB_TESTUSER_PASSWD", "Xk9#mQ2$vL8!nR4p")
+DEFAULT_APP_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.gov")
+DEFAULT_APP_PASSWORD = os.environ.get("ADMIN_BOOTSTRAP_PASSWORD", "Tr0pic-Maple!River92")
+DEFAULT_USER_PASSWORD = "Aspen-Compass-64!River"
+SESSION_MOUNT = "/s/docker-session/p/8000"
 
 
 def client(base_url: str, *, follow_redirects: bool = False) -> httpx2.Client:
@@ -45,12 +53,30 @@ def compose(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
 
 def docker_exec(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["docker", "exec", "access-registry-workbench-workbench-1", *args],
+        ["docker", "exec", WORKBENCH_CONTAINER, *args],
         check=check,
         capture_output=True,
         text=True,
         timeout=60,
     )
+
+
+def app_exec(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["docker", "exec", APP_CONTAINER, *args],
+        check=check,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def unique_email(prefix: str = "wb") -> str:
+    return f"{prefix}.{uuid.uuid4().hex[:10]}@example.gov"
+
+
+def short_id() -> str:
+    return uuid.uuid4().hex[:10]
 
 
 def encrypt_workbench_credentials(username: str, password: str, public_key_body: str) -> str:
@@ -152,6 +178,144 @@ def rewrite_location_rule(value: str, *, proxy_prefix: str = "/proxy/8000") -> s
     return candidate
 
 
+def login_csrf_from(html: str) -> str:
+    match = re.search(r'name="preauth_csrf_token"\s+value="([^"]+)"', html)
+    if match is None:
+        match = re.search(r'name="preauth_csrf_token" value="([^"]+)"', html)
+    if match is None:
+        raise AssertionError("preauth_csrf_token missing from HTML")
+    return match.group(1)
+
+
+def csrf_from(html: str) -> str:
+    match = re.search(r'name="csrf_token"\s+value="([^"]+)"', html)
+    if match is None:
+        match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    if match is None:
+        raise AssertionError("csrf_token missing from HTML")
+    return match.group(1)
+
+
+def latest_outbox_token(recipient: str, *, subject_like: str | None = None) -> str:
+    """Read the newest EmailOutbox link token from the app container SQLite DB."""
+    payload = json.dumps({"recipient": recipient, "subject_like": subject_like})
+    script = f"""
+import json, re, sys
+from urllib.parse import parse_qs, urlparse
+from sqlalchemy import select
+from app.database import SessionLocal
+from app.models import EmailOutbox
+
+payload = json.loads({payload!r})
+with SessionLocal() as db:
+    statement = select(EmailOutbox).where(EmailOutbox.recipient == payload["recipient"])
+    if payload.get("subject_like"):
+        statement = statement.where(EmailOutbox.subject.like(payload["subject_like"]))
+    message = db.scalar(statement.order_by(EmailOutbox.created_at.desc()))
+    if message is None:
+        raise SystemExit("no-email")
+    match = re.search(r"https?://[^\\s]+", message.body_text)
+    if match is None:
+        raise SystemExit("no-link")
+    print(parse_qs(urlparse(match.group(0)).query)["token"][0])
+"""
+    result = app_exec("python", "-c", script, check=False)
+    token = result.stdout.strip()
+    if result.returncode != 0 or not token:
+        raise AssertionError(
+            f"Failed to read outbox token for {recipient}: "
+            f"rc={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+    return token
+
+
+def user_id_for_email(email: str) -> str:
+    script = f"""
+from sqlalchemy import select
+from app.database import SessionLocal
+from app.models import User
+with SessionLocal() as db:
+    user = db.scalar(select(User).where(User.email == {email!r}))
+    if user is None:
+        raise SystemExit("missing")
+    print(user.id)
+"""
+    result = app_exec("python", "-c", script, check=False)
+    user_id = result.stdout.strip()
+    if result.returncode != 0 or not user_id:
+        raise AssertionError(
+            f"Failed to resolve user id for {email}: "
+            f"rc={result.returncode} stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+    return user_id
+
+
+def widen_cookie_paths(http: httpx2.Client) -> None:
+    """Re-scope jar cookies to ``/`` so bare app paths receive Workbench-scoped cookies.
+
+    With ``UVICORN_ROOT_PATH=/s/…/p/…``, Access Registry sets ``Path=/s/…/p/…`` on auth
+    cookies. Docker tests hit the published app port where the mount is already stripped
+    (``/login``, not ``/s/…/login``), so httpx would otherwise omit those cookies.
+    """
+    snapshots = [(cookie.name, cookie.value, cookie.domain) for cookie in list(http.cookies.jar)]
+    http.cookies.clear()
+    for name, value, domain in snapshots:
+        if domain:
+            http.cookies.set(name, value, domain=domain, path="/")
+        else:
+            http.cookies.set(name, value, path="/")
+
+
+def app_login(
+    http: httpx2.Client,
+    *,
+    email: str = DEFAULT_APP_EMAIL,
+    password: str = DEFAULT_APP_PASSWORD,
+    next_path: str = "/profile",
+    login_path: str = "/login",
+) -> httpx2.Response:
+    """Sign into Access Registry with real email/password credentials (+ CSRF)."""
+    page = http.get(login_path, follow_redirects=False)
+    page.raise_for_status()
+    widen_cookie_paths(http)
+    token = login_csrf_from(page.text)
+    response = http.post(
+        login_path,
+        data={
+            "email": email,
+            "password": password,
+            "next": next_path,
+            "preauth_csrf_token": token,
+        },
+        follow_redirects=False,
+    )
+    widen_cookie_paths(http)
+    return response
+
+
+def preauth_post(
+    http: httpx2.Client,
+    path: str,
+    data: dict[str, str],
+    *,
+    page_path: str | None = None,
+) -> httpx2.Response:
+    """GET a public form for preauth CSRF, widen cookie paths, then POST."""
+    page = http.get(page_path or path, follow_redirects=False)
+    page.raise_for_status()
+    widen_cookie_paths(http)
+    payload = {**data, "preauth_csrf_token": login_csrf_from(page.text)}
+    response = http.post(path, data=payload, follow_redirects=False)
+    widen_cookie_paths(http)
+    return response
+
+
+def mounted(mount: str, path: str) -> str:
+    """Join a Workbench session mount with an app-absolute path."""
+    normalized = path if path.startswith("/") else f"/{path}"
+    return f"{mount.rstrip('/')}{normalized}"
+
+
 def stack_urls() -> dict[str, Any]:
     return {
         "workbench": os.environ.get("WORKBENCH_URL", DEFAULT_WORKBENCH).rstrip("/"),
@@ -159,4 +323,7 @@ def stack_urls() -> dict[str, Any]:
         "rewrite": os.environ.get("REWRITE_URL", DEFAULT_REWRITE).rstrip("/"),
         "username": DEFAULT_USER,
         "password": DEFAULT_PASSWORD,
+        "app_email": DEFAULT_APP_EMAIL,
+        "app_password": DEFAULT_APP_PASSWORD,
+        "mount": SESSION_MOUNT,
     }

@@ -68,12 +68,19 @@ async def proxy(request: Request) -> Response:
             value = _rewrite_location(value)
         response_headers.append((key, value))
 
-    return Response(
+    response = Response(
         content=upstream.content,
         status_code=upstream.status_code,
-        headers=dict(response_headers),
         media_type=upstream.headers.get("content-type"),
     )
+    # Preserve every Set-Cookie; dict(headers) would collapse duplicates and drop
+    # access/refresh tokens after login.
+    for key, value in response_headers:
+        if key.casefold() == "set-cookie":
+            response.headers.append("set-cookie", value)
+        else:
+            response.headers[key] = value
+    return response
 
 
 app = Starlette(
