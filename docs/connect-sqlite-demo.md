@@ -41,9 +41,7 @@ at runtime.
 
 ## 2. Set the demo configuration
 
-Run these commands in the same terminal. Replace the Connect URL, allowed email domains, and proxy
-IP addresses. `TRUSTED_PROXY_IPS` must contain the IP address or comma-separated addresses of the
-immediate Connect application proxy supplied by your Connect administrator.
+Run these commands in the same terminal. Replace the Connect URL and allowed email domains.
 
 ```bash
 export APP_ENV=development
@@ -55,14 +53,15 @@ export AUTHENTICATION_MODE=local_password
 export COOKIE_SECURE=true
 export COOKIE_PATH=auto
 export ALLOWED_EMAIL_DOMAINS='example.gov,example.mil,socom.mil'
-export TRUSTED_PROXY_IPS='127.0.0.1'
 export RATE_LIMIT_ENABLED=true
 export EMAIL_BACKEND=console
 ```
 
-`127.0.0.1` is only an example proxy value; do not assume it matches your Connect installation.
-Using the correct immediate proxy addresses lets the app safely honor Connect's application base
-URL header and keep links, redirects, and cookies under the content path.
+Connect automatically supplies [`POSIT_PRODUCT=CONNECT`](https://docs.posit.co/connect/user/content-settings/#environment-variables)
+and the [`rstudio-connect-app-base-url`](https://docs.posit.co/connect/user/fastapi/)
+request header. The app uses those managed values to keep links, redirects, and cookies under the
+content path, so this local-password demo does not need `TRUSTED_PROXY_IPS`. That setting remains
+necessary when the application must trust forwarded client addresses or a trusted identity header.
 
 Generate unique demo secrets in the same shell:
 
@@ -142,7 +141,6 @@ rsconnect deploy fastapi \
   --environment COOKIE_SECURE \
   --environment COOKIE_PATH \
   --environment ALLOWED_EMAIL_DOMAINS \
-  --environment TRUSTED_PROXY_IPS \
   --environment RATE_LIMIT_ENABLED \
   --environment EMAIL_BACKEND \
   --exclude ".env" \
@@ -188,8 +186,8 @@ Open the content URL and verify:
 
 If startup reports that the schema is missing, confirm that `deployment/connect-demo.db` was
 included and that `DATABASE_URL` is exactly `sqlite:///./deployment/connect-demo.db`. If links or
-login redirects leave the Connect content path, verify `TRUSTED_PROXY_IPS` with the Connect
-administrator and keep `COOKIE_PATH=auto`.
+login redirects leave the Connect content path, confirm the content is running on Connect and keep
+`COOKIE_PATH=auto`.
 
 ## 7. Understand redeployment
 

@@ -31,6 +31,11 @@ def workbench_is_active() -> bool:
     )
 
 
+def connect_is_active() -> bool:
+    """Return whether Posit Connect identified the managed content runtime."""
+    return os.environ.get("POSIT_PRODUCT", "").strip().casefold() == "connect"
+
+
 def normalize_workbench_scope(scope: Scope) -> Scope:
     """Set Workbench ``root_path`` without stripping ``path``.
 
@@ -213,7 +218,7 @@ def safe_base_path(value: str, *, allow_absolute_url: bool = False, strict: bool
 def _request_mount_path(request: Request) -> str:
     """Real Connect/ASGI mount only — never the inferred Proxied Servers prefix."""
     connect_base = ""
-    if is_trusted_direct_proxy(request, get_settings()):
+    if connect_is_active() or is_trusted_direct_proxy(request, get_settings()):
         connect_base = safe_base_path(
             request.headers.get("rstudio-connect-app-base-url", ""), allow_absolute_url=True
         )
@@ -224,8 +229,9 @@ def _request_mount_path(request: Request) -> str:
 def app_base_url(request: Request) -> str:
     """Resolve the external mount path for Connect, Workbench, or a root deployment.
 
-    Mirrors fastapi-workbench ``base_path``: use the real ASGI ``root_path`` or Connect
-    base header only. Never invent ``/proxy/<port>`` — that sends session-URL users to the
+    Mirrors fastapi-workbench ``base_path``: use the real ASGI ``root_path`` or the base header
+    supplied inside a managed Connect runtime. A configured trusted proxy remains a compatibility
+    fallback outside Connect. Never invent ``/proxy/<port>`` — that sends session-URL users to the
     wrong Workbench entry point.
     """
     return _request_mount_path(request)

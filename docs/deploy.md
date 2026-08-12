@@ -192,8 +192,10 @@ PASSWORD_BLOCKLIST_PATH='deployment/password-blocklist.txt'
 ```
 
 URL-encode special characters in the PostgreSQL username/password. `PUBLIC_BASE_URL` must be the
-stable external URL users will open, without a query or fragment. Ask the Connect administrator for
-every immediate proxy IP; this is also necessary for safe Connect mount-header handling.
+stable external URL users will open, without a query or fragment. Connect mount-path handling uses
+the platform-provided `POSIT_PRODUCT` marker and `rstudio-connect-app-base-url` header automatically.
+Ask the Connect administrator for every immediate proxy IP so forwarded client addresses and any
+trusted identity header are accepted only from known infrastructure.
 
 Choose exactly one authentication mode:
 
@@ -382,7 +384,7 @@ validation.
 | Startup says schema is behind | Run `python -m app migrate` against the same PostgreSQL URL |
 | Production configuration is rejected | Compare the error with the production block above and `.env.example` |
 | Hedron production manifest is missing | Run `python -m hedron build` immediately before publishing |
-| Login redirects outside the content path | Verify `TRUSTED_PROXY_IPS`, `COOKIE_PATH=auto`, and the external URL |
+| Login redirects outside the content path | Confirm the Connect runtime marker/base header, `COOKIE_PATH=auto`, and the external URL |
 | Connect cannot install a dependency | Confirm Python 3.11 and the server's configured Python package repository |
 | Email remains queued | Start the external worker and verify SMTP/STARTTLS connectivity |
 

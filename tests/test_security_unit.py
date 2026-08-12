@@ -46,10 +46,12 @@ def settings(**updates) -> Settings:
     return Settings(_env_file=None, **values)
 
 
-def request_with_client(host: str, *, forwarded: str = "") -> Request:
+def request_with_client(host: str, *, forwarded: str = "", connect_base: str = "") -> Request:
     headers = []
     if forwarded:
         headers.append((b"x-forwarded-for", forwarded.encode()))
+    if connect_base:
+        headers.append((b"rstudio-connect-app-base-url", connect_base.encode()))
     return Request(
         {
             "type": "http",
@@ -411,7 +413,45 @@ def test_forwarded_source_is_used_only_for_an_explicitly_trusted_proxy() -> None
     assert client_ip(malformed, trusted) == "10.0.0.10"
 
 
+def test_connect_runtime_uses_managed_base_header_without_proxy_allowlist(monkeypatch) -> None:
+    monkeypatch.setenv("POSIT_PRODUCT", "CONNECT")
+    monkeypatch.setattr("app.routing.get_settings", lambda: settings(trusted_proxy_ips=""))
+    request = request_with_client(
+        "connect-runtime-peer",
+        connect_base="https://connect.example.gov/content/access-registry/",
+    )
+
+    assert app_base_url(request) == "/content/access-registry"
+    assert app_path(request, "/login") == "/content/access-registry/login"
+    assert cookie_path(request, "auto") == "/content/access-registry"
+
+
+def test_connect_base_header_requires_connect_runtime_or_trusted_proxy(monkeypatch) -> None:
+    monkeypatch.delenv("POSIT_PRODUCT", raising=False)
+    monkeypatch.setattr("app.routing.get_settings", lambda: settings(trusted_proxy_ips=""))
+    request = request_with_client(
+        "untrusted-peer",
+        connect_base="https://connect.example.gov/content/spoofed/",
+    )
+
+    assert app_base_url(request) == ""
+    assert app_path(request, "/login") == "/login"
+    assert cookie_path(request, "auto") == "/"
+
+
+def test_configured_proxy_remains_a_connect_base_header_fallback(monkeypatch) -> None:
+    monkeypatch.delenv("POSIT_PRODUCT", raising=False)
+    monkeypatch.setattr("app.routing.get_settings", lambda: settings(trusted_proxy_ips="10.0.0.10"))
+    request = request_with_client(
+        "10.0.0.10",
+        connect_base="https://connect.example.gov/content/access-registry/",
+    )
+
+    assert app_base_url(request) == "/content/access-registry"
+
+
 def test_app_path_and_cookie_path_defaults(monkeypatch) -> None:
+    monkeypatch.delenv("POSIT_PRODUCT", raising=False)
     monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
     monkeypatch.delenv("RS_SERVER_URL", raising=False)
     bare = Request(
