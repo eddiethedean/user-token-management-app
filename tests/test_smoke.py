@@ -14,6 +14,7 @@ def test_login_page(client: TestClient) -> None:
     assert response.status_code == 200
     assert "Sign in" in response.text
     assert "access_registry_login_csrf" in response.cookies
+    assert "SameSite=lax" in response.headers["set-cookie"]
 
 
 def test_admin_requires_auth(client: TestClient) -> None:

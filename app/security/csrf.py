@@ -74,7 +74,7 @@ def set_preauth_csrf_cookie(
         max_age=PREAUTH_CSRF_MAX_AGE,
         httponly=True,
         secure=settings.cookie_secure,
-        samesite="strict",
+        samesite="lax",
         path=cookie_path(request, settings.cookie_path),
     )
 
@@ -85,7 +85,7 @@ def clear_preauth_csrf_cookie(response: Response, request: Request, settings: Se
         path=cookie_path(request, settings.cookie_path),
         secure=settings.cookie_secure,
         httponly=True,
-        samesite="strict",
+        samesite="lax",
     )
 
 
