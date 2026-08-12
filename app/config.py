@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     session_idle_minutes: int = Field(default=30, ge=5, le=1440)
     cookie_secure: bool = False
     cookie_path: str = "auto"
+    connect_cookie_bridge_enabled: bool = False
     hsts_include_subdomains: bool = False
     trusted_proxy_ips: str = ""
 

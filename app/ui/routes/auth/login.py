@@ -17,6 +17,7 @@ from app.dependencies import (
     clear_auth_cookies,
     set_auth_cookies,
 )
+from app.dev_trace import dev_trace
 from app.models import User
 from app.routing import redirect_path
 from app.security.csrf import (
@@ -106,6 +107,7 @@ def register_login_routes(app: Hedron) -> None:
         try:
             user = authenticate_user(db, settings, email, password, request)
         except (AuthenticationError, ValueError) as exc:
+            dev_trace("auth.password.rejected", reason="credentials_or_account")
             return render_login_page(
                 request,
                 settings,
@@ -115,6 +117,7 @@ def register_login_routes(app: Hedron) -> None:
                 next=safe_next(next),
                 bootstrap_hint=_bootstrap_hint(db, settings),
             )
+        dev_trace("auth.password.accepted")
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
             redirect_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER

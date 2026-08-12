@@ -47,6 +47,82 @@ def test_login_rejects_missing_csrf_and_bad_credentials(client) -> None:
     assert "Unable to sign in" in wrong.text
 
 
+def test_login_accepts_mount_cookie_when_stale_root_duplicate_follows(client) -> None:
+    page = client.get("/login")
+    preauth = login_csrf_from(page.text)
+    client.cookies.clear()
+    signed_in = client.post(
+        "/login",
+        data={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD,
+            "next": "/profile",
+            "preauth_csrf_token": preauth,
+        },
+        headers={
+            "Cookie": (
+                f"access_registry_login_csrf={preauth}; access_registry_login_csrf=stale-root-value"
+            )
+        },
+    )
+    assert signed_in.status_code == 303
+
+
+def test_auth_accepts_mount_cookie_when_stale_root_duplicate_follows(client) -> None:
+    web_login(client)
+    access = client.cookies.get("access_registry_access")
+    assert access
+    client.cookies.clear()
+    profile = client.get(
+        "/profile",
+        headers={
+            "Cookie": (f"access_registry_access={access}; access_registry_access=stale-root-value")
+        },
+    )
+    assert profile.status_code == 200
+
+
+def test_refresh_accepts_mount_cookie_when_stale_root_duplicate_follows(client) -> None:
+    web_login(client)
+    refresh = client.cookies.get("access_registry_refresh")
+    assert refresh
+    client.cookies.clear()
+    profile = client.get(
+        "/profile",
+        headers={
+            "Cookie": (
+                "access_registry_access=expired-or-stale; "
+                f"access_registry_refresh={refresh}; "
+                "access_registry_refresh=stale-root-value"
+            )
+        },
+    )
+    assert profile.status_code == 200
+    assert "access_registry_refresh" in profile.headers["set-cookie"]
+
+
+def test_login_cookie_diagnostics_never_log_secrets(client, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("ACCESS_REGISTRY_DEV_TRACE", "1")
+    page = client.get("/login")
+    preauth = login_csrf_from(page.text)
+    password = "diagnostic-password-that-must-not-be-logged"
+    client.post(
+        "/login",
+        data={
+            "email": ADMIN_EMAIL,
+            "password": password,
+            "next": "/profile",
+            "preauth_csrf_token": preauth,
+        },
+    )
+    output = capsys.readouterr().out
+    assert "csrf.preauth.cookie.issued" in output
+    assert "csrf.preauth.accepted" in output
+    assert "auth.password.rejected" in output
+    assert preauth not in output
+    assert password not in output
+
+
 def test_authenticated_home_and_login_redirect(client) -> None:
     web_login(client)
     home = client.get("/")

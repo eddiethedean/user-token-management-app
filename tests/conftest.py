@@ -55,6 +55,8 @@ def access_app(tmp_path, monkeypatch):
     monkeypatch.setenv("ALLOWED_EMAIL_DOMAINS", "example.gov")
     monkeypatch.setenv("AUTHENTICATION_MODE", "local_password")
     monkeypatch.setenv("COOKIE_SECURE", "false")
+    monkeypatch.setenv("CONNECT_COOKIE_BRIDGE_ENABLED", "false")
+    monkeypatch.delenv("POSIT_PRODUCT", raising=False)
     monkeypatch.setenv("EMAIL_BACKEND", "console")
     monkeypatch.setenv("PASSWORD_HASH_SCHEME", "pbkdf2_sha256")
     monkeypatch.setenv("PBKDF2_ITERATIONS", "100000")

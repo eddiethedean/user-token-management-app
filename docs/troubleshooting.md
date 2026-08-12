@@ -35,6 +35,16 @@ Login, register, and forgot-password use signed pre-authentication CSRF tokens. 
 CSRF errors after a long idle period, reload the form page. Authenticated mutations use session CSRF
 — keep a single browser tab family after password or security-version changes.
 
+Mount-aware deployments tolerate duplicate cookie names left by older root-scoped deployments and
+expire those legacy root cookies when issuing replacements. In development logs,
+`csrf.preauth.rejected` reports only whether the submitted field or cookie was missing/mismatched;
+it never prints either secret value.
+
+For the full safe event sequence and interpretation, see
+[Read safe login diagnostics in Connect](connect-sqlite-demo.md#read-safe-login-diagnostics-in-connect).
+Production deployments can temporarily set `ACCESS_REGISTRY_DEV_TRACE=1` and restart the content
+to emit the same secret-free diagnostics; remove or set it to `0` after troubleshooting.
+
 ## Cookies under Connect / mount paths
 
 If login appears to succeed but the next request is anonymous:
@@ -43,6 +53,19 @@ If login appears to succeed but the next request is anonymous:
 2. Prefer `COOKIE_PATH=auto` so cookies are scoped to the application mount.
 3. Confirm `PUBLIC_BASE_URL` matches the external origin users actually open.
 4. Clear stale cookies from a previous path or host.
+
+On Connect 2025.06, `cookie_count=0 reason='missing_cookie'` means its content proxy received the
+browser cookie but did not forward it to FastAPI. Changing `SameSite` or `COOKIE_PATH` cannot repair
+that transport gap. Use the administrator-controlled bridge in
+[Required Connect 2025.06 cookie bridge](deploy.md#required-connect-202506-cookie-bridge); do not
+fall back to `RStudio-Connect-Credentials`.
+
+When the bridge is configured correctly, a request carrying application cookies emits
+`cookie.bridge.accepted`. If that event is absent, verify all three controls: the browser can reach
+only the front proxy, the proxy overwrites `X-Access-Registry-Cookie` from `$http_cookie`, and the
+Connect content has `CONNECT_COOKIE_BRIDGE_ENABLED=true`. A 400 with
+`cookie bridge rejected reason=...` indicates duplicate, oversized, invalid, or conflicting
+transports; inspect proxy configuration without logging header or cookie values.
 
 ## Email
 

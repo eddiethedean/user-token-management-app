@@ -332,4 +332,9 @@ def cookie_path(request: Request, configured_path: str) -> str:
     """Scope cookies to the external app path unless an explicit path is configured."""
     if configured_path != "auto":
         return configured_path
+    if connect_is_active() and get_settings().connect_cookie_bridge_enabled:
+        # Connect 2025.06 prefixes upstream root-scoped cookies when it is itself
+        # behind the bridge proxy. Returning the external content prefix here
+        # would make the browser path `/content/<id>/content/<id>`.
+        return "/"
     return app_base_url(request) or "/"

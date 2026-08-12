@@ -1,0 +1,33 @@
+; Isolated configuration for docker/connect-smoke.sh only.
+
+[Server]
+DataDir = /data
+Address = http://127.0.0.1:39391
+
+[HTTP]
+Listen = :3939
+
+[Authentication]
+Provider = password
+
+[Password]
+SelfRegistration = false
+
+[Bootstrap]
+Enabled = true
+SecretKeyFile = /run/secrets/connect-bootstrap.key
+
+[Python]
+Enabled = true
+Executable = /opt/python/3.11.7/bin/python
+
+[Quarto]
+Enabled = true
+Executable = /opt/quarto/1.4.557/bin/quarto
+
+[Logging]
+ServiceLog = STDOUT
+ServiceLogFormat = TEXT
+ServiceLogLevel = INFO
+AccessLog = STDOUT
+AccessLogFormat = COMMON

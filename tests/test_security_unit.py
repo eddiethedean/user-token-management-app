@@ -426,6 +426,21 @@ def test_connect_runtime_uses_managed_base_header_without_proxy_allowlist(monkey
     assert cookie_path(request, "auto") == "/content/access-registry"
 
 
+def test_connect_cookie_bridge_leaves_external_cookie_scoping_to_connect(monkeypatch) -> None:
+    monkeypatch.setenv("POSIT_PRODUCT", "CONNECT")
+    monkeypatch.setattr(
+        "app.routing.get_settings",
+        lambda: settings(connect_cookie_bridge_enabled=True),
+    )
+    request = request_with_client(
+        "connect-runtime-peer",
+        connect_base="https://connect.example.gov/content/access-registry/",
+    )
+
+    assert app_base_url(request) == "/content/access-registry"
+    assert cookie_path(request, "auto") == "/"
+
+
 def test_connect_base_header_requires_connect_runtime_or_trusted_proxy(monkeypatch) -> None:
     monkeypatch.delenv("POSIT_PRODUCT", raising=False)
     monkeypatch.setattr("app.routing.get_settings", lambda: settings(trusted_proxy_ips=""))

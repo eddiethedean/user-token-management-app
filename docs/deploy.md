@@ -175,6 +175,7 @@ JWT_AUDIENCE='access-registry'
 
 COOKIE_SECURE=true
 COOKIE_PATH=auto
+CONNECT_COOKIE_BRIDGE_ENABLED=true
 ALLOWED_EMAIL_DOMAINS='example.gov,example.mil'
 TRUSTED_PROXY_IPS='CONNECT_PROXY_IP_1,CONNECT_PROXY_IP_2'
 RATE_LIMIT_ENABLED=true
@@ -196,6 +197,39 @@ stable external URL users will open, without a query or fragment. Connect mount-
 the platform-provided `POSIT_PRODUCT` marker and `rstudio-connect-app-base-url` header automatically.
 Ask the Connect administrator for every immediate proxy IP so forwarded client addresses and any
 trusted identity header are accepted only from known infrastructure.
+
+### Required Connect 2025.06 cookie bridge
+
+Connect 2025.06 accepts this application's `Set-Cookie` responses but removes those cookies before
+forwarding later requests to FastAPI. Retaining the application's own users and sessions therefore
+requires an administrator-controlled reverse proxy in front of Connect:
+
+```text
+browser (HTTPS) -> header-overwriting proxy -> private Connect listener -> FastAPI content
+```
+
+On the proxy hop that receives the browser's real `Cookie` header, overwrite—not append—the
+dedicated bridge header:
+
+```nginx
+proxy_set_header X-RSC-Request $scheme://$http_host$request_uri;
+proxy_set_header X-Access-Registry-Cookie $http_cookie;
+proxy_pass http://connect-internal:3939;
+```
+
+Keep Connect's listener unreachable from clients, preserve your normal Connect proxy headers and
+WebSocket settings, and protect the proxy-to-Connect network. A client-supplied
+`X-Access-Registry-Cookie` value must never survive the proxy. The complete Docker smoke-test
+configuration is [connect-cookie-proxy.conf](../docker/connect-cookie-proxy.conf); adapt its
+internal hostname, TLS, and timeouts to your approved ingress rather than using its HTTP listener
+unchanged in production.
+
+Only after those controls are in place, deploy `CONNECT_COOKIE_BRIDGE_ENABLED=true`. The bridge is
+also gated by Connect's managed `POSIT_PRODUCT=CONNECT` marker. It removes the dedicated header,
+filters out Connect's `rsconnect` session and all unrelated cookies, and reconstructs only the
+application's access, refresh, and login-CSRF cookies. With `COOKIE_PATH=auto`, the application emits
+an upstream root path so Connect can add the external `/content/<id>` scope exactly once. Set the
+flag back to `false` before allowing any direct path to Connect.
 
 Choose exactly one authentication mode:
 
@@ -313,6 +347,7 @@ rsconnect deploy fastapi \
   --environment PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED \
   --environment COOKIE_SECURE \
   --environment COOKIE_PATH \
+  --environment CONNECT_COOKIE_BRIDGE_ENABLED \
   --environment ALLOWED_EMAIL_DOMAINS \
   --environment TRUSTED_PROXY_IPS \
   --environment RATE_LIMIT_ENABLED \
@@ -362,6 +397,12 @@ interactive terminal as the long-term production supervisor. Monitor retries and
 
 ## 8. Verify the Connect deployment
 
+For Connect 2025.06, complete the cookie bridge above before testing login. Run `make connect-smoke`
+to exercise the same topology against an isolated Connect 2025.06 container. A healthy content log
+includes secret-free `cookie.bridge.accepted`, `csrf.preauth.accepted`, and
+`auth.access.accepted` events. Connect-provided identity remains separate from the application's
+user-management system.
+
 Open the stable `PUBLIC_BASE_URL` in a browser and check:
 
 1. `/health` returns `{"status":"ok"}` and `/ready` returns `{"status":"ready"}`.
@@ -385,6 +426,7 @@ validation.
 | Production configuration is rejected | Compare the error with the production block above and `.env.example` |
 | Hedron production manifest is missing | Run `python -m hedron build` immediately before publishing |
 | Login redirects outside the content path | Confirm the Connect runtime marker/base header, `COOKIE_PATH=auto`, and the external URL |
+| Login CSRF reports `cookie_count=0` on Connect 2025.06 | Confirm the only client path uses the header-overwriting proxy and the content has `CONNECT_COOKIE_BRIDGE_ENABLED=true` |
 | Connect cannot install a dependency | Confirm Python 3.11 and the server's configured Python package repository |
 | Email remains queued | Start the external worker and verify SMTP/STARTTLS connectivity |
 

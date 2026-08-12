@@ -24,6 +24,27 @@ make workbench-logs
 make workbench-down    # graceful stop (license key deactivation)
 ```
 
+## Posit Connect deployment smoke test
+
+With a `CONNECT_LICENSE` key in the repository `.env`, run:
+
+```bash
+make connect-smoke
+```
+
+The harness starts an isolated Connect 2025.06.0 container with Python 3.11.7 on a private Docker
+network. Only an Nginx sidecar is exposed; it overwrites `X-Access-Registry-Cookie` from the browser's
+real Cookie header. The harness creates a temporary SQLite bundle, publishes the main FastAPI app
+with its explicitly gated cookie bridge, and exercises health, login, cookie path, authenticated
+profile, and safe content-log diagnostics. Its exit trap explicitly deactivates the license before
+stopping Connect, then verifies removal of both containers, the private network, Docker data volume,
+and temporary bundle. It never prints the license key, application secrets, passwords, API keys, or
+cookie values.
+
+This proxy is necessary because Connect 2025.06.0 accepts the application's `Set-Cookie` response
+but removes the application cookie before the next request reaches FastAPI. The bridge retains the
+application's user management; it does not consume Connect credentials as application identity.
+
 Ports (defaults):
 
 | Service | Host |

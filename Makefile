@@ -1,4 +1,4 @@
-.PHONY: check demo-check hedron-check hedron-build migrate install serve create-admin email-worker schema-status workbench-up workbench-down workbench-test workbench-logs
+.PHONY: check demo-check hedron-check hedron-build migrate install serve create-admin email-worker schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
 
 install:
 	python -m pip install -e ".[dev]"
@@ -57,6 +57,11 @@ workbench-test:
 	ACCESS_REGISTRY_WORKBENCH_RESET=$${ACCESS_REGISTRY_WORKBENCH_RESET:-1} \
 	ACCESS_REGISTRY_WORKBENCH_KEEP=$${ACCESS_REGISTRY_WORKBENCH_KEEP:-0} \
 	python -m pytest tests/test_workbench_docker.py -m workbench_docker --tb=short
+
+# Isolated Posit Connect 2025.06 deployment smoke test. Reads CONNECT_LICENSE
+# from .env and always deactivates it before removing the test container.
+connect-smoke:
+	bash docker/connect-smoke.sh
 # Overridden after baseline measurement; default keeps local/CI honest.
 COV_FAIL_UNDER ?= 80
 
