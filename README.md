@@ -45,6 +45,7 @@ See [SECURITY.md](SECURITY.md).
 |-----|----------|
 | [Quick start](#quick-start) (this README) | New operators |
 | [demo-app/README.md](demo-app/README.md) | Minimal Posit Workbench / Connect confidence check |
+| [docs/connect-sqlite-demo.md](docs/connect-sqlite-demo.md) | Full app, disposable Connect demo with SQLite |
 | [docs/auth-modes.md](docs/auth-modes.md) | Choosing password vs trusted-header |
 | [docs/deploy.md](docs/deploy.md) | Posit Connect / Workbench production |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common failures |
@@ -138,9 +139,11 @@ SMTP, rate limits, and more). Checklist: [SECURITY.md — Production security ga
 
 ## Posit Workbench and Connect
 
-The full [step-by-step Posit guide](docs/deploy.md) covers Python 3.11 setup, installation,
-configuration, migrations, administrator bootstrap, Workbench proxy startup, production secrets,
-PostgreSQL, SMTP, Hedron assets, Connect publishing, the email worker, and verification.
+For a disposable evaluation of the full app, use the dedicated
+[Connect SQLite demo guide](docs/connect-sqlite-demo.md). The full
+[step-by-step Posit guide](docs/deploy.md) covers Python 3.11 setup, installation, configuration,
+migrations, administrator bootstrap, Workbench proxy startup, production secrets, PostgreSQL,
+SMTP, Hedron assets, Connect publishing, the email worker, and verification.
 
 Workbench development setup begins with:
 
@@ -167,10 +170,11 @@ make workbench-down
 
 Details: [docker/README.md](docker/README.md).
 
-Do not use those development defaults on Connect. The production path requires PostgreSQL, SMTP,
+The SQLite Connect path is a single-process, disposable demo whose data resets on redeployment. Do
+not promote that configuration to production. The production path requires PostgreSQL, SMTP,
 strong secrets, secure cookies, a password blocklist, migrations before startup, a Hedron build,
-and a separately supervised email worker. Follow every Connect step in the deployment guide before
-publishing `app.main:app`.
+and a separately supervised email worker. Follow every production Connect step in the deployment
+guide before publishing `app.main:app` for operational use.
 
 ## Contributing
 

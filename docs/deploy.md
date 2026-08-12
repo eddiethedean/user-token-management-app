@@ -4,9 +4,11 @@ Access Registry is a FastAPI ASGI browser application with entrypoint `app.main:
 starts with a local development deployment in Posit Workbench, then moves the same source to a
 persistent Posit Connect production deployment.
 
-The Workbench path uses SQLite and console email so you can validate the application first. The
-Connect path requires PostgreSQL, SMTP, production secrets, and an external email worker. Do not
-use the Workbench configuration as a production configuration.
+The Workbench path uses SQLite and console email so you can validate the application first. This
+guide's Connect path is the durable production path and requires PostgreSQL, SMTP, production
+secrets, and an external email worker. For a single-process, disposable Connect evaluation of the
+full app, follow the separate [Connect SQLite demo guide](connect-sqlite-demo.md). Do not use its
+configuration for production.
 
 ## Prerequisites
 
@@ -386,6 +388,7 @@ validation.
 
 ## Related
 
+- [Disposable Connect demo with SQLite](connect-sqlite-demo.md)
 - [Posit Connect FastAPI documentation](https://docs.posit.co/connect/user/fastapi/)
 - [Posit Connect command-line publishing](https://docs.posit.co/connect/user/publishing-cli/)
 - [Posit Workbench proxied servers](https://docs.posit.co/ide/server-pro/user/vs-code/guide/proxying-web-servers.html)
