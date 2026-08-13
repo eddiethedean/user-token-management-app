@@ -203,7 +203,32 @@ def test_user_directory_fragment_render() -> None:
     )
     assert 'id="user-directory"' in html
     assert 'id="user-directory-body"' in html
+    assert "Full name" in html
     assert "No users found." in html
+
+
+def test_user_directory_separates_account_and_full_name_columns() -> None:
+    user = SimpleNamespace(
+        id="user-1",
+        email_original="ada@example.gov",
+        full_name="Ada Lovelace",
+        status="disabled",
+        role_names=["user"],
+    )
+    html = render_html(
+        ui.user_directory(
+            _request(),
+            [user],
+            csrf_token="admin-csrf",
+            query="",
+            status_filter="",
+            page=1,
+            page_count=1,
+        )
+    )
+
+    assert '<th scope="col">Account</th><th scope="col">Full name</th>' in html
+    assert "<td>ada@example.gov</td><td>Ada Lovelace</td>" in html
 
 
 def test_session_list_and_secret_slot_render_html() -> None:
