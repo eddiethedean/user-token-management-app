@@ -25,9 +25,11 @@ For Connect production you additionally need:
 - a stable external HTTPS content URL or vanity URL;
 - a PostgreSQL database and credentials that can create/update the application tables;
 - an approved SMTP relay with STARTTLS;
-- the exact IP addresses of Connect's immediate application proxy nodes;
 - an approved offline password blocklist; and
 - a supervised place to run the email worker separately from the Connect web process.
+
+If the deployment uses `AUTHENTICATION_MODE=trusted_header` or trusts forwarded client addresses,
+you also need the exact IP addresses of Connect's immediate application proxy nodes.
 
 ## 1. Set up the project in Posit Workbench
 
@@ -175,9 +177,9 @@ JWT_AUDIENCE='access-registry'
 
 COOKIE_SECURE=true
 COOKIE_PATH=auto
-CONNECT_COOKIE_BRIDGE_ENABLED=true
 ALLOWED_EMAIL_DOMAINS='example.gov,example.mil'
-TRUSTED_PROXY_IPS='CONNECT_PROXY_IP_1,CONNECT_PROXY_IP_2'
+# Required for trusted_header or trusted forwarded addresses.
+TRUSTED_PROXY_IPS=''
 RATE_LIMIT_ENABLED=true
 
 EMAIL_BACKEND=smtp
@@ -195,41 +197,38 @@ PASSWORD_BLOCKLIST_PATH='deployment/password-blocklist.txt'
 URL-encode special characters in the PostgreSQL username/password. `PUBLIC_BASE_URL` must be the
 stable external URL users will open, without a query or fragment. Connect mount-path handling uses
 the platform-provided `POSIT_PRODUCT` marker and `rstudio-connect-app-base-url` header automatically.
-Ask the Connect administrator for every immediate proxy IP so forwarded client addresses and any
-trusted identity header are accepted only from known infrastructure.
+If using trusted-header authentication, ask the Connect administrator for every immediate proxy IP
+so forwarded client addresses and the identity header are accepted only from known infrastructure.
 
-### Required Connect 2025.06 cookie bridge
+### Native Connect 2025.06.0+ without a cookie proxy
 
-Connect 2025.06 accepts this application's `Set-Cookie` responses but removes those cookies before
-forwarding later requests to FastAPI. Retaining the application's own users and sessions therefore
-requires an administrator-controlled reverse proxy in front of Connect:
+This is the preferred deployment. This repository's licensed Connect 2025.06.0 Docker acceptance
+test and Hedron's licensed Connect 2026.07 probe both demonstrated that application-owned request
+cookies reach Python content natively. They also demonstrated the response-cookie rule used by
+this app: emit `Path=/` to Connect and let Connect add the external `/content/<id>` mount exactly
+once. See the
+[`hedron-posit` native Connect guide](https://github.com/eddiethedean/hedron/blob/main/docs/guides/posit.md)
+and its
+[`NATIVE_COOKIES=ok` evidence](https://github.com/eddiethedean/hedron/blob/main/docs/acceptance/realconnect-033/RESULT.log).
 
-```text
-browser (HTTPS) -> header-overwriting proxy -> private Connect listener -> FastAPI content
+Use:
+
+```dotenv
+COOKIE_PATH=auto
 ```
 
-On the proxy hop that receives the browser's real `Cookie` header, overwrite—not append—the
-dedicated bridge header:
+No application-cookie proxy or `TRUSTED_PROXY_IPS` entry is required for local-password sessions.
+Deploy normally, open the Connect content URL, and verify login, Profile, refresh, and logout. In
+the content logs, `csrf.preauth.accepted` followed by `auth.access.accepted source='cookie'`
+confirms the native round trip.
 
-```nginx
-proxy_set_header X-RSC-Request $scheme://$http_host$request_uri;
-proxy_set_header X-Access-Registry-Cookie $http_cookie;
-proxy_pass http://connect-internal:3939;
-```
+This application now follows the same response-cookie contract as `hedron-posit`: under a managed
+Connect runtime, `COOKIE_PATH=auto` produces an upstream root path. Outside Connect, automatic
+mount scoping is unchanged.
 
-Keep Connect's listener unreachable from clients, preserve your normal Connect proxy headers and
-WebSocket settings, and protect the proxy-to-Connect network. A client-supplied
-`X-Access-Registry-Cookie` value must never survive the proxy. The complete Docker smoke-test
-configuration is [connect-cookie-proxy.conf](../docker/connect-cookie-proxy.conf); adapt its
-internal hostname, TLS, and timeouts to your approved ingress rather than using its HTTP listener
-unchanged in production.
-
-Only after those controls are in place, deploy `CONNECT_COOKIE_BRIDGE_ENABLED=true`. The bridge is
-also gated by Connect's managed `POSIT_PRODUCT=CONNECT` marker. It removes the dedicated header,
-filters out Connect's `rsconnect` session and all unrelated cookies, and reconstructs only the
-application's access, refresh, and login-CSRF cookies. With `COOKIE_PATH=auto`, the application emits
-an upstream root path so Connect can add the external `/content/<id>` scope exactly once. Set the
-flag back to `false` before allowing any direct path to Connect.
+If native login fails, clear stale cookies, confirm `COOKIE_PATH=auto`, and inspect the safe
+diagnostics first. The native version floor below 2025.06.0 is not established. On an older release,
+upgrade Connect rather than adding an application-specific cookie transport.
 
 Choose exactly one authentication mode:
 
@@ -347,7 +346,6 @@ rsconnect deploy fastapi \
   --environment PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED \
   --environment COOKIE_SECURE \
   --environment COOKIE_PATH \
-  --environment CONNECT_COOKIE_BRIDGE_ENABLED \
   --environment ALLOWED_EMAIL_DOMAINS \
   --environment TRUSTED_PROXY_IPS \
   --environment RATE_LIMIT_ENABLED \
@@ -397,9 +395,9 @@ interactive terminal as the long-term production supervisor. Monitor retries and
 
 ## 8. Verify the Connect deployment
 
-For Connect 2025.06, complete the cookie bridge above before testing login. Run `make connect-smoke`
-to exercise the same topology against an isolated Connect 2025.06 container. A healthy content log
-includes secret-free `cookie.bridge.accepted`, `csrf.preauth.accepted`, and
+On Connect 2025.06.0 and newer, application cookies work natively. Run `make connect-smoke` to
+exercise the direct topology against an isolated Connect 2025.06.0 / Python 3.11.7 container. With
+temporary tracing enabled, a successful round trip includes secret-free `csrf.preauth.accepted` and
 `auth.access.accepted` events. Connect-provided identity remains separate from the application's
 user-management system.
 
@@ -426,7 +424,8 @@ validation.
 | Production configuration is rejected | Compare the error with the production block above and `.env.example` |
 | Hedron production manifest is missing | Run `python -m hedron build` immediately before publishing |
 | Login redirects outside the content path | Confirm the Connect runtime marker/base header, `COOKIE_PATH=auto`, and the external URL |
-| Login CSRF reports `cookie_count=0` on Connect 2025.06 | Confirm the only client path uses the header-overwriting proxy and the content has `CONNECT_COOKIE_BRIDGE_ENABLED=true` |
+| Native login loses its cookie on Connect 2025.06.0+ | Confirm `COOKIE_PATH=auto`, restart the content, clear older double-scoped cookies, and inspect the safe CSRF/auth events |
+| Login CSRF reports `cookie_count=0` | Confirm the deployed app contains the root-upstream cookie-path fix and inspect customized ingress behavior |
 | Connect cannot install a dependency | Confirm Python 3.11 and the server's configured Python package repository |
 | Email remains queued | Start the external worker and verify SMTP/STARTTLS connectivity |
 

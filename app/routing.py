@@ -332,9 +332,10 @@ def cookie_path(request: Request, configured_path: str) -> str:
     """Scope cookies to the external app path unless an explicit path is configured."""
     if configured_path != "auto":
         return configured_path
-    if connect_is_active() and get_settings().connect_cookie_bridge_enabled:
-        # Connect 2025.06 prefixes upstream root-scoped cookies when it is itself
-        # behind the bridge proxy. Returning the external content prefix here
-        # would make the browser path `/content/<id>/content/<id>`.
+    if connect_is_active():
+        # Connect scopes an upstream root cookie to the external content mount.
+        # Sending the mount here would produce `/content/<id>/content/<id>`.
+        # This native response-cookie contract is proven by this repository on
+        # Connect 2025.06.0 and by hedron-posit on Connect 2026.07.
         return "/"
     return app_base_url(request) or "/"

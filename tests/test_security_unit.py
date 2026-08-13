@@ -423,21 +423,7 @@ def test_connect_runtime_uses_managed_base_header_without_proxy_allowlist(monkey
 
     assert app_base_url(request) == "/content/access-registry"
     assert app_path(request, "/login") == "/content/access-registry/login"
-    assert cookie_path(request, "auto") == "/content/access-registry"
-
-
-def test_connect_cookie_bridge_leaves_external_cookie_scoping_to_connect(monkeypatch) -> None:
-    monkeypatch.setenv("POSIT_PRODUCT", "CONNECT")
-    monkeypatch.setattr(
-        "app.routing.get_settings",
-        lambda: settings(connect_cookie_bridge_enabled=True),
-    )
-    request = request_with_client(
-        "connect-runtime-peer",
-        connect_base="https://connect.example.gov/content/access-registry/",
-    )
-
-    assert app_base_url(request) == "/content/access-registry"
+    # Connect adds the external content mount to upstream root-scoped cookies.
     assert cookie_path(request, "auto") == "/"
 
 

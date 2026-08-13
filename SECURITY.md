@@ -214,9 +214,7 @@ XSS impact, broken object authorization, malicious links, and untrusted proxy he
 The application trusts:
 
 1. the Posit Connect or Workbench reverse proxy to be the only external path to the application;
-2. the proxy to terminate approved TLS and sanitize security-relevant forwarding headers; on
-   Connect 2025.06, the approved front proxy must also overwrite the cookie-bridge header from the
-   browser's real Cookie header while keeping Connect's listener private;
+2. the proxy to terminate approved TLS and sanitize security-relevant forwarding headers;
 3. the database and its backups to enforce approved confidentiality, integrity, and availability;
 4. the SMTP relay and mail system to deliver recovery links only within the approved environment;
 5. the deployment secret store to generate, restrict, audit, and rotate high-entropy secrets; and
@@ -1025,28 +1023,6 @@ their records are rewrapped by an approved procedure or deleted.
 - [PostgreSQL pgcrypto security limitations](https://www.postgresql.org/docs/current/pgcrypto.html#PGCRYPTO-NOTES)
   explain why cryptographic operations and key handling are kept in the application rather than the
   database server.
-
-### SD-25 — Bridge app-owned cookies through Connect 2025.06 only at an isolated ingress
-
-**Status:** Explicitly gated bridge and Docker deployment smoke implemented; production ingress
-approval and isolation remain deployment controls.
-
-**Decision:** `CONNECT_COOKIE_BRIDGE_ENABLED` defaults to false. When true, the bridge remains inert
-unless Connect supplies `POSIT_PRODUCT=CONNECT`. An administrator-owned front proxy must be the only
-client path to Connect and must overwrite `X-Access-Registry-Cookie` from the request's real Cookie
-header. The application rejects duplicate, invalid, oversized, or conflicting transports, removes
-the bridge header, discards Connect's `rsconnect` cookie and unrelated cookies, and reconstructs only
-the access, refresh, and pre-authentication CSRF cookies owned by this application. Cookie and header
-values are never logged. Application users, password verification, roles, and sessions remain local;
-Connect credentials are not consumed as application identity.
-
-**Rationale and residual boundary:** Connect 2025.06 was verified to remove application cookies
-before forwarding requests to FastAPI even though its proxy relays the application's `Set-Cookie`
-responses. The dedicated header provides a transport hop without weakening cookie signatures,
-session validation, or CSRF checks. Its trust comes from network topology and header sanitization,
-not from the header name. Any direct client route to Connect while the flag is enabled violates this
-design. Protect the proxy-to-Connect link, do not log the raw header, validate the exact deployed
-ingress, and disable the flag when Connect no longer needs the workaround.
 
 ## Reference index
 

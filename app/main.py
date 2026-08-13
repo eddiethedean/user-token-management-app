@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import re
 import time
 import uuid
@@ -37,7 +36,6 @@ from app.routing import (
     redirect_path,
 )
 from app.schema import assert_schema_current
-from app.security.cookies import ConnectCookieBridgeMiddleware
 from app.services.auth import ensure_default_roles
 from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
@@ -85,11 +83,6 @@ app = Hedron(
     default_styles=False,
 )
 app.add_middleware(WorkbenchPathMiddleware)
-app.add_middleware(
-    ConnectCookieBridgeMiddleware,
-    enabled=settings.connect_cookie_bridge_enabled,
-    connect_runtime=os.environ.get("POSIT_PRODUCT", "").strip().casefold() == "connect",
-)
 
 static_directory = Path(__file__).resolve().parent / "static"
 app.mount("/assets", StaticFiles(directory=static_directory), name="assets")

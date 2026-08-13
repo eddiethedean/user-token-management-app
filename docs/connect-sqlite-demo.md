@@ -4,12 +4,12 @@ This is the shortest Connect path for evaluating the **full Access Registry appl
 Python 3.11. It uses a pre-initialized SQLite database bundled with the application, local-password
 authentication, and no external email worker.
 
-> **Connect 2025.06 requirement:** that release removes application cookies before requests reach
-> FastAPI. Before this authenticated demo will work, a Connect administrator must install the
-> header-overwriting proxy described in
-> [Required Connect 2025.06 cookie bridge](deploy.md#required-connect-202506-cookie-bridge) and make
-> it the only client path to Connect. This preserves the application's own user-management and
-> cookie system; it does not use Connect credentials as application identity.
+> **No cookie proxy required:** licensed acceptance tests pass natively on Connect 2025.06.0 and
+> 2026.07. The app preserves its own user-management and cookie system; it does not use Connect
+> credentials as application identity.
+
+The direct, proxy-free path is verified against Connect 2025.06.0 / Python 3.11.7 by the repository
+smoke harness and has completed the real login-CSRF, authenticated profile, and session-cookie flow.
 
 This is a disposable demo, not a production configuration:
 
@@ -27,6 +27,12 @@ This is a disposable demo, not a production configuration:
 
 Use the [production Connect guide](deploy.md#3-prepare-the-connect-production-configuration) when
 you need durable data, multiple processes, SMTP, trusted-header authentication, or production use.
+
+## 0. Use native cookie transport
+
+No Nginx cookie rule, tunnel header, or trusted-proxy entry is needed for this local-password demo.
+The app emits cookies with upstream `Path=/`; Connect adds the external content path once and
+passes those cookies back to Python content.
 
 ## 1. Create the Python 3.11 environment
 
@@ -59,7 +65,6 @@ export DATABASE_URL='sqlite:///./deployment/connect-demo.db'
 export AUTHENTICATION_MODE=local_password
 export COOKIE_SECURE=true
 export COOKIE_PATH=auto
-export CONNECT_COOKIE_BRIDGE_ENABLED=true
 export ALLOWED_EMAIL_DOMAINS='example.gov,example.mil,socom.mil'
 export RATE_LIMIT_ENABLED=true
 export EMAIL_BACKEND=console
@@ -148,7 +153,6 @@ rsconnect deploy fastapi \
   --environment AUTHENTICATION_MODE \
   --environment COOKIE_SECURE \
   --environment COOKIE_PATH \
-  --environment CONNECT_COOKIE_BRIDGE_ENABLED \
   --environment ALLOWED_EMAIL_DOMAINS \
   --environment RATE_LIMIT_ENABLED \
   --environment EMAIL_BACKEND \
@@ -176,13 +180,14 @@ documents the `fastapi` deployment and entrypoint.
 
 In the Connect content settings:
 
-1. Confirm users reach Connect through the required header-overwriting proxy, not its private
-   listener directly.
+1. Confirm native mode is selected and use the normal Connect URL.
 2. Under **Access**, choose **Specific users or groups** and add only the evaluators.
 3. Under **Advanced > Process configurations**, set **Max processes** to `1`. Keeping **Min
    processes** at `1` is optional but reduces cold starts.
 4. Confirm the content is using a Python 3.11 execution environment.
 5. If necessary, replace the temporary `PUBLIC_BASE_URL` with the full URL shown by Connect.
+6. Leave `TRUSTED_PROXY_IPS` empty unless a separate trusted-header or forwarded-address feature
+   requires it.
 
 Connect exposes process scaling in the [Advanced content settings](https://docs.posit.co/connect/user/content-settings/#process-configurations).
 One process is mandatory here because all application writes go to one SQLite file.
@@ -203,22 +208,27 @@ login redirects leave the Connect content path, confirm the content is running o
 ### Read safe login diagnostics in Connect
 
 This demo uses `APP_ENV=development`, so safe troubleshooting traces appear automatically in the
-Connect content log. A healthy local-password login includes this sequence (field values vary):
+Connect content log. A healthy native Connect 2025.06.0+ login includes this sequence (field values
+vary):
 
 ```text
 [access-registry:dev] csrf.preauth.cookie.issued cookie_path='/' secure=True samesite='lax' legacy_root_cleanup=False
-[access-registry:dev] cookie.bridge.accepted application_cookie_count=1 native_application_cookie_count=0
 [access-registry:dev] csrf.preauth.accepted cookie_count=1 matching_cookie_index=0
 [access-registry:dev] auth.password.accepted
 [access-registry:dev] auth.cookies.issued cookie_path='/' secure=True samesite='lax' legacy_root_cleanup=False
 [access-registry:dev] auth.access.accepted source='cookie' candidate_index=0 candidate_count=1
 ```
 
+This sequence confirms that the login-CSRF cookie returned, the password login issued the
+application session cookies, and the next authenticated request consumed them. It does not mean
+the app used the Connect account as its identity.
+
 Interpret failures as follows:
 
 - `csrf.preauth.rejected … reason='missing_cookie'`: the app received no login cookie. On Connect
-  2025.06, confirm the bridge proxy and `CONNECT_COOKIE_BRIDGE_ENABLED=true`; this is not repaired by
-  changing browser `SameSite` policy.
+  2025.06.0+, first confirm this code's `Path=/` upstream behavior, clear stale cookies, and inspect
+  customized ingress hops. Changing browser `SameSite` policy does not repair a missing request
+  cookie.
 - `csrf.preauth.rejected … reason='no_matching_cookie'`: cookies arrived, but none matched the
   submitted form; reload the page once and retry.
 - `auth.password.rejected`: CSRF succeeded, but the credentials or account state were rejected.

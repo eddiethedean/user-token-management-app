@@ -54,18 +54,15 @@ If login appears to succeed but the next request is anonymous:
 3. Confirm `PUBLIC_BASE_URL` matches the external origin users actually open.
 4. Clear stale cookies from a previous path or host.
 
-On Connect 2025.06, `cookie_count=0 reason='missing_cookie'` means its content proxy received the
-browser cookie but did not forward it to FastAPI. Changing `SameSite` or `COOKIE_PATH` cannot repair
-that transport gap. Use the administrator-controlled bridge in
-[Required Connect 2025.06 cookie bridge](deploy.md#required-connect-202506-cookie-bridge); do not
-fall back to `RStudio-Connect-Credentials`.
+On Connect 2025.06.0 and newer, application cookies work natively. The app emits an upstream root
+cookie and Connect adds the content mount once. This repository proves the direct flow on licensed
+Connect 2025.06.0, and it matches `hedron-posit`'s licensed Connect 2026.07 evidence. A healthy login
+has `csrf.preauth.accepted` followed by `auth.access.accepted`.
 
-When the bridge is configured correctly, a request carrying application cookies emits
-`cookie.bridge.accepted`. If that event is absent, verify all three controls: the browser can reach
-only the front proxy, the proxy overwrites `X-Access-Registry-Cookie` from `$http_cookie`, and the
-Connect content has `CONNECT_COOKIE_BRIDGE_ENABLED=true`. A 400 with
-`cookie bridge rejected reason=...` indicates duplicate, oversized, invalid, or conflicting
-transports; inspect proxy configuration without logging header or cookie values.
+If `cookie_count=0 reason='missing_cookie'` persists, confirm the deployed app contains the
+root-upstream cookie-path fix, clear stale cookies, and inspect customized ingress hops. Changing
+`SameSite` cannot repair a missing request cookie. Do not fall back to
+`RStudio-Connect-Credentials`; Access Registry continues to use its own accounts and sessions.
 
 ## Email
 

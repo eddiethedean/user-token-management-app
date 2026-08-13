@@ -4,12 +4,10 @@ set -Eeuo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 env_file="${repo_root}/.env"
 connect_image="rstudio/rstudio-connect:jammy-2025.06.0"
-proxy_image="nginx:1.27-alpine"
 host_port="39391"
 server_url="http://127.0.0.1:${host_port}"
 run_id="$$"
 connect_container_name="access-registry-connect-smoke-${run_id}"
-proxy_container_name="access-registry-connect-cookie-proxy-${run_id}"
 network_name="access-registry-connect-smoke-${run_id}"
 data_volume="access-registry-connect-smoke-data-${run_id}"
 smoke_root="$(mktemp -d "${TMPDIR:-/tmp}/access-registry-connect-smoke.XXXXXX")"
@@ -23,7 +21,6 @@ login_response="${smoke_root}/login-response.html"
 profile_page="${smoke_root}/profile.html"
 deactivation_verified=0
 connect_started=0
-proxy_started=0
 network_created=0
 
 log() {
@@ -62,9 +59,6 @@ cleanup() {
 
     fi
 
-    if [[ "${proxy_started}" -eq 1 ]]; then
-        docker rm -f "${proxy_container_name}" >/dev/null 2>&1
-    fi
     if [[ "${connect_started}" -eq 1 ]]; then
         docker stop --time 120 "${connect_container_name}" >/dev/null 2>&1
         docker rm -f "${connect_container_name}" >/dev/null 2>&1
@@ -87,10 +81,6 @@ cleanup() {
 
     if docker ps -a --format '{{.Names}}' | grep -Fxq "${connect_container_name}"; then
         log "cleanup failed: Connect test container still exists"
-        original_status=1
-    fi
-    if docker ps -a --format '{{.Names}}' | grep -Fxq "${proxy_container_name}"; then
-        log "cleanup failed: cookie proxy test container still exists"
         original_status=1
     fi
     if docker volume inspect "${data_volume}" >/dev/null 2>&1; then
@@ -198,7 +188,7 @@ log "building a fresh seeded SQLite bundle"
 docker volume create "${data_volume}" >/dev/null
 docker network create "${network_name}" >/dev/null
 network_created=1
-log "starting licensed Connect 2025.06.0 with Python 3.11.7"
+log "starting licensed Connect 2025.06.0 with Python 3.11.7 and native cookies"
 docker run -d \
     --platform linux/amd64 \
     --privileged \
@@ -207,6 +197,7 @@ docker run -d \
     --hostname "${connect_container_name}" \
     --network "${network_name}" \
     --network-alias connect \
+    -p "127.0.0.1:${host_port}:3939" \
     -e RSC_LICENSE="${connect_license}" \
     -v "${data_volume}:/data" \
     -v "${repo_root}/docker/connect-smoke.gcfg:/etc/rstudio-connect/rstudio-connect.gcfg:ro" \
@@ -214,15 +205,6 @@ docker run -d \
     "${connect_image}" >/dev/null
 connect_started=1
 unset connect_license
-
-log "starting the header-overwriting cookie proxy"
-docker run -d \
-    --name "${proxy_container_name}" \
-    --network "${network_name}" \
-    -p "127.0.0.1:${host_port}:8080" \
-    -v "${repo_root}/docker/connect-cookie-proxy.conf:/etc/nginx/nginx.conf:ro" \
-    "${proxy_image}" >/dev/null
-proxy_started=1
 
 ready=0
 for _ in {1..90}; do
@@ -235,17 +217,11 @@ for _ in {1..90}; do
         docker logs --tail 120 "${connect_container_name}" || true
         exit 1
     fi
-    if ! docker ps --format '{{.Names}}' | grep -Fxq "${proxy_container_name}"; then
-        log "cookie proxy stopped during startup"
-        docker logs --tail 120 "${proxy_container_name}" || true
-        exit 1
-    fi
     sleep 2
 done
 if [[ "${ready}" -ne 1 ]]; then
     log "Connect did not become ready"
     docker logs --tail 120 "${connect_container_name}" || true
-    docker logs --tail 120 "${proxy_container_name}" || true
     exit 1
 fi
 if ! docker exec "${connect_container_name}" \
@@ -347,8 +323,6 @@ if ! printf '%s' "${confirmed_user_json}" | jq -e \
     exit 1
 fi
 
-export CONNECT_COOKIE_BRIDGE_ENABLED=true
-
 log "deploying the main app as FastAPI content"
 (
     cd "${bundle_dir}"
@@ -372,7 +346,6 @@ log "deploying the main app as FastAPI content"
         --environment AUTHENTICATION_MODE \
         --environment COOKIE_SECURE \
         --environment COOKIE_PATH \
-        --environment CONNECT_COOKIE_BRIDGE_ENABLED \
         --environment ALLOWED_EMAIL_DOMAINS \
         --environment RATE_LIMIT_ENABLED \
         --environment EMAIL_BACKEND \
@@ -430,7 +403,7 @@ if ! awk '($0 !~ /^#/ || $0 ~ /^#HttpOnly_/) && $6 == "rsconnect" { found = 1 } 
     exit 1
 fi
 
-log "checking health and mount-aware login through the Connect proxy"
+log "checking health and mount-aware native login through Connect"
 health_json="$(curl --silent --show-error --fail \
     -b "${cookie_jar}" -c "${cookie_jar}" "${content_url}/health")"
 printf '%s' "${health_json}" | jq -e '.status == "ok"' >/dev/null
@@ -501,9 +474,7 @@ for _ in {1..30}; do
     if docker exec "${connect_container_name}" /bin/bash -lc \
         'grep -R -q "auth.access.accepted" /data/jobs 2>/dev/null' >/dev/null 2>&1 && \
        docker exec "${connect_container_name}" /bin/bash -lc \
-        'grep -R -q "csrf.preauth.accepted" /data/jobs 2>/dev/null' >/dev/null 2>&1 && \
-       docker exec "${connect_container_name}" /bin/bash -lc \
-        'grep -R -q "cookie.bridge.accepted" /data/jobs 2>/dev/null' >/dev/null 2>&1; then
+        'grep -R -q "csrf.preauth.accepted" /data/jobs 2>/dev/null' >/dev/null 2>&1; then
         diagnostics_ready=1
         break
     fi
@@ -515,4 +486,4 @@ if [[ "${diagnostics_ready}" -ne 1 ]]; then
     exit 1
 fi
 
-log "PASS: proxied deployment, health, CSRF cookie, app login, session cookies, profile, and logs"
+log "PASS: native deployment, health, CSRF cookie, app login, session cookies, profile, and logs"
