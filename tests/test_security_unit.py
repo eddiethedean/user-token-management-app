@@ -1,4 +1,4 @@
-"""Unit security coverage for Hedron Access Registry (no HTTP)."""
+"""Unit security coverage for Hedron Data Mover (no HTTP)."""
 
 from __future__ import annotations
 

@@ -8,7 +8,7 @@ from starlette.responses import Response
 
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.routing import redirect_path
-from app.services.accounts import ProfileValues, update_profile
+from app.services.accounts import ProfileValues, security_page_values, update_profile
 from app.ui import partials as ui
 from app.ui.http import mutation_response, render_authenticated_view
 from app.ui.interactions import ok_fragment
@@ -16,6 +16,7 @@ from app.ui.layout import alert_box, page_heading
 from app.ui.params import (
     FullNameForm,
     JobTitleForm,
+    NoticeQuery,
     OrganizationForm,
     PhoneForm,
     UpdatedQuery,
@@ -39,8 +40,11 @@ def register_profile_routes(app: Hedron) -> None:
     async def profile_page(
         request: Request,
         auth: Auth,
+        db: DbSession,
         settings: SettingsDep,
         updated: UpdatedQuery = False,
+        notice: NoticeQuery = "",
+        tab: NoticeQuery = "",
     ) -> Response:
         request.state.hedron_authenticated = True
         csrf = auth.session.csrf_token
@@ -49,28 +53,30 @@ def register_profile_routes(app: Hedron) -> None:
             " Verified email",
             class_="verification-badge",
         )
+        values = security_page_values(db, auth.user, settings)
+        notices = {"session-revoked": "The browser session was revoked."}
         body = [
             page_heading(
-                "Account profile",
-                "Your information",
-                "Keep your contact and organizational details current.",
+                "Account settings",
+                "Account",
+                "Manage your profile, password, active sessions, and recent account activity.",
                 verified_badge,
             ),
-            alert_box("Your profile has been updated." if updated else "", kind="success"),
+            alert_box(
+                "Your profile has been updated." if updated else notices.get(notice, ""),
+                kind="success",
+            ),
             html.div(
-                html.section(
-                    html.div(
-                        html.div(
-                            html.h2("Profile details"),
-                            html.p("Information shown to application administrators."),
-                        ),
-                        class_="panel-heading",
-                    ),
-                    ui.profile_form(request, auth, csrf_token=csrf),
-                    class_="panel panel-main",
+                ui.account_tabs(
+                    request,
+                    csrf_token=csrf,
+                    local_password=values["local_password"],
+                    sessions=values["sessions"],
+                    auth=auth,
+                    profile_content=ui.account_profile_panel(request, auth, csrf_token=csrf),
+                    active=tab,
                 ),
-                ui.profile_identity(request, auth),
-                class_="content-grid profile-grid",
+                class_="security-stack",
             ),
         ]
         return await render_authenticated_view(
@@ -78,7 +84,7 @@ def register_profile_routes(app: Hedron) -> None:
             body=body,
             auth=auth,
             settings=settings,
-            page_title="Your profile",
+            page_title="Account",
             csrf_token=csrf,
             push_path="/profile",
         )

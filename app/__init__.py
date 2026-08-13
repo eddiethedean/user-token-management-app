@@ -1,4 +1,4 @@
-"""Access Registry — administrator-approved user and token management."""
+"""Data Mover — reusable pipelines with encrypted connection credentials."""
 
 from __future__ import annotations
 

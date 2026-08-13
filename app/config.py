@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     )
 
     app_env: Literal["development", "test", "production"] = "development"
-    app_name: str = Field(default="Access Registry", min_length=1, max_length=100)
+    app_name: str = Field(default="Data Mover", min_length=1, max_length=100)
     public_base_url: str = "http://127.0.0.1:8000"
     database_url: str = f"sqlite:///{BASE_DIR / 'access-registry.db'}"
 
@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     email_retry_max_seconds: int = Field(default=3600, ge=1, le=86400)
     email_claim_timeout_seconds: int = Field(default=300, ge=30, le=3600)
     email_from: str = Field(
-        default="Access Registry <no-reply@example.gov>", min_length=3, max_length=320
+        default="Data Mover <no-reply@example.gov>", min_length=3, max_length=320
     )
     smtp_host: str = ""
     smtp_port: int = Field(default=25, ge=1, le=65535)

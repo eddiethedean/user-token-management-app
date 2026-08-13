@@ -155,7 +155,7 @@ def workbench_session(workbench_stack):
 
 @pytest.fixture(scope="module")
 def app_session(workbench_stack):
-    """Authenticated Access Registry client using seeded ADMIN_EMAIL credentials."""
+    """Authenticated Data Mover client using seeded ADMIN_EMAIL credentials."""
     http = client(workbench_stack["app"])
     response = app_login(
         http,

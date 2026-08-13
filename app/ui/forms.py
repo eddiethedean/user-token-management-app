@@ -27,7 +27,7 @@ def submit_button(
     type: str = "submit",
     **attrs: Any,
 ) -> NodeLike:
-    """Render a themed button (Access Registry ``.button`` classes)."""
+    """Render a themed button (Data Mover ``.button`` classes)."""
     classes = ["button"]
     if quiet:
         classes.append("button-quiet")

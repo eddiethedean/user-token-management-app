@@ -1,6 +1,6 @@
 # Authentication modes
 
-Access Registry supports two values for `AUTHENTICATION_MODE`. Choose one per deployment; do not
+Data Mover supports two values for `AUTHENTICATION_MODE`. Choose one per deployment; do not
 mix client trust models.
 
 | | `local_password` | `trusted_header` |
@@ -16,7 +16,8 @@ mix client trust models.
 
 - HTTPS `PUBLIC_BASE_URL`, `COOKIE_SECURE=true`, PostgreSQL, SMTP, rate limits enabled
 - Exact `ALLOWED_EMAIL_DOMAINS`
-- High-entropy JWT / session / CSRF / API-token encryption secrets from an approved store
+- High-entropy JWT / session / CSRF / connection-credential encryption secrets from an approved
+  store (`API_TOKEN_ENCRYPTION_KEYS` retains its legacy configuration name)
 
 See the [production security gate](../SECURITY.md#production-security-gate) for the full checklist.
 

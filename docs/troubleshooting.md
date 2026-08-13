@@ -62,7 +62,7 @@ has `csrf.preauth.accepted` followed by `auth.access.accepted`.
 If `cookie_count=0 reason='missing_cookie'` persists, confirm the deployed app contains the
 root-upstream cookie-path fix, clear stale cookies, and inspect customized ingress hops. Changing
 `SameSite` cannot repair a missing request cookie. Do not fall back to
-`RStudio-Connect-Credentials`; Access Registry continues to use its own accounts and sessions.
+`RStudio-Connect-Credentials`; Data Mover continues to use its own accounts and sessions.
 
 ## Email
 
@@ -72,6 +72,42 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 | Links only in logs | `EMAIL_BACKEND=console` | Expected locally; use SMTP in production |
 | Messages stuck / dead-lettered | SMTP misconfig or attempt budget | Fix SMTP; `python -m app retry-email` |
 | Multiple workers on SQLite | Claim races | Use one worker with SQLite |
+
+## Connections and status
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Connection save is rejected | A required provider field is empty or malformed | Recheck every required field. PostgreSQL and MongoDB ports must be numeric and within 1–65535; choose one of the displayed SSL/TLS modes |
+| Saved values appear blank | Expected non-reveal behavior | Enter a complete replacement bundle only when rotating or correcting the connection; Data Mover never repopulates plaintext credentials |
+| Status says `Not configured` | No encrypted credential bundle exists for that user/provider | Save the connection under **Connections → Credentials**; connections are owner-scoped |
+| Status says `Connected`, but the real service is unavailable | The current handshake is simulated | Expected in the demo. Do not use the status as evidence of real network, cluster, credential, or database availability |
+| Advana compute says sleeping | Default simulated Databricks state | Select **Wake compute** under **Connections → Status**; this changes demo state only |
+| Wake action is unavailable for another provider | Only Advana's catalog declares a wakeable runtime | Expected; MSS, PostgreSQL, and MongoDB have retest only |
+| I need a fully populated local demo | The normal app starts without user-owned connections | Run `make demo`; it creates the printed local account and seeds fake `.demo.invalid` credentials for all four providers. The command is development-only |
+
+## Pipelines and saved routes
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Source and destination selection is rejected | The same remote provider was selected on both ends | Choose different remote systems. CSV is source-only and may target any supported remote provider |
+| A connection is missing from Pipeline | It is not saved for the current user or its latest validation is not Connected | Save or replace it under **Connections → Credentials**, then use **Connections → Status** to retest it. Pipeline intentionally hides unavailable connections |
+| Save or Run is disabled | A required connection is missing, the CSV has not been scanned, the same remote system is selected twice, or Advana compute is sleeping | Follow the availability message above the route. Restore/retest the connection, scan the CSV, choose distinct systems, or wake Advana compute |
+| Cannot save a pipeline | Short name, unavailable connection, invalid catalog object, missing CSV scan, or invalid new-table name | Confirm both remote connections are Connected. Use a name with at least 3 characters and catalog values from the UI. New names must be 2–63 characters, start with a letter, and contain only letters, numbers, or underscores |
+| A saved pipeline is missing | Saved definitions are owner-scoped, or it is older than the 12 most recently updated entries shown | Sign in as the owner; update or recreate the route if it is outside the current list |
+| Run completes but no destination changes | Runs are simulations | Expected. The UI generates stages, metrics, batches, and logs without calling or modifying a remote system |
+| Run button says transfer is running | A simulation is already active in the page | Wait for completion before starting another run |
+
+## CSV sources
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Upload is rejected before scanning | Wrong extension, empty file, non-UTF-8 bytes, or file over 5 MB | Use a non-empty UTF-8 `.csv` no larger than 5 MB |
+| Scan reports missing or duplicate columns | Empty headers or names duplicated without regard to case | Give every column a unique non-empty name of at most 128 characters |
+| Scan reports an unexpected row width | A non-empty row has a different number of values from the header | Correct quoting/delimiters or normalize the row to the header width |
+| A mixed column is inferred as `text` | Conservative inference found incompatible non-empty values | Clean the source values if a narrower type is required; integer + decimal becomes `decimal`, and date + datetime becomes `datetime` |
+| Saved CSV pipeline no longer loads | The referenced owner-scoped upload was removed or the database was reset/redeployed | Upload and scan the file again, then resave the pipeline |
+
+See the [Data Mover user guide](user-guide.md) for the supported workflow and full CSV limits.
 
 ## Domain allowlist
 

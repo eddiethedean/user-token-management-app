@@ -21,7 +21,7 @@ Equivalent: `access-registry migrate …` / `make migrate` / `make schema-status
 
 ## Adopt existing (`--adopt-existing`)
 
-Use only when the database has Access Registry tables but **no** `alembic_version` row (for example
+Use only when the database has legacy pre-Alembic Data Mover tables but **no** `alembic_version` row (for example
 an old `create_all()` environment). The command:
 
 1. Verifies known core tables and column shapes against the SQLAlchemy metadata.
@@ -40,6 +40,11 @@ If the database is already Alembic-managed, omit `--adopt-existing` and run plai
   data. They are not an application feature for undoing user actions; prefer restore-from-backup for
   production incidents.
 - Keep NIPR and SIPR (or other enclaves) on separate databases, credentials, and key material.
+
+Recent data-movement revisions add owner-scoped saved pipelines (`0007`), connection catalog and
+health/runtime metadata (`0008`), and owner-scoped CSV pipeline sources (`0009`). Do not remove or
+rewrite these rows outside an approved retention/migration procedure: saved definitions may hold
+foreign keys to CSV uploads, and credential ciphertext depends on the configured key ring.
 
 ## After migrate
 

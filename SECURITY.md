@@ -1,6 +1,6 @@
 # Security architecture and decision record
 
-This document records the security decisions implemented by Access Registry, the evidence used to
+This document records the security decisions implemented by Data Mover, the evidence used to
 make them, and the controls that must be supplied by the deployment environment. It is intended to
 support design review and preparation of an organization-specific system security plan (SSP).
 
@@ -14,10 +14,13 @@ The SIPR authorizing organization must select the applicable CNSS/DoD requiremen
 NIST and OWASP references here support engineering reasoning but do not decide that authorization
 boundary.
 
-**Operator surface:** Access Registry is a **browser HTMX UI** with cookie sessions — not a public
-REST/OpenAPI resource API. Bearer-style Advana/ADE/MSS values are stored encrypted for authorized
-users; they are not how the application authenticates HTTP callers. Day-to-day setup lives in the
-[README](README.md) and [docs/](docs/); use this file for the decision register and production gate.
+**Operator surface:** Data Mover is a **browser HTMX UI** with cookie sessions — not a public
+REST/OpenAPI resource API. Advana, MSS, PostgreSQL, and MongoDB credential bundles are stored
+encrypted for authorized users; they are not how the application authenticates HTTP callers.
+Provider handshakes, catalogs, Databricks wake state, and pipeline runs are simulated in the current
+version and make no remote calls. CSV uploads and saved pipeline definitions are real owner-scoped
+database content. Day-to-day setup lives in the [README](README.md) and [docs/](docs/); use this file
+for the decision register and production gate.
 
 ## Reporting a vulnerability
 
@@ -54,10 +57,11 @@ authorization evidence.
       authentication, CAC validation, identity proofing, clearance, or authorization.
 - [ ] High-entropy, enclave-unique JWT and session secrets are injected from an approved store;
       access, audit, incident, and rotation procedures are recorded.
-- [ ] High-entropy API-token encryption keys are injected separately from JWT/session secrets; old
+- [ ] High-entropy connection-credential encryption keys (`API_TOKEN_ENCRYPTION_KEYS` retains its
+      legacy configuration name) are injected separately from JWT/session secrets; old
       referenced key versions remain available, protected backups and recovery are tested, and the
       exact cryptographic module and operational environment have the required validation evidence.
-- [ ] Before user API tokens reach run code, the run supervisor uses an explicit minimal environment
+- [ ] Before user connection credentials reach real run code, the run supervisor uses an explicit minimal environment
       that cannot inherit the master-key ring, grants only selected provider slots, isolates users and
       runs, redacts logs/artifacts, and records each use. Arbitrary granted code is treated as capable
       of exfiltrating its token.
@@ -65,10 +69,10 @@ authorization evidence.
       separately, the application run supervisor passes an explicit child environment containing no
       parent secrets except the selected provider token. Secret values never enter command arguments,
       URLs, logs, artifacts, exception reports, or crash dumps.
-- [ ] The atomic API-token key-usage counter is monitored, its per-key ceiling is approved well below
+- [ ] The atomic credential-encryption key-usage counter is monitored, its per-key ceiling is approved well below
       the applicable SP 800-38D bound, rotation occurs early, and an approved rewrap procedure is
       tested before retiring old keys.
-- [ ] Token-management authentication strength and any step-up/reauthentication requirement are
+- [ ] Connection-management authentication strength and any step-up/reauthentication requirement are
       approved for the value of the stored credentials; provider-side issuance uses the minimum
       possible scope and lifetime, and revocation/rotation procedures are tested.
 - [ ] The configured offline common/compromised-password blocklist is approved, versioned, updated,
@@ -148,14 +152,15 @@ claim:
   conclusions. They are labeled as rationale, limitations, deployment controls, risk acceptance, or
   gaps rather than presented as quotations or universal requirements.
 
-No Advana, ADE, or MSS token-format, scope, lifetime, or revocation behavior is asserted because no
-provider specification was supplied or relied upon. The application treats those values as opaque
-bearer-like credentials. This review is an engineering evidence check, not a penetration test,
+No Advana, MSS, PostgreSQL, or MongoDB credential-format, scope, lifetime, or revocation behavior is
+asserted beyond Data Mover's local input-shape validation because no provider specification was supplied
+or relied upon. The application treats stored values as opaque high-value credentials. This review
+is an engineering evidence check, not a penetration test,
 cryptographic-module validation, SSP assessment, or authorization to operate.
 
 ## Assurance boundary
 
-Access Registry keeps administrator-approved local accounts and authorization roles. In
+Data Mover keeps administrator-approved local accounts and authorization roles. In
 `local_password` mode it proves only that a claimant knows the password bound to an account;
 invitation acceptance and self-registration verification also prove access to an approved email
 mailbox at that time. In `trusted_header` mode it instead accepts an email identity asserted by an
@@ -563,7 +568,7 @@ recommends server-side idle and absolute timeouts.
 
 **Status:** Implemented (cookie-session UI; no separate public JSON auth API).
 
-**Decision:** Access Registry is a cookie-session HTMX application. Successful login sets HttpOnly
+**Decision:** Data Mover is a cookie-session HTMX application. Successful login sets HttpOnly
 access and refresh cookies scoped to the deployment mount. Optional `Authorization: Bearer` may
 carry the same access JWT for clients that already hold it, but there is no `/api/v1/auth/token`
 JSON issuance endpoint and bearer credentials do not skip CSRF: authenticated mutations still require
@@ -945,26 +950,35 @@ suites as penetration testing.
   [Workbench FastAPI proxy documentation](https://docs.posit.co/ide/server-pro/user/vs-code/guide/proxying-web-servers.html#fastapi)
   establish that the two platforms expose different runtime base-path signals that require testing.
 
-### SD-24 — Encrypt user-owned API tokens and restrict provider slots
+### SD-24 — Encrypt user-owned connection credentials and restrict provider slots
 
 **Status:** Storage and owner-management implemented; run-process isolation is a deployment and
 integration gap.
 
-**Decision:** Authenticated users may store at most one token for each explicitly supported provider:
-Advana, ADE, and MSS. Provider names and target environment-variable names are application constants,
-not user-controlled inputs. The UI and API expose configuration metadata but no plaintext retrieval
-operation. Replacing a token encrypts a new value in the same provider slot; deleting it removes the
-ciphertext. Administrators have no route that retrieves another user's token. Token format is checked
-only for surrounding whitespace and a bounded byte length; storage does not prove that a credential
-is valid, minimally scoped, unexpired, or unrevoked at its provider.
+**Decision:** Authenticated users may store at most one credential bundle for each explicitly
+supported provider: Advana, MSS, PostgreSQL, and MongoDB. Provider names and target
+environment-variable names are application constants, not user-controlled inputs. The UI and
+server routes expose configuration metadata but no plaintext retrieval operation. Replacing a
+bundle encrypts a complete new value in the same provider slot; deleting it removes the ciphertext.
+Administrators have no route that retrieves another user's credentials. Data Mover validates required
+fields, surrounding whitespace, bounded lengths, ports, URLs, and displayed transport-mode choices.
+Storage and simulated validation do not prove that a credential is valid, minimally scoped,
+unexpired, unrevoked, or reachable at its provider.
 
-Each token is encrypted with a random 256-bit data-encryption key using AES-256-GCM and fresh nonces.
+Pipeline catalogs expose only the current user's stored bundles whose simulated validation status
+is `connected`. Pipeline persistence repeats that provider-availability check on the server, so
+hidden or stale browser options cannot be submitted directly. This is a fail-closed demo-state
+control, not evidence that the remote credential works. The local `seed-demo-connections` helper
+uses reserved `.demo.invalid` hosts and explicit fake values, does not overwrite by default, and
+refuses to run when `APP_ENV=production`.
+
+Each credential bundle is encrypted with a random 256-bit data-encryption key using AES-256-GCM and fresh nonces.
 The data key is independently wrapped with the active key from `API_TOKEN_ENCRYPTION_KEYS`. Additional
 authenticated data binds both ciphertexts to the environment-independent format version, owner,
 secret record, and provider. The database stores the ciphertexts, nonces, and non-secret master-key
 identifier. Old master keys remain in the configured key ring while records reference them. Creation,
-replacement, deletion, and run-boundary use are audited without token material. Authenticated token
-pages and API responses set `Cache-Control: no-store`. Each data-key wrap atomically increments a
+replacement, deletion, and run-boundary use are audited without credential material. Authenticated
+credential pages and fragments set `Cache-Control: no-store`. Each data-key wrap atomically increments a
 database counter for its master-key ID. The operation fails closed at
 `API_TOKEN_MAX_WRAPS_PER_KEY` (one million by default). Because historical replacements cannot be
 reliably attributed to a key, migration marks every key with pre-counter ciphertext above the
@@ -975,28 +989,30 @@ operators must configure a fresh active key after upgrade.
 
 | Design choice | Security justification | Residual boundary |
 | --- | --- | --- |
-| Treat saved values as bearer capabilities | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-5) explains that any party possessing a bearer token can use it and identifies disclosure and replay as threats. This supports TLS, encrypted storage, non-reveal responses, and never placing values in URLs. | These controls do not narrow the privileges encoded by Advana, ADE, or MSS. Users must issue the least-privileged token at the provider. |
-| Exactly three provider slots, fixed environment-variable names, and owner-scoped queries | [OWASP Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#enforce-least-privileges) recommends least privilege, deny-by-default behavior, and permission checks on every request. An allowlist prevents users from inventing environment-variable names that could alter runner behavior; owner predicates prevent cross-user object access. | A compromised owner account can replace or delete that owner's tokens. The current AAL1-style authentication boundary may be insufficient for high-value credentials. |
+| Treat saved values as high-value capabilities | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-5) explains that any party possessing a bearer token can use it and identifies disclosure and replay as threats. This directly applies to Advana/MSS tokens and supports the same conservative handling for database passwords: TLS, encrypted storage, non-reveal responses, and never placing values in URLs. | These controls do not narrow the privileges encoded by a token or database account. Users must issue the least-privileged credential at the provider. |
+| Exactly four provider slots, fixed environment-variable names, and owner-scoped queries | [OWASP Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#enforce-least-privileges) recommends least privilege, deny-by-default behavior, and permission checks on every request. An allowlist prevents users from inventing environment-variable names that could alter runner behavior; owner predicates prevent cross-user object access. | A compromised owner account can replace or delete that owner's credentials. The current AAL1-style authentication boundary may be insufficient for high-value credentials. |
 | Per-record AES-256-GCM with fresh 96-bit nonces and context-bound AAD | [NIST SP 800-38D](https://doi.org/10.6028/NIST.SP.800-38D) specifies GCM as authenticated encryption with associated data, and the [`cryptography` AES-GCM API](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM) requires a nonce never be reused with a key. Random per-record data keys and fresh nonces protect confidentiality and detect modification; AAD causes decryption to fail if ciphertext is moved to a different owner, record, provider, or purpose. | Randomness depends on the operating-system CSPRNG. An atomic aggregate counter fails closed at a conservative configured wrap limit, but the organization must approve that ceiling, monitor it, and rotate early. The deployed module and environment still need required FIPS evidence. |
 | Envelope encryption and a versioned key ring separate from the database and auth keys | [NIST SP 800-57 Part 1 Rev. 5](https://doi.org/10.6028/NIST.SP.800-57pt1r5) covers protection, lifecycle, cryptoperiods, backup, and recovery of keying material. [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-management) recommends storing keys separately from encrypted data and designing for rotation. The active key protects new data while retained key identifiers permit controlled migration and recovery. | The key ring is available to the FastAPI process. Database-only theft does not disclose plaintext, but application-host or key-ring compromise can. Loss of an old referenced key permanently loses the associated tokens. |
 | No plaintext read endpoint or UI reveal | GitHub's [Actions secrets REST API](https://docs.github.com/en/rest/actions/secrets) lists secret metadata without returning encrypted values. Following that pattern reduces routine exposure in browsers, support workflows, and admin tooling. | This is product-level non-disclosure, not end-to-end encryption. Privileged host operators and trusted application code remain in the security boundary. |
 | Metadata-only audit events and no-store responses | [OWASP Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#23-logging) says secrets must not be logged and recommends auditing who requested or used them. GitHub warns that [automatic redaction is not guaranteed](https://docs.github.com/en/actions/reference/security/secure-use#using-secrets), so correctness cannot depend on a masking heuristic. | Application, proxy, runner, artifact, exception, and crash-dump paths all require deployment testing. `no-store` controls caching; it cannot prevent a compromised browser or endpoint from reading a token while it is entered. |
 | Explicit delivery only at an authorized run boundary | OWASP describes controlled [secret consumption](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#25-secret-consumption) and warns that environment variables may leak through logs or dumps. Posit documents that local content processes [inherit Connect server environment variables by default](https://docs.posit.co/connect/admin/appendix/configuration/#inherit-system-env-vars). Therefore Connect should disable that inheritance, and the application runner must separately construct a minimal child environment that excludes the app's master-key ring and grants only selected provider values. | `Applications.InheritSystemEnvVars=false` does not sanitize subprocesses created by the application. Code intentionally granted a bearer token can copy or transmit it. GitHub documents the analogous boundary: users able to modify workflow code can [extract configured secrets](https://docs.github.com/en/actions/reference/security/secure-use#considering-cross-repository-access). Isolation reduces opportunities but cannot make an available bearer value unknowable to that code. |
-| Prefer short-lived credentials when providers support them | OWASP recommends limiting secret lifetime and automating rotation. GitHub's [OIDC guidance](https://docs.github.com/en/actions/concepts/security/openid-connect) uses short-lived, job-specific credentials instead of stored long-lived secrets; Posit similarly documents [process-lifetime API keys](https://docs.posit.co/connect/admin/content-management/api-keys/#automatic-provisioning). | Advana, ADE, and MSS integration currently accepts static user-supplied tokens. Provider-side OAuth, federation, scope, expiration, and revocation remain future integration work. |
+| Prefer short-lived credentials when providers support them | OWASP recommends limiting secret lifetime and automating rotation. GitHub's [OIDC guidance](https://docs.github.com/en/actions/concepts/security/openid-connect) uses short-lived, job-specific credentials instead of stored long-lived secrets; Posit similarly documents [process-lifetime API keys](https://docs.posit.co/connect/admin/content-management/api-keys/#automatic-provisioning). | Data Mover currently accepts static user-supplied connection bundles. Provider-side OAuth, federation, scope, expiration, and revocation remain future integration work. |
 
 **Limitations and deployment controls:** The FastAPI process receives the master-key ring and can
-therefore decrypt all stored tokens; encryption primarily separates a database-only compromise from
-the key material. The current repository supplies an internal `decrypt_user_secret_for_run()` hook
-but does not yet contain an isolated run supervisor. Before connecting it to arbitrary run code,
+therefore decrypt all stored credential bundles; encryption primarily separates a database-only
+compromise from the key material. The current Pipeline run is a browser-side simulation that does
+not decrypt credentials or contact remote endpoints. The repository supplies an internal
+`decrypt_user_secret_for_run()` hook but does not yet contain an isolated real run supervisor. Before
+connecting it to arbitrary run code,
 launch each run with an explicit minimal environment that excludes the master-key ring, inject only
 the selected user's selected provider values, prohibit secrets in command arguments and logs, and
 define process, filesystem, network, artifact, and crash-dump isolation. Code intentionally granted a
-token can still exfiltrate it, so authorization and approval must happen before each grant. Protect,
+credential can still exfiltrate it, so authorization and approval must happen before each grant. Protect,
 back up, rotate, and test recovery of every production key separately from the database. Losing all
 copies of a referenced key makes its tokens unrecoverable; compromising the application host and key
 ring defeats database encryption. The all-zero development key is rejected in production. The exact
 deployed cryptographic module still requires organization-specific FIPS and authorization evidence.
-Deleting the local record does not revoke the token at its provider; suspected disclosure requires
+Deleting the local record does not revoke the credential at its provider; suspected disclosure requires
 provider-side revocation or rotation. The JSON key-ring variable is itself a structured high-value
 secret and must never be logged; masking or redaction is not a substitute for preventing disclosure.
 [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-storage)
@@ -1023,6 +1039,34 @@ their records are rewrapped by an approved procedure or deleted.
 - [PostgreSQL pgcrypto security limitations](https://www.postgresql.org/docs/current/pgcrypto.html#PGCRYPTO-NOTES)
   explain why cryptographic operations and key handling are kept in the application rather than the
   database server.
+
+### SD-25 — Treat CSV pipeline sources as untrusted owner data
+
+**Status:** Upload validation and owner scoping implemented; retention, database-at-rest protection,
+and malware/content inspection are deployment controls or future work.
+
+**Decision:** CSV is accepted only as a pipeline source for the authenticated owner. The server
+requires a `.csv` filename, limits the body to 5 MB, rejects NUL/non-UTF-8 content, allows at most 200
+unique non-empty headers, limits header and cell sizes, and requires consistent row widths. Parsing
+uses Python's data-only CSV reader; inferred values are never evaluated as code. Hedron escapes
+column names and examples when rendering the inspection result. A pipeline may reference an upload
+only when both rows belong to the same authenticated user.
+
+The database stores the original upload bytes, filename, content type, SHA-256 checksum, row count,
+and inferred column profile. Application envelope encryption currently protects connection
+credentials, not CSV content. Production deployments must therefore provide approved database and
+backup encryption, access controls, retention/deletion procedures, malware or content inspection if
+required by policy, and limits/monitoring appropriate to expected aggregate upload volume.
+
+CSV inspection does not establish that a file is safe, authoritative, correctly classified, or
+semantically suitable for a destination schema. The current transfer simulator does not export
+values to spreadsheets or remote systems; any future exporter must separately address formula
+injection, destination type conversion, transactional failure, and partial-write recovery.
+
+**Evidence:** Owner predicates, bounded parsing, escaped output, no-store authenticated responses,
+and metadata-only audit events follow the authorization, input-handling, and logging principles
+already cited in this register. Tests cover invalid encoding/shape, size and header limits, inferred
+types, storage metadata, saved-pipeline ownership, and cross-user rejection.
 
 ## Reference index
 

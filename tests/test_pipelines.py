@@ -1,0 +1,360 @@
+"""Saved pipeline definitions and demo workspace coverage."""
+
+from __future__ import annotations
+
+import re
+
+from sqlalchemy import select
+
+from app.database import SessionLocal
+from app.models import AuditEvent, PipelineDefinition, PipelineUpload
+from app.services.csv_uploads import inspect_csv
+from tests.helpers import csrf_from, web_login
+
+
+def test_pipeline_workspace_renders_live_feedback_controls(client) -> None:
+    web_login(client, next_path="/pipeline")
+    response = client.get("/pipeline")
+
+    assert response.status_code == 200
+    assert "Build a transfer" in response.text
+    assert 'id="pipeline-progress-bar"' in response.text
+    assert 'id="pipeline-batch-stream"' in response.text
+    assert 'data-pipeline-start="true"' in response.text
+    assert 'id="pipeline-run-log"' in response.text
+    assert "Saved pipelines" in response.text
+    assert 'value="advana"' not in response.text
+    assert 'value="mss"' not in response.text
+    assert 'value="postgres"' not in response.text
+    assert 'value="mongodb"' not in response.text
+    assert 'id="pipeline-source-schema-select"' in response.text
+    assert 'id="pipeline-target-table-select"' in response.text
+    assert "Set up a connection first" in response.text
+    assert "CSV file · Upload from device" in response.text
+    assert 'id="pipeline-csv-file"' in response.text
+    assert 'id="pipeline-csv-inspection"' in response.text
+    assert "0/4 connections ready" in response.text
+    assert "Set up at least one connection" in response.text
+    run_button = re.search(r'<button[^>]+data-pipeline-start="true"[^>]*>', response.text)
+    assert run_button is not None
+    assert "disabled" in run_button.group(0)
+
+
+def test_pipeline_workspace_only_lists_configured_connections(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    response = client.get("/pipeline")
+
+    assert response.status_code == 200
+    assert "4/4 connections ready" in response.text
+    assert 'value="advana"' in response.text
+    assert 'value="mss"' in response.text
+    assert 'value="postgres"' in response.text
+    assert 'value="mongodb"' in response.text
+    assert "PostgreSQL 16" in response.text
+    assert "MongoDB 8" in response.text
+    assert "Databricks" in response.text
+    assert "Palantir Foundry" in response.text
+    assert "Create a new table" in response.text
+    run_button = re.search(r'<button[^>]+data-pipeline-start="true"[^>]*>', response.text)
+    assert run_button is not None
+    assert "disabled" not in run_button.group(0)
+
+
+def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    saved = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_id": "",
+            "pipeline_name": "Mission orders to MSS",
+            "source_provider": "advana",
+            "source_schema": "operations",
+            "source_table": "mission_orders",
+            "destination_provider": "mss",
+            "destination_schema": "operational_data",
+            "destination_table": "mission_orders_curated",
+            "write_mode": "append",
+        },
+    )
+
+    assert saved.status_code == 303
+    assert "notice=saved" in saved.headers["location"]
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Mission orders to MSS")
+        )
+        assert pipeline is not None
+        assert pipeline.source_provider == "advana"
+        assert pipeline.destination_provider == "mss"
+        assert pipeline.source_dataset == "mission_orders"
+        assert pipeline.source_schema == "operations"
+        assert pipeline.source_table == "mission_orders"
+        assert pipeline.destination_schema == "operational_data"
+        assert pipeline.destination_table == "mission_orders_curated"
+        assert pipeline.destination_create is False
+        assert (
+            db.scalar(
+                select(AuditEvent).where(
+                    AuditEvent.event_type == "pipeline.created",
+                    AuditEvent.actor_user_id == pipeline.user_id,
+                )
+            )
+            is not None
+        )
+
+    reloaded = client.get(saved.headers["location"])
+    assert reloaded.status_code == 200
+    assert "Pipeline saved" in reloaded.text
+    assert "Mission orders to MSS" in reloaded.text
+    assert f'data-pipeline-id="{pipeline.id}"' in reloaded.text
+    assert 'data-pipeline-run="true"' in reloaded.text
+
+
+def test_saved_pipeline_requires_distinct_systems(client) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_id": "",
+            "pipeline_name": "Invalid loop",
+            "source_provider": "mss",
+            "source_schema": "ontology",
+            "source_table": "mission_objects",
+            "destination_provider": "mss",
+            "destination_schema": "ontology",
+            "destination_table": "asset_objects",
+            "write_mode": "upsert",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Source and destination must be different" in response.text
+
+
+def test_pipeline_save_rejects_connections_that_are_not_setup(client) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_id": "",
+            "pipeline_name": "Forged unavailable route",
+            "source_provider": "advana",
+            "source_schema": "operations",
+            "source_table": "mission_orders",
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "upsert",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Configure and validate the selected source connection" in response.text
+
+
+def test_pipeline_can_be_saved_with_postgres_destination(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_id": "",
+            "pipeline_name": "Readiness warehouse load",
+            "source_provider": "advana",
+            "source_schema": "operations",
+            "source_table": "readiness_events",
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "upsert",
+        },
+    )
+
+    assert response.status_code == 303
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Readiness warehouse load")
+        )
+        assert pipeline is not None
+        assert pipeline.destination_provider == "postgres"
+
+
+def test_pipeline_can_move_between_mongodb_and_postgres(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_id": "",
+            "pipeline_name": "Document readiness export",
+            "source_provider": "mongodb",
+            "source_schema": "operations",
+            "source_table": "readiness_events",
+            "destination_provider": "postgres",
+            "destination_schema": "staging",
+            "destination_table": "readiness_events_stage",
+            "write_mode": "append",
+        },
+    )
+
+    assert response.status_code == 303
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Document readiness export")
+        )
+        assert pipeline is not None
+        assert pipeline.source_provider == "mongodb"
+        assert pipeline.source_schema == "operations"
+        assert pipeline.destination_provider == "postgres"
+
+
+def test_pipeline_can_create_a_named_destination_table(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_id": "",
+            "pipeline_name": "Create reporting table",
+            "source_provider": "mss",
+            "source_schema": "ontology",
+            "source_table": "mission_objects",
+            "destination_provider": "postgres",
+            "destination_schema": "reporting",
+            "destination_table": "__new__",
+            "destination_table_new": "mission_objects_daily",
+            "write_mode": "replace",
+        },
+    )
+
+    assert response.status_code == 303
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Create reporting table")
+        )
+        assert pipeline is not None
+        assert pipeline.destination_create is True
+        assert pipeline.destination_schema == "reporting"
+        assert pipeline.destination_table == "mission_objects_daily"
+
+
+def test_csv_inference_detects_headers_and_conservative_types() -> None:
+    inspection = inspect_csv(
+        "readiness.csv",
+        (
+            b"event_id,ready,score,service_date,observed_at,notes,unused\n"
+            b"101,true,98.5,2026-08-12,2026-08-12T14:30:00Z,nominal,\n"
+            b"102,false,87,2026-08-13,2026-08-13T09:15:00Z,review,\n"
+        ),
+    )
+
+    assert inspection.row_count == 2
+    assert [column.name for column in inspection.columns] == [
+        "event_id",
+        "ready",
+        "score",
+        "service_date",
+        "observed_at",
+        "notes",
+        "unused",
+    ]
+    assert [column.inferred_type for column in inspection.columns] == [
+        "integer",
+        "boolean",
+        "decimal",
+        "date",
+        "datetime",
+        "text",
+        "empty",
+    ]
+
+
+def test_uploaded_csv_can_be_scanned_saved_and_reloaded(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    csv_content = (
+        b"event_id,unit_name,ready,score,observed_at\n"
+        b"1001,Alpha,true,98.4,2026-08-13T10:00:00Z\n"
+        b"1002,Bravo,false,82.0,2026-08-13T10:05:00Z\n"
+    )
+    scanned = client.post(
+        "/pipeline/csv/inspect",
+        data={"csrf_token": csrf_from(page.text)},
+        files={"csv_file": ("unit_readiness.csv", csv_content, "text/csv")},
+        headers={"HX-Request": "true", "HX-Target": "pipeline-csv-inspection"},
+    )
+
+    assert scanned.status_code == 200
+    assert "Schema detected" in scanned.text
+    assert "unit_readiness.csv" in scanned.text
+    assert "5 columns" in scanned.text
+    assert "event_id" in scanned.text
+    assert "integer" in scanned.text
+    assert "datetime" in scanned.text
+    upload_match = re.search(r'name="source_upload_id" value="([^"]+)"', scanned.text)
+    assert upload_match is not None
+    upload_id = upload_match.group(1)
+
+    saved = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_id": "",
+            "pipeline_name": "Uploaded readiness feed",
+            "source_provider": "csv",
+            "source_schema": "uploaded",
+            "source_table": "unit_readiness.csv",
+            "source_upload_id": upload_id,
+            "destination_provider": "postgres",
+            "destination_schema": "staging",
+            "destination_table": "readiness_events_stage",
+            "write_mode": "append",
+        },
+    )
+
+    assert saved.status_code == 303
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Uploaded readiness feed")
+        )
+        upload = db.get(PipelineUpload, upload_id)
+        assert pipeline is not None
+        assert upload is not None
+        assert pipeline.source_provider == "csv"
+        assert pipeline.source_upload_id == upload_id
+        assert pipeline.source_schema == "uploaded"
+        assert pipeline.source_table == "unit_readiness.csv"
+        assert upload.row_count == 2
+        assert upload.column_count == 5
+        assert upload.content == csv_content
+        assert len(upload.checksum_sha256) == 64
+
+    reloaded = client.get(saved.headers["location"])
+    assert reloaded.status_code == 200
+    assert "Uploaded readiness feed" in reloaded.text
+    assert "CSV file" in reloaded.text
+    assert f'data-pipeline-source-upload-id="{upload_id}"' in reloaded.text
+    assert "unit_readiness.csv" in reloaded.text
+
+
+def test_csv_scan_rejects_duplicate_headers(client) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/csv/inspect",
+        data={"csrf_token": csrf_from(page.text)},
+        files={"csv_file": ("duplicate.csv", b"unit,UNIT\nA,B\n", "text/csv")},
+        headers={"HX-Request": "true", "HX-Target": "pipeline-csv-inspection"},
+    )
+
+    assert response.status_code == 422
+    assert "column names must be unique" in response.text

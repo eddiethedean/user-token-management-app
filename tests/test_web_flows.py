@@ -127,7 +127,21 @@ def test_secret_save_and_delete_never_reveal_token(client, make_user) -> None:
     assert "Advana" in security.text
     assert 'id="security-tabs"' in security.text
     assert 'id="main-panel"' in security.text
-    assert "Loading activity" in security.text or "security/activity" in security.text
+    assert "Credentials" in security.text
+    assert "Status" in security.text
+    assert ">Password</button>" not in security.text
+    assert ">Sessions</button>" not in security.text
+    assert ">Activity</button>" not in security.text
+    assert "Loading activity" not in security.text
+
+    account = client.get("/profile")
+    assert account.status_code == 200
+    assert 'id="account-tabs"' in account.text
+    assert ">Profile</button>" in account.text
+    assert ">Password</button>" in account.text
+    assert ">Sessions</button>" in account.text
+    assert ">Activity</button>" in account.text
+    assert ">Credentials</button>" not in account.text
     csrf = csrf_from(security.text)
 
     saved = client.post(

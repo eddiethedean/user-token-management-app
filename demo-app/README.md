@@ -8,8 +8,8 @@ It proves that the platform can:
 3. serve HTML and JSON routes; and
 4. preserve links and browser requests beneath the platform's application URL prefix.
 
-It has no database, authentication, email, Hedron, or HTMX. Those belong to the full Access
-Registry app and can be tested after this baseline succeeds.
+It has no database, authentication, email, Hedron, or HTMX. Those belong to the full Data Mover app and
+can be tested after this baseline succeeds.
 
 The deployment bundle deliberately targets **Python 3.11.x**, matching the intended Posit Connect
 environment. Check `python3 --version` before creating the local virtual environment so the local
@@ -116,7 +116,7 @@ rsconnect add \
 unset CONNECT_API_KEY
 ```
 
-Deploy **this directory**, not the parent Access Registry repository:
+Deploy **this directory**, not the parent Data Mover repository:
 
 ```bash
 rsconnect deploy fastapi \
@@ -148,9 +148,10 @@ server and supplies the application base URL at request time.
 | About and return links work | Server-generated navigation retains the prefix |
 | `/health` works | Direct route access works through the proxy |
 
-A complete pass means the platform foundation for Access Registry is viable. It does not yet prove
-PostgreSQL access, persistent storage, authentication headers, secure cookies, SMTP, background
-workers, or the Hedron production build; those are the next integration layers.
+A complete pass means the platform foundation for Data Mover is viable. It does not yet prove
+PostgreSQL access, persistent storage, authentication headers, secure cookies, SMTP, encrypted
+connection storage, CSV uploads, pipeline persistence, background workers, or the Hedron production
+build; those are the next integration layers.
 
 ## Troubleshooting
 

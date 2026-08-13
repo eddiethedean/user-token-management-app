@@ -11,6 +11,7 @@ from app.database import SessionLocal
 from app.models import ApiTokenKeyUsage, User, UserSecret
 from app.services.secrets import (
     SecretStorageError,
+    decrypt_user_credentials_for_run,
     decrypt_user_secret_for_run,
     store_user_secret,
 )
@@ -32,7 +33,15 @@ def test_secret_slots_render_and_htmx_never_reveals_token(client, htmx, make_use
 
     security = htmx.get("/security")
     assert security.status_code == 200
-    assert all(label in security.text for label in ("Advana", "ADE", "MSS"))
+    assert all(label in security.text for label in ("Advana", "MSS", "PostgreSQL", "MongoDB"))
+    assert "Analytics API" not in security.text
+    assert 'id="postgres-host"' in security.text
+    assert 'id="postgres-username"' in security.text
+    assert 'id="postgres-password"' in security.text
+    assert 'id="mongodb-host"' in security.text
+    assert 'id="mongodb-username"' in security.text
+    assert 'id="mongodb-auth_database"' in security.text
+    assert 'id="mongodb-tlsmode"' in security.text
 
     rejected = client.post(
         "/security/secrets/advana",
@@ -60,6 +69,184 @@ def test_secret_slots_render_and_htmx_never_reveals_token(client, htmx, make_use
     assert_fragment_body(as_adapter(deleted), contains="secret-slot-advana")
     assert ADVANA_TOKEN not in deleted.text
     assert "Configured" not in deleted.text or "Not configured" in deleted.text
+
+
+def test_postgres_credentials_are_validated_encrypted_and_available_at_run_boundary(
+    client, make_user
+) -> None:
+    user = make_user("postgres.credentials@example.gov")
+    web_login(client, user.email, USER_PASSWORD)
+    page = client.get("/security")
+    credentials = {
+        "host": "warehouse.internal.example",
+        "port": "5432",
+        "database": "readiness",
+        "username": "relay_service",
+        "password": "database-password-42!",
+        "sslmode": "verify-full",
+    }
+
+    incomplete = client.post(
+        "/security/secrets/postgres",
+        data={"csrf_token": csrf_from(page.text), "host": credentials["host"]},
+    )
+    assert incomplete.status_code == 400
+    assert "Port is required" in incomplete.text
+
+    saved = client.post(
+        "/security/secrets/postgres",
+        data={"csrf_token": csrf_from(page.text), **credentials},
+        headers={
+            "HX-Request": "true",
+            "HX-Target": "secret-slot-postgres",
+            "Accept": "text/html",
+        },
+    )
+    assert saved.status_code == 200
+    assert "PostgreSQL credentials saved" in saved.text
+
+    with SessionLocal() as db:
+        owner = db.get(User, user.id)
+        stored = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == "postgres",
+            )
+        )
+        assert owner is not None and stored is not None
+        assert all(value not in stored.ciphertext for value in credentials.values())
+        assert stored.validation_status == "connected"
+        assert stored.validated_at is not None
+        assert "PostgreSQL 16 handshake succeeded" in stored.validation_message
+        assert (
+            decrypt_user_credentials_for_run(
+                db,
+                get_settings(),
+                user=owner,
+                provider="postgres",
+            )
+            == credentials
+        )
+        assert (
+            decrypt_user_secret_for_run(
+                db,
+                get_settings(),
+                user=owner,
+                provider="postgres",
+            )
+            == credentials["password"]
+        )
+
+
+def test_advana_connection_can_wake_its_databricks_cluster(client, make_user) -> None:
+    user = make_user("databricks.cluster@example.gov")
+    web_login(client, user.email, USER_PASSWORD)
+    page = client.get("/security")
+    saved = client.post(
+        "/security/secrets/advana",
+        data={"csrf_token": csrf_from(page.text), "token": ADVANA_TOKEN},
+    )
+    assert saved.status_code == 303
+
+    status_page = client.get("/security")
+    assert "Connection status" in status_page.text
+    assert "Databricks" in status_page.text
+    assert "Wake cluster" in status_page.text
+
+    awakened = client.post(
+        "/security/secrets/advana/wake",
+        data={"csrf_token": csrf_from(status_page.text)},
+        headers={
+            "HX-Request": "true",
+            "HX-Target": "connection-status-list",
+            "Accept": "text/html",
+        },
+    )
+    assert awakened.status_code == 200
+    assert "Cluster running" in awakened.text
+
+    retested = client.post(
+        "/security/secrets/advana/test",
+        data={"csrf_token": csrf_from(status_page.text)},
+        headers={
+            "HX-Request": "true",
+            "HX-Target": "connection-status-list",
+            "Accept": "text/html",
+        },
+    )
+    assert retested.status_code == 200
+    assert "Databricks handshake succeeded" in retested.text
+
+    with SessionLocal() as db:
+        stored = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == "advana",
+            )
+        )
+        assert stored is not None
+        assert stored.runtime_status == "running"
+        assert stored.runtime_updated_at is not None
+
+
+def test_mongodb_credentials_are_validated_encrypted_and_available_at_run_boundary(
+    client, make_user
+) -> None:
+    user = make_user("mongodb.credentials@example.gov")
+    web_login(client, user.email, USER_PASSWORD)
+    page = client.get("/security")
+    credentials = {
+        "host": "documents.internal.example",
+        "port": "27017",
+        "database": "operations",
+        "username": "relay_documents",
+        "password": "mongodb-password-42!",
+        "auth_database": "admin",
+        "tlsmode": "require",
+    }
+
+    saved = client.post(
+        "/security/secrets/mongodb",
+        data={"csrf_token": csrf_from(page.text), **credentials},
+        headers={
+            "HX-Request": "true",
+            "HX-Target": "secret-slot-mongodb",
+            "Accept": "text/html",
+        },
+    )
+    assert saved.status_code == 200
+    assert "MongoDB credentials saved" in saved.text
+
+    with SessionLocal() as db:
+        owner = db.get(User, user.id)
+        stored = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == "mongodb",
+            )
+        )
+        assert owner is not None and stored is not None
+        assert all(value not in stored.ciphertext for value in credentials.values())
+        assert stored.validation_status == "connected"
+        assert "MongoDB 8 handshake succeeded" in stored.validation_message
+        assert (
+            decrypt_user_credentials_for_run(
+                db,
+                get_settings(),
+                user=owner,
+                provider="mongodb",
+            )
+            == credentials
+        )
+        assert (
+            decrypt_user_secret_for_run(
+                db,
+                get_settings(),
+                user=owner,
+                provider="mongodb",
+            )
+            == credentials["password"]
+        )
 
 
 def test_secret_is_encrypted_replaceable_and_wrap_limited(client, make_user) -> None:
@@ -113,7 +300,7 @@ def test_secret_validation_ownership_and_tampering(client, make_user) -> None:
     csrf = csrf_from(client.get("/security").text)
 
     whitespace = client.post(
-        "/security/secrets/ade",
+        "/security/secrets/advana",
         data={"csrf_token": csrf, "token": " token-with-whitespace "},
     )
     assert whitespace.status_code == 400

@@ -1,7 +1,7 @@
 # Posit Workbench Docker integration
 
 Local stack that boots a licensed [Posit Workbench](https://hub.docker.com/r/posit/workbench)
-image beside Access Registry, plus a small proxy that reproduces the SOCOM
+image beside Data Mover, plus a small proxy that reproduces the SOCOM
 `Location: /s/…` → `/proxy/8000/s/…` rewrite.
 
 ## Prerequisites
@@ -23,6 +23,17 @@ make workbench-test    # opt-in pytest module
 make workbench-logs
 make workbench-down    # graceful stop (license key deactivation)
 ```
+
+After `make workbench-up`, seed all four fake Data Mover connections into the default Docker demo
+account with:
+
+```bash
+bash docker/workbench-compose.sh exec app \
+  python -m app seed-demo-connections --email admin@example.gov
+```
+
+The command is idempotent unless `--replace` is supplied. It stores reserved `.demo.invalid`
+values only in the development app database and is rejected in production.
 
 ## Posit Connect deployment smoke test
 
@@ -48,11 +59,11 @@ Ports (defaults):
 | Service | Host |
 |---------|------|
 | Workbench UI | http://127.0.0.1:8787 |
-| Access Registry | http://127.0.0.1:8000 |
+| Data Mover | http://127.0.0.1:8000 |
 | Location-rewrite proxy | http://127.0.0.1:8788 |
 
 Workbench login defaults: user `posit` / password `Xk9#mQ2$vL8!nR4p` (PAM-safe).
-Access Registry admin seed: `admin@example.gov` / `Tr0pic-Maple!River92`.
+Data Mover admin seed: `admin@example.gov` / `Tr0pic-Maple!River92`.
 
 ## What the tests cover
 
@@ -61,9 +72,9 @@ Access Registry admin seed: `admin@example.gov` / `Tr0pic-Maple!River92`.
 3. `rstudio-server version` and redacted license-manager status inside the container
 4. `/home` redirects into a real `/s/<id>/workspaces/` mount
 5. RSA-encrypted login as `PWB_TESTUSER` reaches an authenticated surface
-6. Access Registry health/ready, mounted login HTML/CSS/JS, CSRF cookie path
+6. Data Mover health/ready, mounted login HTML/CSS/JS, CSRF cookie path
 7. Real admin login (`ADMIN_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD`), wrong-password rejection, logout
-8. Authenticated profile/security pages; profile update; Advana secret save/delete
+8. Authenticated Account/Connections pages; profile update; Advana credential save/delete
 9. Admin users + audit pages (auth gate + authenticated access)
 10. Public register / forgot-password pages; forgot-password queues outbox mail
 11. Invite → accept → login; register → verify → approve → login; disable user

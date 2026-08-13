@@ -1,4 +1,4 @@
-"""Create the original Access Registry schema."""
+"""Create the original application schema."""
 
 import sqlalchemy as sa
 from alembic import op

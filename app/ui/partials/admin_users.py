@@ -120,7 +120,8 @@ def user_table(
                 actions.append(toggle_form)
         rows.append(
             [
-                html.div(html.strong(user.email_original), html.small(user.full_name or "")),
+                user.email_original,
+                user.full_name or "—",
                 user.status,
                 ", ".join(user.role_names) or "user",
                 html.div(*actions, class_="table-actions"),
@@ -134,11 +135,11 @@ def user_table(
     base = _filter_base_path(request, "/admin/users", q=query, status=status_filter)
     table: NodeLike
     if rows:
-        table = Table(["Account", "Status", "Roles", "Actions"], rows)
+        table = Table(["Account", "Full name", "Status", "Roles", "Actions"], rows)
     else:
         table = Table(
-            ["Account", "Status", "Roles", "Actions"],
-            [["No users found.", "", "", ""]],
+            ["Account", "Full name", "Status", "Roles", "Actions"],
+            [["No users found.", "", "", "", ""]],
         )
     return Section(
         html.div(table, class_="table-wrap"),

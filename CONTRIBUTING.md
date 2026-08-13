@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to Access Registry (Python package `access-registry`; repository
+Thanks for contributing to Data Mover (Python package `access-registry`; repository
 `user-token-management-app`).
 
 ## Development setup
@@ -17,6 +17,9 @@ make serve
 ```
 
 Default `make create-admin` uses `ADMIN_EMAIL=admin@example.gov` unless you override it.
+For an explorable local instance with all four fake connections already validated, run `make demo`.
+The helper seeds only development environments and does not overwrite existing bundles unless the
+CLI is given `--replace`.
 
 ## Quality checks
 
@@ -32,7 +35,7 @@ CI runs the same on Python 3.11 for pushes and PRs to `main`.
 | Layer | Package | Responsibility |
 |-------|---------|----------------|
 | HTTP / UI | `app/ui/` | Routes, HTMX fragments, layout, mount-aware SafeUrl helpers |
-| Domain | `app/services/` | Auth, accounts, directory, secrets, audit, mailer |
+| Domain | `app/services/` | Auth, accounts, catalogs, CSV inspection, pipelines, secrets, audit, mailer |
 | Primitives | `app/security/` | Passwords, CSRF, tokens, email normalize, client trust |
 | Wiring | `app/dependencies.py`, `app/config.py` | AuthContext, settings |
 
@@ -56,7 +59,28 @@ Hedron's route audit remains useful. See [docs/hedron.md](docs/hedron.md) for th
 contract and upgrade checklist.
 
 Security-sensitive changes should be checked against [SECURITY.md](SECURITY.md) and covered by
-tests under `tests/` (especially `test_auth_security.py` and `test_secrets.py`).
+tests under `tests/` (especially `test_auth_security.py`, `test_secrets.py`, and
+`test_pipelines.py`).
+
+## Data-movement feature checklist
+
+Provider and pipeline features span several contracts. When adding or changing a connection type:
+
+1. Define its credential fields and validation in `app/services/secrets.py`.
+2. Define its synthetic catalog, technology label, region, latency, and runtime capabilities in
+   `app/services/catalogs.py`.
+3. Add the provider to the typed form allowlists in `app/ui/params.py` and to pipeline persistence
+   rules in `app/services/pipelines.py`.
+4. Keep the Connections credential/status fragments and the Pipeline client metadata in sync.
+5. Keep pipeline selectors connection-aware and enforce availability again in the save service;
+   hiding an option in the browser is not an authorization boundary.
+6. Test encryption/non-reveal behavior, owner scoping, status actions, catalog selection, save/load,
+   and both source and destination usage.
+7. Update [docs/user-guide.md](docs/user-guide.md), [docs/faq.md](docs/faq.md), and the security
+   boundary whenever the provider's real capabilities change.
+
+CSV changes must retain owner scoping, size/shape limits, conservative type inference, safe filename
+handling, and a test that a different user cannot reference the upload.
 
 ## Pull requests
 

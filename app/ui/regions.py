@@ -67,17 +67,32 @@ SESSION_LIST = FragmentRegion(
 SECRET_SLOT_ADVANA = FragmentRegion(
     id="secret-slot-advana",
     selector="#secret-slot-advana",
-    description="Advana API token slot",
-)
-SECRET_SLOT_ADE = FragmentRegion(
-    id="secret-slot-ade",
-    selector="#secret-slot-ade",
-    description="ADE API token slot",
+    description="Advana connection credential slot",
 )
 SECRET_SLOT_MSS = FragmentRegion(
     id="secret-slot-mss",
     selector="#secret-slot-mss",
-    description="MSS API token slot",
+    description="MSS connection credential slot",
+)
+SECRET_SLOT_POSTGRES = FragmentRegion(
+    id="secret-slot-postgres",
+    selector="#secret-slot-postgres",
+    description="PostgreSQL connection credential slot",
+)
+SECRET_SLOT_MONGODB = FragmentRegion(
+    id="secret-slot-mongodb",
+    selector="#secret-slot-mongodb",
+    description="MongoDB connection credential slot",
+)
+CONNECTION_STATUS_LIST = FragmentRegion(
+    id="connection-status-list",
+    selector="#connection-status-list",
+    description="Remote connection validation status list",
+)
+CSV_INSPECTION = FragmentRegion(
+    id="pipeline-csv-inspection",
+    selector="#pipeline-csv-inspection",
+    description="Uploaded CSV schema inspection",
 )
 INVITATION_PANEL = FragmentRegion(
     id="invitation-panel",

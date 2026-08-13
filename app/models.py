@@ -6,11 +6,13 @@ from enum import StrEnum
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Table,
     Text,
@@ -244,8 +246,60 @@ class UserSecret(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    validation_status: Mapped[str] = mapped_column(String(20), default="untested")
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    validation_message: Mapped[str] = mapped_column(String(240), default="")
+    runtime_status: Mapped[str] = mapped_column(String(20), default="")
+    runtime_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     user: Mapped[User] = relationship()
+
+
+class PipelineUpload(Base):
+    __tablename__ = "pipeline_uploads"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    filename: Mapped[str] = mapped_column(String(180))
+    content_type: Mapped[str] = mapped_column(String(100), default="text/csv")
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    row_count: Mapped[int] = mapped_column(Integer)
+    column_count: Mapped[int] = mapped_column(Integer)
+    columns_json: Mapped[str] = mapped_column(Text)
+    checksum_sha256: Mapped[str] = mapped_column(String(64))
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    user: Mapped[User] = relationship()
+
+
+class PipelineDefinition(Base):
+    __tablename__ = "pipeline_definitions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(120))
+    source_provider: Mapped[str] = mapped_column(String(32))
+    source_dataset: Mapped[str] = mapped_column(String(80))
+    source_schema: Mapped[str] = mapped_column(String(80), default="")
+    source_table: Mapped[str] = mapped_column(String(80), default="")
+    source_upload_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("pipeline_uploads.id", ondelete="SET NULL"), nullable=True
+    )
+    destination_provider: Mapped[str] = mapped_column(String(32))
+    destination_schema: Mapped[str] = mapped_column(String(80), default="")
+    destination_table: Mapped[str] = mapped_column(String(80), default="")
+    destination_create: Mapped[bool] = mapped_column(Boolean, default=False)
+    write_mode: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    user: Mapped[User] = relationship()
+    source_upload: Mapped[PipelineUpload | None] = relationship()
 
 
 class ApiTokenKeyUsage(Base):
@@ -257,6 +311,16 @@ class ApiTokenKeyUsage(Base):
 
 
 Index("ix_sessions_user_active", RefreshSession.user_id, RefreshSession.revoked_at)
+Index(
+    "ix_pipeline_definitions_user_updated",
+    PipelineDefinition.user_id,
+    PipelineDefinition.updated_at,
+)
+Index(
+    "ix_pipeline_uploads_user_created",
+    PipelineUpload.user_id,
+    PipelineUpload.created_at,
+)
 Index(
     "ix_registration_verifications_user_active",
     RegistrationVerification.user_id,

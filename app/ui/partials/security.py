@@ -26,7 +26,8 @@ from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
 from app.models import AuditEvent, RefreshSession
-from app.services.secrets import SecretProvider
+from app.services.catalogs import require_catalog_provider
+from app.services.secrets import CredentialField, SecretProvider
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.regions import SECURITY_ACTIVITY
@@ -111,11 +112,11 @@ def password_form(
             ),
             submit_button("Change password"),
             class_="stack-form",
-            action=form_action(request, "security/password"),
+            action=form_action(request, "profile/password"),
             method="post",
             **hx_attrs(
                 request,
-                path="security/password",
+                path="profile/password",
                 target="#password-form-region",
                 sync="this:drop",
                 indicator=INDICATOR,
@@ -138,11 +139,53 @@ def secret_slot(
     configured = secret is not None
     if configured:
         metadata = (
-            f"Saved {secret.updated_at.strftime('%b %d, %Y at %H:%M')}. "
-            "The stored value cannot be revealed."
+            f"Credentials saved {secret.updated_at.strftime('%b %d, %Y at %H:%M')}. "
+            f"{secret.validation_message}. Encrypted values cannot be revealed."
         )
     else:
-        metadata = f"No {provider.label} token is available to your runs."
+        metadata = f"No {provider.label} credentials are available to your runs."
+
+    def credential_field(field: CredentialField) -> NodeLike:
+        field_id = f"{provider.name}-{field.name}"
+        if field.options:
+            control = html.select(
+                *[
+                    html.option(
+                        option,
+                        value=option,
+                        selected=option == field.default,
+                    )
+                    for option in field.options
+                ],
+                id=field_id,
+                name=field.name,
+                required=field.required,
+                autocomplete=field.autocomplete,
+            )
+        else:
+            control = html.input(
+                id=field_id,
+                name=field.name,
+                type=field.input_type,
+                autocomplete=field.autocomplete,
+                required=field.required,
+                placeholder=field.placeholder,
+                value=field.default,
+                spellcheck="false",
+            )
+        return html.div(
+            html.label(
+                field.label,
+                html.span("Required" if field.required else "Optional"),
+                for_=field_id,
+            ),
+            control,
+            class_=(
+                f"credential-field credential-field-{field.name} "
+                f"{'is-wide' if field.name == 'endpoint' else ''}"
+            ).strip(),
+        )
+
     return Section(
         html.div(
             html.span(provider.mark, class_="secret-provider-mark", aria={"hidden": "true"}),
@@ -162,23 +205,27 @@ def secret_slot(
         html.p(metadata, class_="secret-metadata"),
         Form(
             csrf_hidden(csrf_token),
-            FormField(
-                name="token",
-                label=f"{provider.label} API token",
-                id=f"{provider.name}-token",
-                control=TextInput(
-                    "token",
-                    id=f"{provider.name}-token",
-                    type="password",
-                    autocomplete="new-password",
-                    required=True,
-                    placeholder=f"Paste {provider.label} API token",
-                ),
+            html.div(
+                *[credential_field(field) for field in provider.fields],
+                class_="credential-fields",
             ),
-            html.button(
-                "Replace" if configured else "Save",
-                class_="button button-primary button-small button-action",
-                type="submit",
+            html.div(
+                html.button(
+                    "Replace credentials" if configured else "Save connection",
+                    class_="button button-primary button-small button-action",
+                    type="submit",
+                ),
+                (
+                    html.button(
+                        "Delete connection",
+                        class_="button button-danger button-small",
+                        type="button",
+                        data={"hedron-dialog-open": f"#delete-secret-{provider.name}"},
+                    )
+                    if configured
+                    else None
+                ),
+                class_="secret-card-actions",
             ),
             class_="secret-form",
             action=form_action(request, f"security/secrets/{provider.name}"),
@@ -192,38 +239,30 @@ def secret_slot(
             ),
         ),
         (
-            html.div(
-                html.button(
-                    "Delete token",
-                    class_="button button-danger button-small",
-                    type="button",
-                    data={"hedron-dialog-open": f"#delete-secret-{provider.name}"},
+            Dialog(
+                f"Delete {provider.label} connection",
+                html.p(
+                    f"Delete your {provider.label} credentials? Runs using them will stop working."
                 ),
-                Dialog(
-                    f"Delete {provider.label} token",
-                    html.p(
-                        f"Delete your {provider.label} API token? Runs using it will stop working."
+                Form(
+                    csrf_hidden(csrf_token),
+                    html.button(
+                        "Delete connection",
+                        class_="button button-danger",
+                        type="submit",
                     ),
-                    Form(
-                        csrf_hidden(csrf_token),
-                        html.button(
-                            "Delete token",
-                            class_="button button-danger",
-                            type="submit",
-                        ),
-                        action=form_action(request, f"security/secrets/{provider.name}/delete"),
-                        method="post",
-                        **hx_attrs(
-                            request,
-                            path=f"security/secrets/{provider.name}/delete",
-                            target=f"#secret-slot-{provider.name}",
-                            sync="closest .secret-card:drop",
-                            indicator=INDICATOR,
-                        ),
+                    action=form_action(request, f"security/secrets/{provider.name}/delete"),
+                    method="post",
+                    **hx_attrs(
+                        request,
+                        path=f"security/secrets/{provider.name}/delete",
+                        target=f"#secret-slot-{provider.name}",
+                        sync="closest .secret-card:drop",
+                        indicator=INDICATOR,
                     ),
-                    id=f"delete-secret-{provider.name}",
-                    open=False,
                 ),
+                id=f"delete-secret-{provider.name}",
+                open=False,
             )
             if configured
             else html.div()
@@ -231,6 +270,108 @@ def secret_slot(
         id=f"secret-slot-{provider.name}",
         class_="secret-card",
     )
+
+
+def connection_status_list(
+    request: Request,
+    secret_slots,
+    *,
+    csrf_token: str,
+    oob: bool = False,
+) -> NodeLike:
+    rows: list[NodeLike] = []
+    for provider, secret in secret_slots:
+        catalog = require_catalog_provider(provider.name)
+        configured = secret is not None
+        connected = configured and secret.validation_status == "connected"
+        status_label = "Connected" if connected else "Not configured"
+        status_class = "is-connected" if connected else "is-unconfigured"
+        if configured and secret.validated_at:
+            detail = (
+                f"{secret.validation_message} · Checked "
+                f"{secret.validated_at.strftime('%b %d at %H:%M')}"
+            )
+        else:
+            detail = "Add credentials before Data Mover can inspect schemas or tables."
+
+        actions: list[NodeLike] = []
+        if configured:
+            actions.append(
+                Form(
+                    csrf_hidden(csrf_token),
+                    html.button(
+                        "Retest",
+                        class_="button button-quiet button-small button-action",
+                        type="submit",
+                    ),
+                    action=form_action(request, f"security/secrets/{provider.name}/test"),
+                    method="post",
+                    **hx_attrs(
+                        request,
+                        path=f"security/secrets/{provider.name}/test",
+                        target="#connection-status-list",
+                        sync="#connection-status-list:drop",
+                        indicator=INDICATOR,
+                    ),
+                )
+            )
+        if configured and catalog.supports_runtime_wake:
+            runtime_running = secret.runtime_status == "running"
+            if runtime_running:
+                actions.append(
+                    html.span(
+                        html.span(class_="status-dot", aria={"hidden": "true"}),
+                        "Cluster running",
+                        class_="runtime-state is-running",
+                    )
+                )
+            else:
+                actions.append(
+                    Form(
+                        csrf_hidden(csrf_token),
+                        html.button(
+                            "Wake cluster",
+                            class_="button button-secondary button-small button-action",
+                            type="submit",
+                        ),
+                        action=form_action(request, f"security/secrets/{provider.name}/wake"),
+                        method="post",
+                        **hx_attrs(
+                            request,
+                            path=f"security/secrets/{provider.name}/wake",
+                            target="#connection-status-list",
+                            sync="#connection-status-list:drop",
+                            indicator=INDICATOR,
+                        ),
+                    )
+                )
+
+        rows.append(
+            html.article(
+                html.span(
+                    provider.mark,
+                    class_="connection-status-mark",
+                    aria={"hidden": "true"},
+                ),
+                html.div(
+                    html.strong(provider.label),
+                    html.span(catalog.technology),
+                    class_="connection-status-identity",
+                ),
+                html.span(status_label, class_=f"connection-health {status_class}"),
+                html.p(detail),
+                html.div(*actions, class_="connection-status-actions"),
+                class_="connection-status-row",
+            )
+        )
+
+    attrs: dict[str, HtmlAttrValue] = {
+        "id": "connection-status-list",
+        "class_": "connection-status-list",
+    }
+    if oob:
+        attrs["hx-swap-oob"] = "outerHTML"
+    return html.div(*rows, **attrs)
 
 
 def session_list(
@@ -264,11 +405,11 @@ def session_list(
                             class_="button button-danger",
                             type="submit",
                         ),
-                        action=form_action(request, f"security/sessions/{session.id}/revoke"),
+                        action=form_action(request, f"profile/sessions/{session.id}/revoke"),
                         method="post",
                         **hx_attrs(
                             request,
-                            path=f"security/sessions/{session.id}/revoke",
+                            path=f"profile/sessions/{session.id}/revoke",
                             target="#session-list",
                             sync="#session-list:drop",
                             indicator=INDICATOR,
@@ -335,7 +476,7 @@ def security_activity_error(
     message: str = "Could not load security activity.",
 ) -> NodeLike:
     """ErrorState wrapped so Lazy outerHTML swaps keep a stable region id."""
-    activity_path = mounted_path(request, "/security/activity")
+    activity_path = mounted_path(request, "/profile/activity")
     return html.div(
         ErrorState(
             message,
@@ -352,7 +493,7 @@ def security_activity_refresh(request: Request) -> NodeLike:
     return html.div(
         RefreshButton.for_region(
             SECURITY_ACTIVITY,
-            href=mounted_path(request, "/security/activity"),
+            href=mounted_path(request, "/profile/activity"),
             label="Refresh",
         ),
         class_="lazy-refresh",
@@ -364,7 +505,7 @@ def security_activity_lazy(request: Request) -> Lazy:
     return Lazy(
         ref=ComponentRef(
             logical_id="security-activity",
-            path=mounted_path(request, "/security/activity"),
+            path=mounted_path(request, "/profile/activity"),
             swap="outerHTML",
         ),
         placeholder=Loading("Loading activity…"),
@@ -376,37 +517,17 @@ def security_tabs(
     request: Request,
     *,
     csrf_token: str,
-    local_password: bool,
     secret_slots,
-    sessions: list[RefreshSession],
-    auth: AuthContext,
 ) -> Tabs:
-    panels: list[tuple[str, NodeLike]] = []
-    if local_password:
-        panels.append(
-            (
-                "Password",
-                Section(
-                    html.div(
-                        Heading("Change password", level=2),
-                        Text(
-                            "Changing your password signs out every active session, including this one."
-                        ),
-                    ),
-                    password_form(request, csrf_token=csrf_token),
-                    class_="panel panel-main split-panel",
-                ),
-            )
-        )
-    panels.append(
+    panels: list[tuple[str, NodeLike]] = [
         (
-            "Tokens",
+            "Credentials",
             Section(
                 html.div(
                     html.div(
-                        Heading("API tokens", level=2),
+                        Heading("Remote connections", level=2),
                         Text(
-                            "Add only an approved service token. Saved values are encrypted and cannot be viewed again."
+                            "Add each system once. Data Mover encrypts every field at rest and never reveals saved plaintext."
                         ),
                     ),
                     class_="panel-heading token-panel-heading",
@@ -418,7 +539,67 @@ def security_tabs(
                 class_="panel panel-main",
             ),
         )
+    ]
+    panels.append(
+        (
+            "Status",
+            Section(
+                html.div(
+                    html.div(
+                        Heading("Connection status", level=2),
+                        Text(
+                            "Data Mover runs a simulated handshake when credentials are saved. Retest a connection or wake Databricks compute here."
+                        ),
+                    ),
+                    html.span("Demo telemetry", class_="demo-badge"),
+                    class_="panel-heading",
+                ),
+                connection_status_list(
+                    request,
+                    secret_slots,
+                    csrf_token=csrf_token,
+                ),
+                class_="panel panel-main",
+            ),
+        )
     )
+    return Tabs(*panels, id="security-tabs")
+
+
+def account_tabs(
+    request: Request,
+    *,
+    csrf_token: str,
+    local_password: bool,
+    sessions: list[RefreshSession],
+    auth: AuthContext,
+    profile_content: NodeLike,
+    active: str = "Profile",
+    password_error: str = "",
+    password_field_errors: dict[str, str] | None = None,
+) -> Tabs:
+    panels: list[tuple[str, NodeLike]] = [("Profile", profile_content)]
+    if local_password:
+        panels.append(
+            (
+                "Password",
+                Section(
+                    html.div(
+                        Heading("Change password", level=2),
+                        Text(
+                            "Changing your password signs out every active session, including this one."
+                        ),
+                    ),
+                    password_form(
+                        request,
+                        csrf_token=csrf_token,
+                        error=password_error,
+                        field_errors=password_field_errors,
+                    ),
+                    class_="panel panel-main split-panel",
+                ),
+            )
+        )
     panels.append(
         (
             "Sessions",
@@ -453,4 +634,9 @@ def security_tabs(
             ),
         )
     )
-    return Tabs(*panels, id="security-tabs")
+    panel_names = {name for name, _ in panels}
+    return Tabs(
+        *panels,
+        active=active if active in panel_names else "Profile",
+        id="account-tabs",
+    )

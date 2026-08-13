@@ -35,8 +35,11 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.SESSION_LIST,
     region_defs.SESSION_COUNT,
     region_defs.SECRET_SLOT_ADVANA,
-    region_defs.SECRET_SLOT_ADE,
     region_defs.SECRET_SLOT_MSS,
+    region_defs.SECRET_SLOT_POSTGRES,
+    region_defs.SECRET_SLOT_MONGODB,
+    region_defs.CONNECTION_STATUS_LIST,
+    region_defs.CSV_INSPECTION,
     region_defs.INVITATION_PANEL,
     region_defs.USER_DIRECTORY,
     region_defs.USER_DIRECTORY_BODY,
@@ -116,6 +119,20 @@ def security_activity_oob(events) -> OobUpdate:
     )
 
 
+def connection_status_oob(request: Request, secret_slots, *, csrf_token: str) -> OobUpdate:
+    from app.ui.partials.security import connection_status_list
+
+    return OobUpdate(
+        content=connection_status_list(
+            request,
+            secret_slots,
+            csrf_token=csrf_token,
+        ),
+        element_id="connection-status-list",
+        swap="outerHTML",
+    )
+
+
 def ok_fragment(
     content: NodeLike | None,
     *,
@@ -146,7 +163,7 @@ def ok_fragment(
 
 
 def htmx_redirect(url: str) -> InteractionResult:
-    """HX-Redirect InteractionResult with Access Registry policy defaults."""
+    """HX-Redirect InteractionResult with Data Mover policy defaults."""
     return build_swap(None, redirect=url, policy=APP_POLICY, cache="no-store")
 
 

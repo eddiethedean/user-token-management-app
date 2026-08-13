@@ -1,6 +1,6 @@
-"""Shared Hedron SecurityPolicy for Access Registry.
+"""Shared Hedron SecurityPolicy for Data Mover.
 
-Access Registry owns CSRF and security headers; Hedron's built-in CSRF and
+Data Mover owns CSRF and security headers; Hedron's built-in CSRF and
 header middleware stay disabled in both the app factory and fragment renderer.
 """
 

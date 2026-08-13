@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import Form, Path, Query
+from fastapi import File, Form, Path, Query, UploadFile
 
 # UUID primary keys (``app.models.new_id`` → ``str(uuid.uuid4())``).
 _UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -18,7 +18,7 @@ _UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[
 UserIdPath = Annotated[str, Path(min_length=36, max_length=36, pattern=_UUID_PATTERN)]
 SessionIdPath = Annotated[str, Path(min_length=36, max_length=36, pattern=_UUID_PATTERN)]
 InvitationIdPath = Annotated[str, Path(min_length=36, max_length=36, pattern=_UUID_PATTERN)]
-SecretProviderPath = Annotated[Literal["advana", "ade", "mss"], Path()]
+SecretProviderPath = Annotated[Literal["advana", "mss", "postgres", "mongodb"], Path()]
 
 # --- Query (defaults at call site) ---
 
@@ -48,8 +48,18 @@ OrganizationForm = Annotated[str, Form(max_length=160)]
 JobTitleForm = Annotated[str, Form(max_length=160)]
 PhoneForm = Annotated[str, Form(max_length=40)]
 FlowTokenForm = Annotated[str, Form(max_length=512)]
-SecretTokenForm = Annotated[str, Form(max_length=8192)]
 RoleForm = Annotated[str, Form(max_length=64)]
 ListingQueryForm = Annotated[str, Form(max_length=160)]
 ListingStatusForm = Annotated[str, Form(max_length=20)]
 ListingPageForm = Annotated[int, Form(ge=1)]
+PipelineIdForm = Annotated[str, Form(max_length=36)]
+PipelineNameForm = Annotated[str, Form(min_length=1, max_length=120)]
+PipelineProviderForm = Annotated[Literal["advana", "mss", "postgres", "mongodb"], Form()]
+PipelineSourceProviderForm = Annotated[
+    Literal["advana", "mss", "postgres", "mongodb", "csv"], Form()
+]
+PipelineSchemaForm = Annotated[str, Form(min_length=1, max_length=80)]
+PipelineTableForm = Annotated[str, Form(min_length=1, max_length=80)]
+PipelineOptionalTableForm = Annotated[str, Form(max_length=80)]
+PipelineWriteModeForm = Annotated[Literal["upsert", "append", "replace"], Form()]
+CsvUploadForm = Annotated[UploadFile, File()]

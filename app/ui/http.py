@@ -88,7 +88,7 @@ def safe_next(value: str) -> str:
         and "\\" not in value
         and not any(ord(character) < 32 for character in value)
     )
-    return value if is_local_path else "/profile"
+    return value if is_local_path else "/pipeline"
 
 
 def _prefix_hedron_static_urls(html_text: str, request: Request | None) -> str:

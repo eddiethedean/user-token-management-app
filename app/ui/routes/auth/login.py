@@ -63,7 +63,7 @@ def register_login_routes(app: Hedron) -> None:
         auth: OptionalAuth,
         db: DbSession,
         settings: SettingsDep,
-        next: NextQuery = "/profile",
+        next: NextQuery = "/pipeline",
         password: PasswordNoticeQuery = "",
     ) -> Response:
         if auth:
@@ -88,7 +88,7 @@ def register_login_routes(app: Hedron) -> None:
         email: LoginEmailForm,
         password: PasswordForm,
         preauth_csrf_token: PreauthCsrfForm = "",
-        next: NextForm = "/profile",
+        next: NextForm = "/pipeline",
     ) -> Response:
         require_preauth_csrf(request, preauth_csrf_token, settings)
         if settings.authentication_mode != "local_password":
@@ -131,7 +131,7 @@ def register_login_routes(app: Hedron) -> None:
         request: Request,
         db: DbSession,
         settings: SettingsDep,
-        next: NextForm = "/profile",
+        next: NextForm = "/pipeline",
         preauth_csrf_token: PreauthCsrfForm = "",
     ) -> Response:
         require_preauth_csrf(request, preauth_csrf_token, settings)
