@@ -1,4 +1,4 @@
-# Access Registry app image for Workbench integration tests.
+# Data Mover app image for Workbench integration tests.
 FROM python:3.11-slim-bookworm
 
 WORKDIR /app

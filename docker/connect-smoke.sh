@@ -158,7 +158,7 @@ smoke_admin_password="$(openssl rand -base64 30 | tr -d '\n')"
 connect_browser_username="smokeuser${run_id}"
 connect_browser_password="$(openssl rand -base64 30 | tr -d '\n')"
 export APP_ENV=development
-export APP_NAME='Access Registry Connect Docker Smoke'
+export APP_NAME='Data Mover Connect Docker Smoke'
 export PUBLIC_BASE_URL="${server_url}"
 export DATABASE_URL='sqlite:///./deployment/connect-smoke.db'
 export JWT_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
@@ -329,7 +329,7 @@ log "deploying the main app as FastAPI content"
     "${repo_root}/.venv/bin/rsconnect" deploy fastapi \
         --server "${server_url}" \
         --new \
-        --title 'Access Registry Docker Smoke' \
+        --title 'Data Mover Docker Smoke' \
         --entrypoint app.main:app \
         --no-verify \
         --requirements-file requirements.txt \
@@ -363,7 +363,7 @@ content_json="$(curl --silent --show-error --fail \
     -H "Authorization: Key ${CONNECT_API_KEY}" \
     "${server_url}/__api__/v1/content")"
 content_guid="$(printf '%s' "${content_json}" | jq -r \
-    '[.[] | select(.title == "Access Registry Docker Smoke")] | last | .guid // empty')"
+    '[.[] | select(.title == "Data Mover Docker Smoke")] | last | .guid // empty')"
 if [[ -z "${content_guid}" ]]; then
     log "deployed content could not be found through the Connect API"
     exit 1

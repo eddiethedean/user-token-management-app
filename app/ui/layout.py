@@ -1,4 +1,4 @@
-"""Layout shell matching Access Registry base template."""
+"""Layout shell matching Data Mover base template."""
 
 from __future__ import annotations
 
@@ -93,7 +93,9 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
 
     def link(href: str, number: str, label: str) -> NodeLike:
         href_norm = href.rstrip("/") or "/"
-        active = "active" if normalized == href_norm else ""
+        active = (
+            "active" if normalized == href_norm or normalized.startswith(f"{href_norm}/") else ""
+        )
         return html.a(
             html.span(number, aria={"hidden": "true"}),
             f" {label}",
@@ -114,17 +116,18 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
 
     children: list[NodeLike] = [
         html.p("Workspace", class_="nav-label"),
-        link("/profile", "01", "Profile"),
-        link("/security", "02", "Security"),
+        link("/pipeline", "01", "Pipeline"),
+        link("/security", "02", "Connections"),
+        link("/profile", "03", "Account"),
     ]
     if "administrator" in auth.user.role_names:
         children.append(html.p("Administration", class_="nav-label nav-label-spaced"))
-        children.append(link("/admin/users", "03", "Users"))
-        children.append(link("/admin/audit", "04", "Audit log"))
+        children.append(link("/admin/users", "04", "Team"))
+        children.append(link("/admin/audit", "05", "Activity"))
     children.append(
         html.div(
             html.span(class_="status-dot", aria={"hidden": "true"}),
-            html.div(html.strong("Protected session"), html.small("Encrypted connection")),
+            html.div(html.strong("Sandbox healthy"), html.small("Credentials encrypted")),
             class_="nav-status",
         )
     )
@@ -178,19 +181,19 @@ def app_shell(
     banner = html.div(
         html.div(
             html.span("▦", class_="flag-mark", aria={"hidden": "true"}),
-            html.span("Official use system · Activity may be monitored"),
+            html.span("Controlled workspace · Transfers are simulated in demo mode"),
             class_="page-width banner-inner",
         ),
         class_="official-banner",
     )
     header_children: list[NodeLike] = [
         html.a(
-            html.span("AR", class_="brand-mark", aria={"hidden": "true"}),
+            html.span("DM", class_="brand-mark", aria={"hidden": "true"}),
             html.span(
                 html.strong(settings.app_name),
-                html.small("Identity and access services"),
+                html.small("Secure data movement"),
             ),
-            html.span("Protected workspace", class_="brand-chip"),
+            html.span("Sandbox online", class_="brand-chip"),
             class_="brand",
             href=page_href(request, "/"),
             aria={"label": f"{settings.app_name} home"},
@@ -216,9 +219,7 @@ def app_shell(
     footer = Footer(
         html.div(
             html.span(settings.app_name),
-            html.span(
-                "Authorized use only · Never include classified information in support requests"
-            ),
+            html.span("Demo environment · No remote systems are contacted"),
             class_="page-width footer-inner",
         ),
         class_="site-footer",

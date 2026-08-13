@@ -91,8 +91,9 @@ def test_auth_and_shell_pages_are_documents(page) -> None:
 def test_main_panel_nav_swaps_all_authenticated_routes(htmx) -> None:
     htmx_login(htmx)
     routes = (
-        ("/profile", "main-panel", "Profile details"),
-        ("/security", "security-tabs", "Account protection"),
+        ("/pipeline", "pipeline-builder", "Build a transfer"),
+        ("/profile", "account-tabs", "Profile details"),
+        ("/security", "security-tabs", "Workspace settings"),
         ("/admin/users", "user-directory", "Users and invitations"),
         ("/admin/audit", "audit-results-region", "Audit activity"),
     )
@@ -206,10 +207,10 @@ def test_profile_mutation_toast_and_identity_oob(htmx) -> None:
 def test_password_htmx_error_fragment_and_success_redirect(htmx) -> None:
     signed_in = htmx_login(htmx)
     _ = signed_in
-    csrf = csrf_from(htmx.get("/security").text)
+    csrf = csrf_from(htmx.get("/profile").text)
 
     mismatch = htmx.post(
-        "/security/password",
+        "/profile/password",
         data={
             "csrf_token": csrf,
             "current_password": ADMIN_PASSWORD,
@@ -226,9 +227,9 @@ def test_password_htmx_error_fragment_and_success_redirect(htmx) -> None:
     assert_no_document_shell(adapter)
 
     success = htmx.post(
-        "/security/password",
+        "/profile/password",
         data={
-            "csrf_token": csrf_from(htmx.get("/security").text),
+            "csrf_token": csrf_from(htmx.get("/profile").text),
             "current_password": ADMIN_PASSWORD,
             "new_password": NEW_PASSWORD,
             "new_password_confirm": NEW_PASSWORD,
@@ -263,12 +264,12 @@ def test_session_revoke_with_second_session(access_app, make_user) -> None:
         remote = next(session for session in sessions if session.id != current_sid)
         remote_id = remote.id
 
-    security = primary.get("/security")
-    csrf = csrf_from(security.text)
-    assert 'data-hedron-dialog-open="#revoke-session-' in security.text
+    account = primary.get("/profile")
+    csrf = csrf_from(account.text)
+    assert 'data-hedron-dialog-open="#revoke-session-' in account.text
 
     revoked = primary.post(
-        f"/security/sessions/{remote_id}/revoke",
+        f"/profile/sessions/{remote_id}/revoke",
         data={"csrf_token": csrf},
         headers={"HX-Target": "#session-list", "Accept": "text/html"},
     )
@@ -286,7 +287,7 @@ def test_session_revoke_with_second_session(access_app, make_user) -> None:
 def test_security_activity_lazy_fragment(htmx) -> None:
     htmx_login(htmx)
     response = htmx.get(
-        "/security/activity",
+        "/profile/activity",
         headers={"HX-Target": "#security-activity", "Accept": "text/html"},
     )
     adapter = as_adapter(response)
@@ -298,7 +299,7 @@ def test_security_activity_lazy_fragment(htmx) -> None:
 def test_security_activity_undeclared_target_rejected(htmx) -> None:
     htmx_login(htmx)
     rejected = htmx.get(
-        "/security/activity",
+        "/profile/activity",
         headers={"HX-Target": "#not-a-declared-region", "Accept": "text/html"},
     )
     # Route allowlist is SECURITY_ACTIVITY only; AR opaques the Hedron diagnostic body.
@@ -314,7 +315,9 @@ def test_app_scenario_document_asserts(page) -> None:
     security = page.get("/security")
     scenario.assert_page_document(security)
     scenario.assert_html_contains("security-tabs", response=security)
-    scenario.assert_html_contains("lazy-refresh", response=security)
+    assert "lazy-refresh" not in security.body
+    scenario.assert_html_contains("account-tabs", response=profile)
+    scenario.assert_html_contains("lazy-refresh", response=profile)
     assert_ui_targets_subset_of_regions(security.body, APP_REGIONS)
 
 
@@ -467,31 +470,47 @@ def test_component_renders_via_hedron_assert_renders() -> None:
     assert "page=3" in pagination
 
 
-def test_security_tabs_and_lazy_activity_render() -> None:
+def test_connection_and_account_tabs_keep_controls_in_the_right_section() -> None:
     auth = SimpleNamespace(
         session=SimpleNamespace(id="s1"),
         user=SimpleNamespace(role_names=["user"]),
     )
-    html = render_html(
+    connection_html = render_html(
         ui.security_tabs(
             _request(),
             csrf_token="csrf",
-            local_password=True,
             secret_slots=[],
-            sessions=[],
-            auth=auth,
         )
     )
-    assert 'id="security-tabs"' in html
-    assert "Password" in html
-    assert "Tokens" in html
-    assert "Sessions" in html
-    assert "Activity" in html
-    assert 'hx-get="/security/activity"' in html
-    assert "hedron-loading" in html
-    assert "lazy-refresh" in html
-    assert 'hx-target="#security-activity"' in html
-    assert_ui_targets_subset_of_regions(html, APP_REGIONS)
+    assert 'id="security-tabs"' in connection_html
+    assert "Credentials" in connection_html
+    assert "Status" in connection_html
+    assert "Password" not in connection_html
+    assert "Sessions" not in connection_html
+    assert "Activity" not in connection_html
+
+    account_html = render_html(
+        ui.account_tabs(
+            _request(),
+            csrf_token="csrf",
+            local_password=True,
+            sessions=[],
+            auth=auth,
+            profile_content="Profile details",
+        )
+    )
+    assert 'id="account-tabs"' in account_html
+    assert "Profile" in account_html
+    assert "Password" in account_html
+    assert "Sessions" in account_html
+    assert "Activity" in account_html
+    assert "Credentials" not in account_html
+    assert "Status" not in account_html
+    assert 'hx-get="/profile/activity"' in account_html
+    assert "hedron-loading" in account_html
+    assert "lazy-refresh" in account_html
+    assert 'hx-target="#security-activity"' in account_html
+    assert_ui_targets_subset_of_regions(account_html, APP_REGIONS)
 
 
 def test_fastapi_fixture_admin_round_trip(access_app, make_user) -> None:

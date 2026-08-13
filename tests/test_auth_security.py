@@ -127,7 +127,7 @@ def test_authenticated_home_and_login_redirect(client) -> None:
     web_login(client)
     home = client.get("/")
     assert home.status_code == 303
-    assert "/profile" in home.headers["location"]
+    assert "/pipeline" in home.headers["location"]
     login_page = client.get("/login?next=/security")
     assert login_page.status_code == 303
     assert "/security" in login_page.headers["location"]
@@ -211,11 +211,11 @@ def test_password_recovery_flow(client) -> None:
 
 def test_password_change_signs_out(client) -> None:
     web_login(client)
-    security = client.get("/security")
-    assert security.status_code == 200
-    csrf = csrf_from(security.text)
+    account = client.get("/profile")
+    assert account.status_code == 200
+    csrf = csrf_from(account.text)
     wrong = client.post(
-        "/security/password",
+        "/profile/password",
         data={
             "csrf_token": csrf,
             "current_password": "wrong",
@@ -227,9 +227,9 @@ def test_password_change_signs_out(client) -> None:
     assert "Current password is incorrect" in wrong.text
 
     changed = client.post(
-        "/security/password",
+        "/profile/password",
         data={
-            "csrf_token": csrf_from(client.get("/security").text),
+            "csrf_token": csrf_from(client.get("/profile").text),
             "current_password": ADMIN_PASSWORD,
             "new_password": NEW_PASSWORD,
             "new_password_confirm": NEW_PASSWORD,
@@ -339,9 +339,9 @@ def test_session_revoke_success(client, make_user, access_app) -> None:
         assert remote is not None
         remote_id = remote.id
 
-    csrf = csrf_from(client.get("/security").text)
+    csrf = csrf_from(client.get("/profile").text)
     revoked = client.post(
-        f"/security/sessions/{remote_id}/revoke",
+        f"/profile/sessions/{remote_id}/revoke",
         data={"csrf_token": csrf},
     )
     assert revoked.status_code == 303
@@ -367,8 +367,8 @@ def test_session_revoke_success(client, make_user, access_app) -> None:
         assert remote is not None
         remote_id = remote.id
     htmx = client.post(
-        f"/security/sessions/{remote_id}/revoke",
-        data={"csrf_token": csrf_from(client.get("/security").text)},
+        f"/profile/sessions/{remote_id}/revoke",
+        data={"csrf_token": csrf_from(client.get("/profile").text)},
         headers={"HX-Request": "true", "HX-Target": "#session-list"},
     )
     assert htmx.status_code == 200
@@ -459,10 +459,10 @@ def test_htmx_unauthenticated_redirect_and_admin_error_retarget(client) -> None:
 
 def test_password_change_and_reset_validation_edges(client) -> None:
     web_login(client)
-    csrf = csrf_from(client.get("/security").text)
+    csrf = csrf_from(client.get("/profile").text)
 
     mismatch = client.post(
-        "/security/password",
+        "/profile/password",
         data={
             "csrf_token": csrf,
             "current_password": ADMIN_PASSWORD,
@@ -474,9 +474,9 @@ def test_password_change_and_reset_validation_edges(client) -> None:
     assert "do not match" in mismatch.text.lower()
 
     weak = client.post(
-        "/security/password",
+        "/profile/password",
         data={
-            "csrf_token": csrf_from(client.get("/security").text),
+            "csrf_token": csrf_from(client.get("/profile").text),
             "current_password": ADMIN_PASSWORD,
             "new_password": "too-short",
             "new_password_confirm": "too-short",
@@ -488,8 +488,8 @@ def test_password_change_and_reset_validation_edges(client) -> None:
     assert "<html" not in weak.text.lower()
 
     missing_session = client.post(
-        "/security/sessions/00000000-0000-0000-0000-000000000000/revoke",
-        data={"csrf_token": csrf_from(client.get("/security").text)},
+        "/profile/sessions/00000000-0000-0000-0000-000000000000/revoke",
+        data={"csrf_token": csrf_from(client.get("/profile").text)},
     )
     assert missing_session.status_code == 404
 
@@ -524,7 +524,7 @@ def test_login_next_rejects_open_redirect(client) -> None:
         },
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/profile"
+    assert response.headers["location"] == "/pipeline"
 
 
 def test_password_reset_supersedes_prior_and_rejects_expiry(client) -> None:

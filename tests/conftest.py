@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for Access Registry."""
+"""Shared pytest fixtures for Data Mover."""
 
 from __future__ import annotations
 
@@ -83,6 +83,20 @@ def access_app(tmp_path, monkeypatch):
 def client(access_app):
     with TestClient(access_app, follow_redirects=False, client=("127.0.0.1", 50000)) as test_client:
         yield test_client
+
+
+@pytest.fixture()
+def demo_connections(access_app):
+    """Seed all fake, connected providers for pipeline tests that need a route."""
+    from app.config import get_settings
+    from app.database import SessionLocal
+    from app.models import User
+    from app.services.demo import seed_demo_connections
+
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        return seed_demo_connections(db, get_settings(), user=user)
 
 
 @pytest.fixture()

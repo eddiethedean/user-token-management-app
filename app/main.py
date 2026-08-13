@@ -1,4 +1,4 @@
-"""Hedron Access Registry application factory."""
+"""Hedron Data Mover application factory."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ settings = get_settings()
 log = logging.getLogger(__name__)
 REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}\Z")
 
-# Access Registry owns CSRF; disable Hedron's Starlette-session CSRF.
+# Data Mover owns CSRF; disable Hedron's Starlette-session CSRF.
 AR_SECURITY = access_registry_security_policy()
 
 

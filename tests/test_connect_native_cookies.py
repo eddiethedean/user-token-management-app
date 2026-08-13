@@ -41,4 +41,4 @@ def test_native_connect_login_round_trip(client, monkeypatch) -> None:
 
     profile = client.get("/profile", headers=connect_headers)
     assert profile.status_code == 200
-    assert "Your profile" in profile.text
+    assert "Account settings" in profile.text

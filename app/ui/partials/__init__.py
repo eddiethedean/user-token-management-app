@@ -1,4 +1,4 @@
-"""Access Registry UI fragment builders."""
+"""Data Mover UI fragment builders."""
 
 from __future__ import annotations
 
@@ -18,9 +18,16 @@ from app.ui.partials.admin_users import (
     user_match_count,
     user_table,
 )
-from app.ui.partials.profile import profile_form, profile_identity, profile_response
+from app.ui.partials.profile import (
+    account_profile_panel,
+    profile_form,
+    profile_identity,
+    profile_response,
+)
 from app.ui.partials.security import (
     _password_field,
+    account_tabs,
+    connection_status_list,
     password_form,
     secret_slot,
     security_activity,
@@ -41,6 +48,8 @@ __all__ = [
     "_audit_filter_form",
     "_filter_base_path",
     "_password_field",
+    "account_profile_panel",
+    "account_tabs",
     "audit_match_count",
     "audit_panel",
     "audit_refresh_button",
@@ -48,6 +57,7 @@ __all__ = [
     "audit_results_body",
     "audit_results_error",
     "audit_results_lazy",
+    "connection_status_list",
     "hedron_pagination",
     "invitation_panel",
     "password_form",

@@ -16,6 +16,7 @@ from app.security.email import normalize_email
 from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
 from app.server import run_server
 from app.services.auth import ensure_default_roles, revoke_all_sessions
+from app.services.demo import seed_demo_connections
 from app.services.mailer import deliver_pending, deliver_pending_with_metrics, retry_failed
 
 
@@ -76,6 +77,25 @@ def create_admin(email: str, password: str | None = None) -> int:
     return 0
 
 
+def seed_demo_connections_for_user(email: str, *, replace: bool = False) -> int:
+    settings = get_settings()
+    assert_schema_current()
+    if settings.is_production:
+        print("Fake demo credentials cannot be seeded in production.", file=sys.stderr)
+        return 2
+    with SessionLocal() as db:
+        canonical, _ = normalize_email(email, settings)
+        user = db.scalar(select(User).where(User.email == canonical))
+        if user is None:
+            print(f"No Data Mover account exists for {canonical}.", file=sys.stderr)
+            return 2
+        result = seed_demo_connections(db, settings, user=user, replace=replace)
+    seeded = ", ".join(result.seeded) or "none"
+    skipped = ", ".join(result.skipped) or "none"
+    print(f"Fake demo connections ready for {canonical}: seeded={seeded}; skipped={skipped}")
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="access-registry")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -85,11 +105,21 @@ def main() -> None:
         "--password-env",
         help="Read the password from this environment variable instead of an interactive prompt",
     )
+    demo_connections_parser = subparsers.add_parser(
+        "seed-demo-connections",
+        help="Add fake encrypted connection credentials to a development account",
+    )
+    demo_connections_parser.add_argument("--email", required=True)
+    demo_connections_parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Replace existing connection credentials with fake demo values",
+    )
     migrate_parser = subparsers.add_parser("migrate", help="Upgrade the database schema to head")
     migrate_parser.add_argument(
         "--adopt-existing",
         action="store_true",
-        help="Stamp a verified pre-Alembic Access Registry schema before upgrading",
+        help="Stamp a verified pre-Alembic Data Mover schema before upgrading",
     )
     subparsers.add_parser("schema-status", help="Show the current and expected schema revisions")
     subparsers.add_parser("send-email", help="Deliver queued email")
@@ -120,6 +150,8 @@ def main() -> None:
                 print(f"Environment variable {args.password_env!r} is not set.", file=sys.stderr)
                 raise SystemExit(2)
         raise SystemExit(create_admin(args.email, password=password))
+    if args.command == "seed-demo-connections":
+        raise SystemExit(seed_demo_connections_for_user(args.email, replace=args.replace))
     if args.command == "migrate":
         upgrade_schema(adopt_existing=args.adopt_existing)
         print(f"Database schema upgraded to {head_revision()}.")

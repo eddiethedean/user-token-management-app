@@ -91,7 +91,7 @@ def test_login_then_profile_via_fastapi_fixture(access_app) -> None:
         },
     )
     assert_page_document(profile)
-    assert_html_contains(profile, "Your profile")
+    assert_html_contains(profile, "Account settings")
     assert_html_contains(profile, "admin@example.gov")
 
 
@@ -117,7 +117,7 @@ def test_htmx_profile_update_returns_fragment(access_app) -> None:
         data={
             "csrf_token": csrf,
             "full_name": "Hedron Admin",
-            "organization": "Access Registry",
+            "organization": "Data Mover",
             "job_title": "Tester",
             "phone": "",
         },
@@ -176,7 +176,7 @@ def test_profile_form_render_html() -> None:
 def test_password_form_render_html() -> None:
     html = render_html(ui.password_form(_request(), csrf_token="pw-csrf"))
     assert 'id="password-form-region"' in html
-    assert 'hx-post="/security/password"' in html
+    assert 'hx-post="/profile/password"' in html
     assert 'data-password-toggle="new_password"' in html
 
 
@@ -186,7 +186,7 @@ def test_password_form_success_swaps_to_sign_in() -> None:
     )
     assert "Password changed." in html
     assert "Return to sign in" in html
-    assert 'hx-post="/security/password"' not in html
+    assert 'hx-post="/profile/password"' not in html
 
 
 def test_user_directory_fragment_render() -> None:
@@ -257,14 +257,63 @@ def test_session_list_and_secret_slot_render_html() -> None:
     assert 'id="session-list"' in session_html
     assert "Current" in session_html
     assert "Revoke" in session_html
-    assert "security/sessions/other-session/revoke" in session_html
+    assert "profile/sessions/other-session/revoke" in session_html
     assert "data-hedron-dialog-open" in session_html
 
     slot = render_html(ui.secret_slot(_request(), SECRET_PROVIDERS[0], None, csrf_token="sec-csrf"))
     assert 'id="secret-slot-advana"' in slot
     assert 'class="secret-card-identity"' in slot
     assert "ADVANA_API_TOKEN" in slot
+    assert 'id="advana-endpoint"' in slot
+    assert 'id="advana-username"' in slot
+    assert 'id="advana-token"' in slot
     assert "security/secrets/advana" in slot
+    assert 'class="secret-card-actions"' in slot
+
+    configured_slot = render_html(
+        ui.secret_slot(
+            _request(),
+            SECRET_PROVIDERS[0],
+            SimpleNamespace(
+                updated_at=datetime(2026, 1, 1, 12, 0, 0),
+                validation_message="Connection ready",
+            ),
+            csrf_token="sec-csrf",
+        )
+    )
+    assert "Replace credentials" in configured_slot
+    assert "Delete connection" in configured_slot
+    assert configured_slot.index("Replace credentials") < configured_slot.index("Delete connection")
+
+    postgres_provider = next(
+        provider for provider in SECRET_PROVIDERS if provider.name == "postgres"
+    )
+    postgres = render_html(
+        ui.secret_slot(_request(), postgres_provider, None, csrf_token="sec-csrf")
+    )
+    assert 'id="secret-slot-postgres"' in postgres
+    assert "DATABASE_URL" in postgres
+    assert all(
+        f'id="postgres-{field}"' in postgres
+        for field in ("host", "port", "database", "username", "password", "sslmode")
+    )
+
+    mongodb_provider = next(provider for provider in SECRET_PROVIDERS if provider.name == "mongodb")
+    mongodb = render_html(ui.secret_slot(_request(), mongodb_provider, None, csrf_token="sec-csrf"))
+    assert 'id="secret-slot-mongodb"' in mongodb
+    assert "MONGODB_URI" in mongodb
+    assert all(
+        f'id="mongodb-{field}"' in mongodb
+        for field in (
+            "host",
+            "port",
+            "database",
+            "username",
+            "password",
+            "auth_database",
+            "tlsmode",
+        )
+    )
 
 
 def test_audit_results_and_invitation_panel_render_html() -> None:
@@ -310,7 +359,7 @@ def test_login_via_page_fixture_uses_hedron_asserts(page) -> None:
 
     profile = fixture_login(page)
     assert_page_document(profile)
-    assert_html_contains(profile, "Your profile")
+    assert_html_contains(profile, "Account settings")
     assert_html_contains(profile, "admin@example.gov")
 
 
@@ -344,8 +393,8 @@ def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
         route for route in get_registry().routes() if route.module.startswith("app.ui.routes")
     ]
     assert Counter(route.kind for route in routes) == {
-        "page": 11,
-        "action": 18,
+        "page": 12,
+        "action": 22,
         "component": 2,
     }
     assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)
@@ -402,7 +451,7 @@ def test_htmx_profile_update_emits_toast_oob(access_app) -> None:
         data={
             "csrf_token": csrf,
             "full_name": "Toast Admin",
-            "organization": "Access Registry",
+            "organization": "Data Mover",
             "job_title": "Tester",
             "phone": "",
         },
@@ -463,7 +512,7 @@ def test_security_activity_lazy_placeholder() -> None:
     html = render_html(ui.security_activity_lazy(_request()))
     assert 'id="security-activity"' in html
     assert "hedron-loading" in html
-    assert 'hx-get="/security/activity"' in html
+    assert 'hx-get="/profile/activity"' in html
     assert 'hx-swap="outerHTML"' in html
 
 

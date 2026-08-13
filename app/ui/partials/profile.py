@@ -144,11 +144,29 @@ def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) 
             class_="detail-list",
         ),
         html.a(
-            "Review account security",
+            "Manage connections",
             class_="button button-secondary button-wide",
             href=page_href(request, "/security"),
         ),
         **attrs,
+    )
+
+
+def account_profile_panel(request: Request, auth: AuthContext, *, csrf_token: str) -> NodeLike:
+    return html.div(
+        html.section(
+            html.div(
+                html.div(
+                    html.h2("Profile details"),
+                    html.p("Information shown to application administrators."),
+                ),
+                class_="panel-heading",
+            ),
+            profile_form(request, auth, csrf_token=csrf_token),
+            class_="panel panel-main",
+        ),
+        profile_identity(request, auth),
+        class_="content-grid profile-grid",
     )
 
 

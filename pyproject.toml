@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "access-registry"
 version = "0.1.0"
-description = "Access Registry — administrator-approved government-email accounts and encrypted Advana/ADE/MSS API tokens (Hedron + HTMX UI)"
+description = "Data Mover — saved pipelines with encrypted user-owned connection credentials (Hedron + HTMX UI)"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -13,11 +13,13 @@ requires-python = ">=3.11"
 authors = [{ name = "Odo Matthews", email = "odosmatthews@gmail.com" }]
 keywords = [
   "access-registry",
+  "data-movement",
+  "pipelines",
   "fastapi",
   "hedron",
   "htmx",
   "authentication",
-  "api-tokens",
+  "connection-credentials",
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",

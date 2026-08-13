@@ -1,6 +1,6 @@
 # Deploy the main app to Posit Connect with SQLite
 
-This is the shortest Connect path for evaluating the **full Access Registry application** on
+This is the shortest Connect path for evaluating the **full Data Mover application** on
 Python 3.11. It uses a pre-initialized SQLite database bundled with the application, local-password
 authentication, and no external email worker.
 
@@ -22,11 +22,12 @@ This is a disposable demo, not a production configuration:
   nodes, or Kubernetes replicas.
 - The pre-created administrator can sign in and exercise the UI. Registration, invitations, and
   password resets queue email, but this demo does not run the separate email worker.
-- Share the content only with the specific people evaluating it. Do not store real API tokens or
-  other operational data in this demo.
+- Share the content only with the specific people evaluating it. Do not store real connection
+  credentials, CSV data, or other operational data in this demo.
 
 Use the [production Connect guide](deploy.md#deploy-the-app-to-posit-connect) when
 you need durable data, multiple processes, SMTP, trusted-header authentication, or production use.
+Evaluators can follow the [Data Mover user guide](user-guide.md) after signing in.
 
 ## 0. Use native cookie transport
 
@@ -58,7 +59,7 @@ Run these commands in the same terminal. Replace the Connect URL and allowed ema
 
 ```bash
 export APP_ENV=development
-export APP_NAME='Access Registry SQLite Demo'
+export APP_NAME='Data Mover SQLite Demo'
 export PUBLIC_BASE_URL='https://connect.example.gov/content/REPLACE-WITH-CONTENT-ID'
 export DATABASE_URL='sqlite:///./deployment/connect-demo.db'
 
@@ -105,6 +106,7 @@ mkdir -p deployment
 python -m app migrate
 python -m app schema-status
 python -m app create-admin --email you@socom.mil
+python -m app seed-demo-connections --email you@socom.mil
 python -m hedron build
 test -f deployment/connect-demo.db
 test -f .hedron/build/manifest.json
@@ -112,7 +114,13 @@ test -f .hedron/build/manifest.json
 
 Use an administrator address on one of the configured `ALLOWED_EMAIL_DOMAINS`. The administrator
 command prompts twice for a 15–128 character password without placing it in shell history. The
-schema status must show the same revision for `Current` and `Head`.
+schema status must show the same revision for `Current` and `Head`. The demo seed stores encrypted,
+deliberately fake Advana, MSS, PostgreSQL, and MongoDB bundles under reserved `.demo.invalid` hosts,
+so the deployed Pipeline page is immediately explorable. It also wakes the simulated Advana compute.
+
+The seeder does not overwrite an existing provider bundle by default. Add `--replace` only when you
+intend to reset that demo account's connection values. It refuses to run with
+`APP_ENV=production`; do not add it to the production Connect sequence in [deploy.md](deploy.md).
 
 If `deployment/connect-demo.db` already exists, these commands upgrade it and update or promote the
 specified administrator. To start a completely fresh demo, use a new database filename and update
@@ -139,7 +147,7 @@ Run this from the repository root in the same configured shell:
 ```bash
 rsconnect deploy fastapi \
   --name my-connect \
-  --title "Access Registry SQLite Demo" \
+  --title "Data Mover SQLite Demo" \
   --entrypoint app.main:app \
   --environment APP_ENV \
   --environment APP_NAME \
@@ -197,8 +205,16 @@ Open the content URL and verify:
 1. `/health` returns `{"status":"ok"}`.
 2. `/ready` returns `{"status":"ready"}`.
 3. The seeded administrator can sign in.
-4. Profile, Sessions, API Tokens, Users, and Audit remain under the Connect content URL.
-5. Logout clears the application cookies and returns to the demo login page.
+4. Pipeline, Connections, Account, Team, and Activity remain under the Connect content URL.
+5. Advana, MSS, PostgreSQL, and MongoDB appear as **Connected** on the simulated Status page.
+6. Pipeline reports **4/4 connections ready**, lists only those seeded providers, and can select
+   their synthetic catalog objects.
+7. A route can save/load its definition and complete the live transfer simulation.
+8. A non-sensitive UTF-8 CSV can be scanned and selected as a source.
+9. Logout clears the application cookies and returns to the demo login page.
+
+Connection checks, catalog objects, Databricks wake state, and pipeline runs remain simulated. This
+verification does not contact a remote provider.
 
 If startup reports that the schema is missing, confirm that `deployment/connect-demo.db` was
 included and that `DATABASE_URL` is exactly `sqlite:///./deployment/connect-demo.db`. If links or

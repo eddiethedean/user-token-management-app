@@ -1,4 +1,4 @@
-# Local Posit Workbench stack for Access Registry proxy integration tests.
+# Local Posit Workbench stack for Data Mover proxy integration tests.
 # Requires POSIT_WORKBENCH_KEY in the project .env (never commit that file).
 #
 # Usage:
@@ -46,7 +46,7 @@ services:
     stop_grace_period: 30s
     environment:
       APP_ENV: development
-      APP_NAME: Access Registry
+      APP_NAME: Data Mover
       PUBLIC_BASE_URL: http://127.0.0.1:8000
       DATABASE_URL: sqlite:////data/access-registry.db
       JWT_SECRET: workbench-docker-jwt-secret-at-least-32-bytes!!

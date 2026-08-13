@@ -2,7 +2,7 @@
 """ASGI reverse proxy that reproduces Workbench's Location rewrite bug.
 
 Path-absolute Locations (``/s/…/login``) get prefixed with ``/proxy/<port>``, which is
-what SOCOM Workbench did to Access Registry redirects. Scheme-absolute Locations
+what SOCOM Workbench did to Data Mover redirects. Scheme-absolute Locations
 (``https://…/s/…/login``) pass through unchanged.
 """
 

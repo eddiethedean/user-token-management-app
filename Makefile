@@ -1,4 +1,4 @@
-.PHONY: check demo-check hedron-check hedron-build migrate install serve create-admin email-worker schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
+.PHONY: check demo demo-check hedron-check hedron-build migrate install serve create-admin email-worker schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
 
 install:
 	python -m pip install -e ".[dev]"
@@ -11,6 +11,9 @@ schema-status:
 
 serve:
 	python -m app serve --reload
+
+demo:
+	bash scripts/run-demo.sh
 
 create-admin:
 	@test -n "$(ADMIN_EMAIL)" || (echo "Set ADMIN_EMAIL=…" >&2; exit 1)

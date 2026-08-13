@@ -253,7 +253,7 @@ with SessionLocal() as db:
 def widen_cookie_paths(http: httpx2.Client) -> None:
     """Re-scope jar cookies to ``/`` so bare app paths receive Workbench-scoped cookies.
 
-    With ``UVICORN_ROOT_PATH=/s/…/p/…``, Access Registry sets ``Path=/s/…/p/…`` on auth
+    With ``UVICORN_ROOT_PATH=/s/…/p/…``, Data Mover sets ``Path=/s/…/p/…`` on auth
     cookies. Docker tests hit the published app port where the mount is already stripped
     (``/login``, not ``/s/…/login``), so httpx would otherwise omit those cookies.
     """
@@ -274,7 +274,7 @@ def app_login(
     next_path: str = "/profile",
     login_path: str = "/login",
 ) -> httpx2.Response:
-    """Sign into Access Registry with real email/password credentials (+ CSRF)."""
+    """Sign into Data Mover with real email/password credentials (+ CSRF)."""
     page = http.get(login_path, follow_redirects=False)
     page.raise_for_status()
     widen_cookie_paths(http)

@@ -24,6 +24,8 @@ RATE_LIMIT_TABLE = "rate_limit_buckets"
 USER_SECRET_TABLE = "user_secrets"
 ATOMIC_SUPPORT_TABLES = {"refresh_token_history", "email_delivery_state"}
 KEY_USAGE_TABLE = "api_token_key_usage"
+PIPELINE_TABLE = "pipeline_definitions"
+PIPELINE_UPLOAD_TABLE = "pipeline_uploads"
 
 
 def alembic_config(database_url: str | None = None) -> Config:
@@ -97,6 +99,12 @@ def adopt_existing_schema(db_engine: Engine | None = None) -> str:
         raise RuntimeError(
             "Existing schema has API-token key accounting without the preceding atomic schema."
         )
+    if PIPELINE_TABLE in tables and KEY_USAGE_TABLE not in tables:
+        raise RuntimeError(
+            "Existing schema has saved pipelines without the preceding API-token key accounting schema."
+        )
+    if PIPELINE_UPLOAD_TABLE in tables and PIPELINE_TABLE not in tables:
+        raise RuntimeError("Existing schema has CSV uploads without saved pipelines.")
     known_existing_tables = CORE_TABLES | {
         table_name
         for table_name in (
@@ -105,6 +113,8 @@ def adopt_existing_schema(db_engine: Engine | None = None) -> str:
             USER_SECRET_TABLE,
             *sorted(ATOMIC_SUPPORT_TABLES),
             KEY_USAGE_TABLE,
+            PIPELINE_TABLE,
+            PIPELINE_UPLOAD_TABLE,
         )
         if table_name in tables
     }
@@ -113,7 +123,11 @@ def adopt_existing_schema(db_engine: Engine | None = None) -> str:
         actual = {column["name"] for column in inspector.get_columns(table_name)}
         if expected != actual:
             raise RuntimeError(f"Existing table {table_name!r} does not match the baseline schema.")
-    if KEY_USAGE_TABLE in tables:
+    if PIPELINE_UPLOAD_TABLE in tables:
+        revision = "0009_csv_sources"
+    elif PIPELINE_TABLE in tables:
+        revision = "0008_catalogs_health"
+    elif KEY_USAGE_TABLE in tables:
         revision = "0006_api_key_usage"
     elif ATOMIC_SUPPORT_TABLES <= tables:
         revision = "0005_atomic_tokens_email"

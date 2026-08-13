@@ -1,4 +1,4 @@
-"""Smoke tests for Access Registry."""
+"""Smoke tests for Data Mover."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def test_login_and_profile(client: TestClient) -> None:
     assert "/profile" in response.headers["location"]
     profile = client.get("/profile")
     assert profile.status_code == 200
-    assert "Your profile" in profile.text
+    assert "Account settings" in profile.text
 
 
 def test_htmx_admin_directory_requires_auth(client: TestClient) -> None:

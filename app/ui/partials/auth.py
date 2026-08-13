@@ -35,7 +35,7 @@ def render_login_page(
     status_code: int = 200,
     error: str = "",
     email: str = "",
-    next: str = "/profile",
+    next: str = "/pipeline",
     success: str = "",
     bootstrap_hint: str = "",
 ) -> Response:
@@ -49,19 +49,23 @@ def render_login_page(
         )
 
     intro = Stack(
-        html.p("Controlled access", class_="eyebrow"),
-        Heading("Your identity, managed with clarity.", level=1),
+        html.p("Secure data operations", class_="eyebrow"),
+        Heading("Move data. Keep control.", level=1),
         Text(
-            "Access your profile, review active sessions, and manage the security "
-            "of your government application account."
+            "Build dependable routes between your remote systems while your credentials "
+            "stay encrypted and under your control."
         ),
         html.div(
             trust_item(
-                "Administrator-approved access",
-                "Invited and self-registered accounts require authorization.",
+                "Bring your own connections",
+                "Use the service credentials already approved for your account.",
             ),
-            trust_item("Short-lived credentials", "Access tokens expire automatically."),
-            trust_item("Audited activity", "Security-sensitive actions are recorded."),
+            trust_item(
+                "Secrets stay sealed", "Saved credentials are encrypted and never displayed."
+            ),
+            trust_item(
+                "Observable by default", "Every transfer has progress, metrics, and a run log."
+            ),
             class_="trust-list",
             aria={"label": "Security features"},
         ),
@@ -76,7 +80,7 @@ def render_login_page(
             "Continue through the approved identity-aware proxy using your CAC or "
             "federated credential."
             if federated
-            else "Use the government email associated with your approved account.",
+            else "Use the email associated with your approved Data Mover workspace.",
             class_="muted",
         ),
     ]

@@ -1,6 +1,6 @@
-# Deploy Access Registry on Posit Workbench and Connect
+# Deploy Data Mover on Posit Workbench and Connect
 
-Access Registry is a FastAPI application with the entrypoint `app.main:app`. Workbench and Connect
+Data Mover is a FastAPI application with the entrypoint `app.main:app`. Workbench and Connect
 are separate deployment paths in this guide:
 
 - [Run it in Workbench](#run-the-app-in-posit-workbench) for local development with SQLite.
@@ -40,7 +40,7 @@ Use these development values in `.env`:
 
 ```dotenv
 APP_ENV=development
-APP_NAME='Access Registry'
+APP_NAME='Data Mover'
 PUBLIC_BASE_URL='http://127.0.0.1:8000'
 DATABASE_URL='sqlite:///./access-registry.db'
 AUTHENTICATION_MODE=local_password
@@ -57,8 +57,8 @@ Generate three different values and assign them to `JWT_SECRET`, `SESSION_PEPPER
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-The development API-token encryption key from `.env.example` is suitable only for this disposable
-local database.
+The development connection-credential encryption key from `.env.example` is suitable only for this
+disposable local database. Its `API_TOKEN_*` environment-variable name is retained for compatibility.
 
 ### 3. Initialize and start the app
 
@@ -68,6 +68,7 @@ Use an administrator address on an allowed domain:
 python -m app migrate
 python -m app schema-status
 python -m app create-admin --email you@socom.mil
+python -m app seed-demo-connections --email you@socom.mil
 python -m app serve --reload
 ```
 
@@ -75,14 +76,22 @@ The administrator command prompts for a 15–128 character password. Open the Wo
 printed by `serve`. The app automatically obtains the `/s/.../p/...` session mount; do not replace
 that URL with a `/proxy/8000/` URL.
 
+`seed-demo-connections` adds encrypted, deliberately fake bundles for Advana, MSS, PostgreSQL, and
+MongoDB under reserved `.demo.invalid` hosts. It leaves an existing provider bundle unchanged; use
+`--replace` only when you intentionally want to reset that development account to fake values. The
+command requires a current schema and an existing account, and refuses to run when
+`APP_ENV=production`.
+
 If the URL is not printed, ask Workbench for it:
 
 ```bash
 /usr/lib/rstudio-server/bin/rserver-url -l 8000
 ```
 
-Verify `/health`, sign in, open Profile, and log out. To exercise registration, invitations, or
-password reset, start the console email worker in a second Workbench terminal:
+Verify `/health`, sign in, confirm **Connections → Status** shows all four seeded providers, confirm
+Pipeline reports **4/4 connections ready**, run a simulated transfer, and log out. To
+exercise registration, invitations, or password reset, start the console email worker in a second
+Workbench terminal:
 
 ```bash
 cd /path/to/user-token-management-app
@@ -95,6 +104,9 @@ python -m app email-worker
 This is the complete production sequence. Run steps 1–6 from a secured Workbench or operator shell
 that can reach the production PostgreSQL database, SMTP relay, Python package repository, and
 Connect server.
+
+Do not add `seed-demo-connections` to this production sequence. The command is for the Workbench and
+SQLite Connect demonstrations only and is rejected by the `APP_ENV=production` configuration below.
 
 ### Before you begin
 
@@ -148,7 +160,8 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
 Run that command three times for `JWT_SECRET`, `SESSION_PEPPER`, and `CSRF_SECRET`. Generate the
-API-token encryption key separately:
+connection-credential encryption key separately (the environment variable keeps its legacy
+`API_TOKEN_*` name):
 
 ```bash
 python -c 'import base64,json,secrets; print(json.dumps({"production-v1":base64.b64encode(secrets.token_bytes(32)).decode()}))'
@@ -158,8 +171,8 @@ Set the following values in `.env`. Replace every example hostname, credential, 
 
 ```dotenv
 APP_ENV=production
-APP_NAME='Access Registry'
-PUBLIC_BASE_URL='https://connect.example.gov/content/ACCESS-REGISTRY-ID'
+APP_NAME='Data Mover'
+PUBLIC_BASE_URL='https://connect.example.gov/content/DATA-MOVER-ID'
 DATABASE_URL='postgresql+psycopg://USER:URL_ENCODED_PASSWORD@HOST:5432/DBNAME'
 
 JWT_SECRET='GENERATED_VALUE_1'
@@ -167,8 +180,8 @@ SESSION_PEPPER='GENERATED_VALUE_2'
 CSRF_SECRET='GENERATED_VALUE_3'
 API_TOKEN_ENCRYPTION_KEYS='{"production-v1":"GENERATED_32_BYTE_BASE64_KEY"}'
 API_TOKEN_ACTIVE_KEY_ID=production-v1
-JWT_ISSUER='urn:your-organization:access-registry'
-JWT_AUDIENCE='access-registry'
+JWT_ISSUER='urn:your-organization:data-mover'
+JWT_AUDIENCE='data-mover'
 
 COOKIE_SECURE=true
 COOKIE_PATH=auto
@@ -177,7 +190,7 @@ RATE_LIMIT_ENABLED=true
 
 EMAIL_BACKEND=smtp
 EMAIL_REDACT_SENT_BODIES=true
-EMAIL_FROM='Access Registry <no-reply@example.gov>'
+EMAIL_FROM='Data Mover <no-reply@example.gov>'
 SMTP_HOST='smtp.example.gov'
 SMTP_PORT=25
 SMTP_STARTTLS=true
@@ -216,7 +229,7 @@ TRUSTED_PROXY_IPS='10.0.0.10,10.0.0.11'
 ```
 
 The proxy must remove client-supplied identity headers, authenticate the user, and inject exactly
-one normalized email. Connect credentials alone are not used as Access Registry identity. See
+one normalized email. Connect credentials alone are not used as Data Mover identity. See
 [Authentication modes](auth-modes.md) before enabling this mode.
 
 Load the reviewed `.env` into the current shell and validate it:
@@ -271,7 +284,7 @@ Confirm the production variables are still loaded in this shell, then run from t
 ```bash
 rsconnect deploy fastapi \
   --name my-connect \
-  --title 'Access Registry' \
+  --title 'Data Mover' \
   --entrypoint app.main:app \
   --requirements-file requirements.txt \
   --environment APP_ENV \
@@ -361,10 +374,19 @@ Open `PUBLIC_BASE_URL` and verify:
 1. `/health` returns `{"status":"ok"}`.
 2. `/ready` returns `{"status":"ready"}`.
 3. The initial administrator can authenticate.
-4. Profile, Sessions, API Tokens, Users, and Audit stay under the Connect content URL.
+4. Pipeline, Connections, Account, Team, and Activity stay under the Connect content URL.
 5. Refresh works and logout clears the application session.
 6. A registration, invitation, or password-reset email is delivered by the worker.
 7. `python -m app schema-status` still reports `Current` equal to `Head`.
+8. Each connection type renders its expected fields and simulated status. Advana can transition its
+   simulated Databricks compute from sleeping to running.
+9. A pipeline can select catalog objects, save/load its definition, run the live simulation, and
+   scan a non-sensitive UTF-8 CSV source. Confirm that providers without a saved, Connected bundle
+   are absent from its pickers and cannot be submitted directly.
+
+These checks validate Data Mover's application and demo workflow. They do not establish connectivity to
+Advana, Palantir Foundry, PostgreSQL, MongoDB, or Databricks; the current provider handshakes,
+catalogs, compute state, and transfers are simulated.
 
 For temporary, secret-free authentication diagnostics, add this content environment variable and
 restart the content:
@@ -431,6 +453,7 @@ complete the [production security gate](../SECURITY.md#production-security-gate)
 
 ## Related documentation
 
+- [Data Mover user guide](user-guide.md)
 - [SQLite Connect demo](connect-sqlite-demo.md)
 - [Authentication modes](auth-modes.md)
 - [Migrations](../migrations/README.md)
