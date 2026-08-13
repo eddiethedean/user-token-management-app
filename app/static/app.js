@@ -42,7 +42,31 @@ function pruneToastQueue(host) {
   }
 }
 
-document.addEventListener("htmx:afterSwap", () => {
+function revealActiveNavigation() {
+  const nav = document.getElementById("side-nav");
+  const active = nav?.querySelector(".nav-link.active");
+  if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return;
+  nav.scrollTo({
+    left: active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2,
+    behavior: "smooth",
+  });
+}
+
+function animateMainPanel(event) {
+  if (event.detail?.target?.id !== "main-panel") return;
+  const panel = document.getElementById("main-panel");
+  if (!panel) return;
+  panel.classList.remove("is-entering");
+  void panel.offsetWidth;
+  panel.classList.add("is-entering");
+  window.setTimeout(() => panel.classList.remove("is-entering"), 300);
+}
+
+document.addEventListener("DOMContentLoaded", revealActiveNavigation);
+
+document.addEventListener("htmx:afterSwap", (event) => {
+  revealActiveNavigation();
+  animateMainPanel(event);
   const host = document.getElementById("toast-host");
   if (!host) return;
   pruneToastQueue(host);

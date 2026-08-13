@@ -153,8 +153,12 @@ def render_fragment(
     )
 
 
-def auth_card(*children: NodeLike) -> Card:
-    return Card(*children, class_="panel auth-card")
+def auth_card(*children: NodeLike) -> NodeLike:
+    """Center the compact authentication card within the public-page canvas."""
+    return html.div(
+        Card(*children, class_="panel auth-card"),
+        class_="center-card-wrap",
+    )
 
 
 async def render_authenticated_view(

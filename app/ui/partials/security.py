@@ -145,12 +145,11 @@ def secret_slot(
         metadata = f"No {provider.label} token is available to your runs."
     return Section(
         html.div(
+            html.span(provider.mark, class_="secret-provider-mark", aria={"hidden": "true"}),
             html.div(
-                html.span(provider.mark, class_="secret-provider-mark", aria={"hidden": "true"}),
-                html.div(
-                    Heading(provider.label, level=3),
-                    html.code(provider.environment_variable),
-                ),
+                Heading(provider.label, level=3),
+                html.code(provider.environment_variable),
+                class_="secret-card-identity",
             ),
             Badge(
                 "Configured" if configured else "Not configured",
@@ -395,7 +394,7 @@ def security_tabs(
                         ),
                     ),
                     password_form(request, csrf_token=csrf_token),
-                    class_="panel split-panel",
+                    class_="panel panel-main split-panel",
                 ),
             )
         )
@@ -404,17 +403,19 @@ def security_tabs(
             "Tokens",
             Section(
                 html.div(
-                    Heading("API tokens", level=2),
-                    Text(
-                        "Add only an approved service token. Saved values are encrypted and cannot be viewed again."
+                    html.div(
+                        Heading("API tokens", level=2),
+                        Text(
+                            "Add only an approved service token. Saved values are encrypted and cannot be viewed again."
+                        ),
                     ),
-                    class_="panel-heading",
+                    class_="panel-heading token-panel-heading",
                 ),
                 html.div(
                     *[secret_slot(request, p, s, csrf_token=csrf_token) for p, s in secret_slots],
                     class_="secret-grid",
                 ),
-                class_="panel",
+                class_="panel panel-main",
             ),
         )
     )
@@ -431,7 +432,7 @@ def security_tabs(
                     class_="panel-heading",
                 ),
                 session_list(request, sessions, auth=auth, csrf_token=csrf_token),
-                class_="panel",
+                class_="panel panel-main",
             ),
         )
     )
@@ -448,7 +449,7 @@ def security_tabs(
                     class_="panel-heading",
                 ),
                 security_activity_lazy(request),
-                class_="panel",
+                class_="panel panel-main",
             ),
         )
     )

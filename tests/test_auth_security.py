@@ -181,6 +181,8 @@ def test_password_recovery_flow(client) -> None:
         },
     )
     assert mismatch.status_code == 400
+    assert 'name="password"' in mismatch.text
+    assert "Passwords do not match" in mismatch.text
 
     changed = client.post(
         "/password/reset",
@@ -203,6 +205,8 @@ def test_password_recovery_flow(client) -> None:
         },
     )
     assert replay.status_code == 400
+    assert 'name="password"' not in replay.text
+    assert "Request a new reset link" in replay.text
 
 
 def test_password_change_signs_out(client) -> None:

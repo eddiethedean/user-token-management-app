@@ -106,7 +106,16 @@ def register_password_routes(app: Hedron) -> None:
                 redirect_path(request, "/login?password=changed"),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
-        except (TokenFlowError, PasswordPolicyError) as exc:
+        except PasswordPolicyError as exc:
+            return render_reset_page(
+                request,
+                settings,
+                token=token,
+                error=str(exc),
+                can_retry=True,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        except TokenFlowError as exc:
             return render_reset_page(
                 request,
                 settings,

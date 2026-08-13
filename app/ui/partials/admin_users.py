@@ -347,5 +347,5 @@ def invitation_panel(
         if pending_rows
         else html.p("No invitations yet."),
         id="invitation-panel",
-        class_="panel",
+        class_="panel invite-panel",
     )

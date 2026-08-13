@@ -180,7 +180,13 @@ def render_register_page(
 ) -> Response:
     preauth = issue_preauth_csrf(settings)
     body: list[NodeLike] = [
+        html.p("Identity request", class_="eyebrow"),
         Heading("Request access", level=1),
+        html.p(
+            "Use your government email. After you verify the address, an administrator "
+            "will review your request.",
+            class_="muted",
+        ),
         alert_box(error),
         alert_box(success, kind="success"),
     ]
@@ -209,7 +215,12 @@ def render_register_page(
                 class_="stack-form",
             )
         )
-    body.append(html.p(html.a("Back to sign in", href=page_href(request, "login"))))
+    body.append(
+        html.p(
+            html.a("Back to sign in", href=page_href(request, "login")),
+            class_="card-footnote",
+        )
+    )
     response = render_page(
         app_shell(
             auth_card(*body),
@@ -238,11 +249,20 @@ def render_verify_page(
 ) -> Response:
     _ = verification
     body: list[NodeLike] = [
+        html.p("Email verification", class_="eyebrow"),
         Heading("Verify registration", level=1),
+        html.p(
+            (
+                "Confirm your address and choose the credentials for your application account."
+                if verification
+                else "This link cannot be used to verify a registration."
+            ),
+            class_="muted",
+        ),
         alert_box(error),
         alert_box(success, kind="success"),
     ]
-    if not success and not error:
+    if not success and verification:
         fields: list[NodeLike] = [hidden_field("token", token)]
         if settings.authentication_mode == "local_password":
             fields.extend(
@@ -280,7 +300,21 @@ def render_verify_page(
             )
         )
     elif error:
-        body.append(html.p(html.a("Request access again", href=page_href(request, "register"))))
+        body.append(
+            html.div(
+                html.a(
+                    "Request access again",
+                    class_="button button-primary",
+                    href=page_href(request, "register"),
+                ),
+                html.a(
+                    "Back to sign in",
+                    class_="button button-quiet",
+                    href=page_href(request, "login"),
+                ),
+                class_="auth-actions",
+            )
+        )
     return render_page(
         app_shell(
             auth_card(*body),
@@ -297,7 +331,13 @@ def render_verify_page(
 def render_forgot_page(request: Request, settings: Settings, *, success: str = "") -> Response:
     preauth = issue_preauth_csrf(settings)
     body: list[NodeLike] = [
+        html.p("Account recovery", class_="eyebrow"),
         Heading("Forgot password", level=1),
+        html.p(
+            "Enter your government email. If an eligible account exists, we will send "
+            "a time-limited reset link.",
+            class_="muted",
+        ),
         alert_box(success, kind="success"),
     ]
     if not success:
@@ -317,7 +357,12 @@ def render_forgot_page(request: Request, settings: Settings, *, success: str = "
                 class_="stack-form",
             )
         )
-    body.append(html.p(html.a("Back to sign in", href=page_href(request, "login"))))
+    body.append(
+        html.p(
+            html.a("Back to sign in", href=page_href(request, "login")),
+            class_="card-footnote",
+        )
+    )
     response = render_page(
         app_shell(
             auth_card(*body),
@@ -339,10 +384,23 @@ def render_reset_page(
     *,
     token: str = "",
     error: str = "",
+    can_retry: bool = False,
     status_code: int = 200,
 ) -> Response:
-    body: list[NodeLike] = [Heading("Reset password", level=1), alert_box(error)]
-    if not error or token:
+    body: list[NodeLike] = [
+        html.p("Account recovery", class_="eyebrow"),
+        Heading("Reset password", level=1),
+        html.p(
+            (
+                "Choose a new password for your account."
+                if not error or can_retry
+                else "This reset link can no longer be used. Request a new one to continue."
+            ),
+            class_="muted",
+        ),
+        alert_box(error),
+    ]
+    if not error or can_retry:
         body.append(
             HedronForm(
                 hidden_field("token", token),
@@ -371,6 +429,22 @@ def render_reset_page(
                 class_="stack-form",
             )
         )
+    else:
+        body.append(
+            html.div(
+                html.a(
+                    "Request a new reset link",
+                    class_="button button-primary",
+                    href=page_href(request, "password/forgot"),
+                ),
+                html.a(
+                    "Back to sign in",
+                    class_="button button-quiet",
+                    href=page_href(request, "login"),
+                ),
+                class_="auth-actions",
+            )
+        )
     return render_page(
         app_shell(
             auth_card(*body),
@@ -394,8 +468,21 @@ def render_invitation_page(
     error: str = "",
     status_code: int = 200,
 ) -> Response:
-    body: list[NodeLike] = [Heading("Accept invitation", level=1), alert_box(error)]
-    if invitation and not error:
+    body: list[NodeLike] = [
+        html.p("Account invitation", class_="eyebrow"),
+        Heading("Accept invitation", level=1),
+        html.p(
+            (
+                "Complete your profile to activate this approved invitation."
+                if invitation
+                else "This invitation link is no longer available. Ask an administrator to "
+                "send a new invitation."
+            ),
+            class_="muted",
+        ),
+        alert_box(error),
+    ]
+    if invitation:
         fields: list[NodeLike] = [
             hidden_field("token", token),
             html.p(f"Invited as {invitation.email_original} ({invitation.role_name})"),
@@ -439,6 +526,24 @@ def render_invitation_page(
                 action=form_action(request, "invitations/accept"),
                 method="post",
                 class_="stack-form",
+            )
+        )
+        body.append(
+            html.p(
+                "Already have access? ",
+                html.a("Sign in", href=page_href(request, "login")),
+                class_="card-footnote",
+            )
+        )
+    elif error:
+        body.append(
+            html.div(
+                html.a(
+                    "Back to sign in",
+                    class_="button button-primary",
+                    href=page_href(request, "login"),
+                ),
+                class_="auth-actions",
             )
         )
     return render_page(

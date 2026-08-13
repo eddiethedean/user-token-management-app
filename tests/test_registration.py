@@ -61,6 +61,18 @@ def test_registration_verify_approve_and_sign_in(client) -> None:
     assert "verification link" in submitted.text.lower()
 
     token = latest_email_token(REGISTRATION_EMAIL, subject_like="Verify your%registration")
+    mismatch = client.post(
+        "/registration/verify",
+        data={
+            "token": token,
+            "password": REGISTRATION_PASSWORD,
+            "password_confirm": "different-password",
+        },
+    )
+    assert mismatch.status_code == 400
+    assert 'name="password"' in mismatch.text
+    assert "Passwords do not match" in mismatch.text
+
     verified = client.post(
         "/registration/verify",
         data={
@@ -193,6 +205,19 @@ def test_invitation_accept_and_revoke(client) -> None:
 
     page = client.get(f"/invitations/accept?token={raw_token}")
     assert page.status_code == 200
+    mismatch = client.post(
+        "/invitations/accept",
+        data={
+            "token": raw_token,
+            "full_name": "Invitee User",
+            "password": USER_PASSWORD,
+            "password_confirm": "different-password",
+        },
+    )
+    assert mismatch.status_code == 400
+    assert 'name="password"' in mismatch.text
+    assert "Passwords do not match" in mismatch.text
+
     accepted = client.post(
         "/invitations/accept",
         data={

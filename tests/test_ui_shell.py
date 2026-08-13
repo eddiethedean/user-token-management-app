@@ -237,6 +237,7 @@ def test_session_list_and_secret_slot_render_html() -> None:
 
     slot = render_html(ui.secret_slot(_request(), SECRET_PROVIDERS[0], None, csrf_token="sec-csrf"))
     assert 'id="secret-slot-advana"' in slot
+    assert 'class="secret-card-identity"' in slot
     assert "ADVANA_API_TOKEN" in slot
     assert "security/secrets/advana" in slot
 

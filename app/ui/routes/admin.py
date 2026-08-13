@@ -558,7 +558,7 @@ def register_admin_routes(app: Hedron) -> None:
                     page_size=AUDIT_PAGE_SIZE,
                     lazy=not (et or oc or page > 1),
                 ),
-                class_="panel",
+                class_="panel panel-main",
             ),
         ]
         return await render_authenticated_view(
