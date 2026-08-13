@@ -25,7 +25,7 @@ This is a disposable demo, not a production configuration:
 - Share the content only with the specific people evaluating it. Do not store real API tokens or
   other operational data in this demo.
 
-Use the [production Connect guide](deploy.md#3-prepare-the-connect-production-configuration) when
+Use the [production Connect guide](deploy.md#deploy-the-app-to-posit-connect) when
 you need durable data, multiple processes, SMTP, trusted-header authentication, or production use.
 
 ## 0. Use native cookie transport

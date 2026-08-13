@@ -1,39 +1,22 @@
-# Run Access Registry on Posit Workbench and Connect
+# Deploy Access Registry on Posit Workbench and Connect
 
-Access Registry is a FastAPI ASGI browser application with entrypoint `app.main:app`. This guide
-starts with a local development deployment in Posit Workbench, then moves the same source to a
-persistent Posit Connect production deployment.
+Access Registry is a FastAPI application with the entrypoint `app.main:app`. Workbench and Connect
+are separate deployment paths in this guide:
 
-The Workbench path uses SQLite and console email so you can validate the application first. This
-guide's Connect path is the durable production path and requires PostgreSQL, SMTP, production
-secrets, and an external email worker. For a single-process, disposable Connect evaluation of the
-full app, follow the separate [Connect SQLite demo guide](connect-sqlite-demo.md). Do not use its
-configuration for production.
+- [Run it in Workbench](#run-the-app-in-posit-workbench) for local development with SQLite.
+- [Deploy it to Connect](#deploy-the-app-to-posit-connect) for a persistent production deployment
+  with PostgreSQL and SMTP.
+- [Deploy the SQLite demo](connect-sqlite-demo.md) for a disposable, single-process Connect
+  evaluation. Do not use the SQLite demo configuration for production.
 
-## Prerequisites
+The Connect instructions below are verified with Connect 2025.06.0 and Python 3.11.7. Application
+cookies work through Connect natively; do not install an application-cookie proxy.
 
-For both environments you need:
+## Run the app in Posit Workbench
 
-- Python 3.11 and network access to the configured Python package repository;
-- this repository checked out in a writable directory;
-- `/usr/lib/rstudio-server/bin/rserver-url` on Workbench, unless `UVICORN_ROOT_PATH` is already set
-  to the session proxy path or full proxied URL;
-- a government-domain test email allowed by `ALLOWED_EMAIL_DOMAINS`.
+### 1. Create a Python 3.11 environment
 
-For Connect production you additionally need:
-
-- a stable external HTTPS content URL or vanity URL;
-- a PostgreSQL database and credentials that can create/update the application tables;
-- an approved SMTP relay with STARTTLS;
-- an approved offline password blocklist; and
-- a supervised place to run the email worker separately from the Connect web process.
-
-If the deployment uses `AUTHENTICATION_MODE=trusted_header` or trusts forwarded client addresses,
-you also need the exact IP addresses of Connect's immediate application proxy nodes.
-
-## 1. Set up the project in Posit Workbench
-
-Open a terminal in Workbench and move to the repository checkout:
+Open a Workbench terminal in the repository checkout:
 
 ```bash
 cd /path/to/user-token-management-app
@@ -44,83 +27,62 @@ python -m pip install --upgrade pip setuptools wheel
 python -m pip install -e ".[dev]"
 ```
 
-The version command should report Python 3.11. Create the local configuration only if `.env` does
-not already exist:
+The version command must report Python 3.11.
+
+### 2. Create the local configuration
 
 ```bash
 cp .env.example .env
 chmod 600 .env
 ```
 
-For the first Workbench run, retain these development values in `.env` and replace the example
-domain/email where appropriate:
+Use these development values in `.env`:
 
 ```dotenv
 APP_ENV=development
-PUBLIC_BASE_URL=http://127.0.0.1:8000
-DATABASE_URL=sqlite:///./access-registry.db
+APP_NAME='Access Registry'
+PUBLIC_BASE_URL='http://127.0.0.1:8000'
+DATABASE_URL='sqlite:///./access-registry.db'
 AUTHENTICATION_MODE=local_password
 COOKIE_SECURE=false
 COOKIE_PATH=auto
-ALLOWED_EMAIL_DOMAINS=example.gov,example.mil,socom.mil
+ALLOWED_EMAIL_DOMAINS='example.gov,example.mil,socom.mil'
 EMAIL_BACKEND=console
 ```
 
-Generate fresh development secrets rather than retaining the template markers:
+Generate three different values and assign them to `JWT_SECRET`, `SESSION_PEPPER`, and
+`CSRF_SECRET` in `.env`:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Run that command three times and put the values in `JWT_SECRET`, `SESSION_PEPPER`, and
-`CSRF_SECRET`. The development API-token key may remain in place for this throwaway local database.
+The development API-token encryption key from `.env.example` is suitable only for this disposable
+local database.
 
-## 2. Initialize and run the Workbench app
+### 3. Initialize and start the app
 
-Apply the schema and create the initial administrator. Use an address on an allowed domain
-(for SOCOM Workbench, typically `you@socom.mil`). The interactive command keeps the password
-out of shell history:
+Use an administrator address on an allowed domain:
 
 ```bash
 python -m app migrate
 python -m app schema-status
 python -m app create-admin --email you@socom.mil
-```
-
-Or non-interactive:
-
-```bash
-ADMIN_BOOTSTRAP_PASSWORD='Your-Long-Password-15+' \
-  python -m app create-admin --email you@socom.mil --password-env ADMIN_BOOTSTRAP_PASSWORD
-```
-
-The password must be 15–128 characters and must not contain the email local-part. Start the app:
-
-```bash
 python -m app serve --reload
 ```
 
-`serve` sets Uvicorn ``root_path`` to the Workbench **session** mount (`/s/…/p/…`), the same
-approach as [fastapi-workbench](https://github.com/eddiethedean/jwt-user-management/tree/main/fastapi_workbench).
-**Open the printed session URL.** Do not use Proxied Servers `/proxy/8000/` as the primary entry —
-that path is a different Workbench front door and will not match HTML links rooted at `/s/…/p/…`.
+The administrator command prompts for a 15–128 character password. Open the Workbench session URL
+printed by `serve`. The app automatically obtains the `/s/.../p/...` session mount; do not replace
+that URL with a `/proxy/8000/` URL.
 
-If the session URL view is unavailable, ask Workbench for the external URL/prefix:
+If the URL is not printed, ask Workbench for it:
 
 ```bash
 /usr/lib/rstudio-server/bin/rserver-url -l 8000
 ```
 
-Do not bookmark the Workbench proxy URL; it can change with the session. Verify all of the
-following through the proxy URL:
-
-1. `/health` returns `{"status":"ok"}`.
-2. `/ready` returns `{"status":"ready"}`.
-3. The administrator can sign in and open Profile, Sessions, API Tokens, Users, and Audit.
-4. Logout returns to the login page and the application remains under the Workbench prefix.
-
-To test registration, invitations, or password reset, run the console email worker in a second
-terminal. Capability links are printed to that terminal:
+Verify `/health`, sign in, open Profile, and log out. To exercise registration, invitations, or
+password reset, start the console email worker in a second Workbench terminal:
 
 ```bash
 cd /path/to/user-token-management-app
@@ -128,38 +90,71 @@ source .venv/bin/activate
 python -m app email-worker
 ```
 
-Stop either process with `Ctrl+C`. Before moving to Connect, run the complete quality suite:
+## Deploy the app to Posit Connect
+
+This is the complete production sequence. Run steps 1–6 from a secured Workbench or operator shell
+that can reach the production PostgreSQL database, SMTP relay, Python package repository, and
+Connect server.
+
+### Before you begin
+
+You need:
+
+- Posit Connect 2025.06.0 or newer with Python 3.11 configured;
+- a stable HTTPS Connect vanity URL, or permission to create a content item and use its assigned
+  direct URL;
+- a PostgreSQL database and a `postgresql+psycopg` connection URL;
+- an SMTP relay with STARTTLS;
+- an approved password blocklist file;
+- a Connect publishing API key; and
+- a separately supervised host for the email worker.
+
+For `AUTHENTICATION_MODE=trusted_header`, you also need an approved identity-aware proxy and the
+exact IP addresses of the immediate proxies that connect to the application. You do not need
+`TRUSTED_PROXY_IPS` for local-password authentication or native Connect cookies.
+
+### 1. Create the publishing environment
+
+From the repository root:
 
 ```bash
-make check
+cd /path/to/user-token-management-app
+python3.11 --version
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e ".[dev]"
+python -m pip install rsconnect-python
 ```
 
-## 3. Prepare the Connect production configuration
+The local interpreter and the Connect interpreter must both be Python 3.11. `rsconnect-python` is
+needed only by the publishing shell and is intentionally absent from `requirements.txt`.
 
-Use a separate checkout or replace the Workbench `.env` only after you no longer need its local
-settings. Protect the file and never deploy or commit it:
+### 2. Create the production configuration
+
+Create a protected `.env`; never commit or publish it:
 
 ```bash
+cp .env.example .env
 chmod 600 .env
 mkdir -p deployment
 cp /path/to/approved/password-blocklist.txt deployment/password-blocklist.txt
 ```
 
-The `deployment/` directory is ignored by Git but included by the Connect directory publisher.
 Generate three independent application secrets:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Generate a 256-bit API-token encryption key ring separately:
+Run that command three times for `JWT_SECRET`, `SESSION_PEPPER`, and `CSRF_SECRET`. Generate the
+API-token encryption key separately:
 
 ```bash
 python -c 'import base64,json,secrets; print(json.dumps({"production-v1":base64.b64encode(secrets.token_bytes(32)).decode()}))'
 ```
 
-Store those values through your approved secret-management process. At minimum, the production
-configuration supplied to both Connect and the operator commands must contain:
+Set the following values in `.env`. Replace every example hostname, credential, domain, and secret:
 
 ```dotenv
 APP_ENV=production
@@ -178,8 +173,6 @@ JWT_AUDIENCE='access-registry'
 COOKIE_SECURE=true
 COOKIE_PATH=auto
 ALLOWED_EMAIL_DOMAINS='example.gov,example.mil'
-# Required for trusted_header or trusted forwarded addresses.
-TRUSTED_PROXY_IPS=''
 RATE_LIMIT_ENABLED=true
 
 EMAIL_BACKEND=smtp
@@ -194,143 +187,93 @@ SMTP_PASSWORD=''
 PASSWORD_BLOCKLIST_PATH='deployment/password-blocklist.txt'
 ```
 
-URL-encode special characters in the PostgreSQL username/password. `PUBLIC_BASE_URL` must be the
-stable external URL users will open, without a query or fragment. Connect mount-path handling uses
-the platform-provided `POSIT_PRODUCT` marker and `rstudio-connect-app-base-url` header automatically.
-If using trusted-header authentication, ask the Connect administrator for every immediate proxy IP
-so forwarded client addresses and the identity header are accepted only from known infrastructure.
+URL-encode special characters in the PostgreSQL username and password. `PUBLIC_BASE_URL` must be
+the exact external HTTPS URL users open, without a query or fragment.
 
-### Native Connect 2025.06.0+ without a cookie proxy
+If this is the first deployment and Connect has not assigned a content URL yet, keep the valid
+placeholder shown above for the initial publish. Step 6 explains how to replace it immediately.
 
-This is the preferred deployment. This repository's licensed Connect 2025.06.0 Docker acceptance
-test and Hedron's licensed Connect 2026.07 probe both demonstrated that application-owned request
-cookies reach Python content natively. They also demonstrated the response-cookie rule used by
-this app: emit `Path=/` to Connect and let Connect add the external `/content/<id>` mount exactly
-once. See the
-[`hedron-posit` native Connect guide](https://github.com/eddiethedean/hedron/blob/main/docs/guides/posit.md)
-and its
-[`NATIVE_COOKIES=ok` evidence](https://github.com/eddiethedean/hedron/blob/main/docs/acceptance/realconnect-033/RESULT.log).
+Choose one authentication mode and append its values to `.env`.
 
-Use:
-
-```dotenv
-COOKIE_PATH=auto
-```
-
-No application-cookie proxy or `TRUSTED_PROXY_IPS` entry is required for local-password sessions.
-Deploy normally, open the Connect content URL, and verify login, Profile, refresh, and logout. In
-the content logs, `csrf.preauth.accepted` followed by `auth.access.accepted source='cookie'`
-confirms the native round trip.
-
-This application now follows the same response-cookie contract as `hedron-posit`: under a managed
-Connect runtime, `COOKIE_PATH=auto` produces an upstream root path. Outside Connect, automatic
-mount scoping is unchanged.
-
-If native login fails, clear stale cookies, confirm `COOKIE_PATH=auto`, and inspect the safe
-diagnostics first. The native version floor below 2025.06.0 is not established. On an older release,
-upgrade Connect rather than adding an application-specific cookie transport.
-
-Choose exactly one authentication mode:
-
-### Initial local-password deployment
+For application-managed accounts and passwords:
 
 ```dotenv
 AUTHENTICATION_MODE=local_password
 PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED=true
+TRUSTED_PROXY_IPS=''
 ```
 
-The risk-acceptance value is not a technical recommendation. Use it only when the system owner has
-documented acceptance of password-only authentication for the information in scope.
+The risk-acceptance flag is required by the production configuration gate. Set it only after the
+system owner accepts the password-only authentication posture.
 
-### Trusted-header deployment
+For an approved identity-aware proxy that injects the authenticated email:
 
 ```dotenv
 AUTHENTICATION_MODE=trusted_header
 PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED=false
 TRUSTED_IDENTITY_HEADER=x-access-registry-user
+TRUSTED_PROXY_IPS='10.0.0.10,10.0.0.11'
 ```
 
-This mode requires an approved identity-aware proxy in front of the app. Posit Connect credentials
-alone are not automatically mapped to `x-access-registry-user`: the trusted proxy must strip any
-client-supplied copy, authenticate the user, and inject exactly one normalized email. See
-[Authentication modes](auth-modes.md).
+The proxy must remove client-supplied identity headers, authenticate the user, and inject exactly
+one normalized email. Connect credentials alone are not used as Access Registry identity. See
+[Authentication modes](auth-modes.md) before enabling this mode.
 
-Validate the production settings without printing their values:
-
-```bash
-python -c "from app.config import get_settings; assert get_settings().is_production; print('Production configuration validates')"
-```
-
-## 4. Prepare the production database and Hedron assets
-
-Run migrations from a secured operator shell that has the same production configuration and can
-reach PostgreSQL. Back up an existing database before upgrading:
-
-```bash
-python -m app migrate
-python -m app schema-status
-```
-
-Create or promote the initial administrator. Local-password mode prompts for a password;
-trusted-header mode creates the account without one:
-
-```bash
-python -m app create-admin --email admin@example.gov
-```
-
-Build the Hedron production assets in the exact checkout you will publish:
-
-```bash
-python -m hedron build
-test -f .hedron/build/manifest.json
-```
-
-Do not remove `.hedron/build` between this command and deployment. Connect startup expects the
-generated manifest; runtime asset compilation is intentionally not used.
-
-## 5. Configure the Connect publisher
-
-Install `rsconnect-python` in the project virtual environment. It is a publisher tool and is not
-listed in the application's runtime requirements:
-
-```bash
-source .venv/bin/activate
-python -m pip install rsconnect-python
-```
-
-Register the Connect server once. Obtain an API key from your Connect account and load it through
-your approved secret mechanism:
-
-```bash
-rsconnect add \
-  --server https://connect.example.gov/ \
-  --name my-connect \
-  --api-key "$CONNECT_API_KEY"
-unset CONNECT_API_KEY
-```
-
-The production variables must exist in the publishing shell so `rsconnect` can send them without
-putting their values in command arguments. If your `.env` is shell-compatible and all values with
-spaces or special characters are quoted as above, you can load your own trusted file with:
+Load the reviewed `.env` into the current shell and validate it:
 
 ```bash
 set -a
 . ./.env
 set +a
+python -c "from app.config import get_settings; assert get_settings().is_production; print('Production configuration validates')"
 ```
 
-An approved secret-store export is preferable. Do not source a file you did not create and review.
+Do not source an untrusted `.env` file.
 
-## 6. Deploy the main app to Connect
+### 3. Prepare PostgreSQL and application assets
 
-Run this command from the repository root. Each `--environment NAME` reads the value from the
-publishing process environment; the secret values themselves are not command arguments.
+Back up an existing database before applying migrations. Then run:
+
+```bash
+python -m app migrate
+python -m app schema-status
+python -m app create-admin --email admin@example.gov
+python -m hedron build
+test -f .hedron/build/manifest.json
+```
+
+`schema-status` must report that `Current` equals `Head`. In local-password mode, `create-admin`
+prompts for the application password. In trusted-header mode, it creates or promotes the account
+without an application password.
+
+Run `hedron build` in the checkout you will publish, and do not delete `.hedron/build` before the
+deployment.
+
+### 4. Register the Connect server
+
+Create a publishing API key in Connect and register the server once:
+
+```bash
+export CONNECT_API_KEY='PASTE-YOUR-CONNECT-API-KEY'
+rsconnect add \
+  --server 'https://connect.example.gov/' \
+  --name my-connect \
+  --api-key "$CONNECT_API_KEY"
+unset CONNECT_API_KEY
+```
+
+If `my-connect` is already registered in this environment, skip this step.
+
+### 5. Publish the application
+
+Confirm the production variables are still loaded in this shell, then run from the repository root:
 
 ```bash
 rsconnect deploy fastapi \
   --name my-connect \
-  --title "Access Registry" \
+  --title 'Access Registry' \
   --entrypoint app.main:app \
+  --requirements-file requirements.txt \
   --environment APP_ENV \
   --environment APP_NAME \
   --environment PUBLIC_BASE_URL \
@@ -344,10 +287,11 @@ rsconnect deploy fastapi \
   --environment JWT_AUDIENCE \
   --environment AUTHENTICATION_MODE \
   --environment PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED \
+  --environment TRUSTED_IDENTITY_HEADER \
+  --environment TRUSTED_PROXY_IPS \
   --environment COOKIE_SECURE \
   --environment COOKIE_PATH \
   --environment ALLOWED_EMAIL_DOMAINS \
-  --environment TRUSTED_PROXY_IPS \
   --environment RATE_LIMIT_ENABLED \
   --environment EMAIL_BACKEND \
   --environment EMAIL_REDACT_SENT_BODIES \
@@ -358,84 +302,138 @@ rsconnect deploy fastapi \
   --environment SMTP_USERNAME \
   --environment SMTP_PASSWORD \
   --environment PASSWORD_BLOCKLIST_PATH \
-  --exclude ".env" \
-  --exclude ".venv" \
-  --exclude "**/__pycache__/*" \
-  --exclude "**/*.db" \
-  --exclude "**/*.sqlite3" \
+  --exclude '.env' \
+  --exclude '.venv' \
+  --exclude '**/__pycache__/*' \
+  --exclude '**/*.db' \
+  --exclude '**/*.sqlite3' \
   --exclude tests \
   --exclude demo-app \
   ./
 ```
 
-The root `requirements.txt` contains only runtime dependencies and is checked against
-`pyproject.toml` by the test suite. The command excludes local databases, caches, tests, the demo,
-and the secret `.env`; it retains application code, migrations, static files, the password
-blocklist, and `.hedron/build`.
+The command sends each named environment value without placing its value in the command line. It
+publishes application code, migrations, static files, the password blocklist, and the built Hedron
+manifest. It excludes secrets, local databases, tests, and development environments.
 
-If you enable optional directory lookup, private CA bundles, or other non-default settings, add
-their environment variable names to the command and make any referenced files available inside the
-published directory. You may instead manage the same variables in Connect's content settings or an
-approved platform secret store.
+If you use optional settings such as `DIRECTORY_LOOKUP_*` or CA bundles, add their environment
+variable names to the command and include referenced files in the bundle.
 
-## 7. Run the email worker
+### 6. Finish the first deployment in Connect
 
-The FastAPI web process only queues mail. Run one separately supervised worker with the same
-production environment, database access, and SMTP access:
+After the publish succeeds:
+
+1. Copy the **Direct content URL** printed by `rsconnect`.
+2. If `.env` still contains the placeholder `PUBLIC_BASE_URL`, replace it with that direct URL.
+3. Reload `.env` and rerun the publish command from step 5. Future deployments reuse the same
+   Connect content item.
+4. In the content **Access** settings, grant access only to the intended users or groups.
+5. In **Advanced > Runtime**, confirm the content is using Python 3.11.
+6. Start or restart the content after any environment-setting change.
+
+If the application uses a stable vanity URL, use that URL for `PUBLIC_BASE_URL` instead of the
+direct `/content/<id>` URL.
+
+No Nginx rule or application-cookie proxy is needed. With `COOKIE_PATH=auto`, the app emits
+`Path=/` to Connect; Connect adds `/content/<id>` to the browser-facing cookies exactly once.
+
+### 7. Start the email worker
+
+The Connect web process queues email but does not send it. On a separately supervised host, use the
+same checkout, production `.env`, database access, and SMTP access:
 
 ```bash
 cd /path/to/user-token-management-app
 source .venv/bin/activate
+set -a
+. ./.env
+set +a
 python -m app email-worker
 ```
 
-For a one-batch verification use `python -m app email-worker --once`. Do not rely on a Workbench
-interactive terminal as the long-term production supervisor. Monitor retries and dead letters; use
-`python -m app retry-email` only after correcting the delivery failure.
+Use `python -m app email-worker --once` for a one-batch test. Do not depend on an interactive
+Workbench terminal as the long-term production supervisor.
 
-## 8. Verify the Connect deployment
+### 8. Verify the deployment
 
-On Connect 2025.06.0 and newer, application cookies work natively. Run `make connect-smoke` to
-exercise the direct topology against an isolated Connect 2025.06.0 / Python 3.11.7 container. With
-temporary tracing enabled, a successful round trip includes secret-free `csrf.preauth.accepted` and
-`auth.access.accepted` events. Connect-provided identity remains separate from the application's
-user-management system.
+Open `PUBLIC_BASE_URL` and verify:
 
-Open the stable `PUBLIC_BASE_URL` in a browser and check:
+1. `/health` returns `{"status":"ok"}`.
+2. `/ready` returns `{"status":"ready"}`.
+3. The initial administrator can authenticate.
+4. Profile, Sessions, API Tokens, Users, and Audit stay under the Connect content URL.
+5. Refresh works and logout clears the application session.
+6. A registration, invitation, or password-reset email is delivered by the worker.
+7. `python -m app schema-status` still reports `Current` equal to `Head`.
 
-1. `/health` returns `{"status":"ok"}` and `/ready` returns `{"status":"ready"}`.
-2. The administrator can authenticate through the selected mode.
-3. Profile, session, API-token, user-directory, invitation, and audit views remain under the
-   Connect content prefix.
-4. Cookies are `Secure`, have the expected Connect `Path`, refresh correctly, and are removed on
-   logout.
-5. A registration/invitation/reset message is delivered by the external worker.
-6. `python -m app schema-status` still reports the Alembic head.
+For temporary, secret-free authentication diagnostics, add this content environment variable and
+restart the content:
 
-Then complete the [production security gate](../SECURITY.md#production-security-gate). A successful
-deployment is necessary evidence, but it is not by itself an ATO, FedRAMP package, or FIPS
-validation.
+```dotenv
+ACCESS_REGISTRY_DEV_TRACE=1
+```
 
-## Common failures
+Load `/login`, sign in once, and inspect the content **Logs** pane. A successful cookie round trip
+includes:
+
+```text
+csrf.preauth.accepted
+auth.cookies.issued cookie_path='/' secure=True samesite='lax'
+auth.access.accepted source='cookie'
+```
+
+Remove `ACCESS_REGISTRY_DEV_TRACE` or set it to `0` after troubleshooting. The diagnostics exclude
+passwords, email addresses, cookie values, CSRF tokens, JWTs, and refresh tokens.
+
+The repository's licensed acceptance test reproduces this path with Connect 2025.06.0 and Python
+3.11.7:
+
+```bash
+make connect-smoke
+```
+
+That command requires `CONNECT_LICENSE` in the local `.env`; its cleanup trap deactivates the
+license and removes the temporary Connect container and data.
+
+## Redeploy the application
+
+For a normal code update:
+
+```bash
+cd /path/to/user-token-management-app
+source .venv/bin/activate
+set -a
+. ./.env
+set +a
+python -m app migrate
+python -m app schema-status
+python -m hedron build
+```
+
+Then rerun the `rsconnect deploy fastapi` command from step 5. Back up PostgreSQL before migrations
+that alter production data. Do not generate new session or encryption secrets for an ordinary
+redeploy; rotate them only through an intentional key/session rotation procedure.
+
+## Connect troubleshooting
 
 | Symptom | Check |
 |---|---|
-| Startup says schema is behind | Run `python -m app migrate` against the same PostgreSQL URL |
-| Production configuration is rejected | Compare the error with the production block above and `.env.example` |
-| Hedron production manifest is missing | Run `python -m hedron build` immediately before publishing |
-| Login redirects outside the content path | Confirm the Connect runtime marker/base header, `COOKIE_PATH=auto`, and the external URL |
-| Native login loses its cookie on Connect 2025.06.0+ | Confirm `COOKIE_PATH=auto`, restart the content, clear older double-scoped cookies, and inspect the safe CSRF/auth events |
-| Login CSRF reports `cookie_count=0` | Confirm the deployed app contains the root-upstream cookie-path fix and inspect customized ingress behavior |
-| Connect cannot install a dependency | Confirm Python 3.11 and the server's configured Python package repository |
-| Email remains queued | Start the external worker and verify SMTP/STARTTLS connectivity |
+| Connect selects the wrong interpreter | Confirm Python 3.11 is configured on Connect and deploy from the Python 3.11 virtual environment |
+| Connect cannot install a package | Confirm the server can reach its configured Python package repository and is using `requirements.txt` |
+| Startup reports an old schema | Run `python -m app migrate` with the exact production `DATABASE_URL` |
+| Startup reports a missing Hedron manifest | Run `python -m hedron build` immediately before publishing |
+| Links leave the Connect content path | Correct `PUBLIC_BASE_URL`, confirm the content URL, and keep `COOKIE_PATH=auto` |
+| Login CSRF reports `missing_cookie` | Confirm this version of the app is deployed, clear stale cookies for the Connect host, and retry from a fresh `/login` page |
+| Email remains queued | Start the external worker and verify its database and SMTP connectivity |
 
-## Related
+For more diagnostic detail, see [Troubleshooting](troubleshooting.md). Before production approval,
+complete the [production security gate](../SECURITY.md#production-security-gate).
 
-- [Disposable Connect demo with SQLite](connect-sqlite-demo.md)
+## Related documentation
+
+- [SQLite Connect demo](connect-sqlite-demo.md)
+- [Authentication modes](auth-modes.md)
+- [Migrations](../migrations/README.md)
 - [Posit Connect FastAPI documentation](https://docs.posit.co/connect/user/fastapi/)
 - [Posit Connect command-line publishing](https://docs.posit.co/connect/user/publishing-cli/)
 - [Posit Workbench proxied servers](https://docs.posit.co/ide/server-pro/user/vs-code/guide/proxying-web-servers.html)
-- [Authentication modes](auth-modes.md)
-- [Troubleshooting](troubleshooting.md)
-- [Architecture](architecture.md)
-- [Migrations](../migrations/README.md)
