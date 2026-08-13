@@ -168,6 +168,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
             mode=RenderMode.FRAGMENT,
             status_code=exc.status_code,
             extra_headers=exc.headers,
+            allow_undeclared_targets=True,
         )
         response.headers["HX-Retarget"] = "#global-feedback"
         response.headers["HX-Reswap"] = "innerHTML"
@@ -231,6 +232,7 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
             request=request,
             mode=RenderMode.FRAGMENT,
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            allow_undeclared_targets=True,
         )
         response.headers["HX-Retarget"] = "#global-feedback"
         response.headers["HX-Reswap"] = "innerHTML"

@@ -121,6 +121,7 @@ def render_page(
         status_code=status_code,
         extra_headers=dict(headers) if headers is not None else None,
         authenticated=authenticated,
+        allow_undeclared_targets=request is not None and is_history_restore(request),
     )
     # Hedron forbids <script> nodes in the tree; inject AR progressive-enhancement JS here.
     original_html = bytes(response.body).decode(response.charset or "utf-8")
