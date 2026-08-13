@@ -130,6 +130,7 @@ PROVIDER_CATALOG_MAP = {
     CSV_SOURCE_CATALOG.name: CSV_SOURCE_CATALOG,
 }
 CREATE_TABLE_VALUE = "__new__"
+NEW_TABLE_VALUE_PREFIX = f"{CREATE_TABLE_VALUE}:"
 
 
 def require_catalog_provider(provider: str) -> ProviderCatalog:

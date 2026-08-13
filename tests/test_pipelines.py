@@ -246,6 +246,38 @@ def test_pipeline_can_create_a_named_destination_table(client, demo_connections)
         assert pipeline.destination_schema == "reporting"
         assert pipeline.destination_table == "mission_objects_daily"
 
+    refreshed = client.get("/pipeline")
+    assert 'data-catalog-table="mission_objects_daily"' in refreshed.text
+
+
+def test_pipeline_can_save_an_enter_committed_destination_table(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Enter committed table",
+            "source_provider": "advana",
+            "source_schema": "operations",
+            "source_table": "readiness_events",
+            "destination_provider": "mss",
+            "destination_schema": "ontology",
+            "destination_table": "__new__:enter_committed_table",
+            "destination_table_new": "",
+            "write_mode": "upsert",
+        },
+    )
+
+    assert response.status_code == 303
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Enter committed table")
+        )
+        assert pipeline is not None
+        assert pipeline.destination_create is True
+        assert pipeline.destination_table == "enter_committed_table"
+
 
 def test_csv_inference_detects_headers_and_conservative_types() -> None:
     inspection = inspect_csv(

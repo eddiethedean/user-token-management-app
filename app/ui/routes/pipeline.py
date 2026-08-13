@@ -161,11 +161,21 @@ def _table_metrics(table_name: str) -> tuple[str, str, str]:
     return str(records), size, str(megabytes)
 
 
-def _table_options(provider: str, schema_name: str, *, allow_create: bool = False):
+def _table_options(
+    provider: str,
+    schema_name: str,
+    *,
+    allow_create: bool = False,
+    additional_tables: tuple[str, ...] = (),
+):
     catalog = PROVIDER_CATALOG_MAP[provider]
     schema = next(item for item in catalog.schemas if item.name == schema_name)
     options = []
-    for index, table_name in enumerate(schema.tables):
+    table_names = (
+        *schema.tables,
+        *(name for name in additional_tables if name not in schema.tables),
+    )
+    for index, table_name in enumerate(table_names):
         records, size, megabytes = _table_metrics(table_name)
         options.append(
             _option(
@@ -182,7 +192,21 @@ def _table_options(provider: str, schema_name: str, *, allow_create: bool = Fals
     return options
 
 
-def _catalog_data(catalogs: tuple[ProviderCatalog, ...]):
+def _created_destination_tables(
+    pipelines: list[PipelineDefinition], provider: str, schema_name: str
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            pipeline.destination_table
+            for pipeline in pipelines
+            if pipeline.destination_create
+            and pipeline.destination_provider == provider
+            and pipeline.destination_schema == schema_name
+        )
+    )
+
+
+def _catalog_data(catalogs: tuple[ProviderCatalog, ...], pipelines: list[PipelineDefinition]):
     return html.div(
         *[
             html.span(
@@ -197,7 +221,10 @@ def _catalog_data(catalogs: tuple[ProviderCatalog, ...]):
             )
             for catalog in catalogs
             for schema in catalog.schemas
-            for table_name in schema.tables
+            for table_name in (
+                *schema.tables,
+                *_created_destination_tables(pipelines, catalog.name, schema.name),
+            )
         ],
         id="pipeline-catalog-data",
         hidden=True,
@@ -590,7 +617,7 @@ def _pipeline_body(
             html.form(
                 csrf_hidden(csrf_token),
                 html.input(type="hidden", name="pipeline_id", value="", id="pipeline-id"),
-                _catalog_data(catalogs),
+                _catalog_data(catalogs, pipelines),
                 html.div(
                     html.div(
                         html.p("01 / Configure", class_="section-number"),
@@ -808,6 +835,9 @@ def _pipeline_body(
                                             target_provider,
                                             target_schema_name,
                                             allow_create=True,
+                                            additional_tables=_created_destination_tables(
+                                                pipelines, target_provider, target_schema_name
+                                            ),
                                         )
                                         if target_catalog is not None
                                         else [

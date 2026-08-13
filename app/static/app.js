@@ -143,6 +143,7 @@ const PIPELINE_PROVIDERS = {
   csv: { name: "CSV file", mark: "CSV", technology: "Delimited file", region: "Browser upload" },
 };
 const CREATE_TABLE_VALUE = "__new__";
+const NEW_TABLE_VALUE_PREFIX = `${CREATE_TABLE_VALUE}:`;
 
 let activePipelineRun = null;
 
@@ -313,6 +314,41 @@ function syncNewTableField() {
   if (input) input.required = creating;
 }
 
+function isNewTableValue(value) {
+  return value === CREATE_TABLE_VALUE || value.startsWith(NEW_TABLE_VALUE_PREFIX);
+}
+
+function committedNewTableName(value) {
+  return value.startsWith(NEW_TABLE_VALUE_PREFIX)
+    ? value.slice(NEW_TABLE_VALUE_PREFIX.length)
+    : "";
+}
+
+function commitNewTableName() {
+  const table = pipelineElement("pipeline-target-table-select");
+  const input = pipelineElement("pipeline-target-table-new");
+  if (!table || !input || table.value !== CREATE_TABLE_VALUE) return;
+  const name = input.value.trim();
+  if (!input.checkValidity()) {
+    input.reportValidity();
+    return;
+  }
+  const value = `${NEW_TABLE_VALUE_PREFIX}${name}`;
+  let option = [...table.options].find((item) => item.value === value);
+  if (!option) {
+    option = document.createElement("option");
+    option.value = value;
+    option.textContent = `${name} · new table`;
+    const createOption = [...table.options].find((item) => item.value === CREATE_TABLE_VALUE);
+    table.insertBefore(option, createOption || null);
+  }
+  table.value = value;
+  input.required = false;
+  pipelineElement("pipeline-new-table-field")?.setAttribute("hidden", "");
+  updatePipelinePreview("new-table");
+  showPipelineToast(`“${name}” is ready to create when you save this pipeline.`);
+}
+
 function setProviderPreview(kind, providerKey, providerOption) {
   const specification = PIPELINE_PROVIDERS[providerKey];
   const node = document.querySelector(`.provider-node-${kind}`);
@@ -474,8 +510,8 @@ function updatePipelinePreview(changedControl = "") {
       : `${sourceSchema.value}.${sourceTable.value}`;
   }
   if (targetDetail) {
-    const tableName = targetTable.value === CREATE_TABLE_VALUE
-      ? pipelineElement("pipeline-target-table-new")?.value || "new_table"
+    const tableName = isNewTableValue(targetTable.value)
+      ? committedNewTableName(targetTable.value) || pipelineElement("pipeline-target-table-new")?.value || "new_table"
       : targetTable.value;
     targetDetail.textContent = target.value
       ? `${targetSchema.value}.${tableName}`
@@ -877,6 +913,12 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("input", (event) => {
   if (event.target.closest("#pipeline-target-table-new")) updatePipelinePreview("new-table");
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !event.target.closest("#pipeline-target-table-new")) return;
+  event.preventDefault();
+  commitNewTableName();
 });
 
 document.addEventListener("submit", (event) => {

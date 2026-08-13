@@ -12,6 +12,7 @@ from app.models import PipelineDefinition, PipelineUpload, User, new_id
 from app.services.audit import record_event
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
+    NEW_TABLE_VALUE_PREFIX,
     schema_names,
     validate_existing_object,
 )
@@ -89,9 +90,15 @@ def save_pipeline(
         final_source_table = source_table
     if destination_schema not in schema_names(destination_provider):
         raise ValueError("Select an available destination schema.")
-    destination_create = destination_table == CREATE_TABLE_VALUE
+    destination_create = destination_table == CREATE_TABLE_VALUE or destination_table.startswith(
+        NEW_TABLE_VALUE_PREFIX
+    )
     if destination_create:
-        final_destination_table = destination_table_new.strip()
+        final_destination_table = (
+            destination_table.removeprefix(NEW_TABLE_VALUE_PREFIX)
+            if destination_table.startswith(NEW_TABLE_VALUE_PREFIX)
+            else destination_table_new.strip()
+        )
         if not _NEW_TABLE_PATTERN.fullmatch(final_destination_table):
             raise ValueError(
                 "New table names must be 2–63 characters and use only letters, numbers, or underscores."
