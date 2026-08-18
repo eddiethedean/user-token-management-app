@@ -202,7 +202,18 @@ meta.paragraph_format.space_before = Pt(18)
 set_run(meta.add_run("Version 1  ·  Demo environment  ·  August 18, 2026"), 10, MUTED)
 
 for page_index, (heading, filename, message) in enumerate(PAGES):
-    chunks = split_image(SHOT_DIR / filename, Path(filename).stem)
+    # Connections uses one complete desktop viewport rather than enlarged
+    # scroll-page slices, preserving the full-width screen composition.
+    if filename == "05-connections.png":
+        viewport_path = CHUNK_DIR / "05-connections-full-screen.jpg"
+        CHUNK_DIR.mkdir(parents=True, exist_ok=True)
+        with Image.open(SHOT_DIR / filename) as image:
+            image.convert("RGB").crop((0, 0, image.width, min(880, image.height))).save(
+                viewport_path, "JPEG", quality=94, optimize=True
+            )
+        chunks = [viewport_path]
+    else:
+        chunks = split_image(SHOT_DIR / filename, Path(filename).stem)
     for chunk_index, chunk in enumerate(chunks):
         doc.add_page_break()
         if chunk_index == 0:
@@ -219,7 +230,6 @@ for page_index, (heading, filename, message) in enumerate(PAGES):
             set_cell_margins(cell)
             cp = cell.paragraphs[0]
             cp.paragraph_format.space_after = Pt(0)
-            set_run(cp.add_run("MAIN MESSAGE  "), 9.5, BLUE, bold=True)
             set_run(cp.add_run(message), 10.5, INK)
             spacer = doc.add_paragraph()
             spacer.paragraph_format.space_after = Pt(0)
@@ -231,7 +241,10 @@ for page_index, (heading, filename, message) in enumerate(PAGES):
 
         with Image.open(chunk) as im:
             ratio = im.height / im.width
-        available_height = 5.58 if chunk_index == 0 else 6.7
+        if filename == "05-connections.png":
+            available_height = 4.7
+        else:
+            available_height = 5.58 if chunk_index == 0 else 6.7
         width = min(9.45, available_height / ratio)
         pic = doc.add_paragraph()
         pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
