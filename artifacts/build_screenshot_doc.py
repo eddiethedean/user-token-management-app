@@ -194,7 +194,7 @@ intro = doc.add_paragraph()
 set_run(intro.add_run("Purpose. "), 11, INK, bold=True)
 set_run(intro.add_run(
     "This guide captures the principal Data Mover screens and states the single idea each screen should communicate. "
-    "Long pages continue across panels so interface text remains readable."
+    "Each image presents one complete desktop viewport at a consistent scale."
 ), 11, INK)
 
 meta = doc.add_paragraph()
@@ -202,18 +202,20 @@ meta.paragraph_format.space_before = Pt(18)
 set_run(meta.add_run("Version 1  ·  Demo environment  ·  August 18, 2026"), 10, MUTED)
 
 for page_index, (heading, filename, message) in enumerate(PAGES):
-    # Connections uses one complete desktop viewport rather than enlarged
-    # scroll-page slices, preserving the full-width screen composition.
+    # Every section uses one complete desktop viewport. Connections uses a
+    # wider 1680px capture so its two-column layout is fully visible.
+    viewport_path = CHUNK_DIR / f"{Path(filename).stem}-full-screen.jpg"
+    CHUNK_DIR.mkdir(parents=True, exist_ok=True)
+    source_path = SHOT_DIR / filename
     if filename == "05-connections.png":
-        viewport_path = CHUNK_DIR / "05-connections-full-screen.jpg"
-        CHUNK_DIR.mkdir(parents=True, exist_ok=True)
-        with Image.open(SHOT_DIR / filename) as image:
-            image.convert("RGB").crop((0, 0, image.width, min(880, image.height))).save(
-                viewport_path, "JPEG", quality=94, optimize=True
-            )
-        chunks = [viewport_path]
-    else:
-        chunks = split_image(SHOT_DIR / filename, Path(filename).stem)
+        source_path = SHOT_DIR / "05-connections-wide.png"
+    with Image.open(source_path) as image:
+        if filename == "05-connections.png":
+            viewport = image.convert("RGB")
+        else:
+            viewport = image.convert("RGB").crop((0, 0, image.width, min(880, image.height)))
+        viewport.save(viewport_path, "JPEG", quality=94, optimize=True)
+    chunks = [viewport_path]
     for chunk_index, chunk in enumerate(chunks):
         doc.add_page_break()
         if chunk_index == 0:
@@ -241,10 +243,7 @@ for page_index, (heading, filename, message) in enumerate(PAGES):
 
         with Image.open(chunk) as im:
             ratio = im.height / im.width
-        if filename == "05-connections.png":
-            available_height = 4.7
-        else:
-            available_height = 5.58 if chunk_index == 0 else 6.7
+        available_height = 5.15
         width = min(9.45, available_height / ratio)
         pic = doc.add_paragraph()
         pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
