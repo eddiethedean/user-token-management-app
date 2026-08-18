@@ -26,6 +26,7 @@ ATOMIC_SUPPORT_TABLES = {"refresh_token_history", "email_delivery_state"}
 KEY_USAGE_TABLE = "api_token_key_usage"
 PIPELINE_TABLE = "pipeline_definitions"
 PIPELINE_UPLOAD_TABLE = "pipeline_uploads"
+PIPELINE_RUN_TABLE = "pipeline_runs"
 
 
 def alembic_config(database_url: str | None = None) -> Config:
@@ -105,6 +106,8 @@ def adopt_existing_schema(db_engine: Engine | None = None) -> str:
         )
     if PIPELINE_UPLOAD_TABLE in tables and PIPELINE_TABLE not in tables:
         raise RuntimeError("Existing schema has CSV uploads without saved pipelines.")
+    if PIPELINE_RUN_TABLE in tables and PIPELINE_UPLOAD_TABLE not in tables:
+        raise RuntimeError("Existing schema has pipeline runs without CSV uploads.")
     known_existing_tables = CORE_TABLES | {
         table_name
         for table_name in (
@@ -115,6 +118,7 @@ def adopt_existing_schema(db_engine: Engine | None = None) -> str:
             KEY_USAGE_TABLE,
             PIPELINE_TABLE,
             PIPELINE_UPLOAD_TABLE,
+            PIPELINE_RUN_TABLE,
         )
         if table_name in tables
     }
@@ -123,7 +127,9 @@ def adopt_existing_schema(db_engine: Engine | None = None) -> str:
         actual = {column["name"] for column in inspector.get_columns(table_name)}
         if expected != actual:
             raise RuntimeError(f"Existing table {table_name!r} does not match the baseline schema.")
-    if PIPELINE_UPLOAD_TABLE in tables:
+    if PIPELINE_RUN_TABLE in tables:
+        revision = "0010_real_transfer_runs"
+    elif PIPELINE_UPLOAD_TABLE in tables:
         revision = "0009_csv_sources"
     elif PIPELINE_TABLE in tables:
         revision = "0008_catalogs_health"

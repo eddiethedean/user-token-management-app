@@ -1,0 +1,10 @@
+{
+  "warehouses": [
+    {
+      "id": "warehouse-example",
+      "name": "analytics-sql",
+      "state": "RUNNING",
+      "health": "HEALTHY"
+    }
+  ]
+}

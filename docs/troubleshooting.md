@@ -77,13 +77,12 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| Connection save is rejected | A required provider field is empty or malformed | Recheck every required field. PostgreSQL and MongoDB ports must be numeric and within 1–65535; choose one of the displayed SSL/TLS modes |
+| Connection save is rejected | A required provider field is empty or malformed | Recheck every required field. PostgreSQL ports must be numeric and within 1–65535; choose one of the displayed SSL modes |
 | Saved values appear blank | Expected non-reveal behavior | Enter a complete replacement bundle only when rotating or correcting the connection; Data Mover never repopulates plaintext credentials |
 | Status says `Not configured` | No encrypted credential bundle exists for that user/provider | Save the connection under **Connections → Credentials**; connections are owner-scoped |
-| Status says `Connected`, but the real service is unavailable | The current handshake is simulated | Expected in the demo. Do not use the status as evidence of real network, cluster, credential, or database availability |
-| Advana compute says sleeping | Default simulated Databricks state | Select **Wake compute** under **Connections → Status**; this changes demo state only |
-| Wake action is unavailable for another provider | Only Advana's catalog declares a wakeable runtime | Expected; MSS, PostgreSQL, and MongoDB have retest only |
-| I need a fully populated local demo | The normal app starts without user-owned connections | Run `make demo`; it creates the printed local account and seeds fake `.demo.invalid` credentials for all four providers. The command is development-only |
+| Status says `Untested` | Credentials were saved without a Test action | Use **Retest** under **Connections → Status** |
+| Status says `Connected`, but the real service is unavailable | Demo handshake, stale real check, or network change | In demo mode this is expected. In real mode retest and inspect worker/connector logs |
+| I need a fully populated local demo | The normal app starts without user-owned connections | Run `make demo`; it creates the printed local account and seeds fake `.demo.invalid` credentials for MSS, MCS-COP, and PostgreSQL |
 
 ## Pipelines and saved routes
 
@@ -91,11 +90,12 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 |---------|--------------|-----|
 | Source and destination selection is rejected | The same remote provider was selected on both ends | Choose different remote systems. CSV is source-only and may target any supported remote provider |
 | A connection is missing from Pipeline | It is not saved for the current user or its latest validation is not Connected | Save or replace it under **Connections → Credentials**, then use **Connections → Status** to retest it. Pipeline intentionally hides unavailable connections |
-| Save or Run is disabled | A required connection is missing, the CSV has not been scanned, the same remote system is selected twice, or Advana compute is sleeping | Follow the availability message above the route. Restore/retest the connection, scan the CSV, choose distinct systems, or wake Advana compute |
+| Save or Run is disabled | A required connection is missing, the CSV has not been scanned, or the same remote system is selected twice | Follow the availability message above the route. Restore/retest the connection, scan the CSV, or choose distinct systems |
 | Cannot save a pipeline | Short name, unavailable connection, invalid catalog object, missing CSV scan, or invalid new-table name | Confirm both remote connections are Connected. Use a name with at least 3 characters and catalog values from the UI. New names must be 2–63 characters, start with a letter, and contain only letters, numbers, or underscores |
 | A saved pipeline is missing | Saved definitions are owner-scoped, or it is older than the 12 most recently updated entries shown | Sign in as the owner; update or recreate the route if it is outside the current list |
-| Run completes but no destination changes | Runs are simulations | Expected. The UI generates stages, metrics, batches, and logs without calling or modifying a remote system |
-| Run button says transfer is running | A simulation is already active in the page | Wait for completion before starting another run |
+| Run stays queued | The pipeline worker is not running | Start `python -m app pipeline-worker` (demo mode may complete in the web request) |
+| Run completes but destination is unchanged | Demo connectors, or a Foundry writer flag is off | Demo mode does not write remotely. Real Foundry writers require `PIPELINE_ENABLE_MSS_WRITER` / `PIPELINE_ENABLE_MCSCOP_WRITER` |
+| Run button says transfer is running | A run is already active | Wait for a terminal status or cancel |
 
 ## CSV sources
 

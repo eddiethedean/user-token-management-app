@@ -9,15 +9,29 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
+      - name: Install PostgreSQL server
+        run: sudo apt-get update && sudo apt-get install -y postgresql
       - name: Install package
         run: pip install -e ".[dev]"
       - name: Quality checks
         run: make check
+        env:
+          PYTEST_MONGO_NOPROC: "1"
       - name: Build Hedron production manifest
         run: make hedron-build

@@ -9,29 +9,28 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
-- A data-movement workspace for configuring, saving, loading, and rerunning owner-scoped pipeline
-  definitions.
-- Real-time simulated transfer feedback with stage state, progress, record/byte metrics,
-  throughput, elapsed time, batch activity, reconciliation, and run logs.
-- Synthetic provider catalogs with selectable schemas/databases and tables/collections for Advana
-  (Databricks), MSS (Palantir Foundry), PostgreSQL, and MongoDB.
-- Provider-specific connection bundles, simulated save/retest validation, a consolidated status
-  page, and a Databricks compute wake action for Advana.
-- CSV pipeline sources with owner-scoped storage, UTF-8 and shape validation, column discovery,
-  conservative data-type inference, completeness, and examples.
-- PostgreSQL and MongoDB connection fields for host, port, database, username, password, and
-  transport/authentication options.
-- Connection-aware pipeline selectors and fail-closed save/run controls that exclude providers
-  until the current user has saved and validated them.
-- A development-only `seed-demo-connections` command and `make demo` launcher that populate four
-  conspicuously fake encrypted connection bundles for local exploration.
-- A complete [Data Mover user guide](docs/user-guide.md) and updated operator, deployment, security,
-  troubleshooting, and contributor documentation.
-- Workbench and disposable Connect deployment steps that seed all four fake connections before the
-  demo starts or is bundled.
+- Semblance simulators for Foundry (MSS/MCS-COP) and Advana/Databricks HTTP contracts in tests.
+- Ephemeral PostgreSQL connector tests via [testing.postgresql](https://pypi.org/project/testing.postgresql/).
+- Ephemeral MongoDB contract tests via [pytest-mongo](https://pypi.org/project/pytest-mongo/) (not a product connector).
+- Real MSS, MCS-COP, PostgreSQL, and CSV connectors with Polars batches, a durable pipeline worker,
+  and HTMX polling against persisted run events.
+- Versioned locators/write policies, run leases, cancellation, retention janitor, and feature flags
+  for Foundry writers.
+- Provider protocol notes and sanitized fixtures under `docs/providers/` and `tests/fixtures/providers/`.
+- Offline demo mode with fake connectors; production refuses `DATA_MOVER_MODE=demo`.
+
+### Fixed
+
+- PostgreSQL session timeouts are set with literals (utility `SET` does not accept parameters), and
+  COPY treats empty CSV fields as NULL so numeric/date nulls load.
 
 ### Changed
 
+- Connections are limited to MSS, MCS-COP, and PostgreSQL. Advana and MongoDB leave the UI; existing
+  encrypted rows are preserved.
+- Save stores credentials as untested; Test is a distinct connector health check. Wake cluster is
+  removed.
+- Pipeline runs enqueue to the worker instead of using a browser-side simulator.
 - Reframed the product UI and documentation around Data Mover data movement rather than token
   management.
 - Moved Password, Sessions, and user Activity from Connections into Account, leaving Connections

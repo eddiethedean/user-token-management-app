@@ -64,25 +64,20 @@ SESSION_LIST = FragmentRegion(
     selector="#session-list",
     description="Active session list",
 )
-SECRET_SLOT_ADVANA = FragmentRegion(
-    id="secret-slot-advana",
-    selector="#secret-slot-advana",
-    description="Advana connection credential slot",
-)
 SECRET_SLOT_MSS = FragmentRegion(
     id="secret-slot-mss",
     selector="#secret-slot-mss",
     description="MSS connection credential slot",
 )
+SECRET_SLOT_MCSCOP = FragmentRegion(
+    id="secret-slot-mcscop",
+    selector="#secret-slot-mcscop",
+    description="MCS-COP connection credential slot",
+)
 SECRET_SLOT_POSTGRES = FragmentRegion(
     id="secret-slot-postgres",
     selector="#secret-slot-postgres",
     description="PostgreSQL connection credential slot",
-)
-SECRET_SLOT_MONGODB = FragmentRegion(
-    id="secret-slot-mongodb",
-    selector="#secret-slot-mongodb",
-    description="MongoDB connection credential slot",
 )
 CONNECTION_STATUS_LIST = FragmentRegion(
     id="connection-status-list",
@@ -93,6 +88,11 @@ CSV_INSPECTION = FragmentRegion(
     id="pipeline-csv-inspection",
     selector="#pipeline-csv-inspection",
     description="Uploaded CSV schema inspection",
+)
+PIPELINE_RUN_MONITOR = FragmentRegion(
+    id="pipeline-run-monitor",
+    selector="#pipeline-run-monitor",
+    description="Persisted pipeline run status and events",
 )
 INVITATION_PANEL = FragmentRegion(
     id="invitation-panel",

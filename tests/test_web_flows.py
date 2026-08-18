@@ -8,13 +8,12 @@ from app.database import SessionLocal
 from app.models import AuditEvent, User, UserSecret, UserStatus
 from tests.helpers import (
     ADMIN_EMAIL,
+    MSS_TOKEN,
     USER_PASSWORD,
     as_adapter,
     csrf_from,
     web_login,
 )
-
-ADVANA_TOKEN = "advana-secret-token-value-123456"
 
 
 def test_profile_update_redirect_and_htmx(client) -> None:
@@ -124,7 +123,7 @@ def test_secret_save_and_delete_never_reveal_token(client, make_user) -> None:
     web_login(client, user.email, USER_PASSWORD)
     security = client.get("/security")
     assert security.status_code == 200
-    assert "Advana" in security.text
+    assert "MSS" in security.text
     assert 'id="security-tabs"' in security.text
     assert 'id="main-panel"' in security.text
     assert "Credentials" in security.text
@@ -145,28 +144,32 @@ def test_secret_save_and_delete_never_reveal_token(client, make_user) -> None:
     csrf = csrf_from(security.text)
 
     saved = client.post(
-        "/security/secrets/advana",
-        data={"csrf_token": csrf, "token": ADVANA_TOKEN},
+        "/security/secrets/mss",
+        data={
+            "csrf_token": csrf,
+            "endpoint": "https://mss.example",
+            "token": MSS_TOKEN,
+        },
     )
     assert saved.status_code == 303
     assert "secret-saved" in saved.headers["location"]
     page = client.get(saved.headers["location"])
     assert page.status_code == 200
-    assert ADVANA_TOKEN not in page.text
+    assert MSS_TOKEN not in page.text
     assert "ciphertext" not in page.text
 
     with SessionLocal() as db:
         stored = db.scalar(
             select(UserSecret).where(
                 UserSecret.user_id == user.id,
-                UserSecret.provider == "advana",
+                UserSecret.provider == "mss",
             )
         )
         assert stored is not None
-        assert ADVANA_TOKEN not in stored.ciphertext
+        assert MSS_TOKEN not in stored.ciphertext
 
     deleted = client.post(
-        "/security/secrets/advana/delete",
+        "/security/secrets/mss/delete",
         data={"csrf_token": csrf_from(page.text)},
     )
     assert deleted.status_code == 303
@@ -175,7 +178,7 @@ def test_secret_save_and_delete_never_reveal_token(client, make_user) -> None:
         remaining = db.scalar(
             select(UserSecret).where(
                 UserSecret.user_id == user.id,
-                UserSecret.provider == "advana",
+                UserSecret.provider == "mss",
             )
         )
         assert remaining is None

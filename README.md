@@ -4,13 +4,15 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Data Mover is a self-hosted data-movement demo for organizations that want to design,
-save, and simulate transfers between remote systems using each user's encrypted
-credentials (Advana, MSS, PostgreSQL, and MongoDB).
+Data Mover is a self-hosted data-movement application for organizations that want to
+configure connections, browse remote objects, save pipelines, and run durable transfers
+between MSS, MCS-COP, PostgreSQL, and local CSV files using each user's encrypted credentials.
 
 It is a **browser UI** (FastAPI + [Hedron](https://github.com/eddiethedean/hedron) + HTMX),
 **not a public REST API**. Auth is either local passwords or a trusted identity header behind
-an approved CAC/MFA proxy.
+an approved CAC/MFA proxy. Set `DATA_MOVER_MODE=demo` for offline fake connectors, or
+`DATA_MOVER_MODE=real` for live transfers executed by `python -m app pipeline-worker`.
+Production refuses demo mode.
 
 This software does **not** by itself constitute an ATO, FedRAMP package, or FIPS validation.
 See [SECURITY.md](SECURITY.md).
@@ -26,24 +28,26 @@ See [SECURITY.md](SECURITY.md).
 
 ## What it does
 
-- Saved, user-owned pipelines with browsable source/destination schemas and tables
+- Saved, user-owned pipelines with provider-accurate locators (schema/table or dataset/branch/file)
 - Owner-scoped CSV sources with header discovery and inferred column data types
-- Real-time simulated runs with stages, record counts, throughput, batch activity, and logs
+- Durable pipeline runs with enqueue, cancel, and HTMX polling against persisted events
 - Self-registration (email verify → admin approve) or admin invitations
 - Local password sign-in **or** trusted-header federated sign-in
 - User profile, session list/revoke, and password change
-- Encrypted, provider-specific credentials for Advana, MSS, PostgreSQL, and MongoDB
-- Simulated connection health checks, including wake controls for sleeping Advana Databricks compute
+- Encrypted, provider-specific credentials for MSS, MCS-COP, and PostgreSQL
+- Connector health checks (fake in demo mode; live in real mode)
 - Admin user directory, invitations, approve/deny/disable, audit log
 - Queued email delivery with a supervised worker
+- A separate pipeline worker and janitor for transfers, leases, and retention
 
 ## Non-goals
 
 - Not a public JSON/OpenAPI resource API (cookie-session HTMX UI only)
 - Not identity proofing, clearance verification, or CAC replacement by itself
-- Demo runs do not contact remote endpoints; the telemetry is intentionally simulated
-- CSV uploads are limited to UTF-8 files of 5 MB or less in the demo
+- Demo mode does not contact remote endpoints; real mode requires PostgreSQL, a spool directory, and an HTTPS host allowlist
+- CSV uploads are limited to UTF-8 files of 5 MB or less until streaming quotas exist
 - Not a general-purpose run supervisor for arbitrary workloads (see SD-24)
+- Advana and MongoDB are not first-class transfer providers in this release
 
 ## Documentation map
 
@@ -58,6 +62,8 @@ See [SECURITY.md](SECURITY.md).
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common failures |
 | [docs/faq.md](docs/faq.md) | Short answers |
 | [docs/architecture.md](docs/architecture.md) | Trust boundaries and layout |
+| [docs/runbooks/pipeline-worker.md](docs/runbooks/pipeline-worker.md) | Web + worker operations |
+| [docs/providers/mss.md](docs/providers/mss.md) | Frozen Foundry/Postgres protocol notes |
 | [docs/hedron.md](docs/hedron.md) | Hedron integration and feature coverage |
 | [SECURITY.md](SECURITY.md) | Decision register + production gate |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development and UI contributions |
@@ -118,18 +124,16 @@ seeding command refuses to run in production.
 
 After signing in:
 
-1. Open **Connections → Credentials** and add Advana, MSS, PostgreSQL, or MongoDB demo
+1. Open **Connections → Credentials** and add MSS, MCS-COP, or PostgreSQL demo
    credentials. Every value is encrypted, and the saved plaintext is never displayed again.
-2. Open **Connections → Status** to review simulated handshakes, retest a connection, or wake the
-   simulated Advana Databricks compute.
-3. Open **Pipeline** and choose existing source and destination objects from the synthetic catalogs.
+2. Open **Connections → Status** and select **Test** / **Retest**.
+3. Open **Pipeline** and choose existing source and destination objects from the demo catalogs.
    Only connections you have saved and validated appear. CSV files may also be uploaded, scanned,
    and used as sources.
-4. Select a write mode, save the route, and run it to watch live stages, metrics, batches, and logs.
+4. Select a write mode, save the route, and run it. The page polls persisted run events.
 
-No remote system is contacted. Use only non-sensitive test values and data. The complete workflow,
-provider fields, CSV limits, and simulation boundaries are in the
-[Data Mover user guide](docs/user-guide.md).
+Demo mode does not contact remote systems. Use only non-sensitive test values and data. The complete
+workflow is in the [Data Mover user guide](docs/user-guide.md).
 
 ## CLI reference
 
@@ -199,8 +203,8 @@ python -m app seed-demo-connections --email admin@example.gov
 python -m app serve --reload
 ```
 
-The seed step is development-only, preserves existing connection bundles by default, and makes all
-four simulated providers immediately available on Pipeline. The disposable Connect SQLite guide
+The seed step is development-only, preserves existing connection bundles by default, and makes the
+three demo providers immediately available on Pipeline. The disposable Connect SQLite guide
 uses the same step before bundling its database; production Connect explicitly omits it.
 
 Optional local regression against a real Workbench image (put a trial key in `.env` only —

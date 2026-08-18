@@ -13,10 +13,10 @@ from app.services.secrets import (
     SecretStorageError,
     decrypt_user_credentials_for_run,
     decrypt_user_secret_for_run,
-    store_user_secret,
+    store_user_credentials,
 )
 from tests.helpers import (
-    ADVANA_TOKEN,
+    MSS_TOKEN,
     USER_PASSWORD,
     as_adapter,
     csrf_from,
@@ -33,41 +33,43 @@ def test_secret_slots_render_and_htmx_never_reveals_token(client, htmx, make_use
 
     security = htmx.get("/security")
     assert security.status_code == 200
-    assert all(label in security.text for label in ("Advana", "MSS", "PostgreSQL", "MongoDB"))
+    assert all(label in security.text for label in ("MSS", "MCS-COP", "PostgreSQL"))
     assert "Analytics API" not in security.text
     assert 'id="postgres-host"' in security.text
     assert 'id="postgres-username"' in security.text
     assert 'id="postgres-password"' in security.text
-    assert 'id="mongodb-host"' in security.text
-    assert 'id="mongodb-username"' in security.text
-    assert 'id="mongodb-auth_database"' in security.text
-    assert 'id="mongodb-tlsmode"' in security.text
+    assert 'id="mcscop-endpoint"' in security.text
+    assert 'id="mss-token"' in security.text
 
     rejected = client.post(
-        "/security/secrets/advana",
-        data={"token": ADVANA_TOKEN},
+        "/security/secrets/mss",
+        data={"token": MSS_TOKEN},
     )
     assert rejected.status_code == 403
 
     csrf = csrf_from(security.text)
     saved = htmx.post(
-        "/security/secrets/advana",
-        data={"csrf_token": csrf, "token": ADVANA_TOKEN},
-        headers={"HX-Target": "#secret-slot-advana"},
+        "/security/secrets/mss",
+        data={
+            "csrf_token": csrf,
+            "endpoint": "https://mss.example",
+            "token": MSS_TOKEN,
+        },
+        headers={"HX-Target": "#secret-slot-mss"},
     )
     adapter = as_adapter(saved)
-    assert_fragment_body(adapter, contains="secret-slot-advana")
+    assert_fragment_body(adapter, contains="secret-slot-mss")
     assert_html_contains(adapter, "Configured")
-    assert ADVANA_TOKEN not in saved.text
+    assert MSS_TOKEN not in saved.text
     assert "ciphertext" not in saved.text
 
     deleted = htmx.post(
-        "/security/secrets/advana/delete",
+        "/security/secrets/mss/delete",
         data={"csrf_token": csrf_from(htmx.get("/security").text)},
-        headers={"HX-Target": "#secret-slot-advana"},
+        headers={"HX-Target": "#secret-slot-mss"},
     )
-    assert_fragment_body(as_adapter(deleted), contains="secret-slot-advana")
-    assert ADVANA_TOKEN not in deleted.text
+    assert_fragment_body(as_adapter(deleted), contains="secret-slot-mss")
+    assert MSS_TOKEN not in deleted.text
     assert "Configured" not in deleted.text or "Not configured" in deleted.text
 
 
@@ -84,6 +86,8 @@ def test_postgres_credentials_are_validated_encrypted_and_available_at_run_bound
         "username": "relay_service",
         "password": "database-password-42!",
         "sslmode": "verify-full",
+        "connect_timeout": "10",
+        "application_name": "data-mover",
     }
 
     incomplete = client.post(
@@ -114,10 +118,11 @@ def test_postgres_credentials_are_validated_encrypted_and_available_at_run_bound
             )
         )
         assert owner is not None and stored is not None
-        assert all(value not in stored.ciphertext for value in credentials.values())
-        assert stored.validation_status == "connected"
-        assert stored.validated_at is not None
-        assert "PostgreSQL 16 handshake succeeded" in stored.validation_message
+        assert credentials["password"] not in stored.ciphertext
+        assert credentials["host"] not in stored.ciphertext
+        assert stored.validation_status == "untested"
+        assert stored.validated_at is None
+        assert "Test the connection" in stored.validation_message
         assert (
             decrypt_user_credentials_for_run(
                 db,
@@ -138,35 +143,27 @@ def test_postgres_credentials_are_validated_encrypted_and_available_at_run_bound
         )
 
 
-def test_advana_connection_can_wake_its_databricks_cluster(client, make_user) -> None:
-    user = make_user("databricks.cluster@example.gov")
+def test_mss_connection_can_be_tested(client, make_user) -> None:
+    user = make_user("mss.cluster@example.gov")
     web_login(client, user.email, USER_PASSWORD)
     page = client.get("/security")
     saved = client.post(
-        "/security/secrets/advana",
-        data={"csrf_token": csrf_from(page.text), "token": ADVANA_TOKEN},
+        "/security/secrets/mss",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "endpoint": "https://mss.example",
+            "token": MSS_TOKEN,
+        },
     )
     assert saved.status_code == 303
 
     status_page = client.get("/security")
     assert "Connection status" in status_page.text
-    assert "Databricks" in status_page.text
-    assert "Wake cluster" in status_page.text
-
-    awakened = client.post(
-        "/security/secrets/advana/wake",
-        data={"csrf_token": csrf_from(status_page.text)},
-        headers={
-            "HX-Request": "true",
-            "HX-Target": "connection-status-list",
-            "Accept": "text/html",
-        },
-    )
-    assert awakened.status_code == 200
-    assert "Cluster running" in awakened.text
+    assert "Palantir Foundry" in status_page.text
+    assert "Wake cluster" not in status_page.text
 
     retested = client.post(
-        "/security/secrets/advana/test",
+        "/security/secrets/mss/test",
         data={"csrf_token": csrf_from(status_page.text)},
         headers={
             "HX-Request": "true",
@@ -175,66 +172,62 @@ def test_advana_connection_can_wake_its_databricks_cluster(client, make_user) ->
         },
     )
     assert retested.status_code == 200
-    assert "Databricks handshake succeeded" in retested.text
+    assert "Connected" in retested.text or "Demo handshake" in retested.text
 
     with SessionLocal() as db:
         stored = db.scalar(
             select(UserSecret).where(
                 UserSecret.user_id == user.id,
-                UserSecret.provider == "advana",
+                UserSecret.provider == "mss",
             )
         )
         assert stored is not None
-        assert stored.runtime_status == "running"
-        assert stored.runtime_updated_at is not None
+        assert stored.validation_status == "connected"
 
 
-def test_mongodb_credentials_are_validated_encrypted_and_available_at_run_boundary(
+def test_mcscop_credentials_are_validated_encrypted_and_available_at_run_boundary(
     client, make_user
 ) -> None:
-    user = make_user("mongodb.credentials@example.gov")
+    user = make_user("mcscop.credentials@example.gov")
     web_login(client, user.email, USER_PASSWORD)
     page = client.get("/security")
     credentials = {
-        "host": "documents.internal.example",
-        "port": "27017",
-        "database": "operations",
-        "username": "relay_documents",
-        "password": "mongodb-password-42!",
-        "auth_database": "admin",
-        "tlsmode": "require",
+        "endpoint": "https://mcscop.example",
+        "token": "mcscop-secret-token-value-123456",
+        "dataset_rid": "ri.foundry.main.dataset.demo-destination",
+        "branch": "master",
+        "ca_profile": "system",
     }
 
     saved = client.post(
-        "/security/secrets/mongodb",
+        "/security/secrets/mcscop",
         data={"csrf_token": csrf_from(page.text), **credentials},
         headers={
             "HX-Request": "true",
-            "HX-Target": "secret-slot-mongodb",
+            "HX-Target": "secret-slot-mcscop",
             "Accept": "text/html",
         },
     )
     assert saved.status_code == 200
-    assert "MongoDB credentials saved" in saved.text
+    assert "MCS-COP credentials saved" in saved.text
 
     with SessionLocal() as db:
         owner = db.get(User, user.id)
         stored = db.scalar(
             select(UserSecret).where(
                 UserSecret.user_id == user.id,
-                UserSecret.provider == "mongodb",
+                UserSecret.provider == "mcscop",
             )
         )
         assert owner is not None and stored is not None
         assert all(value not in stored.ciphertext for value in credentials.values())
-        assert stored.validation_status == "connected"
-        assert "MongoDB 8 handshake succeeded" in stored.validation_message
+        assert stored.validation_status == "untested"
         assert (
             decrypt_user_credentials_for_run(
                 db,
                 get_settings(),
                 user=owner,
-                provider="mongodb",
+                provider="mcscop",
             )
             == credentials
         )
@@ -243,9 +236,9 @@ def test_mongodb_credentials_are_validated_encrypted_and_available_at_run_bounda
                 db,
                 get_settings(),
                 user=owner,
-                provider="mongodb",
+                provider="mcscop",
             )
-            == credentials["password"]
+            == credentials["token"]
         )
 
 
@@ -256,17 +249,20 @@ def test_secret_is_encrypted_replaceable_and_wrap_limited(client, make_user) -> 
     with SessionLocal() as db:
         owner = db.get(User, user.id)
         assert owner is not None
-        store_user_secret(
-            db, settings, user=owner, provider="advana", token=ADVANA_TOKEN, request=None
+        store_user_credentials(
+            db,
+            settings,
+            user=owner,
+            provider="mss",
+            credentials={"endpoint": "https://mss.example", "token": MSS_TOKEN},
+            request=None,
         )
         stored = db.scalar(
-            select(UserSecret).where(UserSecret.user_id == user.id, UserSecret.provider == "advana")
+            select(UserSecret).where(UserSecret.user_id == user.id, UserSecret.provider == "mss")
         )
         assert stored is not None
-        assert ADVANA_TOKEN not in stored.ciphertext
-        assert (
-            decrypt_user_secret_for_run(db, settings, user=owner, provider="advana") == ADVANA_TOKEN
-        )
+        assert MSS_TOKEN not in stored.ciphertext
+        assert decrypt_user_secret_for_run(db, settings, user=owner, provider="mss") == MSS_TOKEN
 
     original_limit = settings.api_token_max_wraps_per_key
     settings.api_token_max_wraps_per_key = 1
@@ -275,19 +271,21 @@ def test_secret_is_encrypted_replaceable_and_wrap_limited(client, make_user) -> 
             owner = db.get(User, user.id)
             assert owner is not None
             with pytest.raises(SecretStorageError, match="rotate"):
-                store_user_secret(
+                store_user_credentials(
                     db,
                     settings,
                     user=owner,
-                    provider="advana",
-                    token="replacement-token-value-999",
+                    provider="mss",
+                    credentials={
+                        "endpoint": "https://mss.example",
+                        "token": "replacement-token-value-999",
+                    },
                     request=None,
                 )
             usage = db.get(ApiTokenKeyUsage, settings.api_token_active_key_id)
             assert usage is not None and usage.wrap_count == 1
             assert (
-                decrypt_user_secret_for_run(db, settings, user=owner, provider="advana")
-                == ADVANA_TOKEN
+                decrypt_user_secret_for_run(db, settings, user=owner, provider="mss") == MSS_TOKEN
             )
     finally:
         settings.api_token_max_wraps_per_key = original_limit
@@ -300,7 +298,7 @@ def test_secret_validation_ownership_and_tampering(client, make_user) -> None:
     csrf = csrf_from(client.get("/security").text)
 
     whitespace = client.post(
-        "/security/secrets/advana",
+        "/security/secrets/mss",
         data={"csrf_token": csrf, "token": " token-with-whitespace "},
     )
     assert whitespace.status_code == 400
@@ -313,7 +311,11 @@ def test_secret_validation_ownership_and_tampering(client, make_user) -> None:
 
     saved = client.post(
         "/security/secrets/mss",
-        data={"csrf_token": csrf, "token": "first-user-mss-token"},
+        data={
+            "csrf_token": csrf,
+            "endpoint": "https://mss.example",
+            "token": "first-user-mss-token",
+        },
     )
     assert saved.status_code == 303
 

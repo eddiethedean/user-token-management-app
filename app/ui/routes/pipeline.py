@@ -9,21 +9,31 @@ from fastapi.responses import RedirectResponse
 from hedron import Heading, Hedron, html
 from starlette.responses import Response
 
+from app.config import get_settings
+from app.connectors.registry import connector_for
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.models import PipelineDefinition, PipelineUpload
-from app.routing import redirect_path
+from app.routing import is_htmx_request, redirect_path
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
     CSV_SOURCE_CATALOG,
-    PROVIDER_CATALOG_MAP,
-    PROVIDER_CATALOGS,
     ProviderCatalog,
+    all_provider_catalogs,
+    require_catalog_provider,
 )
 from app.services.csv_uploads import (
     MAX_CSV_UPLOAD_BYTES,
     CsvInspection,
     inspection_from_upload,
     store_csv_upload,
+)
+from app.services.pipeline_runs import (
+    enqueue_run,
+    events_after,
+    latest_run_map,
+    owned_run,
+    request_cancel,
+    snapshot_from_definition,
 )
 from app.services.pipelines import list_pipelines, save_pipeline
 from app.services.secrets import list_user_secrets
@@ -43,13 +53,14 @@ from app.ui.params import (
     PipelineTableForm,
     PipelineWriteModeForm,
 )
-from app.ui.regions import CSV_INSPECTION, MAIN_PANEL, SIDE_NAV, TOAST_HOST
+from app.ui.regions import CSV_INSPECTION, MAIN_PANEL, PIPELINE_RUN_MONITOR, SIDE_NAV, TOAST_HOST
 from app.ui.urls import form_action, hx_attrs
 
-PROVIDER_LABELS = {
-    **{catalog.name: catalog.label for catalog in PROVIDER_CATALOGS},
-    "csv": CSV_SOURCE_CATALOG.label,
-}
+
+def _provider_label(provider: str) -> str:
+    if provider == "csv":
+        return CSV_SOURCE_CATALOG.label
+    return require_catalog_provider(provider).label
 
 
 def _option(
@@ -93,7 +104,7 @@ def _connection_configured(details: dict[str, str | bool]) -> bool:
 
 
 def _connection_runnable(details: dict[str, str | bool]) -> bool:
-    return _connection_configured(details) and details["runtime"] != "sleeping"
+    return _connection_configured(details)
 
 
 def _configured_catalogs(
@@ -101,8 +112,8 @@ def _configured_catalogs(
 ) -> tuple[ProviderCatalog, ...]:
     return tuple(
         catalog
-        for catalog in PROVIDER_CATALOGS
-        if _connection_configured(connections[catalog.name])
+        for catalog in all_provider_catalogs()
+        if catalog.name in connections and _connection_configured(connections[catalog.name])
     )
 
 
@@ -116,10 +127,10 @@ def _provider_options(connections: dict[str, dict[str, str | bool]], *, selected
             validation=str(connections[catalog.name]["validation"]),
             runtime=str(connections[catalog.name]["runtime"]),
             technology=catalog.technology,
-            region=catalog.region,
+            region=catalog.namespaces_label,
         )
-        for catalog in PROVIDER_CATALOGS
-        if _connection_configured(connections[catalog.name])
+        for catalog in all_provider_catalogs()
+        if catalog.name in connections and _connection_configured(connections[catalog.name])
     ]
 
 
@@ -139,26 +150,38 @@ def _source_provider_options(connections: dict[str, dict[str, str | bool]], *, s
     ]
 
 
+def _namespace_entries(provider: str) -> list[tuple[str, str]]:
+    connector = connector_for(provider)
+    return [(item.name, item.display_name) for item in connector.list_namespaces({})]
+
+
+def _object_entries(provider: str, namespace: str) -> list[tuple[str, str]]:
+    connector = connector_for(provider)
+    page = connector.list_objects({}, namespace)
+    return [(item.name, item.display_name) for item in page.items]
+
+
+def _first_namespace(provider: str) -> str:
+    entries = _namespace_entries(provider)
+    return entries[0][0] if entries else ""
+
+
+def _first_object(provider: str, namespace: str) -> str:
+    if not namespace:
+        return ""
+    entries = _object_entries(provider, namespace)
+    return entries[0][0] if entries else ""
+
+
 def _schema_options(provider: str):
+    entries = _namespace_entries(provider)
     return [
-        _option(schema.name, schema.name, selected=index == 0)
-        for index, schema in enumerate(PROVIDER_CATALOG_MAP[provider].schemas)
+        _option(name, display, selected=index == 0) for index, (name, display) in enumerate(entries)
     ]
 
 
 def _table_metrics(table_name: str) -> tuple[str, str, str]:
-    known = {
-        "readiness_events": ("128442", "1.84 GB", "1884"),
-        "asset_inventory": ("84319", "920 MB", "920"),
-        "mission_orders": ("21704", "386 MB", "386"),
-    }
-    if table_name in known:
-        return known[table_name]
-    seed = sum((index + 1) * ord(character) for index, character in enumerate(table_name))
-    records = 18_000 + seed % 164_000
-    megabytes = 240 + seed % 1_300
-    size = f"{megabytes / 1024:.2f} GB" if megabytes >= 1024 else f"{megabytes} MB"
-    return str(records), size, str(megabytes)
+    return ("—", "—", "0")
 
 
 def _table_options(
@@ -168,25 +191,14 @@ def _table_options(
     allow_create: bool = False,
     additional_tables: tuple[str, ...] = (),
 ):
-    catalog = PROVIDER_CATALOG_MAP[provider]
-    schema = next(item for item in catalog.schemas if item.name == schema_name)
-    options = []
-    table_names = (
-        *schema.tables,
-        *(name for name in additional_tables if name not in schema.tables),
-    )
-    for index, table_name in enumerate(table_names):
-        records, size, megabytes = _table_metrics(table_name)
-        options.append(
-            _option(
-                table_name,
-                table_name,
-                selected=index == 0,
-                records=records,
-                size=size,
-                megabytes=megabytes,
-            )
-        )
+    entries = _object_entries(provider, schema_name) if schema_name else []
+    known = {name for name, _ in entries}
+    options = [
+        _option(name, display, selected=index == 0) for index, (name, display) in enumerate(entries)
+    ]
+    for table_name in additional_tables:
+        if table_name not in known:
+            options.append(_option(table_name, table_name))
     if allow_create:
         options.append(_option(CREATE_TABLE_VALUE, "＋ Create a new table…"))
     return options
@@ -207,25 +219,27 @@ def _created_destination_tables(
 
 
 def _catalog_data(catalogs: tuple[ProviderCatalog, ...], pipelines: list[PipelineDefinition]):
+    nodes = []
+    for catalog in catalogs:
+        for namespace, _display in _namespace_entries(catalog.name):
+            objects = [name for name, _label in _object_entries(catalog.name, namespace)] + list(
+                _created_destination_tables(pipelines, catalog.name, namespace)
+            )
+            for table_name in dict.fromkeys(objects):
+                nodes.append(
+                    html.span(
+                        data={
+                            "catalog-provider": catalog.name,
+                            "catalog-schema": namespace,
+                            "catalog-table": table_name,
+                            "records": "—",
+                            "size": "—",
+                            "megabytes": "0",
+                        }
+                    )
+                )
     return html.div(
-        *[
-            html.span(
-                data={
-                    "catalog-provider": catalog.name,
-                    "catalog-schema": schema.name,
-                    "catalog-table": table_name,
-                    "records": _table_metrics(table_name)[0],
-                    "size": _table_metrics(table_name)[1],
-                    "megabytes": _table_metrics(table_name)[2],
-                }
-            )
-            for catalog in catalogs
-            for schema in catalog.schemas
-            for table_name in (
-                *schema.tables,
-                *_created_destination_tables(pipelines, catalog.name, schema.name),
-            )
-        ],
+        *nodes,
         id="pipeline-catalog-data",
         hidden=True,
         aria={"hidden": "true"},
@@ -374,8 +388,6 @@ def _provider_node(
         connection_label = (
             "Upload required"
             if catalog.name == "csv"
-            else "Cluster sleeping"
-            if configured and catalog.supports_runtime_wake and runtime == "sleeping"
             else "Stored credentials"
             if configured
             else "Setup required"
@@ -459,7 +471,9 @@ def _saved_pipeline_data(pipeline: PipelineDefinition, *, run: bool = False) -> 
 def _saved_pipeline_cards(
     pipelines: list[PipelineDefinition],
     connections: dict[str, dict[str, str | bool]],
+    latest_runs: dict[str, object] | None = None,
 ):
+    latest_runs = latest_runs or {}
     if not pipelines:
         return html.div(
             html.span("＋", aria={"hidden": "true"}),
@@ -479,20 +493,17 @@ def _saved_pipeline_cards(
         )
         target_runnable = _connection_runnable(connections[pipeline.destination_provider])
         runnable = connections_configured and source_runnable and target_runnable
-        state = (
-            "Saved"
-            if runnable
-            else "Wake compute"
-            if connections_configured
-            else "Connection required"
-        )
+        latest = latest_runs.get(pipeline.id)
+        state = getattr(latest, "status", "Saved" if runnable else "Connection required")
+        if latest is None:
+            state = "Saved" if runnable else "Connection required"
         cards.append(
             html.article(
                 html.div(
                     html.strong(pipeline.name),
                     html.small(
-                        f"{PROVIDER_LABELS[pipeline.source_provider]} → "
-                        f"{PROVIDER_LABELS[pipeline.destination_provider]}"
+                        f"{_provider_label(pipeline.source_provider)} → "
+                        f"{_provider_label(pipeline.destination_provider)}"
                     ),
                 ),
                 html.span(
@@ -524,9 +535,7 @@ def _saved_pipeline_cards(
                         data=_saved_pipeline_data(pipeline, run=True),
                         disabled=not runnable,
                         title=(
-                            "Wake the selected compute before running this pipeline."
-                            if connections_configured and not runnable
-                            else "Reconnect this pipeline's source and destination before running it."
+                            "Reconnect this pipeline's source and destination before running it."
                             if not connections_configured
                             else None
                         ),
@@ -549,6 +558,8 @@ def _pipeline_body(
     *,
     csrf_token: str,
     notice: str = "",
+    latest_runs: dict[str, object] | None = None,
+    demo_mode: bool = True,
 ):
     catalogs = _configured_catalogs(connections)
     ready_count = sum(1 for details in connections.values() if _connection_runnable(details))
@@ -563,8 +574,16 @@ def _pipeline_body(
         target_catalog = None
     source_provider = source_catalog.name
     target_provider = target_catalog.name if target_catalog is not None else ""
-    source_schema_name = source_catalog.schemas[0].name if source_catalog.schemas else "uploaded"
-    target_schema_name = target_catalog.schemas[0].name if target_catalog is not None else ""
+    source_schema_name = (
+        _first_namespace(source_provider) if source_provider != "csv" else "uploaded"
+    )
+    target_schema_name = _first_namespace(target_provider) if target_provider else ""
+    source_object_name = (
+        _first_object(source_provider, source_schema_name) if source_provider != "csv" else ""
+    )
+    target_object_name = (
+        _first_object(target_provider, target_schema_name) if target_provider else ""
+    )
     source_runtime_ready = source_provider != "csv" and _connection_runnable(
         connections[source_provider]
     )
@@ -580,9 +599,9 @@ def _pipeline_body(
     elif source_provider == "csv":
         availability_message = "Upload and scan a CSV source, or set up a second connection for remote-to-remote routes."
     elif not source_runtime_ready:
-        availability_message = f"Wake {source_catalog.label} compute before running this route."
+        availability_message = f"Validate the {source_catalog.label} connection before running."
     elif not target_runtime_ready:
-        availability_message = f"Wake {target_catalog.label} compute before running this route."
+        availability_message = f"Validate the {target_catalog.label} connection before running."
     else:
         availability_message = "Source and destination connections are ready."
     connection_summary = html.div(
@@ -590,7 +609,10 @@ def _pipeline_body(
             f"{ready_count}/{len(connections)} connections ready",
             class_="connection-summary",
         ),
-        html.span("Simulation mode", class_="demo-badge"),
+        html.span(
+            "Demo mode" if get_settings().is_demo_mode else "Real transfers",
+            class_="demo-badge",
+        ),
         class_="heading-actions",
     )
     csv_upload_attrs = hx_attrs(
@@ -879,7 +901,7 @@ def _pipeline_body(
                         kind="source",
                         catalog=source_catalog,
                         detail=(
-                            f"{source_schema_name}.{source_catalog.schemas[0].tables[0]}"
+                            f"{source_schema_name}.{source_object_name}"
                             if source_provider != "csv"
                             else "Choose a CSV file"
                         ),
@@ -911,7 +933,7 @@ def _pipeline_body(
                         kind="target",
                         catalog=target_catalog,
                         detail=(
-                            f"{target_schema_name}.{target_catalog.schemas[0].tables[0]}"
+                            f"{target_schema_name}.{target_object_name}"
                             if target_catalog is not None
                             else "Configure a connection"
                         ),
@@ -927,19 +949,14 @@ def _pipeline_body(
                 ),
                 html.div(
                     html.div(
-                        html.span("Transforms", class_="transform-label"),
+                        html.span("Write policy", class_="transform-label"),
                         html.span(
-                            "Normalize timestamps",
+                            "Provider-accurate modes only",
                             class_="transform-tag",
                             id="pipeline-transform-time",
                         ),
                         html.span(
-                            "Drop 3 empty fields",
-                            class_="transform-tag",
-                            id="pipeline-transform-null",
-                        ),
-                        html.span(
-                            "Validate event_id",
+                            "Validate locators before enqueue",
                             class_="transform-tag",
                             id="pipeline-transform-key",
                         ),
@@ -1021,16 +1038,17 @@ def _pipeline_body(
                     html.div(
                         html.span(class_="log-live-dot", aria={"hidden": "true"}),
                         html.span("Run log"),
-                        html.code("dm_demo_8f21a"),
+                        html.code("worker"),
                         class_="run-log-heading",
                     ),
                     html.div(
-                        html.p(
-                            html.time("09:41:02"), html.span("READY"), " Pipeline is ready to run."
+                        html.div(
+                            html.p("No run yet. Save a pipeline, then queue a transfer."),
+                            id="pipeline-run-log",
+                            class_="run-log-list",
                         ),
-                        id="pipeline-run-log",
-                        class_="run-log-lines",
-                        aria={"live": "polite"},
+                        id="pipeline-run-monitor",
+                        data={"status": "idle", "sequence": "0"},
                     ),
                     class_="run-log",
                 ),
@@ -1041,13 +1059,15 @@ def _pipeline_body(
                     html.p("Reusable routes", class_="section-number"),
                     Heading("Saved pipelines", level=2),
                 ),
-                _saved_pipeline_cards(pipelines, connections),
+                _saved_pipeline_cards(pipelines, connections, latest_runs),
                 html.div(
-                    html.span("DEMO", aria={"hidden": "true"}),
+                    html.span("DEMO" if demo_mode else "REAL", aria={"hidden": "true"}),
                     html.p(
-                        html.strong("Safe to explore"),
+                        html.strong("Safe to explore" if demo_mode else "Live transfers"),
                         html.small(
-                            "Runs use synthetic telemetry and never call external endpoints."
+                            "Demo connectors stay on this host and never call external endpoints."
+                            if demo_mode
+                            else "The worker decrypts credentials only for the claimed run and records persisted facts."
                         ),
                     ),
                     class_="sandbox-note",
@@ -1081,14 +1101,19 @@ def register_pipeline_routes(app: Hedron) -> None:
             }
             for provider, secret in list_user_secrets(db, auth.user)
         }
+        pipelines = list_pipelines(db, auth.user)
         return await render_authenticated_view(
             request,
             body=_pipeline_body(
                 request,
                 connections,
-                list_pipelines(db, auth.user),
+                pipelines,
                 csrf_token=auth.session.csrf_token,
                 notice=notice,
+                latest_runs=latest_run_map(
+                    db, user=auth.user, pipeline_ids=[item.id for item in pipelines]
+                ),
+                demo_mode=settings.is_demo_mode,
             ),
             auth=auth,
             settings=settings,
@@ -1193,3 +1218,109 @@ def register_pipeline_routes(app: Hedron) -> None:
             redirect_path(request, "/pipeline?notice=saved"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
+
+    @app.action(
+        "/pipeline/{pipeline_id}/runs",
+        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST),
+        include_in_schema=False,
+    )
+    async def pipeline_run_start(
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
+        _csrf: RequireCsrf,
+        pipeline_id: str,
+        idempotency_token: PipelineIdForm = "",
+    ) -> Response:
+        pipeline = db.get(PipelineDefinition, pipeline_id)
+        if pipeline is None or pipeline.user_id != auth.user.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pipeline not found")
+        try:
+            snapshot = snapshot_from_definition(pipeline)
+            run = enqueue_run(
+                db,
+                user=auth.user,
+                pipeline=pipeline,
+                snapshot=snapshot,
+                idempotency_token=idempotency_token or None,
+                request=request,
+            )
+        except (ValueError, LookupError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+        if settings.is_demo_mode:
+            from app.worker import process_one
+
+            process_one(db, settings)
+            db.refresh(run)
+        if is_htmx_request(request):
+            return await interaction_response(
+                request,
+                ok_fragment(_run_status_fragment(db, run), status_code=status.HTTP_202_ACCEPTED),
+            )
+        return RedirectResponse(
+            redirect_path(request, f"/pipeline?notice=queued&run_id={run.id}"),
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    @app.page(
+        "/pipeline/runs/{run_id}/status",
+        fragment_regions=(PIPELINE_RUN_MONITOR,),
+        include_in_schema=False,
+    )
+    async def pipeline_run_status(
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        run_id: str,
+        after_sequence: int = 0,
+    ) -> Response:
+        try:
+            run = owned_run(db, user=auth.user, run_id=run_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        return await interaction_response(
+            request,
+            ok_fragment(_run_status_fragment(db, run, after_sequence=after_sequence)),
+        )
+
+    @app.action(
+        "/pipeline/runs/{run_id}/cancel",
+        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST),
+        include_in_schema=False,
+    )
+    async def pipeline_run_cancel(
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        _csrf: RequireCsrf,
+        run_id: str,
+    ) -> Response:
+        try:
+            run = request_cancel(db, user=auth.user, run_id=run_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        return await interaction_response(request, ok_fragment(_run_status_fragment(db, run)))
+
+
+def _run_status_fragment(db, run, after_sequence: int = 0):
+    lines = events_after(db, run=run, after_sequence=after_sequence)
+    return html.div(
+        html.p(
+            f"{run.status} · {run.source_rows} extracted · {run.loaded_rows} loaded",
+            id="pipeline-run-summary",
+        ),
+        html.ol(
+            *[html.li(event.message) for event in lines],
+            id="pipeline-run-log",
+            class_="run-log-list",
+            data={
+                "run-id": run.id,
+                "sequence": str(lines[-1].sequence if lines else after_sequence),
+            },
+        ),
+        id="pipeline-run-monitor",
+        data={"run-id": run.id, "status": run.status, "sequence": str(after_sequence)},
+    )

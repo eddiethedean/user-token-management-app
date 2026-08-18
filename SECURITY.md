@@ -15,12 +15,12 @@ NIST and OWASP references here support engineering reasoning but do not decide t
 boundary.
 
 **Operator surface:** Data Mover is a **browser HTMX UI** with cookie sessions — not a public
-REST/OpenAPI resource API. Advana, MSS, PostgreSQL, and MongoDB credential bundles are stored
+REST/OpenAPI resource API. MSS, MCS-COP, and PostgreSQL credential bundles are stored
 encrypted for authorized users; they are not how the application authenticates HTTP callers.
-Provider handshakes, catalogs, Databricks wake state, and pipeline runs are simulated in the current
-version and make no remote calls. CSV uploads and saved pipeline definitions are real owner-scoped
-database content. Day-to-day setup lives in the [README](README.md) and [docs/](docs/); use this file
-for the decision register and production gate.
+Demo mode uses fake connectors. Real mode decrypts credentials only inside a claimed pipeline-worker
+run, allowlists Foundry HTTPS hosts, and records persisted run facts. CSV uploads and saved pipeline
+definitions are real owner-scoped database content. Day-to-day setup lives in the [README](README.md)
+and [docs/](docs/); use this file for the decision register and production gate.
 
 ## Reporting a vulnerability
 
@@ -152,7 +152,7 @@ claim:
   conclusions. They are labeled as rationale, limitations, deployment controls, risk acceptance, or
   gaps rather than presented as quotations or universal requirements.
 
-No Advana, MSS, PostgreSQL, or MongoDB credential-format, scope, lifetime, or revocation behavior is
+No MSS, MCS-COP, or PostgreSQL credential-format, scope, lifetime, or revocation behavior is
 asserted beyond Data Mover's local input-shape validation because no provider specification was supplied
 or relied upon. The application treats stored values as opaque high-value credentials. This review
 is an engineering evidence check, not a penetration test,
@@ -956,21 +956,22 @@ suites as penetration testing.
 integration gap.
 
 **Decision:** Authenticated users may store at most one credential bundle for each explicitly
-supported provider: Advana, MSS, PostgreSQL, and MongoDB. Provider names and target
+supported provider: MSS, MCS-COP, and PostgreSQL. Provider names and target
 environment-variable names are application constants, not user-controlled inputs. The UI and
 server routes expose configuration metadata but no plaintext retrieval operation. Replacing a
 bundle encrypts a complete new value in the same provider slot; deleting it removes the ciphertext.
 Administrators have no route that retrieves another user's credentials. Data Mover validates required
 fields, surrounding whitespace, bounded lengths, ports, URLs, and displayed transport-mode choices.
-Storage and simulated validation do not prove that a credential is valid, minimally scoped,
-unexpired, unrevoked, or reachable at its provider.
+Storage and connector health checks do not prove that a credential is minimally scoped,
+unexpired, or unrevoked at its provider.
 
-Pipeline catalogs expose only the current user's stored bundles whose simulated validation status
+Pipeline catalogs expose only the current user's stored bundles whose validation status
 is `connected`. Pipeline persistence repeats that provider-availability check on the server, so
-hidden or stale browser options cannot be submitted directly. This is a fail-closed demo-state
-control, not evidence that the remote credential works. The local `seed-demo-connections` helper
+hidden or stale browser options cannot be submitted directly. Real transfers run in
+`pipeline-worker`, which decrypts two bundles only after claiming a lease and discards them when
+the run ends. Foundry HTTPS hosts must be allowlisted. The local `seed-demo-connections` helper
 uses reserved `.demo.invalid` hosts and explicit fake values, does not overwrite by default, and
-refuses to run when `APP_ENV=production`.
+refuses to run when `APP_ENV=production` or `DATA_MOVER_MODE=real`.
 
 Each credential bundle is encrypted with a random 256-bit data-encryption key using AES-256-GCM and fresh nonces.
 The data key is independently wrapped with the active key from `API_TOKEN_ENCRYPTION_KEYS`. Additional

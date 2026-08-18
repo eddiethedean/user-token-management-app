@@ -16,6 +16,7 @@ ADMIN_PASSWORD = "Tr0pic-Maple!River92"
 USER_PASSWORD = "Aspen-Compass-64!River"
 NEW_PASSWORD = "Quartz-Beacon-62!Harbor"
 ADVANA_TOKEN = "advana-secret-token-value-123456"
+MSS_TOKEN = "mss-secret-token-value-12345678"
 
 HX_FRAGMENT = {"HX-Request": "true", "Accept": "text/html"}
 

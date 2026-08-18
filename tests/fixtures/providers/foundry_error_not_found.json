@@ -1,0 +1,11 @@
+{
+  "status_code": 404,
+  "body": {
+    "errorCode": "NOT_FOUND",
+    "errorName": "Datasets:DatasetNotFound",
+    "errorInstanceId": "00000000-0000-4000-8000-000000000002",
+    "parameters": {
+      "datasetRid": "ri.foundry.main.dataset.example"
+    }
+  }
+}

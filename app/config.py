@@ -93,6 +93,31 @@ class Settings(BaseSettings):
     pbkdf2_iterations: int = Field(default=600_000, ge=100_000)
     password_blocklist_path: str = ""
 
+    data_mover_mode: Literal["demo", "real"] = "demo"
+    pipeline_worker_id: str = ""
+    pipeline_worker_concurrency: int = Field(default=2, ge=1, le=32)
+    pipeline_lease_seconds: int = Field(default=120, ge=30, le=3600)
+    pipeline_batch_rows: int = Field(default=25_000, ge=1_000, le=250_000)
+    pipeline_batch_target_bytes: int = Field(default=67_108_864, ge=1_048_576, le=536_870_912)
+    pipeline_max_run_seconds: int = Field(default=14_400, ge=60, le=86_400)
+    pipeline_max_source_bytes: int = Field(default=1_073_741_824, ge=1, le=1_099_511_627_776)
+    pipeline_max_spool_bytes: int = Field(default=2_147_483_648, ge=1, le=2_199_023_255_552)
+    pipeline_spool_root: str = ""
+    pipeline_http_connect_seconds: float = Field(default=10, ge=1, le=60)
+    pipeline_http_read_seconds: float = Field(default=120, ge=5, le=600)
+    pipeline_http_write_seconds: float = Field(default=120, ge=5, le=600)
+    pipeline_http_retry_attempts: int = Field(default=3, ge=0, le=8)
+    pipeline_catalog_ttl_seconds: int = Field(default=300, ge=30, le=3600)
+    pipeline_connection_max_age_seconds: int = Field(default=900, ge=60, le=86_400)
+    pipeline_run_retention_days: int = Field(default=90, ge=1, le=730)
+    pipeline_event_retention_days: int = Field(default=30, ge=1, le=365)
+    pipeline_allowed_https_hosts: str = ""
+    pipeline_ca_bundle: str = ""
+    pipeline_enable_postgres_writer: bool = True
+    pipeline_enable_mss_writer: bool = False
+    pipeline_enable_mcscop_writer: bool = False
+    pipeline_apply_internal_ca_fix: bool = False
+
     @property
     def email_domain_allowlist(self) -> set[str]:
         return {
@@ -112,6 +137,18 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
+
+    @property
+    def is_demo_mode(self) -> bool:
+        return self.data_mover_mode == "demo"
+
+    @property
+    def allowed_https_hosts(self) -> set[str]:
+        return {
+            host.strip().casefold().rstrip(".")
+            for host in self.pipeline_allowed_https_hosts.split(",")
+            if host.strip()
+        }
 
     @property
     def api_token_key_ring(self) -> dict[str, bytes]:
@@ -286,6 +323,28 @@ class Settings(BaseSettings):
             blocklist_path = Path(self.password_blocklist_path)
             if not blocklist_path.is_file():
                 raise ValueError("PASSWORD_BLOCKLIST_PATH must identify a readable file")
+            if self.data_mover_mode != "real":
+                raise ValueError("DATA_MOVER_MODE must be real in production")
+        if self.data_mover_mode == "real":
+            try:
+                database_url = make_url(self.database_url)
+            except (ArgumentError, TypeError, ValueError) as exc:
+                raise ValueError("DATABASE_URL must be a valid SQLAlchemy URL") from exc
+            if database_url.drivername != "postgresql+psycopg" or not database_url.database:
+                raise ValueError("Real transfers require a PostgreSQL application database")
+            if not self.pipeline_spool_root:
+                raise ValueError("PIPELINE_SPOOL_ROOT is required in real mode")
+            spool_root = Path(self.pipeline_spool_root)
+            if not spool_root.exists() or not spool_root.is_dir():
+                raise ValueError("PIPELINE_SPOOL_ROOT must identify a writable directory")
+            if not self.allowed_https_hosts:
+                raise ValueError("PIPELINE_ALLOWED_HTTPS_HOSTS is required in real mode")
+            if self.pipeline_ca_bundle and not Path(self.pipeline_ca_bundle).is_file():
+                raise ValueError("PIPELINE_CA_BUNDLE must identify a readable file")
+            if self.pipeline_max_spool_bytes < self.pipeline_batch_target_bytes:
+                raise ValueError(
+                    "PIPELINE_MAX_SPOOL_BYTES must be at least PIPELINE_BATCH_TARGET_BYTES"
+                )
         return self
 
 

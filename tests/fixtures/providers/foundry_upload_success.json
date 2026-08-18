@@ -1,0 +1,7 @@
+{
+  "status_code": 200,
+  "body": {
+    "filePath": "readiness.snappy.parquet",
+    "sizeBytes": 2048
+  }
+}

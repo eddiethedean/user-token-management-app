@@ -1,0 +1,22 @@
+{
+  "database": "analytics",
+  "collection": "readiness_events",
+  "documents": [
+    {
+      "event_id": 1,
+      "unit_name": "Alpha",
+      "ready": true,
+      "score": 1.5,
+      "note": null,
+      "tags": ["air"]
+    },
+    {
+      "event_id": 2,
+      "unit_name": "Bravo",
+      "ready": false,
+      "score": 2.0,
+      "note": "hold",
+      "tags": ["lift", "ground"]
+    }
+  ]
+}

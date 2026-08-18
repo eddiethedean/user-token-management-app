@@ -1,0 +1,10 @@
+{
+  "clusters": [
+    {
+      "cluster_id": "cluster-example",
+      "cluster_name": "shared-analytics",
+      "state": "RUNNING",
+      "spark_version": "13.3.x-scala2.12"
+    }
+  ]
+}

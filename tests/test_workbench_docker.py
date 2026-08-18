@@ -499,10 +499,14 @@ def test_app_profile_update(app_session, workbench_stack) -> None:
 def test_app_security_secret_save_and_delete(app_session) -> None:
     security = app_session.get("/security", follow_redirects=False)
     assert security.status_code == 200
-    token_value = f"workbench-advana-token-{short_id()}"
+    token_value = f"workbench-mss-token-{short_id()}"
     saved = app_session.post(
-        "/security/secrets/advana",
-        data={"csrf_token": csrf_from(security.text), "token": token_value},
+        "/security/secrets/mss",
+        data={
+            "csrf_token": csrf_from(security.text),
+            "endpoint": "https://mss.example",
+            "token": token_value,
+        },
         follow_redirects=False,
     )
     assert saved.status_code in {303, 302, 307}
@@ -512,7 +516,7 @@ def test_app_security_secret_save_and_delete(app_session) -> None:
     assert token_value not in after_save.text
 
     deleted = app_session.post(
-        "/security/secrets/advana/delete",
+        "/security/secrets/mss/delete",
         data={"csrf_token": csrf_from(after_save.text)},
         follow_redirects=False,
     )

@@ -18,7 +18,7 @@ _UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[
 UserIdPath = Annotated[str, Path(min_length=36, max_length=36, pattern=_UUID_PATTERN)]
 SessionIdPath = Annotated[str, Path(min_length=36, max_length=36, pattern=_UUID_PATTERN)]
 InvitationIdPath = Annotated[str, Path(min_length=36, max_length=36, pattern=_UUID_PATTERN)]
-SecretProviderPath = Annotated[Literal["advana", "mss", "postgres", "mongodb"], Path()]
+SecretProviderPath = Annotated[Literal["mss", "mcscop", "postgres"], Path()]
 
 # --- Query (defaults at call site) ---
 
@@ -54,10 +54,8 @@ ListingStatusForm = Annotated[str, Form(max_length=20)]
 ListingPageForm = Annotated[int, Form(ge=1)]
 PipelineIdForm = Annotated[str, Form(max_length=36)]
 PipelineNameForm = Annotated[str, Form(min_length=1, max_length=120)]
-PipelineProviderForm = Annotated[Literal["advana", "mss", "postgres", "mongodb"], Form()]
-PipelineSourceProviderForm = Annotated[
-    Literal["advana", "mss", "postgres", "mongodb", "csv"], Form()
-]
+PipelineProviderForm = Annotated[Literal["mss", "mcscop", "postgres"], Form()]
+PipelineSourceProviderForm = Annotated[Literal["mss", "mcscop", "postgres", "csv"], Form()]
 PipelineSchemaForm = Annotated[str, Form(min_length=1, max_length=80)]
 PipelineTableForm = Annotated[str, Form(min_length=1, max_length=80)]
 PipelineOptionalTableForm = Annotated[str, Form(max_length=80)]

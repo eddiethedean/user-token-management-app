@@ -74,7 +74,7 @@ Data Mover admin seed: `admin@example.gov` / `Tr0pic-Maple!River92`.
 5. RSA-encrypted login as `PWB_TESTUSER` reaches an authenticated surface
 6. Data Mover health/ready, mounted login HTML/CSS/JS, CSRF cookie path
 7. Real admin login (`ADMIN_EMAIL` / `ADMIN_BOOTSTRAP_PASSWORD`), wrong-password rejection, logout
-8. Authenticated Account/Connections pages; profile update; Advana credential save/delete
+8. Authenticated Account/Connections pages; profile update; MSS credential save/delete
 9. Admin users + audit pages (auth gate + authenticated access)
 10. Public register / forgot-password pages; forgot-password queues outbox mail
 11. Invite → accept → login; register → verify → approve → login; disable user

@@ -261,13 +261,12 @@ def test_session_list_and_secret_slot_render_html() -> None:
     assert "data-hedron-dialog-open" in session_html
 
     slot = render_html(ui.secret_slot(_request(), SECRET_PROVIDERS[0], None, csrf_token="sec-csrf"))
-    assert 'id="secret-slot-advana"' in slot
+    assert 'id="secret-slot-mss"' in slot
     assert 'class="secret-card-identity"' in slot
-    assert "ADVANA_API_TOKEN" in slot
-    assert 'id="advana-endpoint"' in slot
-    assert 'id="advana-username"' in slot
-    assert 'id="advana-token"' in slot
-    assert "security/secrets/advana" in slot
+    assert "MSS_API_TOKEN" in slot
+    assert 'id="mss-endpoint"' in slot
+    assert 'id="mss-token"' in slot
+    assert "security/secrets/mss" in slot
     assert 'class="secret-card-actions"' in slot
 
     configured_slot = render_html(
@@ -298,21 +297,13 @@ def test_session_list_and_secret_slot_render_html() -> None:
         for field in ("host", "port", "database", "username", "password", "sslmode")
     )
 
-    mongodb_provider = next(provider for provider in SECRET_PROVIDERS if provider.name == "mongodb")
-    mongodb = render_html(ui.secret_slot(_request(), mongodb_provider, None, csrf_token="sec-csrf"))
-    assert 'id="secret-slot-mongodb"' in mongodb
-    assert "MONGODB_URI" in mongodb
+    mcscop_provider = next(provider for provider in SECRET_PROVIDERS if provider.name == "mcscop")
+    mcscop = render_html(ui.secret_slot(_request(), mcscop_provider, None, csrf_token="sec-csrf"))
+    assert 'id="secret-slot-mcscop"' in mcscop
+    assert "MCSCOP_API_TOKEN" in mcscop
     assert all(
-        f'id="mongodb-{field}"' in mongodb
-        for field in (
-            "host",
-            "port",
-            "database",
-            "username",
-            "password",
-            "auth_database",
-            "tlsmode",
-        )
+        f'id="mcscop-{field}"' in mcscop
+        for field in ("endpoint", "token", "dataset_rid", "branch", "ca_profile")
     )
 
 
@@ -393,8 +384,8 @@ def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
         route for route in get_registry().routes() if route.module.startswith("app.ui.routes")
     ]
     assert Counter(route.kind for route in routes) == {
-        "page": 12,
-        "action": 22,
+        "page": 13,
+        "action": 23,
         "component": 2,
     }
     assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)

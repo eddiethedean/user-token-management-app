@@ -1,4 +1,4 @@
-.PHONY: check demo demo-check hedron-check hedron-build migrate install serve create-admin email-worker schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
+.PHONY: check demo demo-check hedron-check hedron-build migrate install serve create-admin email-worker pipeline-worker pipeline-janitor schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
 
 install:
 	python -m pip install -e ".[dev]"
@@ -24,8 +24,11 @@ create-admin:
 		python -m app create-admin --email "$(ADMIN_EMAIL)"; \
 	fi
 
-email-worker:
-	python -m app email-worker
+pipeline-worker:
+	python -m app pipeline-worker
+
+pipeline-janitor:
+	python -m app pipeline-janitor
 
 check:
 	ruff check app tests demo-app

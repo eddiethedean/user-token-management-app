@@ -115,8 +115,8 @@ test -f .hedron/build/manifest.json
 Use an administrator address on one of the configured `ALLOWED_EMAIL_DOMAINS`. The administrator
 command prompts twice for a 15–128 character password without placing it in shell history. The
 schema status must show the same revision for `Current` and `Head`. The demo seed stores encrypted,
-deliberately fake Advana, MSS, PostgreSQL, and MongoDB bundles under reserved `.demo.invalid` hosts,
-so the deployed Pipeline page is immediately explorable. It also wakes the simulated Advana compute.
+deliberately fake MSS, MCS-COP, and PostgreSQL bundles under reserved `.demo.invalid` hosts,
+so the deployed Pipeline page is immediately explorable.
 
 The seeder does not overwrite an existing provider bundle by default. Add `--replace` only when you
 intend to reset that demo account's connection values. It refuses to run with
@@ -206,15 +206,14 @@ Open the content URL and verify:
 2. `/ready` returns `{"status":"ready"}`.
 3. The seeded administrator can sign in.
 4. Pipeline, Connections, Account, Team, and Activity remain under the Connect content URL.
-5. Advana, MSS, PostgreSQL, and MongoDB appear as **Connected** on the simulated Status page.
-6. Pipeline reports **4/4 connections ready**, lists only those seeded providers, and can select
-   their synthetic catalog objects.
-7. A route can save/load its definition and complete the live transfer simulation.
+5. MSS, MCS-COP, and PostgreSQL appear as **Connected** on the Status page.
+6. Pipeline reports **3/3 connections ready**, lists only those seeded providers, and can select
+   their catalog objects.
+7. A route can save/load its definition and complete a demo transfer.
 8. A non-sensitive UTF-8 CSV can be scanned and selected as a source.
 9. Logout clears the application cookies and returns to the demo login page.
 
-Connection checks, catalog objects, Databricks wake state, and pipeline runs remain simulated. This
-verification does not contact a remote provider.
+Demo connectors stay on this host. This verification does not contact a remote provider.
 
 If startup reports that the schema is missing, confirm that `deployment/connect-demo.db` was
 included and that `DATABASE_URL` is exactly `sqlite:///./deployment/connect-demo.db`. If links or

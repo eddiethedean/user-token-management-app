@@ -35,7 +35,8 @@ CI runs the same on Python 3.11 for pushes and PRs to `main`.
 | Layer | Package | Responsibility |
 |-------|---------|----------------|
 | HTTP / UI | `app/ui/` | Routes, HTMX fragments, layout, mount-aware SafeUrl helpers |
-| Domain | `app/services/` | Auth, accounts, catalogs, CSV inspection, pipelines, secrets, audit, mailer |
+| Domain | `app/services/` | Auth, accounts, catalogs, CSV inspection, pipelines, pipeline runs, transfer engine, secrets, audit, mailer |
+| Connectors | `app/connectors/` | Provider protocols, fake/real adapters, TLS, redaction |
 | Primitives | `app/security/` | Passwords, CSRF, tokens, email normalize, client trust |
 | Wiring | `app/dependencies.py`, `app/config.py` | AuthContext, settings |
 
@@ -67,16 +68,25 @@ tests under `tests/` (especially `test_auth_security.py`, `test_secrets.py`, and
 Provider and pipeline features span several contracts. When adding or changing a connection type:
 
 1. Define its credential fields and validation in `app/services/secrets.py`.
-2. Define its synthetic catalog, technology label, region, latency, and runtime capabilities in
-   `app/services/catalogs.py`.
+2. Implement the connector protocol in `app/connectors/` and register it (keep a fake adapter until
+   the real path's exit gate passes).
 3. Add the provider to the typed form allowlists in `app/ui/params.py` and to pipeline persistence
    rules in `app/services/pipelines.py`.
 4. Keep the Connections credential/status fragments and the Pipeline client metadata in sync.
 5. Keep pipeline selectors connection-aware and enforce availability again in the save service;
    hiding an option in the browser is not an authorization boundary.
 6. Test encryption/non-reveal behavior, owner scoping, status actions, catalog selection, save/load,
-   and both source and destination usage.
-7. Update [docs/user-guide.md](docs/user-guide.md), [docs/faq.md](docs/faq.md), and the security
+   enqueue/cancel/poll, and both source and destination usage.
+7. Foundry and Advana HTTP contracts are mocked with [Semblance](https://pypi.org/project/semblance/)
+   under `tests/simulators/` (sanitized fixtures in `tests/fixtures/providers/`). Do not call live
+   hosts from default tests. Opt-in live Foundry tests use `pytest -m live_foundry` with
+   `DATA_MOVER_LIVE_FOUNDRY=1`.
+8. PostgreSQL connector tests use [testing.postgresql](https://pypi.org/project/testing.postgresql/)
+   and skip when `initdb`/`postgres` are not on PATH. CI installs the server packages.
+9. MongoDB contract tests use [pytest-mongo](https://pypi.org/project/pytest-mongo/) and skip when
+   `mongod` is not on PATH. CI uses a MongoDB service with `PYTEST_MONGO_NOPROC=1`. MongoDB is not a
+   product connector in this release.
+10. Update [docs/user-guide.md](docs/user-guide.md), [docs/faq.md](docs/faq.md), and the security
    boundary whenever the provider's real capabilities change.
 
 CSV changes must retain owner scoping, size/shape limits, conservative type inference, safe filename

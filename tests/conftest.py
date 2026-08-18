@@ -6,7 +6,14 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
+from pytest_mongo import factories
 from sqlalchemy import create_engine, event, select
+
+from tests.mongo_support import mongod_executable, mongodb_available, use_external_mongo
+
+mongo_proc = factories.mongo_proc(executable=mongod_executable())
+mongodb_from_proc = factories.mongodb("mongo_proc")
+mongodb_from_noproc = factories.mongodb("mongo_noproc")
 
 
 def _rebind_database() -> None:
@@ -59,12 +66,17 @@ def access_app(tmp_path, monkeypatch):
     monkeypatch.setenv("EMAIL_BACKEND", "console")
     monkeypatch.setenv("PASSWORD_HASH_SCHEME", "pbkdf2_sha256")
     monkeypatch.setenv("PBKDF2_ITERATIONS", "100000")
+    monkeypatch.setenv("DATA_MOVER_MODE", "demo")
     monkeypatch.setenv("TRUSTED_PROXY_IPS", "127.0.0.1")
 
     _rebind_database()
     from app.schema import upgrade_schema
 
     upgrade_schema()
+    from app.config import get_settings as _get_settings
+    from app.connectors.registry import load_builtin_connectors
+
+    load_builtin_connectors(demo=_get_settings().is_demo_mode)
 
     from app.cli import create_admin
     from app.main import app
@@ -148,3 +160,42 @@ def make_user(access_app):
             return user
 
     return factory
+
+
+@pytest.fixture(scope="session")
+def postgresql_factory():
+    """Cache one initdb tree so connector tests do not re-run initdb per case."""
+    from tests.postgres_support import postgres_available, postgres_binaries
+
+    if not postgres_available():
+        pytest.skip("PostgreSQL server binaries (initdb, postgres) are not available")
+    from testing.postgresql import PostgresqlFactory
+
+    factory = PostgresqlFactory(cache_initialized_db=True, **postgres_binaries())
+    yield factory
+    factory.clear_cache()
+
+
+@pytest.fixture()
+def postgresql(postgresql_factory):
+    instance = postgresql_factory()
+    try:
+        yield instance
+    finally:
+        instance.stop()
+
+
+@pytest.fixture()
+def postgres_credentials(postgresql):
+    from tests.postgres_support import credentials_from
+
+    return credentials_from(postgresql)
+
+
+@pytest.fixture
+def mongodb(request):
+    """pytest-mongo client: ephemeral mongod, or PYTEST_MONGO_NOPROC=1 for CI."""
+    if not mongodb_available():
+        pytest.skip("mongod is not on PATH; set PYTEST_MONGO_NOPROC=1 to use a running instance")
+    fixture = "mongodb_from_noproc" if use_external_mongo() else "mongodb_from_proc"
+    return request.getfixturevalue(fixture)

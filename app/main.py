@@ -58,6 +58,9 @@ async def lifespan(app: Hedron) -> AsyncIterator[None]:
     cfg = get_settings()
     app.state.settings = cfg
     app.state.ready = False
+    from app.connectors.registry import load_builtin_connectors
+
+    load_builtin_connectors(demo=cfg.is_demo_mode)
     if cfg.app_env != "test":
         assert_schema_current()
     with SessionLocal() as db:

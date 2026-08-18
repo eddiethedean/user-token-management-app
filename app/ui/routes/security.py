@@ -27,7 +27,6 @@ from app.services.secrets import (
     require_secret_provider,
     store_user_credentials,
     test_user_connection,
-    wake_provider_runtime,
 )
 from app.ui import partials as ui
 from app.ui.http import mutation_response, render_authenticated_view, render_page
@@ -50,8 +49,7 @@ from app.ui.regions import (
     CONNECTION_STATUS_LIST,
     MAIN_PANEL,
     PASSWORD_FORM,
-    SECRET_SLOT_ADVANA,
-    SECRET_SLOT_MONGODB,
+    SECRET_SLOT_MCSCOP,
     SECRET_SLOT_MSS,
     SECRET_SLOT_POSTGRES,
     SECURITY_ACTIVITY,
@@ -274,8 +272,7 @@ def register_security_routes(app: Hedron) -> None:
     @app.action(
         "/security/secrets/{provider}",
         fragment_regions=(
-            SECRET_SLOT_ADVANA,
-            SECRET_SLOT_MONGODB,
+            SECRET_SLOT_MCSCOP,
             SECRET_SLOT_MSS,
             SECRET_SLOT_POSTGRES,
             CONNECTION_STATUS_LIST,
@@ -367,8 +364,7 @@ def register_security_routes(app: Hedron) -> None:
     @app.action(
         "/security/secrets/{provider}/delete",
         fragment_regions=(
-            SECRET_SLOT_ADVANA,
-            SECRET_SLOT_MONGODB,
+            SECRET_SLOT_MCSCOP,
             SECRET_SLOT_MSS,
             SECRET_SLOT_POSTGRES,
             CONNECTION_STATUS_LIST,
@@ -436,7 +432,9 @@ def register_security_routes(app: Hedron) -> None:
     ) -> Response:
         try:
             specification = require_secret_provider(provider)
-            test_user_connection(db, user=auth.user, provider=provider, request=request)
+            test_user_connection(
+                db, settings=settings, user=auth.user, provider=provider, request=request
+            )
         except (ValueError, SecretStorageError) as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         values = security_page_values(db, auth.user, settings)
@@ -451,38 +449,5 @@ def register_security_routes(app: Hedron) -> None:
                 ),
                 oob=(security_activity_oob(values["events"]),),
                 toast=f"{specification.label} connection passed its health check.",
-            ),
-        )
-
-    @app.action(
-        "/security/secrets/{provider}/wake",
-        fragment_regions=(CONNECTION_STATUS_LIST, SECURITY_ACTIVITY, TOAST_HOST),
-        include_in_schema=False,
-    )
-    async def connection_wake_submit(
-        provider: SecretProviderPath,
-        request: Request,
-        auth: Auth,
-        db: DbSession,
-        settings: SettingsDep,
-        _csrf: RequireCsrf,
-    ) -> Response:
-        try:
-            specification = require_secret_provider(provider)
-            wake_provider_runtime(db, user=auth.user, provider=provider, request=request)
-        except (ValueError, SecretStorageError) as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-        values = security_page_values(db, auth.user, settings)
-        return await mutation_response(
-            request,
-            redirect=redirect_path(request, "/security"),
-            fragment=ok_fragment(
-                ui.connection_status_list(
-                    request,
-                    values["secret_slots"],
-                    csrf_token=auth.session.csrf_token,
-                ),
-                oob=(security_activity_oob(values["events"]),),
-                toast=f"{specification.label} Databricks cluster is running.",
             ),
         )

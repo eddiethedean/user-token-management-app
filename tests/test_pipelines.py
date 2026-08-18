@@ -26,14 +26,14 @@ def test_pipeline_workspace_renders_live_feedback_controls(client) -> None:
     assert 'value="advana"' not in response.text
     assert 'value="mss"' not in response.text
     assert 'value="postgres"' not in response.text
-    assert 'value="mongodb"' not in response.text
+    assert 'value="mcscop"' not in response.text
     assert 'id="pipeline-source-schema-select"' in response.text
     assert 'id="pipeline-target-table-select"' in response.text
     assert "Set up a connection first" in response.text
     assert "CSV file · Upload from device" in response.text
     assert 'id="pipeline-csv-file"' in response.text
     assert 'id="pipeline-csv-inspection"' in response.text
-    assert "0/4 connections ready" in response.text
+    assert "0/3 connections ready" in response.text
     assert "Set up at least one connection" in response.text
     run_button = re.search(r'<button[^>]+data-pipeline-start="true"[^>]*>', response.text)
     assert run_button is not None
@@ -45,19 +45,21 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     response = client.get("/pipeline")
 
     assert response.status_code == 200
-    assert "4/4 connections ready" in response.text
-    assert 'value="advana"' in response.text
+    assert "3/3 connections ready" in response.text
     assert 'value="mss"' in response.text
     assert 'value="postgres"' in response.text
-    assert 'value="mongodb"' in response.text
+    assert 'value="mcscop"' in response.text
     assert "PostgreSQL 16" in response.text
-    assert "MongoDB 8" in response.text
-    assert "Databricks" in response.text
     assert "Palantir Foundry" in response.text
     assert "Create a new table" in response.text
     run_button = re.search(r'<button[^>]+data-pipeline-start="true"[^>]*>', response.text)
     assert run_button is not None
     assert "disabled" not in run_button.group(0)
+
+
+MSS_DATASET = "ri.foundry.main.dataset.demo-operations"
+MSS_FILE = "mission_orders.parquet"
+MSS_DEST_DATASET = "ri.foundry.main.dataset.demo-destination"
 
 
 def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> None:
@@ -68,13 +70,13 @@ def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> Non
         data={
             "csrf_token": csrf_from(page.text),
             "pipeline_id": "",
-            "pipeline_name": "Mission orders to MSS",
-            "source_provider": "advana",
-            "source_schema": "operations",
-            "source_table": "mission_orders",
-            "destination_provider": "mss",
-            "destination_schema": "operational_data",
-            "destination_table": "mission_orders_curated",
+            "pipeline_name": "Mission orders to warehouse",
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "mission_orders",
             "write_mode": "append",
         },
     )
@@ -83,16 +85,16 @@ def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> Non
     assert "notice=saved" in saved.headers["location"]
     with SessionLocal() as db:
         pipeline = db.scalar(
-            select(PipelineDefinition).where(PipelineDefinition.name == "Mission orders to MSS")
+            select(PipelineDefinition).where(
+                PipelineDefinition.name == "Mission orders to warehouse"
+            )
         )
         assert pipeline is not None
-        assert pipeline.source_provider == "advana"
-        assert pipeline.destination_provider == "mss"
-        assert pipeline.source_dataset == "mission_orders"
-        assert pipeline.source_schema == "operations"
-        assert pipeline.source_table == "mission_orders"
-        assert pipeline.destination_schema == "operational_data"
-        assert pipeline.destination_table == "mission_orders_curated"
+        assert pipeline.source_provider == "mss"
+        assert pipeline.destination_provider == "postgres"
+        assert pipeline.source_table == MSS_FILE
+        assert pipeline.destination_schema == "public"
+        assert pipeline.destination_table == "mission_orders"
         assert pipeline.destination_create is False
         assert (
             db.scalar(
@@ -107,12 +109,12 @@ def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> Non
     reloaded = client.get(saved.headers["location"])
     assert reloaded.status_code == 200
     assert "Pipeline saved" in reloaded.text
-    assert "Mission orders to MSS" in reloaded.text
+    assert "Mission orders to warehouse" in reloaded.text
     assert f'data-pipeline-id="{pipeline.id}"' in reloaded.text
     assert 'data-pipeline-run="true"' in reloaded.text
 
 
-def test_saved_pipeline_requires_distinct_systems(client) -> None:
+def test_saved_pipeline_requires_distinct_systems(client, demo_connections) -> None:
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
     response = client.post(
@@ -122,12 +124,12 @@ def test_saved_pipeline_requires_distinct_systems(client) -> None:
             "pipeline_id": "",
             "pipeline_name": "Invalid loop",
             "source_provider": "mss",
-            "source_schema": "ontology",
-            "source_table": "mission_objects",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
             "destination_provider": "mss",
-            "destination_schema": "ontology",
-            "destination_table": "asset_objects",
-            "write_mode": "upsert",
+            "destination_schema": MSS_DATASET,
+            "destination_table": "readiness_rollup.parquet",
+            "write_mode": "replace",
         },
     )
 
@@ -144,9 +146,9 @@ def test_pipeline_save_rejects_connections_that_are_not_setup(client) -> None:
             "csrf_token": csrf_from(page.text),
             "pipeline_id": "",
             "pipeline_name": "Forged unavailable route",
-            "source_provider": "advana",
-            "source_schema": "operations",
-            "source_table": "mission_orders",
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
             "destination_provider": "postgres",
             "destination_schema": "public",
             "destination_table": "readiness_events",
@@ -167,9 +169,9 @@ def test_pipeline_can_be_saved_with_postgres_destination(client, demo_connection
             "csrf_token": csrf_from(page.text),
             "pipeline_id": "",
             "pipeline_name": "Readiness warehouse load",
-            "source_provider": "advana",
-            "source_schema": "operations",
-            "source_table": "readiness_events",
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
             "destination_provider": "postgres",
             "destination_schema": "public",
             "destination_table": "readiness_events",
@@ -186,7 +188,7 @@ def test_pipeline_can_be_saved_with_postgres_destination(client, demo_connection
         assert pipeline.destination_provider == "postgres"
 
 
-def test_pipeline_can_move_between_mongodb_and_postgres(client, demo_connections) -> None:
+def test_pipeline_can_move_between_mss_and_postgres(client, demo_connections) -> None:
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
     response = client.post(
@@ -195,9 +197,9 @@ def test_pipeline_can_move_between_mongodb_and_postgres(client, demo_connections
             "csrf_token": csrf_from(page.text),
             "pipeline_id": "",
             "pipeline_name": "Document readiness export",
-            "source_provider": "mongodb",
-            "source_schema": "operations",
-            "source_table": "readiness_events",
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
             "destination_provider": "postgres",
             "destination_schema": "staging",
             "destination_table": "readiness_events_stage",
@@ -211,8 +213,7 @@ def test_pipeline_can_move_between_mongodb_and_postgres(client, demo_connections
             select(PipelineDefinition).where(PipelineDefinition.name == "Document readiness export")
         )
         assert pipeline is not None
-        assert pipeline.source_provider == "mongodb"
-        assert pipeline.source_schema == "operations"
+        assert pipeline.source_provider == "mss"
         assert pipeline.destination_provider == "postgres"
 
 
@@ -226,8 +227,8 @@ def test_pipeline_can_create_a_named_destination_table(client, demo_connections)
             "pipeline_id": "",
             "pipeline_name": "Create reporting table",
             "source_provider": "mss",
-            "source_schema": "ontology",
-            "source_table": "mission_objects",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
             "destination_provider": "postgres",
             "destination_schema": "reporting",
             "destination_table": "__new__",
@@ -258,14 +259,14 @@ def test_pipeline_can_save_an_enter_committed_destination_table(client, demo_con
         data={
             "csrf_token": csrf_from(page.text),
             "pipeline_name": "Enter committed table",
-            "source_provider": "advana",
-            "source_schema": "operations",
+            "source_provider": "postgres",
+            "source_schema": "public",
             "source_table": "readiness_events",
             "destination_provider": "mss",
-            "destination_schema": "ontology",
+            "destination_schema": MSS_DEST_DATASET,
             "destination_table": "__new__:enter_committed_table",
             "destination_table_new": "",
-            "write_mode": "upsert",
+            "write_mode": "replace",
         },
     )
 
@@ -276,7 +277,7 @@ def test_pipeline_can_save_an_enter_committed_destination_table(client, demo_con
         )
         assert pipeline is not None
         assert pipeline.destination_create is True
-        assert pipeline.destination_table == "enter_committed_table"
+        assert pipeline.destination_table == "enter_committed_table.snappy.parquet"
 
 
 def test_csv_inference_detects_headers_and_conservative_types() -> None:

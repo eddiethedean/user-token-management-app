@@ -134,12 +134,11 @@ function lazyLoadFailed(event) {
 document.addEventListener("htmx:responseError", lazyLoadFailed);
 document.addEventListener("htmx:sendError", lazyLoadFailed);
 
-// Data Mover pipeline demo: durable definitions are server-backed; run telemetry is simulated locally.
+// Data Mover pipeline workspace: queue a durable run, then poll persisted events.
 const PIPELINE_PROVIDERS = {
-  advana: { name: "Advana", mark: "AV", technology: "Databricks", region: "us-gov-west-1" },
-  mss: { name: "MSS", mark: "MSS", technology: "Palantir Foundry", region: "us-gov-central-1" },
-  postgres: { name: "PostgreSQL", mark: "PG", technology: "PostgreSQL 16", region: "private-vpc" },
-  mongodb: { name: "MongoDB", mark: "MDB", technology: "MongoDB 8", region: "document-cluster" },
+  mss: { name: "MSS", mark: "MSS", technology: "Palantir Foundry", region: "dataset" },
+  mcscop: { name: "MCS-COP", mark: "MCS", technology: "Palantir Foundry", region: "dataset" },
+  postgres: { name: "PostgreSQL", mark: "PG", technology: "PostgreSQL", region: "schema" },
   csv: { name: "CSV file", mark: "CSV", technology: "Delimited file", region: "Browser upload" },
 };
 const CREATE_TABLE_VALUE = "__new__";
@@ -434,20 +433,12 @@ function pipelineRouteState() {
     };
   }
 
-  const sleepingOption = [sourceIsCsv ? null : sourceOption, targetOption]
-    .find((option) => option?.dataset.runtime === "sleeping");
-  if (sleepingOption) {
-    const label = PIPELINE_PROVIDERS[sleepingOption.value]?.name || "selected";
-    return {
-      canSave: true,
-      canRun: false,
-      message: `Wake ${label} compute on Connections before running this route.`,
-    };
-  }
   return {
     canSave: true,
-    canRun: true,
-    message: "Source and destination connections are ready.",
+    canRun: Boolean(pipelineElement("pipeline-id")?.value),
+    message: pipelineElement("pipeline-id")?.value
+      ? "Source and destination connections are ready."
+      : "Save this pipeline before running a transfer.",
   };
 }
 
@@ -462,7 +453,7 @@ function syncPipelineAvailability() {
   }
   if (runButton && !activePipelineRun) {
     runButton.disabled = !state.canRun;
-    runButton.title = state.canRun ? "Run this simulated transfer." : state.message;
+    runButton.title = state.canRun ? "Queue this transfer." : state.message;
   }
   if (note) {
     note.textContent = state.message;
@@ -633,135 +624,79 @@ function runPipelineTransfer() {
   if (activePipelineRun || !pipelineElement("pipeline-builder")) return;
   updatePipelinePreview();
   const routeState = pipelineRouteState();
-  if (!routeState.canRun) {
+  const pipelineId = pipelineElement("pipeline-id")?.value;
+  if (!routeState.canRun || !pipelineId) {
     showPipelineToast(routeState.message, "warning");
     syncPipelineAvailability();
     return;
   }
-  const source = pipelineElement("pipeline-source-select");
-  const target = pipelineElement("pipeline-target-select");
-  const sourceSchema = pipelineElement("pipeline-source-schema-select");
-  const sourceTable = pipelineElement("pipeline-source-table-select");
-  const tableOption = selectedPipelineOption(sourceTable);
-  if (!source || !target || !sourceSchema || !sourceTable || !tableOption) return;
-  const totalRecords = Number(tableOption.dataset.records || "128442");
-  const totalMegabytes = Number(tableOption.dataset.megabytes || "1884");
-  const sourceName = PIPELINE_PROVIDERS[source.value]?.name || source.value;
-  const targetName = PIPELINE_PROVIDERS[target.value]?.name || target.value;
-  const fieldCount = source.value === "csv" ? pipelineCsvColumns().length : 14;
+  const form = document.querySelector(".pipeline-form");
+  const csrf = form?.querySelector("[name='csrf_token']")?.value;
   const button = document.querySelector("[data-pipeline-start]");
   const buttonLabel = button?.querySelector(".run-button-label");
   const status = pipelineElement("pipeline-run-status");
-  const canvas = pipelineElement("pipeline-canvas");
   const log = pipelineElement("pipeline-run-log");
-  const progressTrack = document.querySelector(".pipeline-progress-track");
-  const startedAt = performance.now();
-  const logged = new Set();
-  let progress = 0;
-  let tick = 0;
-
-  resetPipelineRun();
   if (log) log.replaceChildren();
-  canvas?.classList.add("is-running");
-  button?.classList.add("is-running");
-  button?.setAttribute("aria-busy", "true");
-  if (buttonLabel) buttonLabel.textContent = "Transfer running";
+  if (buttonLabel) buttonLabel.textContent = "Queuing…";
   if (status) {
-    status.textContent = "Running";
+    status.textContent = "Queued";
     status.className = "run-status is-running";
   }
-  setPipelineStage("auth");
-  appendPipelineLog(
-    "START",
-    ` Preparing ${sourceName} ${source.value === "csv" ? sourceTable.value : `${sourceSchema.value}.${sourceTable.value}`} → ${targetName} transfer.`,
-  );
-  appendPipelineLog("AUTH", " Validating source access and destination credentials…");
+  fetch(form.action.replace(/\/pipeline\/save(?:\?.*)?$/, `/pipeline/${pipelineId}/runs`), {
+    method: "POST",
+    headers: {
+      "HX-Request": "true",
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ csrf_token: csrf || "", idempotency_token: pipelineId }),
+  }).then(async (response) => {
+    const html = await response.text();
+    const monitor = pipelineElement("pipeline-run-monitor") || pipelineElement("pipeline-run-log");
+    if (monitor && html) {
+      const template = document.createElement("template");
+      template.innerHTML = html;
+      const next = template.content.querySelector("#pipeline-run-monitor") || template.content;
+      if (monitor.id === "pipeline-run-monitor") monitor.replaceWith(next);
+      else appendPipelineLog("QUEUE", " Transfer queued.");
+    }
+    pollPipelineRun(pipelineId);
+  }).catch(() => {
+    showPipelineToast("The transfer could not be queued.", "danger");
+  });
+}
 
-  const writeMetric = (id, value) => {
-    const element = pipelineElement(id);
-    if (element) element.textContent = value;
-  };
-
-  activePipelineRun = window.setInterval(() => {
-    tick += 1;
-    if (progress < 12) progress += 2.4;
-    else if (progress < 27) progress += 1.9;
-    else if (progress < 88) progress += 2.55;
-    else progress += 1.55;
-    progress = Math.min(100, progress);
-    const transferFraction = Math.max(0, Math.min(1, (progress - 24) / 70));
-    const records = Math.floor(totalRecords * transferFraction);
-    const transferredMB = totalMegabytes * transferFraction;
-    const elapsedSeconds = (performance.now() - startedAt) / 1000;
-    const throughput = transferFraction > 0 ? transferredMB / Math.max(elapsedSeconds - 2, 0.8) : 0;
-
-    writeMetric("pipeline-progress-value", `${Math.floor(progress)}%`);
-    writeMetric("pipeline-records", records ? records.toLocaleString() : "0");
-    writeMetric("pipeline-bytes", formatTransferred(transferredMB));
-    writeMetric("pipeline-throughput", throughput ? formatThroughput(throughput) : "—");
-    writeMetric("pipeline-elapsed", `${elapsedSeconds.toFixed(1)}s`);
-    const progressBar = pipelineElement("pipeline-progress-bar");
-    if (progressBar) progressBar.style.width = `${progress}%`;
-    progressTrack?.setAttribute("aria-valuenow", String(Math.floor(progress)));
-
-    let stage = "auth";
-    let progressLabel = "Authenticating connections";
-    if (progress >= 12 && progress < 27) {
-      stage = "inspect";
-      progressLabel = "Inspecting source schema";
-      if (!logged.has("schema")) {
-        appendPipelineLog(
-          "SCHEMA",
-          ` ${fieldCount} fields matched · 3 transforms prepared.`,
+function pollPipelineRun(pipelineId) {
+  const monitor = pipelineElement("pipeline-run-monitor");
+  const runId = monitor?.dataset.runId;
+  if (!runId) {
+    showPipelineToast("Transfer queued. Refresh to follow progress.", "info");
+    return;
+  }
+  activePipelineRun = window.setInterval(async () => {
+    const sequence = monitor?.dataset.sequence || "0";
+    const response = await fetch(`/pipeline/runs/${runId}/status?after_sequence=${sequence}`, {
+      headers: { "HX-Request": "true" },
+    });
+    if (!response.ok) return;
+    const html = await response.text();
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    const next = template.content.querySelector("#pipeline-run-monitor");
+    if (next) {
+      pipelineElement("pipeline-run-monitor")?.replaceWith(next);
+      if (["succeeded", "failed", "cancelled", "failed_needs_reconciliation"].includes(next.dataset.status)) {
+        window.clearInterval(activePipelineRun);
+        activePipelineRun = null;
+        const buttonLabel = document.querySelector("[data-pipeline-start] .run-button-label");
+        if (buttonLabel) buttonLabel.textContent = "Run transfer";
+        showPipelineToast(
+          next.dataset.status === "succeeded" ? "Transfer completed." : "Transfer ended.",
+          next.dataset.status === "succeeded" ? "success" : "warning",
         );
-        logged.add("schema");
-      }
-    } else if (progress >= 27 && progress < 92) {
-      stage = "transfer";
-      progressLabel = source.value === "csv"
-        ? `Streaming ${sourceTable.value}`
-        : `Streaming ${sourceSchema.value}.${sourceTable.value}`;
-      updateBatchStream(tick, records);
-      if (!logged.has("stream")) {
-        appendPipelineLog("STREAM", " Secure stream opened with 5,000-record batches.");
-        logged.add("stream");
-      }
-      if (progress >= 61 && !logged.has("checkpoint")) {
-        appendPipelineLog("CHECK", ` ${records.toLocaleString()} records committed at checkpoint.`);
-        logged.add("checkpoint");
-      }
-    } else if (progress >= 92) {
-      stage = "verify";
-      progressLabel = "Verifying counts and checksum";
-      if (!logged.has("verify")) {
-        appendPipelineLog("VERIFY", " Reconciling source and destination manifests.");
-        logged.add("verify");
       }
     }
-    setPipelineStage(stage);
-    writeMetric("pipeline-progress-label", progressLabel);
-
-    if (progress >= 100) {
-      window.clearInterval(activePipelineRun);
-      activePipelineRun = null;
-      canvas?.classList.remove("is-running");
-      canvas?.classList.add("is-complete");
-      button?.classList.remove("is-running");
-      button?.removeAttribute("aria-busy");
-      if (buttonLabel) buttonLabel.textContent = "Run again";
-      if (status) {
-        status.textContent = "Completed";
-        status.className = "run-status is-complete";
-      }
-      completePipelineStages();
-      writeMetric("pipeline-progress-label", "Transfer complete");
-      writeMetric("pipeline-progress-value", "100%");
-      writeMetric("pipeline-records", totalRecords.toLocaleString());
-      writeMetric("pipeline-bytes", tableOption.dataset.size || formatTransferred(totalMegabytes));
-      appendPipelineLog("DONE", ` ${totalRecords.toLocaleString()} records transferred · checksum matched.`);
-      showPipelineToast("Transfer completed successfully.");
-    }
-  }, 280);
+  }, 1500);
+  void pipelineId;
 }
 
 function renderSavedCsvInspection(button) {

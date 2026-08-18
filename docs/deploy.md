@@ -76,11 +76,11 @@ The administrator command prompts for a 15–128 character password. Open the Wo
 printed by `serve`. The app automatically obtains the `/s/.../p/...` session mount; do not replace
 that URL with a `/proxy/8000/` URL.
 
-`seed-demo-connections` adds encrypted, deliberately fake bundles for Advana, MSS, PostgreSQL, and
-MongoDB under reserved `.demo.invalid` hosts. It leaves an existing provider bundle unchanged; use
+`seed-demo-connections` adds encrypted, deliberately fake bundles for MSS, MCS-COP, and
+PostgreSQL under reserved `.demo.invalid` hosts. It leaves an existing provider bundle unchanged; use
 `--replace` only when you intentionally want to reset that development account to fake values. The
 command requires a current schema and an existing account, and refuses to run when
-`APP_ENV=production`.
+`APP_ENV=production` or `DATA_MOVER_MODE=real`.
 
 If the URL is not printed, ask Workbench for it:
 
@@ -88,8 +88,8 @@ If the URL is not printed, ask Workbench for it:
 /usr/lib/rstudio-server/bin/rserver-url -l 8000
 ```
 
-Verify `/health`, sign in, confirm **Connections → Status** shows all four seeded providers, confirm
-Pipeline reports **4/4 connections ready**, run a simulated transfer, and log out. To
+Verify `/health`, sign in, confirm **Connections → Status** shows the three seeded providers, confirm
+Pipeline reports **3/3 connections ready**, run a demo transfer, and log out. To
 exercise registration, invitations, or password reset, start the console email worker in a second
 Workbench terminal:
 
@@ -378,15 +378,15 @@ Open `PUBLIC_BASE_URL` and verify:
 5. Refresh works and logout clears the application session.
 6. A registration, invitation, or password-reset email is delivered by the worker.
 7. `python -m app schema-status` still reports `Current` equal to `Head`.
-8. Each connection type renders its expected fields and simulated status. Advana can transition its
-   simulated Databricks compute from sleeping to running.
-9. A pipeline can select catalog objects, save/load its definition, run the live simulation, and
+8. Each connection type renders its expected fields. Test a connection without revealing secrets.
+9. A pipeline can select catalog objects, save/load its definition, enqueue a run, and
    scan a non-sensitive UTF-8 CSV source. Confirm that providers without a saved, Connected bundle
-   are absent from its pickers and cannot be submitted directly.
+   are absent from its pickers and cannot be submitted directly. Run `python -m app pipeline-worker`
+   beside the web process in real mode.
 
-These checks validate Data Mover's application and demo workflow. They do not establish connectivity to
-Advana, Palantir Foundry, PostgreSQL, MongoDB, or Databricks; the current provider handshakes,
-catalogs, compute state, and transfers are simulated.
+These checks validate Data Mover's application workflow. Real Foundry and PostgreSQL transfers also
+require allowlisted hosts, a spool directory, and an operator-approved network path. See
+[pipeline worker runbook](runbooks/pipeline-worker.md).
 
 For temporary, secret-free authentication diagnostics, add this content environment variable and
 restart the content:

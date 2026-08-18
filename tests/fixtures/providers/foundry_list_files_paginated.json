@@ -1,0 +1,10 @@
+{
+  "data": [
+    {
+      "path": "part-000.parquet",
+      "sizeBytes": 8192,
+      "updatedTime": "2026-02-01T00:00:00Z"
+    }
+  ],
+  "nextPageToken": "page-2"
+}

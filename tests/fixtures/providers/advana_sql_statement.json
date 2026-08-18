@@ -1,0 +1,35 @@
+{
+  "statement_id": "statement-example",
+  "status": {
+    "state": "SUCCEEDED"
+  },
+  "manifest": {
+    "format": "JSON_ARRAY",
+    "schema": {
+      "column_count": 2,
+      "columns": [
+        {
+          "name": "event_id",
+          "type_text": "INT",
+          "type_name": "INT",
+          "position": 0
+        },
+        {
+          "name": "unit_name",
+          "type_text": "STRING",
+          "type_name": "STRING",
+          "position": 1
+        }
+      ]
+    },
+    "total_chunk_count": 1,
+    "total_row_count": 1,
+    "truncated": false
+  },
+  "result": {
+    "chunk_index": 0,
+    "row_offset": 0,
+    "row_count": 1,
+    "data_array": [["1", "Alpha"]]
+  }
+}

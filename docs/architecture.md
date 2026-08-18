@@ -11,7 +11,9 @@ Browser (HTMX)
     ▼
 app/ui          FastAPI routes, fragments, mount-aware URLs
     │
-app/services    Accounts, auth, catalogs, CSV inspection, pipelines, secrets, audit, mailer
+app/services    Accounts, auth, catalogs, CSV inspection, pipelines, pipeline runs, transfer engine, secrets, audit, mailer
+    │
+app/connectors  Postgres, Foundry (MSS/MCS-COP), CSV source, fake demo adapters
     │
 app/security    Passwords, tokens, CSRF, email normalize, client trust
     │
@@ -47,41 +49,36 @@ There is **no public REST API**. Mutations are form/HTMX POSTs; GETs render HTML
 
 ## Connection credentials
 
-Advana, MSS, PostgreSQL, and MongoDB credential bundles are stored encrypted at rest under an
+MSS, MCS-COP, and PostgreSQL credential bundles are stored encrypted at rest under an
 application-managed key ring (`API_TOKEN_ENCRYPTION_KEYS`; the name is retained for configuration
-compatibility). The UI is write/replace oriented after save, and existing token-only records remain
-readable. Treat decrypted values as high-value credentials; lifecycle and revocation at the remote
-provider remain operator responsibility.
+compatibility). The UI is write/replace oriented after save. Treat decrypted values as high-value
+credentials; lifecycle and revocation at the remote provider remain operator responsibility.
 
-The demo persists synthetic validation and runtime state when credentials are saved or retested.
-Its schema/table catalogs and Advana Databricks wake action are intentionally simulated: no remote
-API, database, Palantir Foundry, or Databricks endpoint is contacted.
+Save stores credentials as `untested`. **Test connection** is a distinct action that calls the
+connector. Demo mode uses fake connectors on reserved `.demo.invalid` hosts. Real mode decrypts
+credentials only inside a claimed pipeline-worker run.
 
 ## Pipeline definitions and runs
 
-Saved pipeline definitions are owner-scoped rows in `pipeline_definitions`. Each definition records
-the source, destination, write mode, whether the destination object is new, and an optional
-owner-scoped CSV upload reference. The service layer validates every provider, catalog object, new
-table name, and ownership predicate before storing or updating a definition.
-
-The current run experience is a browser-side simulation. It renders the route and produces staged
-Authenticate → Inspect → Transfer → Verify feedback, synthetic metrics, batch activity, and a run
-log. It does not start a background worker, persist run telemetry, decrypt credentials for a remote
-call, or read/write a provider endpoint. A future real runner would be a new trust boundary and
-must satisfy the run-isolation controls in [SECURITY.md](../SECURITY.md#sd-24--encrypt-user-owned-connection-credentials-and-restrict-provider-slots).
+Saved pipeline definitions are owner-scoped rows in `pipeline_definitions` with versioned locators
+and write policies. The web process enqueues runs; `python -m app pipeline-worker` claims a lease,
+decrypts two credential bundles, streams Polars batches, and persists status and events.
+The browser polls HTMX fragments that render only those persisted facts.
 
 ```text
-User form
-   │
-   ├── remote source ──► simulated provider catalog
-   │
-   └── CSV source ─────► upload + server-side schema inspection
+Browser HTMX
+   │  save / start / cancel / poll
+   ▼
+app/ui routes ──► pipeline + catalog services ──► application DB
    │
    ▼
-validated owner-scoped pipeline definition
+pipeline-worker claims lease
+   │  decrypt two bundles only
+   ▼
+connector registry ──► postgres / foundry / csv
    │
    ▼
-browser run simulator ──► stages, metrics, batches, log
+Polars batches / Parquet spool ──► destination write + verification
 ```
 
 ## CSV pipeline sources

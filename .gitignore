@@ -6,6 +6,8 @@ __pycache__/
 .coverage
 htmlcov/
 .env
+transfer_code/cred.py
+docs/archive/transfer_code/cred.py
 *.db
 *.sqlite3
 *.egg-info/

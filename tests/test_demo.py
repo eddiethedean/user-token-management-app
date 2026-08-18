@@ -31,7 +31,4 @@ def test_demo_connection_seed_is_fake_connected_and_idempotent(access_app) -> No
     assert set(second.skipped) == set(DEMO_CONNECTION_CREDENTIALS)
     assert {secret.provider for secret in stored} == set(DEMO_CONNECTION_CREDENTIALS)
     assert all(secret.validation_status == "connected" for secret in stored)
-    assert (
-        next(secret for secret in stored if secret.provider == "advana").runtime_status == "running"
-    )
     assert all("fake-" not in secret.ciphertext for secret in stored)

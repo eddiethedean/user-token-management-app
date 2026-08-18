@@ -284,15 +284,28 @@ def connection_status_list(
         catalog = require_catalog_provider(provider.name)
         configured = secret is not None
         connected = configured and secret.validation_status == "connected"
-        status_label = "Connected" if connected else "Not configured"
+        failed = configured and secret.validation_status == "failed"
+        status_label = (
+            "Connected"
+            if connected
+            else "Failed"
+            if failed
+            else "Untested"
+            if configured
+            else "Not configured"
+        )
         status_class = "is-connected" if connected else "is-unconfigured"
         if configured and secret.validated_at:
             detail = (
                 f"{secret.validation_message} · Checked "
                 f"{secret.validated_at.strftime('%b %d at %H:%M')}"
             )
+        elif configured:
+            detail = (
+                "Credentials are saved. Test the connection before browsing objects or running."
+            )
         else:
-            detail = "Add credentials before Data Mover can inspect schemas or tables."
+            detail = "Add credentials before Data Mover can inspect remote objects."
 
         actions: list[NodeLike] = []
         if configured:
@@ -300,7 +313,7 @@ def connection_status_list(
                 Form(
                     csrf_hidden(csrf_token),
                     html.button(
-                        "Retest",
+                        "Test connection",
                         class_="button button-quiet button-small button-action",
                         type="submit",
                     ),
@@ -315,36 +328,6 @@ def connection_status_list(
                     ),
                 )
             )
-        if configured and catalog.supports_runtime_wake:
-            runtime_running = secret.runtime_status == "running"
-            if runtime_running:
-                actions.append(
-                    html.span(
-                        html.span(class_="status-dot", aria={"hidden": "true"}),
-                        "Cluster running",
-                        class_="runtime-state is-running",
-                    )
-                )
-            else:
-                actions.append(
-                    Form(
-                        csrf_hidden(csrf_token),
-                        html.button(
-                            "Wake cluster",
-                            class_="button button-secondary button-small button-action",
-                            type="submit",
-                        ),
-                        action=form_action(request, f"security/secrets/{provider.name}/wake"),
-                        method="post",
-                        **hx_attrs(
-                            request,
-                            path=f"security/secrets/{provider.name}/wake",
-                            target="#connection-status-list",
-                            sync="#connection-status-list:drop",
-                            indicator=INDICATOR,
-                        ),
-                    )
-                )
 
         rows.append(
             html.article(
@@ -548,10 +531,10 @@ def security_tabs(
                     html.div(
                         Heading("Connection status", level=2),
                         Text(
-                            "Data Mover runs a simulated handshake when credentials are saved. Retest a connection or wake Databricks compute here."
+                            "Testing a connection contacts the configured system. Saving credentials does not run a check."
                         ),
                     ),
-                    html.span("Demo telemetry", class_="demo-badge"),
+                    html.span("Connection checks", class_="demo-badge"),
                     class_="panel-heading",
                 ),
                 connection_status_list(

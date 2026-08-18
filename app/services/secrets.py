@@ -17,7 +17,6 @@ from app.config import Settings
 from app.db_compat import execute_dml, insert_for, supports_returning
 from app.models import ApiTokenKeyUsage, User, UserSecret, new_id, utcnow
 from app.services.audit import record_event
-from app.services.catalogs import require_catalog_provider
 
 
 @dataclass(frozen=True)
@@ -43,35 +42,14 @@ class SecretProvider:
 
 SECRET_PROVIDERS = (
     SecretProvider(
-        "advana",
-        "Advana",
-        "AV",
-        "ADVANA_API_TOKEN",
-        (
-            CredentialField(
-                "endpoint", "API endpoint", "https://api.advana.example", input_type="url"
-            ),
-            CredentialField("username", "Username", "Optional service account"),
-            CredentialField(
-                "token",
-                "API token",
-                "Paste Advana API token",
-                input_type="password",
-                autocomplete="new-password",
-                required=True,
-            ),
-        ),
-    ),
-    SecretProvider(
         "mss",
         "MSS",
         "MSS",
         "MSS_API_TOKEN",
         (
             CredentialField(
-                "endpoint", "API endpoint", "https://api.mss.example", input_type="url"
+                "endpoint", "API endpoint", "https://mss.example", input_type="url", required=True
             ),
-            CredentialField("username", "Username", "Optional service account"),
             CredentialField(
                 "token",
                 "API token",
@@ -79,6 +57,47 @@ SECRET_PROVIDERS = (
                 input_type="password",
                 autocomplete="new-password",
                 required=True,
+            ),
+            CredentialField("dataset_rid", "Default dataset RID", "ri.foundry.main.dataset..."),
+            CredentialField("branch", "Default branch", "master", default="master"),
+            CredentialField(
+                "ca_profile",
+                "TLS CA profile",
+                "system",
+                default="system",
+                options=("system", "nipr"),
+            ),
+        ),
+    ),
+    SecretProvider(
+        "mcscop",
+        "MCS-COP",
+        "MCS",
+        "MCSCOP_API_TOKEN",
+        (
+            CredentialField(
+                "endpoint",
+                "API endpoint",
+                "https://mcscop.example",
+                input_type="url",
+                required=True,
+            ),
+            CredentialField(
+                "token",
+                "API token",
+                "Paste MCS-COP API token",
+                input_type="password",
+                autocomplete="new-password",
+                required=True,
+            ),
+            CredentialField("dataset_rid", "Default dataset RID", "ri.foundry.main.dataset..."),
+            CredentialField("branch", "Default branch", "master", default="master"),
+            CredentialField(
+                "ca_profile",
+                "TLS CA profile",
+                "system",
+                default="system",
+                options=("system", "nipr"),
             ),
         ),
     ),
@@ -114,46 +133,9 @@ SECRET_PROVIDERS = (
                 default="require",
                 options=("require", "verify-ca", "verify-full"),
             ),
-        ),
-    ),
-    SecretProvider(
-        "mongodb",
-        "MongoDB",
-        "MDB",
-        "MONGODB_URI",
-        (
-            CredentialField("host", "Host", "mongodb.example.internal", required=True),
-            CredentialField("port", "Port", "27017", required=True, default="27017"),
-            CredentialField("database", "Database", "operations", required=True),
+            CredentialField("connect_timeout", "Connect timeout (seconds)", "10", default="10"),
             CredentialField(
-                "username",
-                "Username",
-                "data_mover_service",
-                autocomplete="username",
-                required=True,
-            ),
-            CredentialField(
-                "password",
-                "Password",
-                "Enter database password",
-                input_type="password",
-                autocomplete="new-password",
-                required=True,
-            ),
-            CredentialField(
-                "auth_database",
-                "Authentication database",
-                "admin",
-                required=True,
-                default="admin",
-            ),
-            CredentialField(
-                "tlsmode",
-                "TLS mode",
-                "require",
-                required=True,
-                default="require",
-                options=("require", "prefer", "disable"),
+                "application_name", "Application name", "data-mover", default="data-mover"
             ),
         ),
     ),
@@ -304,7 +286,10 @@ def _store_encrypted_value(
     stored.key_nonce = _encode(key_nonce)
     stored.master_key_id = key_id
     stored.updated_at = utcnow()
-    _set_simulated_connection_health(stored, specification.name)
+    stored.validation_status = "untested"
+    stored.validated_at = None
+    stored.validation_message = "Saved. Test the connection before running a transfer."
+    stored.runtime_status = ""
     record_event(
         db,
         event_type,
@@ -323,9 +308,10 @@ def test_user_connection(
     *,
     user: User,
     provider: str,
+    settings: Settings,
     request: Request | None = None,
 ) -> UserSecret:
-    """Run the demo connection check and persist its synthetic health telemetry."""
+    """Decrypt credentials inside this call, test the connector, and persist health."""
     specification = require_secret_provider(provider)
     stored = db.scalar(
         select(UserSecret).where(
@@ -335,7 +321,25 @@ def test_user_connection(
     )
     if stored is None:
         raise SecretStorageError("Configure the connection before testing it.")
-    _set_simulated_connection_health(stored, specification.name)
+    credentials = decrypt_user_credentials_for_run(
+        db, settings, user=user, provider=provider, request=request
+    )
+    from app.connectors.errors import ConnectorError
+    from app.connectors.registry import connector_for
+
+    started = utcnow()
+    try:
+        health = connector_for(provider).test_connection(credentials)
+        stored.validation_status = health.status
+        stored.validation_message = health.message[:240]
+    except ConnectorError as exc:
+        stored.validation_status = "failed"
+        stored.validation_message = str(exc)[:240]
+    stored.validated_at = utcnow()
+    stored.runtime_status = ""
+    latency_ms = int((utcnow() - started).total_seconds() * 1000)
+    if stored.validation_status == "connected" and latency_ms:
+        stored.validation_message = f"{stored.validation_message} · {latency_ms} ms"[:240]
     record_event(
         db,
         "connection.tested",
@@ -347,61 +351,6 @@ def test_user_connection(
     db.commit()
     db.refresh(stored)
     return stored
-
-
-def wake_provider_runtime(
-    db: Session,
-    *,
-    user: User,
-    provider: str,
-    request: Request | None = None,
-) -> UserSecret:
-    """Wake a simulated provider compute runtime when the catalog supports it."""
-    specification = require_secret_provider(provider)
-    catalog = require_catalog_provider(specification.name)
-    if not catalog.supports_runtime_wake:
-        raise ValueError(f"{catalog.label} does not expose a wakeable runtime.")
-    stored = db.scalar(
-        select(UserSecret).where(
-            UserSecret.user_id == user.id,
-            UserSecret.provider == specification.name,
-        )
-    )
-    if stored is None:
-        raise SecretStorageError("Configure the connection before waking its runtime.")
-    now = utcnow()
-    stored.runtime_status = "running"
-    stored.runtime_updated_at = now
-    stored.validation_status = "connected"
-    stored.validated_at = now
-    stored.validation_message = (
-        f"{catalog.technology} cluster running · SQL endpoint ready · "
-        f"{catalog.validation_latency_ms} ms"
-    )
-    record_event(
-        db,
-        "connection.runtime_woken",
-        request=request,
-        actor=user,
-        target=user,
-        detail={"provider": specification.name, "runtime": "running"},
-    )
-    db.commit()
-    db.refresh(stored)
-    return stored
-
-
-def _set_simulated_connection_health(stored: UserSecret, provider: str) -> None:
-    catalog = require_catalog_provider(provider)
-    now = utcnow()
-    stored.validation_status = "connected"
-    stored.validated_at = now
-    stored.validation_message = (
-        f"{catalog.technology} handshake succeeded · {catalog.validation_latency_ms} ms"
-    )
-    if catalog.supports_runtime_wake and not stored.runtime_status:
-        stored.runtime_status = "sleeping"
-        stored.runtime_updated_at = now
 
 
 def delete_user_secret(

@@ -41,8 +41,8 @@ PAGES = [
 ]
 
 PIPELINE_EXPLANATION = (
-    "Sources currently mocked: CSV uploads, Advana (Databricks), MSS (Palantir Foundry), PostgreSQL (ADE), and MongoDB (ADE).\n"
-    "Destinations currently mocked: Advana, MSS, PostgreSQL (ADE), and MongoDB (ADE).\n"
+    "Sources currently mocked in demo mode: CSV uploads, MSS (Palantir Foundry), and PostgreSQL.\n"
+    "Destinations currently mocked in demo mode: MSS, MCS-COP, and PostgreSQL.\n"
     "Planned implementation: replace synthetic catalogs, validation results, and transfer telemetry with live, secured connectors for these platforms, and add MCS as a supported connection."
 )
 
