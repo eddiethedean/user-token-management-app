@@ -204,7 +204,10 @@ set_run(meta.add_run("Version 1  ·  Demo environment  ·  August 18, 2026"), 10
 for page_index, (heading, filename, message) in enumerate(PAGES):
     # Every section uses one complete desktop viewport. Connections uses a
     # wider 1680px capture so its two-column layout is fully visible.
-    viewport_path = CHUNK_DIR / f"{Path(filename).stem}-full-screen.jpg"
+    # Preserve screenshot detail with a lossless PNG working image. The source
+    # captures are JPEGs, so re-saving them as JPEG here would add a second
+    # generation of compression and soften small interface text.
+    viewport_path = CHUNK_DIR / f"{Path(filename).stem}-full-screen.png"
     CHUNK_DIR.mkdir(parents=True, exist_ok=True)
     source_path = SHOT_DIR / filename
     if filename == "05-connections.png":
@@ -214,7 +217,7 @@ for page_index, (heading, filename, message) in enumerate(PAGES):
             viewport = image.convert("RGB")
         else:
             viewport = image.convert("RGB").crop((0, 0, image.width, min(880, image.height)))
-        viewport.save(viewport_path, "JPEG", quality=94, optimize=True)
+        viewport.save(viewport_path, "PNG", optimize=True)
     chunks = [viewport_path]
     for chunk_index, chunk in enumerate(chunks):
         doc.add_page_break()
@@ -258,5 +261,11 @@ doc.core_properties.title = "Data Mover Demo Screenshots v1"
 doc.core_properties.subject = "Page-by-page Data Mover product screenshots and intended messages"
 doc.core_properties.author = "Data Mover"
 doc.core_properties.keywords = "Data Mover, demo, screenshots, product story"
+
+# Instruct Word to retain the embedded image data instead of downsampling it
+# when the document is opened or saved.
+settings_el = doc.settings._element
+if settings_el.find(qn("w:doNotCompressPictures")) is None:
+    settings_el.append(OxmlElement("w:doNotCompressPictures"))
 doc.save(OUTPUT)
 print(OUTPUT)
