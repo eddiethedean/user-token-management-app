@@ -40,6 +40,12 @@ PAGES = [
      "Establish accountability: security-relevant actions are recorded with time, outcome, source, and detail for operational review."),
 ]
 
+PIPELINE_EXPLANATION = (
+    "Sources currently mocked: CSV uploads, Advana (Databricks), MSS (Palantir Foundry), PostgreSQL (ADE), and MongoDB (ADE).\n"
+    "Destinations currently mocked: Advana, MSS, PostgreSQL (ADE), and MongoDB (ADE).\n"
+    "Planned implementation: replace synthetic catalogs, validation results, and transfer telemetry with live, secured connectors for these platforms, and add MCS as a supported connection."
+)
+
 
 def set_cell_shading(cell, fill):
     tc_pr = cell._tc.get_or_add_tcPr()
@@ -246,7 +252,7 @@ for page_index, (heading, filename, message) in enumerate(PAGES):
 
         with Image.open(chunk) as im:
             ratio = im.height / im.width
-        available_height = 5.15
+        available_height = 4.25 if filename == "04-pipeline-builder.png" else 5.15
         width = min(9.45, available_height / ratio)
         pic = doc.add_paragraph()
         pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -256,6 +262,13 @@ for page_index, (heading, filename, message) in enumerate(PAGES):
         alt = heading if chunk_index == 0 else f"{heading}, continued panel {chunk_index + 1}"
         picture._inline.docPr.set("descr", f"Data Mover screenshot: {alt}")
         picture._inline.docPr.set("title", alt)
+
+        if filename == "04-pipeline-builder.png":
+            explanation = doc.add_paragraph()
+            explanation.paragraph_format.space_before = Pt(5)
+            explanation.paragraph_format.space_after = Pt(0)
+            explanation.paragraph_format.line_spacing = 1.05
+            set_run(explanation.add_run(PIPELINE_EXPLANATION), 9.25, MUTED)
 
 doc.core_properties.title = "Data Mover Demo Screenshots v1"
 doc.core_properties.subject = "Page-by-page Data Mover product screenshots and intended messages"
