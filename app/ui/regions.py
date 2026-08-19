@@ -89,6 +89,36 @@ CSV_INSPECTION = FragmentRegion(
     selector="#pipeline-csv-inspection",
     description="Uploaded CSV schema inspection",
 )
+CSV_UPLOAD_STATE = FragmentRegion(
+    id="pipeline-csv-upload-state",
+    selector="#pipeline-csv-upload-state",
+    description="CSV upload scan status",
+)
+PIPELINE_SOURCE_SCHEMA_SELECT = FragmentRegion(
+    id="pipeline-source-schema-select",
+    selector="#pipeline-source-schema-select",
+    description="Pipeline source schema select",
+)
+PIPELINE_SOURCE_TABLE_SELECT = FragmentRegion(
+    id="pipeline-source-table-select",
+    selector="#pipeline-source-table-select",
+    description="Pipeline source table select",
+)
+PIPELINE_TARGET_SCHEMA_SELECT = FragmentRegion(
+    id="pipeline-target-schema-select",
+    selector="#pipeline-target-schema-select",
+    description="Pipeline destination schema select",
+)
+PIPELINE_TARGET_TABLE_SELECT = FragmentRegion(
+    id="pipeline-target-table-select",
+    selector="#pipeline-target-table-select",
+    description="Pipeline destination table select",
+)
+PIPELINE_PREVIEW_REGION = FragmentRegion(
+    id="pipeline-preview-region",
+    selector="#pipeline-preview-region",
+    description="Pipeline preview refresh region",
+)
 PIPELINE_RUN_MONITOR = FragmentRegion(
     id="pipeline-run-monitor",
     selector="#pipeline-run-monitor",

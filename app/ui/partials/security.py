@@ -430,10 +430,28 @@ def session_count(sessions: list[RefreshSession], *, oob: bool = False) -> NodeL
     return html.span(str(len(sessions)), **attrs)
 
 
-def security_activity(events: list[AuditEvent], *, oob: bool = False) -> NodeLike:
+def security_activity(
+    request: Request | None,
+    events: list[AuditEvent],
+    *,
+    oob: bool = False,
+    with_polling: bool = True,
+) -> NodeLike:
     attrs: dict[str, HtmlAttrValue] = {"id": "security-activity", "class_": "event-list"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
+    if with_polling and request is not None:
+        attrs.update(
+            hx_attrs(
+                request,
+                path="profile/activity",
+                method="get",
+                target="#security-activity",
+                swap="outerHTML",
+                polling=30,
+                indicator=INDICATOR,
+            )
+        )
     items: list[NodeLike] = []
     for event in events:
         title = event.event_type.replace(".", " ").title()
@@ -469,6 +487,15 @@ def security_activity_error(
         id="security-activity",
         class_="event-list",
         data={"lazy-error": "security-activity"},
+        **hx_attrs(
+            request,
+            path="profile/activity",
+            method="get",
+            target="#security-activity",
+            swap="outerHTML",
+            polling=30,
+            indicator=INDICATOR,
+        ),
     )
 
 

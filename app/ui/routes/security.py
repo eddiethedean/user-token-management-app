@@ -124,7 +124,7 @@ def register_security_routes(app: Hedron) -> None:
             )
         try:
             values = security_page_values(db, auth.user, settings)
-            return ok_fragment(ui.security_activity(values["events"]))
+            return ok_fragment(ui.security_activity(request, values["events"]))
         except SQLAlchemyError:
             return ok_fragment(
                 ui.security_activity_error(request),

@@ -39,6 +39,12 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.SECRET_SLOT_POSTGRES,
     region_defs.CONNECTION_STATUS_LIST,
     region_defs.CSV_INSPECTION,
+    region_defs.CSV_UPLOAD_STATE,
+    region_defs.PIPELINE_SOURCE_SCHEMA_SELECT,
+    region_defs.PIPELINE_SOURCE_TABLE_SELECT,
+    region_defs.PIPELINE_TARGET_SCHEMA_SELECT,
+    region_defs.PIPELINE_TARGET_TABLE_SELECT,
+    region_defs.PIPELINE_PREVIEW_REGION,
     region_defs.PIPELINE_RUN_MONITOR,
     region_defs.INVITATION_PANEL,
     region_defs.USER_DIRECTORY,
@@ -64,16 +70,9 @@ def toast_oob(
     message: str,
     *,
     tone: ToastTone = "success",
-    duration_ms: int = 4500,
 ) -> OobUpdate:
-    from hedron import html
-
     return OobUpdate(
-        content=html.div(
-            Toast(message, tone=tone),
-            class_="toast-item",
-            data={"toast-ms": str(duration_ms)},
-        ),
+        content=Toast(message, tone=tone),
         element_id="toast-host",
         swap="beforeend",
     )
@@ -113,7 +112,7 @@ def security_activity_oob(events) -> OobUpdate:
     from app.ui.partials.security import security_activity
 
     return OobUpdate(
-        content=security_activity(events, oob=False),
+        content=security_activity(None, events, oob=False, with_polling=False),
         element_id="security-activity",
         swap="outerHTML",
     )

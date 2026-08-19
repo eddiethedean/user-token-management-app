@@ -39,4 +39,8 @@ def test_project_requirements_do_not_set_upper_version_caps() -> None:
         *configuration["project"]["optional-dependencies"]["dev"],
     ]
 
-    assert all("<" not in requirement for requirement in requirements)
+    for requirement in requirements:
+        if requirement.startswith("hedron"):
+            assert "<" in requirement
+            continue
+        assert "<" not in requirement

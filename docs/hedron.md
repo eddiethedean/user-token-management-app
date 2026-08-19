@@ -12,6 +12,7 @@ subsystems.
 | Page/action/fragment routing | Browser GETs use `@app.page`, mutations use `@app.action`, and lazy regions use `@app.fragment`. |
 | Typed UI primitives | Forms, fields, CSRF fields, inputs, tables, tabs, dialogs, alerts, badges, pagination, loading states, and errors are Hedron components. |
 | HTMX interactions | `InteractionResult`, declared `FragmentRegion` values, target authorization, OOB updates, push URLs, indicators, lazy loading, and refresh controls. |
+| Polling + long-running run UX | Pipeline monitor responses now emit Hedron-safe `hx-` polling hints (`hx-get`/`hx-trigger`) so live updates use declarative HTMX cycles instead of ad-hoc polling clients. |
 | Safe URLs | Mount-aware paths are parsed as Hedron `SafeUrl` values for navigation and form actions. |
 | Public rendering APIs | Pages use `render_component_response`; interactions use `render_interaction`. |
 | Security policy integration | Hedron is told that Data Mover owns CSRF and response headers; fragment targets still fail closed. |
@@ -19,10 +20,13 @@ subsystems.
 | Diagnostics | `make hedron-check` fails on Hedron warnings or errors, and `python -m hedron --app app.main:app routes` exposes the registered UI contract. |
 | Testing | Hedron page/fragment fixtures, render assertions, interaction assertions, target/region checks, and route-registry coverage. |
 
-Hedron 0.26 injects HTMX extensions ahead of its core runtime. `app.ui.http.render_page` preserves
-the pinned local assets but promotes the core script before the extensions, preventing their
-startup race. Keep the ordering regression test until the minimum Hedron version guarantees the
-same order itself.
+| 0.48/0.49 compatibility features | App constructor asks for `preload`, while keeping explicit HTMX extension script compatibility for legacy runtime behavior; map/chart packages remain optional by design so we only ship what this product needs. |
+| 0.48/0.49 compatibility shim | `hx_attrs(..., emit_data_hx=True)` now emits optional `data-hx-*` alias attributes on critical shell navigation links to keep `hx-*` behavior resilient across mount/path handling changes. |
+| 0.50/0.50.1 feature baseline | Required Hedron runtime now includes action chaining, submit gates, long-running run-state, and improved lazy/toast/history primitives, which Data Mover has started migrating to. |
+
+From Hedron 0.49.0 onward, `app.ui.http.render_page` still preserves asset order before
+rendering the app extension script. Keep the ordering test in place while bumping dependencies
+and validating local behavior in your deployment target.
 
 ## Deliberate boundaries
 
@@ -41,6 +45,23 @@ same order itself.
   upload, camera, microphone, geolocation, chat, and browser storage do not match the current
   product requirements. Add one only with a concrete feature need and a security review.
 - `hedron-native` acceleration is optional and unnecessary at the current rendering volume.
+
+## 0.50.1 status update
+
+The following capabilities shipped in 0.50/0.50.1 and are now available for Data Mover migration:
+
+- dependent-select and derived-field bindings for dynamic pipeline controls
+- built-in lazy-load failure fallback with retry rendering
+- toast queue/lifecycle primitives (server-side toast payloads now use native Hedron toast nodes; client lifecycle consolidated in host hydration path)
+- declarative history restore semantics
+- first-class long-running run-state action primitives
+- deferred/conditional action chaining
+- declarative submit gates
+
+Follow-up progress: manual `htmx:historyRestore` handling and `load`-error fallback were removed from app JavaScript; pending follow-through is on items 1, 3, 5, and 6 in the issue draft, with item 7 now partially reduced to native server-validated submit behavior.
+
+See [docs/hedron-enhancement-issues.md](/Volumes/SAN-DRIVE/coding/user-token-management-app/docs/hedron-enhancement-issues.md) for detailed issue drafts.
+
 
 ## Upgrade checklist
 

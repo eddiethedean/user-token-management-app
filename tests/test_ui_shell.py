@@ -385,7 +385,7 @@ def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
     ]
     assert Counter(route.kind for route in routes) == {
         "page": 13,
-        "action": 23,
+        "action": 25,
         "component": 2,
     }
     assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)
@@ -454,7 +454,7 @@ def test_htmx_profile_update_emits_toast_oob(access_app) -> None:
     assert_html_contains(adapter, "hedron-toast")
     assert 'hx-swap-oob="beforeend"' in response.text
     assert 'id="toast-host"' in response.text
-    assert "toast-item" in response.text
+    assert "hedron-toast" in response.text
 
 
 def test_session_list_uses_dialog_confirm(access_app) -> None:

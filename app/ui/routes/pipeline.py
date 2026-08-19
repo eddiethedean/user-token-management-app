@@ -6,7 +6,7 @@ import json
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from hedron import Heading, Hedron, html
+from hedron import Heading, Hedron, OobUpdate, html
 from starlette.responses import Response
 
 from app.config import get_settings
@@ -40,7 +40,7 @@ from app.services.secrets import list_user_secrets
 from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
 from app.ui.interactions import interaction_response, ok_fragment
-from app.ui.layout import alert_box, page_heading
+from app.ui.layout import INDICATOR, alert_box, page_heading
 from app.ui.params import (
     CsvUploadForm,
     NoticeQuery,
@@ -53,7 +53,19 @@ from app.ui.params import (
     PipelineTableForm,
     PipelineWriteModeForm,
 )
-from app.ui.regions import CSV_INSPECTION, MAIN_PANEL, PIPELINE_RUN_MONITOR, SIDE_NAV, TOAST_HOST
+from app.ui.regions import (
+    CSV_INSPECTION,
+    CSV_UPLOAD_STATE,
+    MAIN_PANEL,
+    PIPELINE_PREVIEW_REGION,
+    PIPELINE_RUN_MONITOR,
+    PIPELINE_SOURCE_SCHEMA_SELECT,
+    PIPELINE_SOURCE_TABLE_SELECT,
+    PIPELINE_TARGET_SCHEMA_SELECT,
+    PIPELINE_TARGET_TABLE_SELECT,
+    SIDE_NAV,
+    TOAST_HOST,
+)
 from app.ui.urls import form_action, hx_attrs
 
 
@@ -79,24 +91,6 @@ def _option(
     if data:
         attrs["data"] = data
     return html.option(label, **attrs)
-
-
-def _metric(label: str, value: str, metric_id: str):
-    return html.div(
-        html.span(label),
-        html.strong(value, id=metric_id),
-        class_="run-metric",
-    )
-
-
-def _run_step(number: str, title: str, detail: str, stage: str):
-    return html.li(
-        html.span(number, class_="run-step-index", aria={"hidden": "true"}),
-        html.div(html.strong(title), html.small(detail)),
-        html.span("Waiting", class_="run-step-state"),
-        class_="run-step",
-        data={"pipeline-stage": stage},
-    )
 
 
 def _connection_configured(details: dict[str, str | bool]) -> bool:
@@ -173,15 +167,25 @@ def _first_object(provider: str, namespace: str) -> str:
     return entries[0][0] if entries else ""
 
 
-def _schema_options(provider: str):
+def _schema_options(provider: str, preferred_schema: str = ""):
     entries = _namespace_entries(provider)
     return [
-        _option(name, display, selected=index == 0) for index, (name, display) in enumerate(entries)
+        _option(
+            name,
+            display,
+            selected=name == preferred_schema or (not preferred_schema and index == 0),
+        )
+        for index, (name, display) in enumerate(entries)
     ]
 
 
 def _table_metrics(table_name: str) -> tuple[str, str, str]:
     return ("—", "—", "0")
+
+
+def _committed_new_table_name(value: str) -> str:
+    prefix = f"{CREATE_TABLE_VALUE}:"
+    return value[len(prefix) :] if value.startswith(prefix) else value
 
 
 def _table_options(
@@ -190,18 +194,43 @@ def _table_options(
     *,
     allow_create: bool = False,
     additional_tables: tuple[str, ...] = (),
+    preferred_table: str = "",
 ):
     entries = _object_entries(provider, schema_name) if schema_name else []
     known = {name for name, _ in entries}
     options = [
-        _option(name, display, selected=index == 0) for index, (name, display) in enumerate(entries)
+        _option(name, display, selected=(name == preferred_table or index == 0))
+        for index, (name, display) in enumerate(entries)
     ]
     for table_name in additional_tables:
         if table_name not in known:
             options.append(_option(table_name, table_name))
     if allow_create:
-        options.append(_option(CREATE_TABLE_VALUE, "＋ Create a new table…"))
+        options.append(
+            _option(
+                CREATE_TABLE_VALUE,
+                "＋ Create a new table…",
+                selected=preferred_table == CREATE_TABLE_VALUE,
+            )
+        )
     return options
+
+
+def _select_fragment(
+    select_id: str,
+    options,
+    *,
+    name: str,
+    disabled: bool = False,
+    allow_create: bool = False,
+):
+    attrs = {
+        "id": select_id,
+        "name": name,
+        **({"disabled": True} if disabled else {}),
+        **{"hx-swap-oob": f"outerHTML:#{select_id}"},
+    }
+    return html.select(*options, **attrs)
 
 
 def _created_destination_tables(
@@ -469,8 +498,11 @@ def _saved_pipeline_data(pipeline: PipelineDefinition, *, run: bool = False) -> 
 
 
 def _saved_pipeline_cards(
+    request: Request,
     pipelines: list[PipelineDefinition],
     connections: dict[str, dict[str, str | bool]],
+    *,
+    csrf_token: str,
     latest_runs: dict[str, object] | None = None,
 ):
     latest_runs = latest_runs or {}
@@ -521,6 +553,15 @@ def _saved_pipeline_cards(
                         type="button",
                         class_="button button-quiet button-small",
                         data=_saved_pipeline_data(pipeline),
+                        **hx_attrs(
+                            request,
+                            method="get",
+                            path=f"/pipeline?pipeline_id={pipeline.id}",
+                            target="#main-panel",
+                            swap="outerHTML",
+                            push_url=True,
+                            select="#main-panel",
+                        ),
                         disabled=not connections_configured,
                         title=(
                             "Reconnect this pipeline's source and destination before loading it."
@@ -528,16 +569,30 @@ def _saved_pipeline_cards(
                             else None
                         ),
                     ),
-                    html.button(
-                        "Run now",
-                        type="button",
-                        class_="button button-secondary button-small",
-                        data=_saved_pipeline_data(pipeline, run=True),
-                        disabled=not runnable,
-                        title=(
-                            "Reconnect this pipeline's source and destination before running it."
-                            if not connections_configured
-                            else None
+                    html.form(
+                        html.input(type="hidden", name="pipeline_id", value=pipeline.id),
+                        html.input(type="hidden", name="csrf_token", value=csrf_token),
+                        html.button(
+                            "Run now",
+                            type="submit",
+                            class_="button button-secondary button-small",
+                            data=_saved_pipeline_data(pipeline, run=True),
+                            disabled=not runnable,
+                            title=(
+                                "Reconnect this pipeline's source and destination before running it."
+                                if not connections_configured
+                                else None
+                            ),
+                        ),
+                        action=form_action(request, "/pipeline/runs"),
+                        method="post",
+                        id=f"pipeline-run-form-{pipeline.id}",
+                        **hx_attrs(
+                            request,
+                            path="/pipeline/runs",
+                            method="post",
+                            target="#pipeline-run-monitor",
+                            swap="outerHTML",
                         ),
                     ),
                     class_="saved-pipeline-actions",
@@ -551,11 +606,140 @@ def _saved_pipeline_cards(
     )
 
 
+def _pipeline_preview_fragment(
+    *,
+    source_provider: str,
+    source_schema: str,
+    source_table: str,
+    target_provider: str,
+    target_schema: str,
+    target_table: str,
+    destination_table_new: str = "",
+    source_upload_id: str = "",
+    csv_inspection: CsvInspection | None = None,
+    csv_upload: PipelineUpload | None = None,
+    connections: dict[str, dict[str, str | bool]],
+):
+    source_catalog = (
+        CSV_SOURCE_CATALOG
+        if source_provider == "csv"
+        else require_catalog_provider(source_provider)
+    )
+    target_catalog = None if not target_provider else require_catalog_provider(target_provider)
+    csv_ready = source_provider == "csv" and csv_upload is not None and csv_inspection is not None
+    source_runtime_ready = (source_provider == "csv" and csv_ready) or (
+        source_provider != "csv" and _connection_runnable(connections[source_provider])
+    )
+    target_runtime_ready = target_catalog is not None and _connection_runnable(
+        connections[target_provider]
+    )
+    availability_message = (
+        "Set up at least one connection before building or running a pipeline."
+        if target_catalog is None
+        else "Upload and scan a CSV source."
+        if source_provider == "csv" and not csv_ready
+        else "CSV source is ready. Configure destination settings."
+        if source_provider == "csv"
+        else f"Validate the {source_catalog.label} connection before running."
+        if not source_runtime_ready
+        else f"Validate the {target_catalog.label} connection before running."
+        if not target_runtime_ready
+        else "Source and destination connections are ready."
+    )
+    source_object_name = (
+        source_table if source_provider == "csv" else _first_object(source_provider, source_schema)
+    )
+    table_name = (
+        _committed_new_table_name(destination_table_new) or destination_table_new or target_table
+    )
+    if target_table == CREATE_TABLE_VALUE:
+        table_name = _committed_new_table_name(destination_table_new) or "new_table"
+    field_count = len(csv_inspection.columns) if csv_ready and csv_inspection is not None else 14
+    source_schema_options = (
+        [_option("uploaded", "Upload a CSV to inspect its schema", selected=True, disabled=True)]
+        if source_provider == "csv"
+        else _schema_options(source_provider, preferred_schema=source_schema)
+    )
+    source_table_options = (
+        [_option("", "Upload required", selected=True, disabled=True)]
+        if source_provider == "csv"
+        else _table_options(source_provider, source_schema, preferred_table=source_table)
+    )
+    target_schema_options = (
+        [_option("", "No connection available", selected=True, disabled=True)]
+        if target_catalog is None
+        else _schema_options(target_provider, preferred_schema=target_schema)
+    )
+    target_table_options = (
+        [_option("", "No connection available", selected=True, disabled=True)]
+        if target_catalog is None
+        else _table_options(
+            target_provider,
+            target_schema,
+            preferred_table=table_name
+            if target_table != CREATE_TABLE_VALUE
+            else CREATE_TABLE_VALUE,
+            allow_create=True,
+            additional_tables=_created_destination_tables([], target_provider, target_schema),
+        )
+    )
+    return html.div(
+        _select_fragment(
+            "pipeline-source-schema-select", source_schema_options, name="source_schema"
+        ),
+        _select_fragment("pipeline-source-table-select", source_table_options, name="source_table"),
+        _select_fragment(
+            "pipeline-target-schema-select",
+            target_schema_options,
+            name="destination_schema",
+            disabled=target_catalog is None,
+        ),
+        _select_fragment(
+            "pipeline-target-table-select",
+            target_table_options,
+            name="destination_table",
+            disabled=target_catalog is None,
+        ),
+        html.p(
+            source_schema + "." + source_object_name
+            if source_provider != "csv"
+            else (
+                csv_inspection.filename
+                if csv_ready and csv_inspection is not None
+                else "Choose a CSV file"
+            ),
+            id="pipeline-source-detail",
+            **{"hx-swap-oob": "outerHTML:#pipeline-source-detail"},
+        ),
+        html.p(
+            target_schema + "." + table_name if target_provider else "Configure a connection",
+            id="pipeline-target-detail",
+            **{"hx-swap-oob": "outerHTML:#pipeline-target-detail"},
+        ),
+        html.span(
+            f"Map {field_count} fields" if field_count else "Map fields",
+            id="pipeline-field-map-label",
+            **{"hx-swap-oob": "outerHTML:#pipeline-field-map-label"},
+        ),
+        html.p(
+            availability_message,
+            id="pipeline-availability-note",
+            class_="pipeline-availability-note is-ready"
+            if source_runtime_ready and target_runtime_ready
+            else "pipeline-availability-note is-blocked",
+            **{"hx-swap-oob": "outerHTML:#pipeline-availability-note"},
+        ),
+    )
+
+
 def _pipeline_body(
     request: Request,
     connections: dict[str, dict[str, str | bool]],
     pipelines: list[PipelineDefinition],
     *,
+    loaded_pipeline: PipelineDefinition | None = None,
+    loaded_source_upload: PipelineUpload | None = None,
+    loaded_source_inspection: CsvInspection | None = None,
     csrf_token: str,
     notice: str = "",
     latest_runs: dict[str, object] | None = None,
@@ -574,30 +758,84 @@ def _pipeline_body(
         target_catalog = None
     source_provider = source_catalog.name
     target_provider = target_catalog.name if target_catalog is not None else ""
+    configured_providers = {catalog.name for catalog in catalogs}
+
+    if loaded_pipeline is not None:
+        if (
+            loaded_pipeline.source_provider in configured_providers
+            or loaded_pipeline.source_provider == "csv"
+        ):
+            source_provider = loaded_pipeline.source_provider
+        if loaded_pipeline.destination_provider in configured_providers:
+            target_provider = loaded_pipeline.destination_provider
     source_schema_name = (
         _first_namespace(source_provider) if source_provider != "csv" else "uploaded"
     )
     target_schema_name = _first_namespace(target_provider) if target_provider else ""
+
+    source_schema_name = (
+        loaded_pipeline.source_schema
+        if loaded_pipeline is not None and loaded_pipeline.source_schema
+        else source_schema_name
+    )
+    target_schema_name = (
+        loaded_pipeline.destination_schema
+        if loaded_pipeline is not None and loaded_pipeline.destination_schema
+        else target_schema_name
+    )
+    source_table_display = loaded_pipeline.source_table if loaded_pipeline is not None else ""
+    target_table_name = loaded_pipeline.destination_table if loaded_pipeline is not None else ""
+    pipeline_id = loaded_pipeline.id if loaded_pipeline is not None else ""
+    pipeline_name = loaded_pipeline.name if loaded_pipeline is not None else "Daily readiness sync"
+    write_mode = loaded_pipeline.write_mode if loaded_pipeline is not None else "upsert"
+    new_target_table_name = (
+        loaded_pipeline.destination_table
+        if loaded_pipeline is not None and loaded_pipeline.destination_create
+        else ""
+    )
+    if loaded_pipeline is not None and loaded_pipeline.destination_create:
+        target_table_name = CREATE_TABLE_VALUE
+    if loaded_pipeline is not None and loaded_pipeline.source_provider == "csv":
+        source_schema_name = "uploaded"
+        source_object_name = loaded_pipeline.source_table
+        source_table_display = loaded_pipeline.source_table
+        if loaded_pipeline.source_upload is not None and loaded_source_upload is None:
+            loaded_source_upload = loaded_pipeline.source_upload
+        if loaded_source_upload is not None and loaded_source_inspection is None:
+            try:
+                loaded_source_inspection = inspection_from_upload(loaded_source_upload)
+            except ValueError:
+                loaded_source_upload = None
+                loaded_source_inspection = None
+
     source_object_name = (
-        _first_object(source_provider, source_schema_name) if source_provider != "csv" else ""
+        source_table_display
+        if source_provider == "csv"
+        else _first_object(source_provider, source_schema_name)
     )
     target_object_name = (
         _first_object(target_provider, target_schema_name) if target_provider else ""
     )
-    source_runtime_ready = source_provider != "csv" and _connection_runnable(
-        connections[source_provider]
+    csv_source_ready = source_provider == "csv" and loaded_source_upload is not None
+    source_runtime_ready = (
+        source_provider != "csv" and _connection_runnable(connections[source_provider])
+        if source_provider != "csv"
+        else csv_source_ready
     )
     target_runtime_ready = target_catalog is not None and _connection_runnable(
         connections[target_provider]
     )
     initial_run_ready = source_runtime_ready and target_runtime_ready
-    initial_save_ready = source_provider != "csv" and target_catalog is not None
     if target_catalog is None:
         availability_message = (
             "Set up at least one connection before building or running a pipeline."
         )
     elif source_provider == "csv":
-        availability_message = "Upload and scan a CSV source, or set up a second connection for remote-to-remote routes."
+        availability_message = (
+            "Upload and scan a CSV source."
+            if not csv_source_ready
+            else "CSV source is ready. Configure destination settings."
+        )
     elif not source_runtime_ready:
         availability_message = f"Validate the {source_catalog.label} connection before running."
     elif not target_runtime_ready:
@@ -624,6 +862,15 @@ def _pipeline_body(
         indicator="#pipeline-csv-upload-state",
     )
     csv_upload_attrs["hx-encoding"] = "multipart/form-data"
+    pipeline_run_attrs = hx_attrs(
+        request,
+        path="/pipeline/runs",
+        method="post",
+        target="#pipeline-run-monitor",
+        swap="outerHTML",
+        include="#pipeline-form",
+        indicator=INDICATOR,
+    )
     return [
         page_heading(
             "Data movement workspace",
@@ -638,7 +885,7 @@ def _pipeline_body(
         html.section(
             html.form(
                 csrf_hidden(csrf_token),
-                html.input(type="hidden", name="pipeline_id", value="", id="pipeline-id"),
+                html.input(type="hidden", name="pipeline_id", value=pipeline_id, id="pipeline-id"),
                 _catalog_data(catalogs, pipelines),
                 html.div(
                     html.div(
@@ -653,8 +900,6 @@ def _pipeline_body(
                             "Save pipeline",
                             class_="button button-secondary button-small",
                             type="submit",
-                            data={"pipeline-save": "true"},
-                            disabled=not initial_save_ready,
                         ),
                         html.button(
                             html.span(class_="run-button-icon", aria={"hidden": "true"}),
@@ -663,6 +908,7 @@ def _pipeline_body(
                             type="button",
                             data={"pipeline-start": "true"},
                             disabled=not initial_run_ready,
+                            **pipeline_run_attrs,
                             aria={"describedby": "pipeline-availability-note"},
                         ),
                         class_="builder-actions",
@@ -685,7 +931,7 @@ def _pipeline_body(
                         html.input(
                             id="pipeline-name",
                             name="pipeline_name",
-                            value="Daily readiness sync",
+                            value=pipeline_name,
                             maxlength="120",
                             required=True,
                         ),
@@ -693,9 +939,13 @@ def _pipeline_body(
                     html.div(
                         html.label("Write mode", for_="pipeline-mode-select"),
                         html.select(
-                            _option("upsert", "Upsert on primary key", selected=True),
-                            _option("append", "Append only"),
-                            _option("replace", "Replace destination"),
+                            _option(
+                                "upsert", "Upsert on primary key", selected=write_mode == "upsert"
+                            ),
+                            _option("append", "Append only", selected=write_mode == "append"),
+                            _option(
+                                "replace", "Replace destination", selected=write_mode == "replace"
+                            ),
                             id="pipeline-mode-select",
                             name="write_mode",
                         ),
@@ -722,13 +972,25 @@ def _pipeline_body(
                                     id="pipeline-source-select",
                                     name="source_provider",
                                     data={"pipeline-control": "source-provider"},
+                                    **hx_attrs(
+                                        request,
+                                        path="/pipeline/preview",
+                                        method="get",
+                                        target="#pipeline-preview-region",
+                                        swap="outerHTML",
+                                        include="#pipeline-form",
+                                        trigger="change",
+                                    ),
                                 ),
                             ),
                             html.div(
                                 html.label("Schema", for_="pipeline-source-schema-select"),
                                 html.select(
                                     *(
-                                        _schema_options(source_provider)
+                                        _schema_options(
+                                            source_provider,
+                                            preferred_schema=source_schema_name,
+                                        )
                                         if source_provider != "csv"
                                         else [
                                             _option(
@@ -742,6 +1004,15 @@ def _pipeline_body(
                                     id="pipeline-source-schema-select",
                                     name="source_schema",
                                     data={"pipeline-control": "source-schema"},
+                                    **hx_attrs(
+                                        request,
+                                        path="/pipeline/preview",
+                                        method="get",
+                                        target="#pipeline-preview-region",
+                                        swap="outerHTML",
+                                        include="#pipeline-form",
+                                        trigger="change",
+                                    ),
                                 ),
                                 class_="source-remote-field",
                             ),
@@ -749,7 +1020,11 @@ def _pipeline_body(
                                 html.label("Table", for_="pipeline-source-table-select"),
                                 html.select(
                                     *(
-                                        _table_options(source_provider, source_schema_name)
+                                        _table_options(
+                                            source_provider,
+                                            source_schema_name,
+                                            preferred_table=source_table_display,
+                                        )
                                         if source_provider != "csv"
                                         else [
                                             _option(
@@ -763,6 +1038,15 @@ def _pipeline_body(
                                     id="pipeline-source-table-select",
                                     name="source_table",
                                     data={"pipeline-control": "source-table"},
+                                    **hx_attrs(
+                                        request,
+                                        path="/pipeline/preview",
+                                        method="get",
+                                        target="#pipeline-preview-region",
+                                        swap="outerHTML",
+                                        include="#pipeline-form",
+                                        trigger="change",
+                                    ),
                                 ),
                                 class_="source-remote-field",
                             ),
@@ -788,7 +1072,10 @@ def _pipeline_body(
                                     ),
                                     class_="csv-upload-heading",
                                 ),
-                                _csv_inspection(),
+                                _csv_inspection(
+                                    loaded_source_upload if source_provider == "csv" else None,
+                                    loaded_source_inspection if source_provider == "csv" else None,
+                                ),
                                 id="pipeline-csv-upload-panel",
                                 class_="csv-upload-panel",
                                 hidden=True,
@@ -826,13 +1113,25 @@ def _pipeline_body(
                                     name="destination_provider",
                                     data={"pipeline-control": "target-provider"},
                                     disabled=target_catalog is None,
+                                    **hx_attrs(
+                                        request,
+                                        path="/pipeline/preview",
+                                        method="get",
+                                        target="#pipeline-preview-region",
+                                        swap="outerHTML",
+                                        include="#pipeline-form",
+                                        trigger="change",
+                                    ),
                                 ),
                             ),
                             html.div(
                                 html.label("Schema", for_="pipeline-target-schema-select"),
                                 html.select(
                                     *(
-                                        _schema_options(target_provider)
+                                        _schema_options(
+                                            target_provider,
+                                            preferred_schema=target_schema_name,
+                                        )
                                         if target_catalog is not None
                                         else [
                                             _option(
@@ -847,6 +1146,15 @@ def _pipeline_body(
                                     name="destination_schema",
                                     data={"pipeline-control": "target-schema"},
                                     disabled=target_catalog is None,
+                                    **hx_attrs(
+                                        request,
+                                        path="/pipeline/preview",
+                                        method="get",
+                                        target="#pipeline-preview-region",
+                                        swap="outerHTML",
+                                        include="#pipeline-form",
+                                        trigger="change",
+                                    ),
                                 ),
                             ),
                             html.div(
@@ -856,6 +1164,7 @@ def _pipeline_body(
                                         _table_options(
                                             target_provider,
                                             target_schema_name,
+                                            preferred_table=target_table_name,
                                             allow_create=True,
                                             additional_tables=_created_destination_tables(
                                                 pipelines, target_provider, target_schema_name
@@ -875,6 +1184,15 @@ def _pipeline_body(
                                     name="destination_table",
                                     data={"pipeline-control": "target-table"},
                                     disabled=target_catalog is None,
+                                    **hx_attrs(
+                                        request,
+                                        path="/pipeline/preview",
+                                        method="get",
+                                        target="#pipeline-preview-region",
+                                        swap="outerHTML",
+                                        include="#pipeline-form",
+                                        trigger="change",
+                                    ),
                                 ),
                             ),
                             html.div(
@@ -882,6 +1200,7 @@ def _pipeline_body(
                                 html.input(
                                     id="pipeline-target-table-new",
                                     name="destination_table_new",
+                                    value=new_target_table_name,
                                     maxlength="63",
                                     placeholder="readiness_events_copy",
                                     pattern="[A-Za-z][A-Za-z0-9_]{1,62}",
@@ -953,12 +1272,10 @@ def _pipeline_body(
                         html.span(
                             "Provider-accurate modes only",
                             class_="transform-tag",
-                            id="pipeline-transform-time",
                         ),
                         html.span(
                             "Validate locators before enqueue",
                             class_="transform-tag",
-                            id="pipeline-transform-key",
                         ),
                     ),
                     html.p(
@@ -967,6 +1284,7 @@ def _pipeline_body(
                     ),
                     class_="pipeline-transform-row",
                 ),
+                html.div(id="pipeline-preview-region", hidden=True),
                 action=form_action(request, "/pipeline/save"),
                 method="post",
                 id="pipeline-form",
@@ -1005,13 +1323,6 @@ def _pipeline_body(
                     class_="progress-block",
                 ),
                 html.div(
-                    _metric("Records", "—", "pipeline-records"),
-                    _metric("Transferred", "—", "pipeline-bytes"),
-                    _metric("Throughput", "—", "pipeline-throughput"),
-                    _metric("Elapsed", "—", "pipeline-elapsed"),
-                    class_="run-metrics",
-                ),
-                html.div(
                     html.div(
                         html.span("Live batch stream"),
                         html.small("0 batches", id="pipeline-batch-count"),
@@ -1024,15 +1335,6 @@ def _pipeline_body(
                         aria={"hidden": "true"},
                     ),
                     class_="batch-stream",
-                ),
-                html.ol(
-                    _run_step(
-                        "01", "Authenticate", "Validate source and destination access", "auth"
-                    ),
-                    _run_step("02", "Inspect", "Compare schemas and prepare mapping", "inspect"),
-                    _run_step("03", "Transfer", "Stream encrypted record batches", "transfer"),
-                    _run_step("04", "Verify", "Reconcile counts and checksums", "verify"),
-                    class_="run-steps",
                 ),
                 html.div(
                     html.div(
@@ -1048,7 +1350,6 @@ def _pipeline_body(
                             class_="run-log-list",
                         ),
                         id="pipeline-run-monitor",
-                        data={"status": "idle", "sequence": "0"},
                     ),
                     class_="run-log",
                 ),
@@ -1059,7 +1360,13 @@ def _pipeline_body(
                     html.p("Reusable routes", class_="section-number"),
                     Heading("Saved pipelines", level=2),
                 ),
-                _saved_pipeline_cards(pipelines, connections, latest_runs),
+                _saved_pipeline_cards(
+                    request,
+                    pipelines,
+                    connections,
+                    csrf_token=csrf_token,
+                    latest_runs=latest_runs,
+                ),
                 html.div(
                     html.span("DEMO" if demo_mode else "REAL", aria={"hidden": "true"}),
                     html.p(
@@ -1091,6 +1398,7 @@ def register_pipeline_routes(app: Hedron) -> None:
         db: DbSession,
         settings: SettingsDep,
         notice: NoticeQuery = "",
+        pipeline_id: str = "",
     ) -> Response:
         request.state.hedron_authenticated = True
         connections = {
@@ -1102,6 +1410,23 @@ def register_pipeline_routes(app: Hedron) -> None:
             for provider, secret in list_user_secrets(db, auth.user)
         }
         pipelines = list_pipelines(db, auth.user)
+        loaded_pipeline: PipelineDefinition | None = None
+        loaded_source_upload: PipelineUpload | None = None
+        loaded_source_inspection: CsvInspection | None = None
+        if pipeline_id:
+            pipeline = db.get(PipelineDefinition, pipeline_id)
+            if pipeline is None or pipeline.user_id != auth.user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Pipeline not found"
+                )
+            loaded_pipeline = pipeline
+            if loaded_pipeline.source_upload is not None:
+                loaded_source_upload = loaded_pipeline.source_upload
+                try:
+                    loaded_source_inspection = inspection_from_upload(loaded_source_upload)
+                except ValueError:
+                    loaded_source_upload = None
+                    loaded_source_inspection = None
         return await render_authenticated_view(
             request,
             body=_pipeline_body(
@@ -1110,6 +1435,9 @@ def register_pipeline_routes(app: Hedron) -> None:
                 pipelines,
                 csrf_token=auth.session.csrf_token,
                 notice=notice,
+                loaded_pipeline=loaded_pipeline,
+                loaded_source_upload=loaded_source_upload,
+                loaded_source_inspection=loaded_source_inspection,
                 latest_runs=latest_run_map(
                     db, user=auth.user, pipeline_ids=[item.id for item in pipelines]
                 ),
@@ -1125,7 +1453,7 @@ def register_pipeline_routes(app: Hedron) -> None:
 
     @app.action(
         "/pipeline/csv/inspect",
-        fragment_regions=(CSV_INSPECTION, TOAST_HOST),
+        fragment_regions=(CSV_INSPECTION, CSV_UPLOAD_STATE, TOAST_HOST),
         include_in_schema=False,
     )
     async def pipeline_csv_inspect(
@@ -1153,6 +1481,17 @@ def register_pipeline_routes(app: Hedron) -> None:
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     toast=str(exc),
                     toast_tone="danger",
+                    oob=(
+                        OobUpdate(
+                            html.span(
+                                "Scan failed",
+                                id="pipeline-csv-upload-state",
+                                class_="connection-health is-sleeping",
+                            ),
+                            element_id="pipeline-csv-upload-state",
+                            swap="outerHTML",
+                        ),
+                    ),
                     region_id=CSV_INSPECTION.id,
                 ),
             )
@@ -1165,7 +1504,84 @@ def register_pipeline_routes(app: Hedron) -> None:
                 toast=(
                     f"Scanned {inspection.filename}: {len(inspection.columns)} columns detected."
                 ),
+                oob=(
+                    OobUpdate(
+                        html.span(
+                            "Scan complete",
+                            id="pipeline-csv-upload-state",
+                            class_="connection-health is-connected",
+                        ),
+                        element_id="pipeline-csv-upload-state",
+                        swap="outerHTML",
+                    ),
+                ),
                 region_id=CSV_INSPECTION.id,
+            ),
+        )
+
+    @app.action(
+        "/pipeline/preview",
+        fragment_regions=(
+            CSV_INSPECTION,
+            CSV_UPLOAD_STATE,
+            PIPELINE_SOURCE_SCHEMA_SELECT,
+            PIPELINE_SOURCE_TABLE_SELECT,
+            PIPELINE_TARGET_SCHEMA_SELECT,
+            PIPELINE_TARGET_TABLE_SELECT,
+            PIPELINE_PREVIEW_REGION,
+            TOAST_HOST,
+        ),
+        include_in_schema=False,
+    )
+    async def pipeline_preview(
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        _csrf: RequireCsrf,
+        source_provider: PipelineSourceProviderForm,
+        source_schema: PipelineSchemaForm,
+        source_table: PipelineTableForm,
+        destination_provider: PipelineProviderForm,
+        destination_schema: PipelineSchemaForm,
+        destination_table: PipelineTableForm,
+        destination_table_new: PipelineOptionalTableForm = "",
+        source_upload_id: PipelineIdForm = "",
+    ) -> Response:
+        csv_upload = None
+        csv_inspection = None
+        if source_provider == "csv" and source_upload_id:
+            csv_upload = db.get(PipelineUpload, source_upload_id)
+            if csv_upload is not None and csv_upload.user_id == auth.user.id:
+                try:
+                    csv_inspection = inspection_from_upload(csv_upload)
+                except ValueError:
+                    csv_upload = None
+                    csv_inspection = None
+        return await interaction_response(
+            request,
+            ok_fragment(
+                _pipeline_preview_fragment(
+                    source_provider=source_provider,
+                    source_schema=source_schema,
+                    source_table=source_table,
+                    target_provider=destination_provider,
+                    target_schema=destination_schema,
+                    target_table=destination_table,
+                    destination_table_new=destination_table_new,
+                    source_upload_id=source_upload_id,
+                    csv_inspection=csv_inspection,
+                    csv_upload=csv_upload,
+                    connections={
+                        provider.name: {
+                            "configured": secret is not None,
+                            "validation": secret.validation_status
+                            if secret is not None
+                            else "unconfigured",
+                            "runtime": secret.runtime_status if secret is not None else "",
+                        }
+                        for provider, secret in list_user_secrets(db, auth.user)
+                    },
+                ),
             ),
         )
 
@@ -1219,12 +1635,7 @@ def register_pipeline_routes(app: Hedron) -> None:
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
-    @app.action(
-        "/pipeline/{pipeline_id}/runs",
-        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST),
-        include_in_schema=False,
-    )
-    async def pipeline_run_start(
+    async def _start_pipeline_run(
         request: Request,
         auth: Auth,
         db: DbSession,
@@ -1258,11 +1669,67 @@ def register_pipeline_routes(app: Hedron) -> None:
         if is_htmx_request(request):
             return await interaction_response(
                 request,
-                ok_fragment(_run_status_fragment(db, run), status_code=status.HTTP_202_ACCEPTED),
+                ok_fragment(
+                    _run_status_fragment(request, db, run),
+                    status_code=status.HTTP_202_ACCEPTED,
+                ),
             )
         return RedirectResponse(
             redirect_path(request, f"/pipeline?notice=queued&run_id={run.id}"),
             status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    @app.action(
+        "/pipeline/runs",
+        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST),
+        include_in_schema=False,
+    )
+    async def pipeline_run_start(
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
+        _csrf: RequireCsrf,
+        pipeline_id: PipelineIdForm,
+        idempotency_token: PipelineIdForm = "",
+    ) -> Response:
+        if not pipeline_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="pipeline_id is required to start a pipeline run",
+            )
+        return await _start_pipeline_run(
+            request=request,
+            auth=auth,
+            db=db,
+            settings=settings,
+            _csrf=_csrf,
+            pipeline_id=pipeline_id,
+            idempotency_token=idempotency_token,
+        )
+
+    @app.action(
+        "/pipeline/{pipeline_id}/runs",
+        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST),
+        include_in_schema=False,
+    )
+    async def pipeline_run_start_legacy(
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
+        _csrf: RequireCsrf,
+        pipeline_id: str,
+        idempotency_token: PipelineIdForm = "",
+    ) -> Response:
+        return await _start_pipeline_run(
+            request=request,
+            auth=auth,
+            db=db,
+            settings=settings,
+            _csrf=_csrf,
+            pipeline_id=pipeline_id,
+            idempotency_token=idempotency_token,
         )
 
     @app.page(
@@ -1283,7 +1750,10 @@ def register_pipeline_routes(app: Hedron) -> None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
         return await interaction_response(
             request,
-            ok_fragment(_run_status_fragment(db, run, after_sequence=after_sequence)),
+            ok_fragment(
+                _run_status_fragment(request, db, run, after_sequence=after_sequence),
+                **_run_status_toasts(run),
+            ),
         )
 
     @app.action(
@@ -1302,12 +1772,54 @@ def register_pipeline_routes(app: Hedron) -> None:
             run = request_cancel(db, user=auth.user, run_id=run_id)
         except LookupError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        return await interaction_response(request, ok_fragment(_run_status_fragment(db, run)))
+        return await interaction_response(
+            request,
+            ok_fragment(_run_status_fragment(request, db, run), **_run_status_toasts(run)),
+        )
 
 
-def _run_status_fragment(db, run, after_sequence: int = 0):
+def _run_status_toasts(run):
+    if run.status == "succeeded":
+        return {"toast": "Transfer completed.", "toast_tone": "success"}
+    if run.status in {"failed", "cancelled", "failed_needs_reconciliation"}:
+        return {"toast": "Transfer ended.", "toast_tone": "warning"}
+    return {}
+
+
+def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
     lines = events_after(db, run=run, after_sequence=after_sequence)
+    next_sequence = lines[-1].sequence if lines else after_sequence
+    monitor_active = run.status not in {
+        "succeeded",
+        "failed",
+        "cancelled",
+        "failed_needs_reconciliation",
+    }
+    run_status = (run.status or "idle").lower()
+    run_badge_text = "Ready"
+    run_badge_class = "run-status is-ready"
+    if run_status in {"queued", "running", "extracting", "transforming", "loading"}:
+        run_badge_text = "Running"
+        run_badge_class = "run-status is-running"
+    elif run_status in {"failed", "cancelled", "failed_needs_reconciliation"}:
+        run_badge_text = "Blocked"
+        run_badge_class = "run-status is-blocked"
+    hx_poll = hx_attrs(
+        request,
+        path=f"/pipeline/runs/{run.id}/status?after_sequence={next_sequence}",
+        method="get",
+        target="#pipeline-run-monitor",
+        swap="outerHTML",
+        polling=1.5,
+        indicator=INDICATOR,
+    )
     return html.div(
+        html.span(
+            run_badge_text,
+            id="pipeline-run-status",
+            class_=run_badge_class,
+            **{"hx-swap-oob": "outerHTML:#pipeline-run-status"},
+        ),
         html.p(
             f"{run.status} · {run.source_rows} extracted · {run.loaded_rows} loaded",
             id="pipeline-run-summary",
@@ -1316,11 +1828,7 @@ def _run_status_fragment(db, run, after_sequence: int = 0):
             *[html.li(event.message) for event in lines],
             id="pipeline-run-log",
             class_="run-log-list",
-            data={
-                "run-id": run.id,
-                "sequence": str(lines[-1].sequence if lines else after_sequence),
-            },
         ),
         id="pipeline-run-monitor",
-        data={"run-id": run.id, "status": run.status, "sequence": str(after_sequence)},
+        **({} if not monitor_active else hx_poll),
     )

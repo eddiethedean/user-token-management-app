@@ -111,6 +111,8 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
                 select="#main-panel",
                 disabled_elt="#side-nav a.nav-link",
                 indicator=INDICATOR,
+                hx_ext="preload",
+                emit_data_hx=True,
             ),
         )
 

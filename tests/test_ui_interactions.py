@@ -142,8 +142,9 @@ def test_toast_oob_appends_for_queueing() -> None:
     )
     markup = render_html(materialize_interaction_nodes(result))
     assert markup.count('hx-swap-oob="beforeend"') == 2
-    assert "toast-item" in markup
-    assert 'data-toast-ms="4500"' in markup
+    assert "toast-item" not in markup
+    assert "hedron-toast-success" in markup
+    assert "hedron-toast-danger" in markup
     assert "First" in markup and "Second" in markup
 
 

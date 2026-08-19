@@ -82,6 +82,7 @@ app = Hedron(
     security=AR_SECURITY,
     session_secret=settings.csrf_secret,
     enable_sessions=False,
+    htmx_extensions=("preload", "sse", "head-support"),
     explorer="off",
     default_styles=False,
 )

@@ -20,7 +20,7 @@ from app.ui.urls import mounted_path
 
 
 def _load_hedron_htmx_before_extensions(html_text: str) -> str:
-    """Keep Hedron 0.26's classic HTMX extensions behind the core runtime.
+    """Preserve legacy HTMX extension ordering if present.
 
     Hedron injects the core script at the end of ``body`` but its non-deferred
     extensions into ``head``. Browsers consequently execute the extensions first.
@@ -31,6 +31,7 @@ def _load_hedron_htmx_before_extensions(html_text: str) -> str:
     extension_markers = (
         "hedron-static/ext/head-support.js",
         "hedron-static/ext/sse.js",
+        "hedron-static/ext/preload.js",
     )
     htmx_position = html_text.find(htmx_marker)
     extension_positions = [

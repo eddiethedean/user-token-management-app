@@ -199,7 +199,7 @@ def audit_results_body(
     page_count: int,
     total_events: int,
     page_size: int = 50,
-) -> Component[Any]:
+) -> NodeLike:
     _ = page_count
     headers = ["When", "Event", "Outcome", "Source", "Detail"]
     if events:
@@ -221,7 +221,14 @@ def audit_results_body(
         event_type=event_type_filter,
         outcome=outcome_filter,
     )
-    return Section(
+    poll_path = _filter_base_path(
+        request,
+        "/admin/audit",
+        event_type=event_type_filter,
+        outcome=outcome_filter,
+        page=str(current_page),
+    )
+    return html.div(
         html.div(Table(headers, rows), class_="table-wrap"),
         hedron_pagination(
             page=current_page,
@@ -231,6 +238,15 @@ def audit_results_body(
             target="#audit-results-body",
         ),
         id="audit-results-body",
+        **hx_attrs(
+            request,
+            method="get",
+            path=poll_path,
+            target="#audit-results-body",
+            swap="outerHTML",
+            polling=45,
+            indicator=INDICATOR,
+        ),
     )
 
 
@@ -243,10 +259,26 @@ def audit_results_error(
     page: int = 1,
 ) -> NodeLike:
     path = _audit_results_path(request, event_type=event_type, outcome=outcome, page=page)
+    poll_path = _filter_base_path(
+        request,
+        "/admin/audit",
+        event_type=event_type,
+        outcome=outcome,
+        page=str(page),
+    )
     return html.div(
         ErrorState(message, retry_href=path, target="#audit-results-region"),
         id="audit-results-region",
         data={"lazy-error": "audit-results-region"},
+        **hx_attrs(
+            request,
+            method="get",
+            path=poll_path,
+            target="#audit-results-region",
+            swap="outerHTML",
+            polling=45,
+            indicator=INDICATOR,
+        ),
     )
 
 

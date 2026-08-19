@@ -23,7 +23,7 @@ def mounted_path(request: Request, path: str) -> str:
     """Application path prefixed with the external deployment mount."""
     path_part, separator, fragment = path.partition("#")
     mounted = app_path(request, _abs_path(path_part))
-    # Hedron 0.26 rejects paths that normalize only by dropping a terminal slash.
+    # Hedron historically rejects paths that normalize only by dropping a terminal slash.
     # The root app URL is the one exception: without a mount it must remain "/".
     normalized = mounted.rstrip("/") or "/"
     return f"{normalized}#{fragment}" if separator else normalized
@@ -43,7 +43,7 @@ def hx_path(request: Request, path: str) -> SafeUrl:
 
 
 def asset_href(request: Request, path: str) -> SafeUrl:
-    # Hedron 0.26 validates URL purpose by HTML attribute: a stylesheet's
+    # Hedron historically validates URL purpose by HTML attribute: a stylesheet's
     # ``href`` is a navigation URL even though the resource is an asset.
     return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.NAVIGATION)
 
@@ -64,6 +64,10 @@ def hx_attrs(
     select: str | None = None,
     select_oob: str | None = None,
     indicator: str | None = None,
+    hx_trigger: str | None = None,
+    hx_ext: str | None = None,
+    emit_data_hx: bool = False,
+    polling: str | float | int | None = None,
 ) -> dict[str, Any]:
     """Build hyphenated HTMX attributes accepted by Hedron's HTML allowlist."""
     key = f"hx-{method.lower()}"
@@ -93,6 +97,21 @@ def hx_attrs(
         attrs["hx-select"] = select
     if select_oob is not None:
         attrs["hx-select-oob"] = select_oob
+    if hx_trigger is not None:
+        attrs["hx-trigger"] = hx_trigger
+    if hx_ext is not None:
+        attrs["hx-ext"] = hx_ext
+    if polling is not None:
+        interval = str(polling).strip()
+        if not interval.startswith("every "):
+            attrs["hx-trigger"] = f"every {interval}"
+        else:
+            attrs["hx-trigger"] = interval
+    if emit_data_hx:
+        hx_attrs = list(attrs.items())
+        for key, value in hx_attrs:
+            if key.startswith("hx-"):
+                attrs[f"data-{key}"] = value
     if indicator is not None:
         attrs["hx-indicator"] = indicator
     return attrs
