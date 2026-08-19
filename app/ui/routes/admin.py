@@ -56,6 +56,7 @@ from app.ui.regions import (
     AUDIT_MATCH_COUNT,
     AUDIT_RESULTS,
     AUDIT_RESULTS_BODY,
+    AUDIT_RESULTS_LAZY_BODY,
     INVITATION_PANEL,
     MAIN_PANEL,
     SIDE_NAV,
@@ -485,6 +486,7 @@ def register_admin_routes(app: Hedron) -> None:
             SIDE_NAV,
             AUDIT_RESULTS,
             AUDIT_RESULTS_BODY,
+            AUDIT_RESULTS_LAZY_BODY,
             AUDIT_MATCH_COUNT,
         ),
         include_in_schema=False,
@@ -573,7 +575,7 @@ def register_admin_routes(app: Hedron) -> None:
 
     @app.fragment(
         "/admin/audit/results",
-        regions=(AUDIT_RESULTS, AUDIT_MATCH_COUNT),
+        regions=(AUDIT_RESULTS, AUDIT_RESULTS_LAZY_BODY, AUDIT_MATCH_COUNT),
         include_in_schema=False,
     )
     async def audit_results_fragment(

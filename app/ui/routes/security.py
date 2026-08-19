@@ -53,6 +53,7 @@ from app.ui.regions import (
     SECRET_SLOT_MSS,
     SECRET_SLOT_POSTGRES,
     SECURITY_ACTIVITY,
+    SECURITY_ACTIVITY_LAZY_BODY,
     SESSION_COUNT,
     SESSION_LIST,
     SIDE_NAV,
@@ -109,7 +110,11 @@ def register_security_routes(app: Hedron) -> None:
             headers={"Cache-Control": "no-store"},
         )
 
-    @app.fragment("/profile/activity", region=SECURITY_ACTIVITY, include_in_schema=False)
+    @app.fragment(
+        "/profile/activity",
+        regions=(SECURITY_ACTIVITY, SECURITY_ACTIVITY_LAZY_BODY),
+        include_in_schema=False,
+    )
     async def security_activity_fragment(
         request: Request,
         auth: Auth,

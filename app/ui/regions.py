@@ -144,6 +144,11 @@ AUDIT_RESULTS = FragmentRegion(
     selector="#audit-results-region",
     description="Audit log results",
 )
+AUDIT_RESULTS_LAZY_BODY = FragmentRegion(
+    id="audit-results-region-body",
+    selector="#audit-results-region-body",
+    description="Hedron Lazy inner slot for audit results",
+)
 AUDIT_RESULTS_BODY = FragmentRegion(
     id="audit-results-body",
     selector="#audit-results-body",
@@ -153,6 +158,11 @@ SECURITY_ACTIVITY = FragmentRegion(
     id="security-activity",
     selector="#security-activity",
     description="Recent security activity",
+)
+SECURITY_ACTIVITY_LAZY_BODY = FragmentRegion(
+    id="security-activity-body",
+    selector="#security-activity-body",
+    description="Hedron Lazy inner slot for security activity",
 )
 GLOBAL_FEEDBACK = FragmentRegion(
     id="global-feedback",

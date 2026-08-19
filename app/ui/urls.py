@@ -108,10 +108,15 @@ def hx_attrs(
         else:
             attrs["hx-trigger"] = interval
     if emit_data_hx:
-        hx_attrs = list(attrs.items())
-        for key, value in hx_attrs:
-            if key.startswith("hx-"):
-                attrs[f"data-{key}"] = value
+        hx_items = list(attrs.items())
+        for key, value in hx_items:
+            if not key.startswith("hx-"):
+                continue
+            # Hedron 0.50 treats data-hx-push-url as a URL slot (SafeUrl only).
+            # Boolean push-url must stay on hx-push-url as true/false.
+            if key == "hx-push-url" and value in {True, False, "true", "false"}:
+                continue
+            attrs[f"data-{key}"] = value
     if indicator is not None:
         attrs["hx-indicator"] = indicator
     return attrs

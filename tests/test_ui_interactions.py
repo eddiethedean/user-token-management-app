@@ -129,19 +129,28 @@ def test_history_restore_returns_full_document(htmx) -> None:
 
 
 def test_toast_oob_appends_for_queueing() -> None:
-    from hedron import html
+    from hedron import Fragment, Toast, html
     from hedron.testing import render_html
-    from hedron_core.interaction import InteractionResult, materialize_interaction_nodes
+    from hedron_core.interaction import InteractionResult, OobUpdate, materialize_interaction_nodes
 
-    from app.ui.interactions import APP_POLICY, toast_oob
+    from app.ui.interactions import APP_POLICY
 
     result = InteractionResult(
         content=html.div("ok"),
-        oob=(toast_oob("First"), toast_oob("Second", tone="danger")),
+        oob=(
+            OobUpdate(
+                content=Fragment(
+                    Toast("First", tone="success"),
+                    Toast("Second", tone="danger"),
+                ),
+                element_id="toast-host",
+                swap="beforeend",
+            ),
+        ),
         policy=APP_POLICY,
     )
     markup = render_html(materialize_interaction_nodes(result))
-    assert markup.count('hx-swap-oob="beforeend"') == 2
+    assert markup.count('hx-swap-oob="beforeend"') == 1
     assert "toast-item" not in markup
     assert "hedron-toast-success" in markup
     assert "hedron-toast-danger" in markup
@@ -510,7 +519,7 @@ def test_connection_and_account_tabs_keep_controls_in_the_right_section() -> Non
     assert 'hx-get="/profile/activity"' in account_html
     assert "hedron-loading" in account_html
     assert "lazy-refresh" in account_html
-    assert 'hx-target="#security-activity"' in account_html
+    assert 'hx-target="#security-activity-body"' in account_html
     assert_ui_targets_subset_of_regions(account_html, APP_REGIONS)
 
 

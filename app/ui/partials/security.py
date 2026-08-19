@@ -516,7 +516,7 @@ def security_activity_lazy(request: Request) -> Lazy:
         ref=ComponentRef(
             logical_id="security-activity",
             path=mounted_path(request, "/profile/activity"),
-            swap="outerHTML",
+            swap="innerHTML",
         ),
         placeholder=Loading("Loading activity…"),
         target_id="security-activity",

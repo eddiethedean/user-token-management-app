@@ -51,9 +51,11 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.USER_DIRECTORY_BODY,
     region_defs.USER_MATCH_COUNT,
     region_defs.AUDIT_RESULTS,
+    region_defs.AUDIT_RESULTS_LAZY_BODY,
     region_defs.AUDIT_RESULTS_BODY,
     region_defs.AUDIT_MATCH_COUNT,
     region_defs.SECURITY_ACTIVITY,
+    region_defs.SECURITY_ACTIVITY_LAZY_BODY,
     region_defs.GLOBAL_FEEDBACK,
 )
 

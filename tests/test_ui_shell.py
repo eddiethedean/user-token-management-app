@@ -363,6 +363,8 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, 'id="side-nav"')
     assert_html_contains(profile, 'hx-target="#main-panel"')
     assert_html_contains(profile, 'hx-select="#main-panel"')
+    assert_html_contains(profile, 'hx-push-url="true"')
+    assert 'data-hx-push-url="true"' not in profile.body
     assert 'hx-select-oob="#side-nav"' not in profile.body
     assert_html_contains(profile, "historyCacheSize")
 
@@ -504,7 +506,8 @@ def test_security_activity_lazy_placeholder() -> None:
     assert 'id="security-activity"' in html
     assert "hedron-loading" in html
     assert 'hx-get="/profile/activity"' in html
-    assert 'hx-swap="outerHTML"' in html
+    assert 'hx-swap="innerHTML"' in html
+    assert 'hx-target="#security-activity-body"' in html
 
 
 def test_password_form_field_errors() -> None:
@@ -545,4 +548,5 @@ def test_audit_panel_includes_refresh_button() -> None:
     assert "lazy-refresh" in html
     assert 'hx-get="/admin/audit/results"' in html
     assert 'hx-target="#audit-results-region"' in html
+    assert 'hx-target="#audit-results-region-body"' in html
     assert_ui_targets_subset_of_regions(html, APP_REGIONS)

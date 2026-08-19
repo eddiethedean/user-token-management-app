@@ -290,7 +290,7 @@ def audit_results_lazy(
         ref=ComponentRef(
             logical_id="audit-results",
             path=path,
-            swap="outerHTML",
+            swap="innerHTML",
         ),
         placeholder=Loading("Loading audit activity…"),
         target_id="audit-results-region",
