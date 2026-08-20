@@ -21,7 +21,7 @@ def register_routes(app: Hedron) -> None:
     @app.page("/", include_in_schema=False)
     def home(request: Request, auth: OptionalAuth):
         return RedirectResponse(
-            cast(HedronPosit, request.app).browser_url("/pipeline" if auth else "/login"),
+            cast(HedronPosit, request.app).href("/pipeline" if auth else "/login", request=request),
             status_code=status.HTTP_303_SEE_OTHER,
         )
 

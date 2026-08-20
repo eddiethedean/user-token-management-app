@@ -105,7 +105,7 @@ def register_password_routes(app: Hedron) -> None:
                 db, settings, raw_token=token, password=password, request=request
             )
             return RedirectResponse(
-                cast(HedronPosit, request.app).browser_url("/login?password=changed"),
+                cast(HedronPosit, request.app).href("/login?password=changed", request=request),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         except PasswordPolicyError as exc:

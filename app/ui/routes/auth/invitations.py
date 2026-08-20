@@ -71,7 +71,7 @@ def register_invitation_routes(app: Hedron) -> None:
                 request=request,
             )
             return RedirectResponse(
-                cast(HedronPosit, request.app).browser_url("/login"),
+                cast(HedronPosit, request.app).href("/login", request=request),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         except (TokenFlowError, PasswordPolicyError, ValueError) as exc:

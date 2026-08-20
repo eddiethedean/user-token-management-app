@@ -163,7 +163,9 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         if request.url.query:
             next_path += f"?{request.url.query}"
         response = RedirectResponse(
-            cast(HedronPosit, request.app).browser_url(f"/login?{urlencode({'next': next_path})}"),
+            cast(HedronPosit, request.app).href(
+                f"/login?{urlencode({'next': next_path})}", request=request
+            ),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         clear_auth_cookies(response, settings, request)

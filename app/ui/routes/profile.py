@@ -119,7 +119,7 @@ def register_profile_routes(app: Hedron) -> None:
         )
         return await mutation_response(
             request,
-            redirect=cast(HedronPosit, request.app).browser_url("/profile?updated=true"),
+            redirect=cast(HedronPosit, request.app).href("/profile?updated=true", request=request),
             fragment=ok_fragment(
                 form,
                 oob=oob,

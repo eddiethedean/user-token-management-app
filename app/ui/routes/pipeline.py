@@ -1600,7 +1600,7 @@ def register_pipeline_routes(app: Hedron) -> None:
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc
         return RedirectResponse(
-            cast(HedronPosit, request.app).browser_url("/pipeline?notice=saved"),
+            cast(HedronPosit, request.app).href("/pipeline?notice=saved", request=request),
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -1644,7 +1644,9 @@ def register_pipeline_routes(app: Hedron) -> None:
                 ),
             )
         return RedirectResponse(
-            cast(HedronPosit, request.app).browser_url(f"/pipeline?notice=queued&run_id={run.id}"),
+            cast(HedronPosit, request.app).href(
+                f"/pipeline?notice=queued&run_id={run.id}", request=request
+            ),
             status_code=status.HTTP_303_SEE_OTHER,
         )
 

@@ -70,7 +70,7 @@ def register_login_routes(app: Hedron) -> None:
     ) -> Response:
         if auth:
             return RedirectResponse(
-                cast(HedronPosit, request.app).browser_url(safe_next(next)),
+                cast(HedronPosit, request.app).href(safe_next(next), request=request),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         return render_login_page(
@@ -123,7 +123,7 @@ def register_login_routes(app: Hedron) -> None:
         dev_trace("auth.password.accepted")
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
-            cast(HedronPosit, request.app).browser_url(safe_next(next)),
+            cast(HedronPosit, request.app).href(safe_next(next), request=request),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         set_auth_cookies(response, tokens, settings, request)
@@ -152,7 +152,7 @@ def register_login_routes(app: Hedron) -> None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
-            cast(HedronPosit, request.app).browser_url(safe_next(next)),
+            cast(HedronPosit, request.app).href(safe_next(next), request=request),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         set_auth_cookies(response, tokens, settings, request)
@@ -169,7 +169,7 @@ def register_login_routes(app: Hedron) -> None:
     ) -> Response:
         revoke_session(db, auth.session, actor=auth.user, request=request)
         response = RedirectResponse(
-            cast(HedronPosit, request.app).browser_url("/login"),
+            cast(HedronPosit, request.app).href("/login", request=request),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         clear_auth_cookies(response, settings, request)

@@ -230,7 +230,9 @@ def register_admin_routes(app: Hedron) -> None:
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         if not is_htmx_request(request) and not error:
             return RedirectResponse(
-                cast(HedronPosit, request.app).browser_url("/admin/users?notice=invitation-queued"),
+                cast(HedronPosit, request.app).href(
+                    "/admin/users?notice=invitation-queued", request=request
+                ),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         if not is_htmx_request(request):
@@ -469,8 +471,8 @@ def register_admin_routes(app: Hedron) -> None:
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         return await mutation_response(
             request,
-            redirect=cast(HedronPosit, request.app).browser_url(
-                "/admin/users?notice=invitation-revoked"
+            redirect=cast(HedronPosit, request.app).href(
+                "/admin/users?notice=invitation-revoked", request=request
             ),
             fragment=ok_fragment(
                 ui.invitation_panel(
@@ -594,7 +596,7 @@ def register_admin_routes(app: Hedron) -> None:
         request.state.hedron_authenticated = True
         if not is_htmx_request(request):
             return RedirectResponse(
-                cast(HedronPosit, request.app).browser_url("/admin/audit"),
+                cast(HedronPosit, request.app).href("/admin/audit", request=request),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         try:

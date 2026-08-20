@@ -171,14 +171,14 @@ RequireCsrf = Annotated[None, Depends(enforce_session_csrf)]
 def set_auth_cookies(
     response: Response, tokens: SessionTokens, settings: Settings, request: Request
 ) -> None:
-    path = None if settings.cookie_path == "auto" else settings.cookie_path
+    path = "/" if settings.cookie_path == "auto" else settings.cookie_path
     common = {
         "secure": settings.cookie_secure,
         "httponly": True,
         "samesite": "lax",
         "path": path,
     }
-    if path != "/":
+    if path not in {None, "/"}:
         legacy = {**common, "path": "/"}
         response.delete_cookie(ACCESS_COOKIE, **legacy)
         response.delete_cookie(REFRESH_COOKIE, **legacy)
@@ -200,12 +200,12 @@ def set_auth_cookies(
         cookie_path=path,
         secure=settings.cookie_secure,
         samesite="lax",
-        legacy_root_cleanup=path != "/",
+        legacy_root_cleanup=path not in {None, "/"},
     )
 
 
 def clear_auth_cookies(response: Response, settings: Settings, request: Request) -> None:
-    path = None if settings.cookie_path == "auto" else settings.cookie_path
+    path = "/" if settings.cookie_path == "auto" else settings.cookie_path
     common = {
         "path": path,
         "secure": settings.cookie_secure,
@@ -214,12 +214,12 @@ def clear_auth_cookies(response: Response, settings: Settings, request: Request)
     }
     response.delete_cookie(ACCESS_COOKIE, **common)
     response.delete_cookie(REFRESH_COOKIE, **common)
-    if path != "/":
+    if path not in {None, "/"}:
         legacy = {**common, "path": "/"}
         response.delete_cookie(ACCESS_COOKIE, **legacy)
         response.delete_cookie(REFRESH_COOKIE, **legacy)
     dev_trace(
         "auth.cookies.cleared",
         cookie_path=path,
-        legacy_root_cleanup=path != "/",
+        legacy_root_cleanup=path not in {None, "/"},
     )

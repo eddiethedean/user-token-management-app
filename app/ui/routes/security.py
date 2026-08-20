@@ -127,7 +127,7 @@ def register_security_routes(app: Hedron) -> None:
         request.state.hedron_authenticated = True
         if not is_htmx_request(request):
             return RedirectResponse(
-                cast(HedronPosit, request.app).browser_url("/profile?tab=Activity"),
+                cast(HedronPosit, request.app).href("/profile?tab=Activity", request=request),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         try:
@@ -184,13 +184,15 @@ def register_security_routes(app: Hedron) -> None:
                 response = await interaction_response(
                     request,
                     htmx_redirect(
-                        cast(HedronPosit, request.app).browser_url("/login?password=changed")
+                        cast(HedronPosit, request.app).href(
+                            "/login?password=changed", request=request
+                        )
                     ),
                 )
                 clear_auth_cookies(response, settings, request)
                 return response
             response = RedirectResponse(
-                cast(HedronPosit, request.app).browser_url("/login?password=changed"),
+                cast(HedronPosit, request.app).href("/login?password=changed", request=request),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
             clear_auth_cookies(response, settings, request)
@@ -263,8 +265,8 @@ def register_security_routes(app: Hedron) -> None:
         values = security_page_values(db, auth.user, settings)
         return await mutation_response(
             request,
-            redirect=cast(HedronPosit, request.app).browser_url(
-                "/profile?notice=session-revoked&tab=Sessions"
+            redirect=cast(HedronPosit, request.app).href(
+                "/profile?notice=session-revoked&tab=Sessions", request=request
             ),
             fragment=ok_fragment(
                 ui.session_list(
@@ -365,7 +367,9 @@ def register_security_routes(app: Hedron) -> None:
             )
         return await mutation_response(
             request,
-            redirect=cast(HedronPosit, request.app).browser_url("/security?notice=secret-saved"),
+            redirect=cast(HedronPosit, request.app).href(
+                "/security?notice=secret-saved", request=request
+            ),
             fragment=ok_fragment(
                 slot,
                 oob=(security_activity_oob(events), status_list),
@@ -408,7 +412,9 @@ def register_security_routes(app: Hedron) -> None:
         events = values["events"]
         return await mutation_response(
             request,
-            redirect=cast(HedronPosit, request.app).browser_url("/security?notice=secret-deleted"),
+            redirect=cast(HedronPosit, request.app).href(
+                "/security?notice=secret-deleted", request=request
+            ),
             fragment=ok_fragment(
                 ui.secret_slot(
                     request,
@@ -452,7 +458,7 @@ def register_security_routes(app: Hedron) -> None:
         values = security_page_values(db, auth.user, settings)
         return await mutation_response(
             request,
-            redirect=cast(HedronPosit, request.app).browser_url("/security"),
+            redirect=cast(HedronPosit, request.app).href("/security", request=request),
             fragment=ok_fragment(
                 ui.connection_status_list(
                     request,

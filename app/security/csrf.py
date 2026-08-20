@@ -88,8 +88,8 @@ def require_preauth_csrf(request: Request, submitted: str, settings: Settings) -
 def set_preauth_csrf_cookie(
     response: Response, request: Request, token: str, settings: Settings
 ) -> None:
-    path = None if settings.cookie_path == "auto" else settings.cookie_path
-    if path != "/":
+    path = "/" if settings.cookie_path == "auto" else settings.cookie_path
+    if path not in {None, "/"}:
         # Remove cookies produced by older deployments before mount-aware paths
         # were enabled. Otherwise browsers send both names and frameworks may
         # retain the stale root value.
@@ -114,15 +114,15 @@ def set_preauth_csrf_cookie(
         cookie_path=path,
         secure=settings.cookie_secure,
         samesite="lax",
-        legacy_root_cleanup=path != "/",
+        legacy_root_cleanup=path not in {None, "/"},
     )
 
 
 def clear_preauth_csrf_cookie(response: Response, request: Request, settings: Settings) -> None:
-    path = None if settings.cookie_path == "auto" else settings.cookie_path
+    path = "/" if settings.cookie_path == "auto" else settings.cookie_path
     response.delete_cookie(
         PREAUTH_CSRF_COOKIE,
-        path=path or "/",
+        path=path,
         secure=settings.cookie_secure,
         httponly=True,
         samesite="lax",

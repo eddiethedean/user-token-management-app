@@ -8,13 +8,14 @@ from urllib.parse import urlencode
 
 import httpx2
 from fastapi import Request
-from hedron_posit import browser_mount_from_request, local_href
+from hedron_posit import local_href
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import Settings
 from app.models import User, UserStatus
 from app.security.email import normalize_email
+from app.ui.urls import _browser_mount
 
 log = logging.getLogger(__name__)
 
@@ -206,5 +207,5 @@ def user_listing_path(
         parameters["notice"] = notice
     return local_href(
         f"/admin/users?{urlencode(parameters)}",
-        mount=browser_mount_from_request(request),
+        mount=_browser_mount(request),
     )

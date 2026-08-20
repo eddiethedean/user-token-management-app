@@ -281,6 +281,6 @@ def test_hedron_posit_path_and_cookie_path_defaults(monkeypatch) -> None:
         }
     )
     assert browser_mount_from_request(bare) == ""
-    assert local_href("profile", mount=browser_mount_from_request(bare)) == "/profile"
+    assert local_href("/profile", mount=browser_mount_from_request(bare)) == "/profile"
     assert settings().cookie_path == "auto"
     assert settings(cookie_path="/explicit").cookie_path == "/explicit"

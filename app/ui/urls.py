@@ -18,10 +18,17 @@ def _abs_path(path: str) -> str:
     return f"/{path}"
 
 
+def _browser_mount(request: Request) -> str:
+    """Resolve a mount for both live requests and bare component scopes."""
+    if "app" not in request.scope:
+        return str(request.scope.get("root_path") or "")
+    return browser_mount_from_request(request)
+
+
 def mounted_path(request: Request, path: str) -> str:
     """Application path prefixed with the external deployment mount."""
     path_part, separator, fragment = path.partition("#")
-    mounted = local_href(_abs_path(path_part), mount=browser_mount_from_request(request))
+    mounted = local_href(_abs_path(path_part), mount=_browser_mount(request))
     # Hedron historically rejects paths that normalize only by dropping a terminal slash.
     # The root app URL is the one exception: without a mount it must remain "/".
     normalized = mounted.rstrip("/") or "/"
