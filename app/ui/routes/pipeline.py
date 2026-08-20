@@ -1215,7 +1215,8 @@ def _pipeline_body(
                         ),
                         class_="object-picker target-object-picker",
                     ),
-                    class_="object-picker-grid",
+                    class_="object-picker-grid hedron-grid",
+                    data={"hedron-columns": "2"},
                 ),
                 html.div(
                     _provider_node(
@@ -1292,7 +1293,7 @@ def _pipeline_body(
                 id="pipeline-form",
                 class_="pipeline-form",
             ),
-            class_="panel pipeline-builder",
+            class_="panel pipeline-builder hedron-card hedron-card-body",
             id="pipeline-builder",
         ),
         html.div(
@@ -1322,7 +1323,7 @@ def _pipeline_body(
                     ),
                     class_="run-log",
                 ),
-                class_="panel run-monitor",
+                class_="panel run-monitor hedron-card hedron-card-body",
             ),
             html.aside(
                 html.div(
@@ -1348,9 +1349,10 @@ def _pipeline_body(
                     ),
                     class_="sandbox-note",
                 ),
-                class_="panel run-history",
+                class_="panel run-history hedron-card hedron-card-body",
             ),
-            class_="pipeline-observe-grid",
+            class_="pipeline-observe-grid hedron-grid",
+            data={"hedron-columns": "2"},
         ),
     ]
 

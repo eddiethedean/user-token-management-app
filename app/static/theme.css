@@ -79,6 +79,7 @@ a:hover { color: #d9daff; }
 button, input, select { font: inherit; }
 h1, h2, h3, h4 {
   font-family: var(--font-display);
+}
 button, a { -webkit-tap-highlight-color: transparent; }
 :focus-visible { outline: 3px solid #f8cd68; outline-offset: 3px; }
 ::selection { color: white; background: rgba(133, 135, 255, 0.52); }

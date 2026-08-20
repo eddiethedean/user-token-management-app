@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     app_env: Literal["development", "test", "production"] = "development"
     app_name: str = Field(default="Data Mover", min_length=1, max_length=100)
+    custom_theme_enabled: bool = True
     public_base_url: str = "http://127.0.0.1:8000"
     database_url: str = f"sqlite:///{BASE_DIR / 'access-registry.db'}"
 

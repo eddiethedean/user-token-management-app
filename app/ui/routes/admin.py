@@ -166,7 +166,7 @@ def register_admin_routes(app: Hedron) -> None:
                         class_="panel-heading",
                     ),
                     directory,
-                    class_="panel panel-main",
+                    class_="panel panel-main hedron-card hedron-card-body",
                 ),
                 html.aside(
                     ui.invitation_panel(
@@ -177,7 +177,8 @@ def register_admin_routes(app: Hedron) -> None:
                         success=invitation_notices.get(notice, ""),
                     )
                 ),
-                class_="admin-layout",
+                class_="admin-layout hedron-grid",
+                data={"hedron-columns": "2"},
             ),
         ]
         return await render_authenticated_view(
@@ -567,7 +568,7 @@ def register_admin_routes(app: Hedron) -> None:
                     page_size=AUDIT_PAGE_SIZE,
                     lazy=not (et or oc or page > 1),
                 ),
-                class_="panel panel-main",
+                class_="panel panel-main hedron-card hedron-card-body",
             ),
         ]
         return await render_authenticated_view(

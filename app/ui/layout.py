@@ -36,18 +36,24 @@ HTMX_CONFIG = (
 )
 
 
-def document_head(*, request: Request, page_title: str, app_name: str) -> Fragment:
+def document_head(
+    *, request: Request, page_title: str, app_name: str, custom_theme_enabled: bool
+) -> Fragment:
     title = f"{page_title} · {app_name}" if page_title else app_name
-    return Fragment(
+    nodes: list[NodeLike] = [
         html.meta(name="color-scheme", content="dark"),
         html.meta(name="theme-color", content="#080d1a"),
         html.meta(name="htmx-config", content=HTMX_CONFIG),
         html.title(title),
-        html.link(
-            rel="stylesheet",
-            href=asset_href(request, "/assets/theme.css"),
-        ),
-    )
+    ]
+    if custom_theme_enabled:
+        nodes.append(
+            html.link(
+                rel="stylesheet",
+                href=asset_href(request, "/assets/theme.css"),
+            )
+        )
+    return Fragment(*nodes)
 
 
 def alert_box(message: str, *, kind: str = "error") -> Alert | Fragment:
@@ -62,7 +68,10 @@ def account_summary(
 ) -> NodeLike:
     """Account chrome; stays on html.* so hx-swap-oob and nested form attrs remain valid."""
     user = auth.user
-    attrs: dict[str, HtmlAttrValue] = {"id": "account-summary", "class_": "account-summary"}
+    attrs: dict[str, HtmlAttrValue] = {
+        "id": "account-summary",
+        "class_": "account-summary hedron-inline",
+    }
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return html.div(
@@ -100,7 +109,7 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
         return html.a(
             html.span(number, aria={"hidden": "true"}),
             f" {label}",
-            class_=f"nav-link {active}".strip(),
+            class_=f"nav-link hedron-nav-link {active}".strip(),
             href=page_href(request, href),
             **hx_attrs(
                 request,
@@ -141,7 +150,7 @@ def side_nav(request: Request, auth: AuthContext, *, oob: bool = False) -> NodeL
     """Side nav keeps html.nav for aria-label and optional hx-swap-oob."""
     attrs: dict[str, HtmlAttrValue] = {
         "id": "side-nav",
-        "class_": "side-nav",
+        "class_": "side-nav hedron-app-shell-nav",
         "aria": {"label": "Account navigation"},
     }
     if oob:
@@ -181,7 +190,7 @@ def app_shell(
         html.div(
             html.span("▦", class_="flag-mark", aria={"hidden": "true"}),
             html.span("Controlled workspace · Transfers are simulated in demo mode"),
-            class_="page-width banner-inner",
+            class_="page-width banner-inner hedron-inline",
         ),
         class_="official-banner",
     )
@@ -193,7 +202,7 @@ def app_shell(
                 html.small("Secure data movement"),
             ),
             html.span("Sandbox online", class_="brand-chip"),
-            class_="brand",
+            class_="brand hedron-inline",
             href=page_href(request, "/"),
             aria={"label": f"{settings.app_name} home"},
         )
@@ -201,7 +210,7 @@ def app_shell(
     if auth and csrf_token:
         header_children.append(account_summary(request, auth, csrf_token=csrf_token))
     header = Header(
-        html.div(*header_children, class_="page-width header-inner"),
+        html.div(*header_children, class_="page-width header-inner hedron-inline"),
         class_="site-header",
     )
     feedback = html.div(id="global-feedback", class_="global-feedback", aria={"live": "assertive"})
@@ -219,7 +228,7 @@ def app_shell(
         html.div(
             html.span(settings.app_name),
             html.span("Demo environment · No remote systems are contacted"),
-            class_="page-width footer-inner",
+            class_="page-width footer-inner hedron-inline",
         ),
         class_="site-footer",
     )
@@ -230,10 +239,10 @@ def app_shell(
             html.main(
                 main_panel(*body),
                 id="main-content",
-                class_="main-content",
+                class_="main-content hedron-main-panel",
                 tabindex="-1",
             ),
-            class_="page-width app-shell",
+            class_="page-width app-shell hedron-app-shell",
         )
     else:
         content = html.main(*body, id="main-content", class_="auth-main", tabindex="-1")
@@ -248,7 +257,12 @@ def app_shell(
         content,
         footer,
         title=page_title or settings.app_name,
-        head=document_head(request=request, page_title=page_title, app_name=settings.app_name),
+        head=document_head(
+            request=request,
+            page_title=page_title,
+            app_name=settings.app_name,
+            custom_theme_enabled=settings.custom_theme_enabled,
+        ),
     )
 
 
@@ -268,7 +282,7 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> Stack
 def main_panel(*body: NodeLike) -> Component[Any]:
     """Authenticated main panel root used for in-shell HTMX navigation swaps."""
     return BusyRegion(
-        SwapReveal(Section(*body, id="main-panel", class_="main-panel")),
+        SwapReveal(Section(*body, id="main-panel", class_="main-panel hedron-main-panel")),
         scope="document",
         indicator="#global-request-indicator",
     )

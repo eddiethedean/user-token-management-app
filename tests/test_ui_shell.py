@@ -21,7 +21,8 @@ from starlette.requests import Request
 
 from app.ui import partials as ui
 from app.ui.interactions import APP_REGIONS
-from app.ui.layout import alert_box, page_heading
+from app.ui.layout import alert_box, document_head, page_heading
+from app.ui.urls import hx_attrs
 
 
 def _request(root_path: str = "") -> Request:
@@ -64,6 +65,20 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Sign in")
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
+    assert_html_contains(response, 'href="/hedron-static/hedron-default.css"')
+    assert_html_contains(response, 'href="/assets/theme.css"')
+
+
+def test_document_head_can_disable_custom_theme() -> None:
+    rendered = render_html(
+        document_head(
+            request=_request(),
+            page_title="Theme experiment",
+            app_name="Data Mover",
+            custom_theme_enabled=False,
+        )
+    )
+    assert "/assets/theme.css" not in rendered
 
 
 def test_register_page_document(access_app) -> None:
@@ -508,6 +523,12 @@ def test_security_activity_lazy_placeholder() -> None:
     assert 'hx-get="/profile/activity"' in html
     assert 'hx-swap="innerHTML"' in html
     assert 'hx-target="#security-activity-body"' in html
+
+
+def test_numeric_polling_intervals_are_seconds() -> None:
+    assert hx_attrs(_request(), path="/status", polling=1.5)["hx-trigger"] == "every 1.5s"
+    assert hx_attrs(_request(), path="/status", polling=45)["hx-trigger"] == "every 45s"
+    assert hx_attrs(_request(), path="/status", polling="750ms")["hx-trigger"] == "every 750ms"
 
 
 def test_password_form_field_errors() -> None:

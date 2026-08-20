@@ -108,7 +108,10 @@ def hx_attrs(
     if hx_ext is not None:
         attrs["hx-ext"] = hx_ext
     if polling is not None:
-        interval = str(polling).strip()
+        # Numeric polling values are seconds. Bare HTMX timing numbers are
+        # interpreted as milliseconds, which can turn a 45-second refresh
+        # into a tight request loop.
+        interval = f"{polling:g}s" if isinstance(polling, (int, float)) else polling.strip()
         if not interval.startswith("every "):
             attrs["hx-trigger"] = f"every {interval}"
         else:

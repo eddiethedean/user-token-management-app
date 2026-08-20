@@ -3,6 +3,35 @@
 These items reflect manual JS gaps that remain in the app after the latest migration pass.  
 Hedron 0.50.1 now ships the corresponding upstream primitives, so these are migration work items (not missing feature requests).
 
+## Base-theme parity issue set
+
+The no-custom-CSS visual experiment produced a complementary Hedron enhancement set: Hedron owns
+the CSS, while application developers configure identity and composition through typed Python APIs.
+The target is approximate Data Mover visual and responsive parity without application-authored CSS,
+not pixel identity.
+
+- [#528 Tracking: reproduce a Data Mover-class front end with Python and zero application CSS](https://github.com/eddiethedean/hedron/issues/528)
+- [#525 Expand Theme into a Python-native application design-system API](https://github.com/eddiethedean/hedron/issues/525)
+- [#524 Add composed, responsive application chrome to AppShell](https://github.com/eddiethedean/hedron/issues/524)
+- [#523 Add Pythonic responsive page-layout primitives for application workspaces](https://github.com/eddiethedean/hedron/issues/523)
+- [#526 Add self-contained SkipLink and RequestIndicator shell utilities](https://github.com/eddiethedean/hedron/issues/526)
+- [#527 Add a declarative responsive ProcessFlow component for operational workflows](https://github.com/eddiethedean/hedron/issues/527)
+
+Second-wave styling platform issues:
+
+- [#534 Add theme inheritance, scoped themes, and distributable theme packages](https://github.com/eddiethedean/hedron/issues/534)
+- [#530 Add semantic typography roles and Python-managed font assets](https://github.com/eddiethedean/hedron/issues/530)
+- [#533 Define a shared size, density, appearance, and emphasis contract across components](https://github.com/eddiethedean/hedron/issues/533)
+- [#531 Add an accessible semantic palette compiler and contrast diagnostics](https://github.com/eddiethedean/hedron/issues/531)
+- [#536 Unify loading, empty, error, permission, and result-state presentation](https://github.com/eddiethedean/hedron/issues/536)
+- [#537 Add production-grade static Table and DescriptionList presentation APIs](https://github.com/eddiethedean/hedron/issues/537)
+- [#535 Define a unified overlay, elevation, and stacking-layer styling contract](https://github.com/eddiethedean/hedron/issues/535)
+- [#532 Add theme authoring diagnostics, Explorer state matrices, and visual diffs](https://github.com/eddiethedean/hedron/issues/532)
+- [#529 Add a first-class Icon component and coherent iconography system](https://github.com/eddiethedean/hedron/issues/529)
+
+This set complements [#519](https://github.com/eddiethedean/hedron/issues/519), which defines the
+stable theming contract for the opposite model: applications that own their CSS.
+
 ## 1) Declarative dependent-select and derived-field binding
 
 ### Title

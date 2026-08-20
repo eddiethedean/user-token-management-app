@@ -537,9 +537,10 @@ def security_tabs(
                 ),
                 html.div(
                     *[secret_slot(request, p, s, csrf_token=csrf_token) for p, s in secret_slots],
-                    class_="secret-grid",
+                    class_="secret-grid hedron-grid",
+                    data={"hedron-columns": "2"},
                 ),
-                class_="panel panel-main",
+                class_="panel panel-main hedron-card hedron-card-body",
             ),
         )
     ]
@@ -562,7 +563,7 @@ def security_tabs(
                     secret_slots,
                     csrf_token=csrf_token,
                 ),
-                class_="panel panel-main",
+                class_="panel panel-main hedron-card hedron-card-body",
             ),
         )
     )
@@ -599,7 +600,7 @@ def account_tabs(
                         error=password_error,
                         field_errors=password_field_errors,
                     ),
-                    class_="panel panel-main split-panel",
+                    class_="panel panel-main split-panel hedron-card hedron-card-body",
                 ),
             )
         )
@@ -616,7 +617,7 @@ def account_tabs(
                     class_="panel-heading",
                 ),
                 session_list(request, sessions, auth=auth, csrf_token=csrf_token),
-                class_="panel panel-main",
+                class_="panel panel-main hedron-card hedron-card-body",
             ),
         )
     )
@@ -633,7 +634,7 @@ def account_tabs(
                     class_="panel-heading",
                 ),
                 security_activity_lazy(request),
-                class_="panel panel-main",
+                class_="panel panel-main hedron-card hedron-card-body",
             ),
         )
     )

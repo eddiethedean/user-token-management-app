@@ -28,13 +28,13 @@ def submit_button(
     **attrs: Any,
 ) -> NodeLike:
     """Render a themed button (Data Mover ``.button`` classes)."""
-    classes = ["button"]
+    classes = ["button", "hedron-button"]
     if quiet:
-        classes.append("button-quiet")
+        classes.extend(("button-quiet", "hedron-button-secondary"))
     elif danger:
-        classes.append("button-danger")
+        classes.extend(("button-danger", "hedron-button-danger"))
     elif variant == "secondary":
-        classes.append("button-secondary")
+        classes.extend(("button-secondary", "hedron-button-secondary"))
     else:
         classes.append("button-primary")
     if wide:

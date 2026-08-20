@@ -33,8 +33,9 @@ and validating local behavior in your deployment target.
 - Hedron sessions, authentication, CSRF, and security-header middleware are disabled because this
   application has server-side refresh-session revocation, security-version invalidation,
   pre-authentication CSRF, proxy trust rules, and a product-specific CSP.
-- Hedron default styles and theme switching are disabled because Data Mover ships an
-  approved fixed theme; component semantic classes remain available to that theme.
+- Hedron default styles are always loaded so native components remain usable without the
+  product layer. Data Mover's custom theme is enabled by default and may be disabled for
+  compatibility experiments with `CUSTOM_THEME_ENABLED=false`.
 - Explorer stays off in production to avoid exposing a component-development surface.
 - Caching is not used for authenticated pages or secret-adjacent fragments; responses are
   `no-store` by design.
@@ -61,6 +62,31 @@ The following capabilities shipped in 0.50/0.50.1 and are now available for Data
 Follow-up progress: manual `htmx:historyRestore` handling and `load`-error fallback were removed from app JavaScript; pending follow-through is on items 1, 3, 5, and 6 in the issue draft, with item 7 now partially reduced to native server-validated submit behavior.
 
 See [docs/hedron-enhancement-issues.md](/Volumes/SAN-DRIVE/coding/user-token-management-app/docs/hedron-enhancement-issues.md) for detailed issue drafts.
+
+## Base-theme experiment
+
+Run the full demo without Data Mover's custom stylesheet:
+
+```bash
+CUSTOM_THEME_ENABLED=false make demo
+```
+
+This keeps `app/static/theme.css` unchanged but omits its `<link>` element. Hedron's bundled
+`hedron-default.css` remains active. The application markup carries both its product classes and
+the corresponding Hedron shell, navigation, grid, card, and button classes so core structure and
+controls remain usable in either mode.
+
+Visual checks at desktop and mobile widths found three remaining base-theme needs:
+
+- a first-class skip-link treatment that keeps the link off-canvas until keyboard focus;
+- an idle-state rule for application-provided HTMX indicators when HTMX's injected indicator
+  styles are disabled; and
+- a header composition for branded application chrome (brand, environment status, and account
+  actions) so those elements have intentional spacing without a product stylesheet.
+
+Pipeline diagrams and other domain-specific visualizations remain product-layer concerns. They
+are still readable in base-theme mode, but Hedron should not infer their presentation from generic
+HTML.
 
 
 ## Upgrade checklist

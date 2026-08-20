@@ -66,7 +66,7 @@ def render_login_page(
             trust_item(
                 "Observable by default", "Every transfer has progress, metrics, and a run log."
             ),
-            class_="trust-list",
+            class_="trust-list hedron-stack",
             aria={"label": "Security features"},
         ),
         class_="auth-intro",
@@ -157,7 +157,8 @@ def render_login_page(
     layout = Section(
         intro,
         Card(*card_children, class_="auth-card"),
-        class_="auth-layout",
+        class_="auth-layout hedron-grid",
+        data={"hedron-columns": "2"},
     )
     page = app_shell(layout, request=request, settings=settings, auth=None, page_title="Sign in")
     response = render_page(page, request=request, status_code=status_code)

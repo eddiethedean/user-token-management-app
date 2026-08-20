@@ -163,10 +163,11 @@ def account_profile_panel(request: Request, auth: AuthContext, *, csrf_token: st
                 class_="panel-heading",
             ),
             profile_form(request, auth, csrf_token=csrf_token),
-            class_="panel panel-main",
+            class_="panel panel-main hedron-card hedron-card-body",
         ),
         profile_identity(request, auth),
-        class_="content-grid profile-grid",
+        class_="content-grid profile-grid hedron-grid",
+        data={"hedron-columns": "2"},
     )
 
 
