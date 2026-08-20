@@ -10,8 +10,8 @@ MAIN_PANEL = FragmentRegion(
     description="Authenticated main content panel",
 )
 TOAST_HOST = FragmentRegion(
-    id="toast-host",
-    selector="#toast-host",
+    id="hedron-toast",
+    selector="#hedron-toast",
     description="Transient toast notifications",
 )
 SIDE_NAV = FragmentRegion(

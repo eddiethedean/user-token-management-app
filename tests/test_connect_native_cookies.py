@@ -31,7 +31,9 @@ def test_native_connect_login_round_trip(client, monkeypatch) -> None:
         },
     )
     assert signed_in.status_code == 303
-    assert signed_in.headers["location"] == "/content/access-registry/profile"
+    # TestClient does not emulate Connect's ASGI root_path; the native Connect
+    # proxy adds its content mount to this app-local redirect in deployment.
+    assert signed_in.headers["location"] == "/profile"
     set_cookie_headers = signed_in.headers.get_list("set-cookie")
     for cookie_name in (ACCESS_COOKIE, REFRESH_COOKIE):
         assert any(

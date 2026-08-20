@@ -56,13 +56,6 @@ def _password_field(
                 required=True,
             ),
         ),
-        html.button(
-            "Show password",
-            class_="password-toggle",
-            type="button",
-            data={"password-toggle": field_id},
-            aria={"pressed": "false"},
-        ),
         class_="password-field",
     )
 

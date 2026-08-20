@@ -80,7 +80,7 @@ def test_auth_and_shell_pages_are_documents(page) -> None:
     profile = fixture_login(page)
     assert_page_document(profile)
     assert_html_contains(profile, 'id="main-panel"')
-    assert_html_contains(profile, 'id="toast-host"')
+    assert_html_contains(profile, 'id="hedron-toast"')
     assert_html_contains(profile, 'id="dialog-host"')
     assert_html_contains(profile, 'id="global-request-indicator"')
     assert_html_contains(profile, 'hx-select="#main-panel"')
@@ -143,7 +143,7 @@ def test_toast_oob_appends_for_queueing() -> None:
                     Toast("First", tone="success"),
                     Toast("Second", tone="danger"),
                 ),
-                element_id="toast-host",
+                element_id="hedron-toast",
                 swap="beforeend",
             ),
         ),
@@ -210,7 +210,7 @@ def test_profile_mutation_toast_and_identity_oob(htmx) -> None:
     assert_fragment_body(adapter, contains="profile-form-region")
     assert_html_contains(adapter, "Interaction Admin")
     assert_toast_markup(adapter, contains="Your profile has been updated")
-    assert_oob_present(adapter, contains="toast-host")
+    assert_oob_present(adapter, contains="hedron-toast")
     assert "Vary" in response.headers
 
 

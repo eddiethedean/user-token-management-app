@@ -47,7 +47,7 @@ services:
     environment:
       APP_ENV: development
       APP_NAME: Data Mover
-      PUBLIC_BASE_URL: http://127.0.0.1:8000
+      PUBLIC_BASE_URL: http://127.0.0.1:8787/s/docker-session/p/8000
       DATABASE_URL: sqlite:////data/access-registry.db
       JWT_SECRET: workbench-docker-jwt-secret-at-least-32-bytes!!
       SESSION_PEPPER: workbench-docker-session-pepper-32-bytes!
@@ -69,7 +69,7 @@ services:
       ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-Tr0pic-Maple!River92}
       # Public origin used for scheme-absolute Locations (must not be path-absolute).
       RS_SERVER_URL: http://127.0.0.1:8787/
-      UVICORN_ROOT_PATH: http://127.0.0.1:8787/s/docker-session/p/8000/
+      HEDRON_WORKBENCH_MOUNT: /s/docker-session/p/8000
       PORT: "8000"
       ACCESS_REGISTRY_DEV_TRACE: "1"
     ports:

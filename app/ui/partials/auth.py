@@ -138,13 +138,6 @@ def render_login_page(
                     required=True,
                     autocomplete="current-password",
                 ),
-                html.button(
-                    "Show password",
-                    class_="password-toggle",
-                    type="button",
-                    data={"password-toggle": "password"},
-                    aria={"pressed": "false"},
-                ),
                 submit_button("Sign in securely", wide=True),
                 action=form_action(request, "login"),
                 method="post",

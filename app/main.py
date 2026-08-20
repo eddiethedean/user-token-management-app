@@ -9,7 +9,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request, Response, status
@@ -20,22 +20,20 @@ from fastapi.exception_handlers import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from hedron import Card, Heading, Hedron, html
+from hedron import Card, Heading, html
+from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
 from hedron_core import RenderMode
+from hedron_posit import ConnectConfig, HedronPosit, PositConfig
 from pydantic import BaseModel
 from sqlalchemy import text
+from starlette._utils import get_route_path
 
 from app.config import get_settings
 from app.dependencies import clear_auth_cookies, set_auth_cookies
 from app.logging_config import bind_request_id, clear_request_id, configure_logging
-from app.routing import (
-    WorkbenchPathMiddleware,
-    application_path,
-    is_htmx_request,
-    redirect_path,
-)
 from app.schema import assert_schema_current
+from app.security.cookies import APPLICATION_COOKIE_NAMES
 from app.services.auth import ensure_default_roles
 from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
@@ -52,7 +50,7 @@ AR_SECURITY = access_registry_security_policy()
 
 
 @asynccontextmanager
-async def lifespan(app: Hedron) -> AsyncIterator[None]:
+async def lifespan(app: HedronPosit) -> AsyncIterator[None]:
     from app.database import SessionLocal, engine
 
     cfg = get_settings()
@@ -73,7 +71,7 @@ async def lifespan(app: Hedron) -> AsyncIterator[None]:
         engine.dispose()
 
 
-app = Hedron(
+app = HedronPosit(
     title=settings.app_name,
     version="0.1.0",
     docs_url=None if settings.is_production else "/docs",
@@ -85,8 +83,14 @@ app = Hedron(
     htmx_extensions=("preload", "sse", "head-support"),
     explorer="off",
     default_styles=False,
+    external_base_url=settings.public_base_url,
+    posit=PositConfig(
+        connect=ConnectConfig(
+            trusted_peers=tuple(sorted({"127.0.0.1", "::1", *settings.trusted_proxy_ip_set})),
+            owned_cookie_names=tuple(sorted(APPLICATION_COOKIE_NAMES)),
+        )
+    ),
 )
-app.add_middleware(WorkbenchPathMiddleware)
 
 static_directory = Path(__file__).resolve().parent / "static"
 app.mount("/assets", StaticFiles(directory=static_directory), name="assets")
@@ -129,7 +133,9 @@ async def security_and_session_middleware(request: Request, call_next):
         "font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; "
         "form-action 'self'"
     )
-    if not application_path(request).startswith(("/assets/", "/hedron-static/", "/hedron-assets/")):
+    if not get_route_path(request.scope).startswith(
+        ("/assets/", "/hedron-static/", "/hedron-assets/")
+    ):
         response.headers["Cache-Control"] = "no-store"
     if settings.is_production:
         hsts = "max-age=31536000"
@@ -153,11 +159,11 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
     is_htmx = is_htmx_request(request)
     accepts_html = "text/html" in request.headers.get("accept", "")
     if exc.status_code == status.HTTP_401_UNAUTHORIZED and (accepts_html or is_htmx):
-        next_path = application_path(request)
+        next_path = get_route_path(request.scope)
         if request.url.query:
             next_path += f"?{request.url.query}"
         response = RedirectResponse(
-            redirect_path(request, f"/login?{urlencode({'next': next_path})}"),
+            cast(HedronPosit, request.app).browser_url(f"/login?{urlencode({'next': next_path})}"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         clear_auth_cookies(response, settings, request)

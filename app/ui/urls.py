@@ -6,8 +6,7 @@ from typing import Any
 
 from fastapi import Request
 from hedron_core.security import SafeUrl, UrlPurpose
-
-from app.routing import app_path
+from hedron_posit import browser_mount_from_request, local_href
 
 
 def _abs_path(path: str) -> str:
@@ -22,7 +21,7 @@ def _abs_path(path: str) -> str:
 def mounted_path(request: Request, path: str) -> str:
     """Application path prefixed with the external deployment mount."""
     path_part, separator, fragment = path.partition("#")
-    mounted = app_path(request, _abs_path(path_part))
+    mounted = local_href(_abs_path(path_part), mount=browser_mount_from_request(request))
     # Hedron historically rejects paths that normalize only by dropping a terminal slash.
     # The root app URL is the one exception: without a mount it must remain "/".
     normalized = mounted.rstrip("/") or "/"

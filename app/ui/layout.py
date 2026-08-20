@@ -19,6 +19,7 @@ from hedron import (
     html,
 )
 from hedron_core import Component, HtmlAttrValue, NodeLike
+from hedron_core.builtins import BusyRegion, SwapReveal, ToastHost
 
 from app.config import Settings
 from app.dependencies import AuthContext
@@ -86,9 +87,9 @@ def account_summary(
 
 
 def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
-    from app.routing import application_path
+    from starlette._utils import get_route_path
 
-    path = application_path(request)
+    path = get_route_path(request.scope)
     normalized = path.rstrip("/") or "/"
 
     def link(href: str, number: str, label: str) -> NodeLike:
@@ -158,14 +159,10 @@ def side_nav_oob(request: Request, auth: AuthContext) -> OobUpdate:
 
 
 def toast_host(*, oob: bool = False) -> NodeLike:
-    attrs: dict[str, HtmlAttrValue] = {
-        "id": "toast-host",
-        "class_": "toast-host",
-        "aria": {"live": "polite"},
-    }
+    host = ToastHost()
     if oob:
-        attrs["hx-swap-oob"] = "outerHTML"
-    return html.div(**attrs)
+        return html.div(host, hx_swap_oob="outerHTML")
+    return host
 
 
 def dialog_host() -> NodeLike:
@@ -270,4 +267,8 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> Stack
 
 def main_panel(*body: NodeLike) -> Component[Any]:
     """Authenticated main panel root used for in-shell HTMX navigation swaps."""
-    return Section(*body, id="main-panel", class_="main-panel")
+    return BusyRegion(
+        SwapReveal(Section(*body, id="main-panel", class_="main-panel")),
+        scope="document",
+        indicator="#global-request-indicator",
+    )

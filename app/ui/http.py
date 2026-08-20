@@ -7,13 +7,14 @@ from collections.abc import Mapping, Sequence
 from fastapi import Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Card, InteractionResult, Page, html
+from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
 from hedron_core import NodeLike, RenderMode
+from hedron_posit import browser_mount_from_request, local_href
 from starlette.responses import Response
 
 from app.config import Settings
 from app.dependencies import AuthContext
-from app.routing import app_base_url, app_path, is_htmx_request
 from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.layout import app_shell, main_panel, side_nav_oob
 from app.ui.urls import mounted_path
@@ -92,21 +93,6 @@ def safe_next(value: str) -> str:
     return value if is_local_path else "/pipeline"
 
 
-def _prefix_hedron_static_urls(html_text: str, request: Request | None) -> str:
-    """Point Hedron's absolute ``/hedron-static`` and ``/hedron-assets`` URLs at the mount."""
-    if request is None:
-        return html_text
-    mount = app_base_url(request).rstrip("/")
-    if not mount:
-        return html_text
-    for prefix in ("/hedron-static/", "/hedron-assets/"):
-        html_text = html_text.replace(f'src="{prefix}', f'src="{mount}{prefix}')
-        html_text = html_text.replace(f"src='{prefix}", f"src='{mount}{prefix}")
-        html_text = html_text.replace(f'href="{prefix}', f'href="{mount}{prefix}')
-        html_text = html_text.replace(f"href='{prefix}", f"href='{mount}{prefix}")
-    return html_text
-
-
 def render_page(
     page: Page,
     *,
@@ -127,7 +113,6 @@ def render_page(
     # Hedron forbids <script> nodes in the tree; inject AR progressive-enhancement JS here.
     original_html = bytes(response.body).decode(response.charset or "utf-8")
     html_text = _load_hedron_htmx_before_extensions(original_html)
-    html_text = _prefix_hedron_static_urls(html_text, request)
     script_src = (
         mounted_path(request, "/assets/app.js") if request is not None else "/assets/app.js"
     )
@@ -181,7 +166,7 @@ async def render_authenticated_view(
             ok_fragment(
                 main_panel(*body),
                 oob=(side_nav_oob(request, auth),),
-                push_url=app_path(request, push_path),
+                push_url=local_href(push_path, mount=browser_mount_from_request(request)),
             ),
         )
     return render_page(

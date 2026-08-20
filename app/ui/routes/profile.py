@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import Request
 from hedron import Hedron, html
+from hedron_posit import HedronPosit
 from starlette.responses import Response
 
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
-from app.routing import redirect_path
 from app.services.accounts import ProfileValues, security_page_values, update_profile
 from app.ui import partials as ui
 from app.ui.http import mutation_response, render_authenticated_view
@@ -117,7 +119,7 @@ def register_profile_routes(app: Hedron) -> None:
         )
         return await mutation_response(
             request,
-            redirect=redirect_path(request, "/profile?updated=true"),
+            redirect=cast(HedronPosit, request.app).browser_url("/profile?updated=true"),
             fragment=ok_fragment(
                 form,
                 oob=oob,

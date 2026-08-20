@@ -11,7 +11,6 @@ from app.config import Settings, get_settings
 from app.database import get_db
 from app.dev_trace import dev_trace
 from app.models import RefreshSession, User, utcnow
-from app.routing import cookie_path
 from app.security.cookies import ACCESS_COOKIE, REFRESH_COOKIE, request_cookie_values
 from app.security.csrf import assert_csrf
 from app.security.tokens import AccessTokenError, decode_access_token, hash_token
@@ -172,7 +171,7 @@ RequireCsrf = Annotated[None, Depends(enforce_session_csrf)]
 def set_auth_cookies(
     response: Response, tokens: SessionTokens, settings: Settings, request: Request
 ) -> None:
-    path = cookie_path(request, settings.cookie_path)
+    path = None if settings.cookie_path == "auto" else settings.cookie_path
     common = {
         "secure": settings.cookie_secure,
         "httponly": True,
@@ -206,7 +205,7 @@ def set_auth_cookies(
 
 
 def clear_auth_cookies(response: Response, settings: Settings, request: Request) -> None:
-    path = cookie_path(request, settings.cookie_path)
+    path = None if settings.cookie_path == "auto" else settings.cookie_path
     common = {
         "path": path,
         "secure": settings.cookie_secure,

@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Heading, Hedron, OobUpdate, html
+from hedron.htmx import is_htmx_request
+from hedron_posit import HedronPosit
 from starlette.responses import Response
 
 from app.config import get_settings
 from app.connectors.registry import connector_for
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.models import PipelineDefinition, PipelineUpload
-from app.routing import is_htmx_request, redirect_path
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
     CSV_SOURCE_CATALOG,
@@ -179,10 +181,6 @@ def _schema_options(provider: str, preferred_schema: str = ""):
     ]
 
 
-def _table_metrics(table_name: str) -> tuple[str, str, str]:
-    return ("—", "—", "0")
-
-
 def _committed_new_table_name(value: str) -> str:
     prefix = f"{CREATE_TABLE_VALUE}:"
     return value[len(prefix) :] if value.startswith(prefix) else value
@@ -222,7 +220,6 @@ def _select_fragment(
     *,
     name: str,
     disabled: bool = False,
-    allow_create: bool = False,
 ):
     attrs = {
         "id": select_id,
@@ -980,6 +977,7 @@ def _pipeline_body(
                                         swap="outerHTML",
                                         include="#pipeline-form",
                                         trigger="change",
+                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                     ),
                                 ),
                             ),
@@ -1012,6 +1010,7 @@ def _pipeline_body(
                                         swap="outerHTML",
                                         include="#pipeline-form",
                                         trigger="change",
+                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                     ),
                                 ),
                                 class_="source-remote-field",
@@ -1046,6 +1045,7 @@ def _pipeline_body(
                                         swap="outerHTML",
                                         include="#pipeline-form",
                                         trigger="change",
+                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                     ),
                                 ),
                                 class_="source-remote-field",
@@ -1121,6 +1121,7 @@ def _pipeline_body(
                                         swap="outerHTML",
                                         include="#pipeline-form",
                                         trigger="change",
+                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                     ),
                                 ),
                             ),
@@ -1154,6 +1155,7 @@ def _pipeline_body(
                                         swap="outerHTML",
                                         include="#pipeline-form",
                                         trigger="change",
+                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                     ),
                                 ),
                             ),
@@ -1302,39 +1304,6 @@ def _pipeline_body(
                     ),
                     html.span("Ready", class_="run-status is-ready", id="pipeline-run-status"),
                     class_="pipeline-section-heading",
-                ),
-                html.div(
-                    html.div(
-                        html.span("Awaiting transfer", id="pipeline-progress-label"),
-                        html.strong("0%", id="pipeline-progress-value"),
-                        class_="progress-copy",
-                    ),
-                    html.div(
-                        html.span(id="pipeline-progress-bar"),
-                        class_="pipeline-progress-track",
-                        role="progressbar",
-                        aria={
-                            "label": "Transfer progress",
-                            "valuemin": "0",
-                            "valuemax": "100",
-                            "valuenow": "0",
-                        },
-                    ),
-                    class_="progress-block",
-                ),
-                html.div(
-                    html.div(
-                        html.span("Live batch stream"),
-                        html.small("0 batches", id="pipeline-batch-count"),
-                        class_="batch-stream-heading",
-                    ),
-                    html.div(
-                        *[html.span(data={"batch-bar": str(index)}) for index in range(18)],
-                        id="pipeline-batch-stream",
-                        class_="batch-stream-bars",
-                        aria={"hidden": "true"},
-                    ),
-                    class_="batch-stream",
                 ),
                 html.div(
                     html.div(
@@ -1631,7 +1600,7 @@ def register_pipeline_routes(app: Hedron) -> None:
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc
         return RedirectResponse(
-            redirect_path(request, "/pipeline?notice=saved"),
+            cast(HedronPosit, request.app).browser_url("/pipeline?notice=saved"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -1675,7 +1644,7 @@ def register_pipeline_routes(app: Hedron) -> None:
                 ),
             )
         return RedirectResponse(
-            redirect_path(request, f"/pipeline?notice=queued&run_id={run.id}"),
+            cast(HedronPosit, request.app).browser_url(f"/pipeline?notice=queued&run_id={run.id}"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
 

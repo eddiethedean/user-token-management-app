@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, InteractionResult, html
+from hedron.htmx import is_htmx_request
+from hedron_posit import HedronPosit
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import Response
 
 from app.dependencies import AdminAuth, DbSession, RequireCsrf, SettingsDep
 from app.models import Invitation, Role, User, UserStatus
-from app.routing import is_htmx_request, redirect_path
 from app.services.audit import AUDIT_PAGE_SIZE, list_audit_events, record_event
 from app.services.auth import (
     approve_self_registration,
@@ -227,7 +230,7 @@ def register_admin_routes(app: Hedron) -> None:
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         if not is_htmx_request(request) and not error:
             return RedirectResponse(
-                redirect_path(request, "/admin/users?notice=invitation-queued"),
+                cast(HedronPosit, request.app).browser_url("/admin/users?notice=invitation-queued"),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         if not is_htmx_request(request):
@@ -466,7 +469,9 @@ def register_admin_routes(app: Hedron) -> None:
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         return await mutation_response(
             request,
-            redirect=redirect_path(request, "/admin/users?notice=invitation-revoked"),
+            redirect=cast(HedronPosit, request.app).browser_url(
+                "/admin/users?notice=invitation-revoked"
+            ),
             fragment=ok_fragment(
                 ui.invitation_panel(
                     request,
@@ -589,7 +594,8 @@ def register_admin_routes(app: Hedron) -> None:
         request.state.hedron_authenticated = True
         if not is_htmx_request(request):
             return RedirectResponse(
-                redirect_path(request, "/admin/audit"), status_code=status.HTTP_303_SEE_OTHER
+                cast(HedronPosit, request.app).browser_url("/admin/audit"),
+                status_code=status.HTTP_303_SEE_OTHER,
             )
         try:
             events, total, page, et, oc = list_audit_events(

@@ -75,7 +75,7 @@ def toast_oob(
 ) -> OobUpdate:
     return OobUpdate(
         content=Toast(message, tone=tone),
-        element_id="toast-host",
+        element_id="hedron-toast",
         swap="beforeend",
     )
 

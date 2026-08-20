@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron
+from hedron_posit import HedronPosit
 from sqlalchemy import func, select
 from starlette.responses import Response
 
@@ -19,7 +22,6 @@ from app.dependencies import (
 )
 from app.dev_trace import dev_trace
 from app.models import User
-from app.routing import redirect_path
 from app.security.csrf import (
     clear_preauth_csrf_cookie,
     require_preauth_csrf,
@@ -68,7 +70,8 @@ def register_login_routes(app: Hedron) -> None:
     ) -> Response:
         if auth:
             return RedirectResponse(
-                redirect_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
+                cast(HedronPosit, request.app).browser_url(safe_next(next)),
+                status_code=status.HTTP_303_SEE_OTHER,
             )
         return render_login_page(
             request,
@@ -120,7 +123,8 @@ def register_login_routes(app: Hedron) -> None:
         dev_trace("auth.password.accepted")
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
-            redirect_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
+            cast(HedronPosit, request.app).browser_url(safe_next(next)),
+            status_code=status.HTTP_303_SEE_OTHER,
         )
         set_auth_cookies(response, tokens, settings, request)
         clear_preauth_csrf_cookie(response, request, settings)
@@ -148,7 +152,8 @@ def register_login_routes(app: Hedron) -> None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
-            redirect_path(request, safe_next(next)), status_code=status.HTTP_303_SEE_OTHER
+            cast(HedronPosit, request.app).browser_url(safe_next(next)),
+            status_code=status.HTTP_303_SEE_OTHER,
         )
         set_auth_cookies(response, tokens, settings, request)
         clear_preauth_csrf_cookie(response, request, settings)
@@ -164,7 +169,8 @@ def register_login_routes(app: Hedron) -> None:
     ) -> Response:
         revoke_session(db, auth.session, actor=auth.user, request=request)
         response = RedirectResponse(
-            redirect_path(request, "/login"), status_code=status.HTTP_303_SEE_OTHER
+            cast(HedronPosit, request.app).browser_url("/login"),
+            status_code=status.HTTP_303_SEE_OTHER,
         )
         clear_auth_cookies(response, settings, request)
         return response

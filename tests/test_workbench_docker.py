@@ -387,7 +387,7 @@ def test_app_authenticated_profile_and_security(app_session, workbench_stack) ->
     assert profile.status_code == 200, profile.text[:300]
     body = profile.text.casefold()
     assert workbench_stack["app_email"].casefold() in body or "profile" in body
-    assert "sign in" not in body
+    assert 'name="preauth_csrf_token"' not in body
 
     security = app_session.get("/security", follow_redirects=False)
     assert security.status_code == 200, security.text[:300]
@@ -434,7 +434,7 @@ def test_app_login_through_location_rewrite_proxy(workbench_stack) -> None:
     assert any(name.startswith("access_registry_") for name in http.cookies.keys())
     profile = http.get("/profile", follow_redirects=False)
     assert profile.status_code == 200, profile.text[:300]
-    assert "sign in" not in profile.text.casefold()
+    assert 'name="preauth_csrf_token"' not in profile.text.casefold()
 
 
 def test_app_admin_pages_require_auth(workbench_stack) -> None:

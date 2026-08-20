@@ -278,10 +278,6 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .hedron-form-field label { margin-top: 7px; color: #cbd3e5; font-size: 0.73rem; font-weight: 760; }
 .hedron-field-help, .field-help { margin: 0; color: var(--muted); font-size: 0.72rem; }
 .hedron-field-error { margin: 0; color: #ffb4c1; font-size: 0.72rem; font-weight: 700; }
-.password-field { display: flex; flex-direction: column; gap: 8px; }
-.password-field .password-toggle { align-self: flex-start; }
-.password-toggle { align-self: flex-start; margin: -4px 0 3px; padding: 2px 0; border: 0; color: var(--accent-bright); background: transparent; cursor: pointer; font-size: 0.78rem; font-weight: 700; }
-.password-toggle:hover { color: #c4c5ff; text-decoration: underline; }
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px 18px; }
 .field-grid > div, .field-grid > .hedron-form-field { display: flex; flex-direction: column; gap: 8px; }
 .field-full { grid-column: 1 / -1; }
@@ -651,7 +647,6 @@ form.htmx-request .button-action::after,
 .object-picker-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 11px 10px; }
 .object-picker-fields > div:first-child, .new-table-field { grid-column: 1 / -1; }
 .new-table-field[hidden] { display: none; }
-.source-object-picker.is-csv .source-remote-field { display: none; }
 .csv-upload-panel { grid-column: 1 / -1; display: grid; gap: 13px; }
 .csv-upload-panel[hidden] { display: none; }
 .csv-upload-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 13px; border: 1px dashed rgba(57, 214, 191, 0.28); border-radius: 10px; background: rgba(57, 214, 191, 0.035); }
@@ -848,29 +843,12 @@ form.htmx-request .button-action::after,
   border: 1px solid rgba(255, 255, 255, 0.04);
   opacity: 0.8;
 }
-.main-panel.is-entering { animation: panel-enter 0.38s cubic-bezier(0.19, 1, 0.22, 1); }
-@keyframes panel-enter {
-  from { opacity: 0; transform: translateY(10px) scale(0.992); }
-  to { opacity: 1; transform: none; }
-}
-.stagger-fade-in {
-  --reveal-delay: 0ms;
-  opacity: 0;
-  transform: translateY(12px);
-  animation: stagger-reveal 0.52s cubic-bezier(0.23, 1, 0.32, 1) forwards;
-  animation-delay: var(--reveal-delay);
-  will-change: transform, opacity;
-}
-@keyframes stagger-reveal {
-  from { opacity: 0; transform: translateY(12px) scale(0.99); }
-  to { opacity: 1; transform: none; }
-}
 .nav-link { transition: background 0.16s ease, color 0.16s ease, transform 0.16s ease; }
 .nav-link.active {
   box-shadow: inset 3px 0 0 var(--accent-bright);
 }
 
-.toast-host {
+.hedron-toast-host {
   position: fixed;
   z-index: 120;
   top: 18px;
@@ -880,7 +858,7 @@ form.htmx-request .button-action::after,
   width: min(420px, calc(100% - 36px));
   pointer-events: none;
 }
-.toast-host:empty { display: none; }
+.hedron-toast-host:empty { display: none; }
 .dialog-host:empty { display: none; }
 
 .hedron-toast {
@@ -894,16 +872,6 @@ form.htmx-request .button-action::after,
   background: var(--paper-strong);
   box-shadow: var(--shadow-soft);
   pointer-events: auto;
-  animation: toast-enter 0.24s ease;
-}
-.toast-item {
-  pointer-events: auto;
-  animation: toast-enter 0.24s ease;
-}
-.toast-item.is-leaving {
-  opacity: 0;
-  transform: translateY(-6px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 .hedron-toast-success {
   border-color: rgba(57, 214, 191, 0.35);
@@ -916,10 +884,6 @@ form.htmx-request .button-action::after,
 .hedron-toast-danger {
   border-color: rgba(255, 127, 148, 0.4);
   background: var(--red-pale);
-}
-@keyframes toast-enter {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: none; }
 }
 
 .hedron-dialog {
@@ -1077,5 +1041,5 @@ form.htmx-request .button-action::after,
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .main-panel.is-entering, .hedron-toast { animation: none; }
+  .hedron-toast { animation: none; }
 }

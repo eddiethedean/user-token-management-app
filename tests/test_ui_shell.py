@@ -177,7 +177,7 @@ def test_password_form_render_html() -> None:
     html = render_html(ui.password_form(_request(), csrf_token="pw-csrf"))
     assert 'id="password-form-region"' in html
     assert 'hx-post="/profile/password"' in html
-    assert 'data-password-toggle="new_password"' in html
+    assert 'data-hedron-password-toggle="new_password"' in html
 
 
 def test_password_form_success_swaps_to_sign_in() -> None:
@@ -359,7 +359,7 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
 
     profile = fixture_login(page)
     assert_html_contains(profile, 'id="main-panel"')
-    assert_html_contains(profile, 'id="toast-host"')
+    assert_html_contains(profile, 'id="hedron-toast"')
     assert_html_contains(profile, 'id="side-nav"')
     assert_html_contains(profile, 'hx-target="#main-panel"')
     assert_html_contains(profile, 'hx-select="#main-panel"')
@@ -455,7 +455,7 @@ def test_htmx_profile_update_emits_toast_oob(access_app) -> None:
     assert_html_contains(adapter, "Your profile has been updated")
     assert_html_contains(adapter, "hedron-toast")
     assert 'hx-swap-oob="beforeend"' in response.text
-    assert 'id="toast-host"' in response.text
+    assert 'id="hedron-toast"' in response.text
     assert "hedron-toast" in response.text
 
 

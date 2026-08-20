@@ -8,12 +8,12 @@ from urllib.parse import urlencode
 
 import httpx2
 from fastapi import Request
+from hedron_posit import browser_mount_from_request, local_href
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import Settings
 from app.models import User, UserStatus
-from app.routing import app_path
 from app.security.email import normalize_email
 
 log = logging.getLogger(__name__)
@@ -204,4 +204,7 @@ def user_listing_path(
     parameters = {"q": query, "status": status_filter, "page": max(1, page)}
     if notice:
         parameters["notice"] = notice
-    return app_path(request, f"/admin/users?{urlencode(parameters)}")
+    return local_href(
+        f"/admin/users?{urlencode(parameters)}",
+        mount=browser_mount_from_request(request),
+    )

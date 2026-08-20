@@ -462,7 +462,7 @@ done
 profile_status="$(curl --silent --show-error \
     -b "${cookie_jar}" -c "${cookie_jar}" \
     -o "${profile_page}" -w '%{http_code}' "${content_url}/profile")"
-if [[ "${profile_status}" != "200" ]] || ! grep -q 'Your profile' "${profile_page}"; then
+if [[ "${profile_status}" != "200" ]] || ! grep -q 'Profile details' "${profile_page}"; then
     log "authenticated profile smoke check failed"
     show_app_diagnostics
     exit 1

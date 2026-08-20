@@ -10,7 +10,6 @@ from fastapi import HTTPException, Request, Response, status
 
 from app.config import Settings
 from app.dev_trace import dev_trace
-from app.routing import cookie_path
 from app.security.cookies import PREAUTH_CSRF_COOKIE, request_cookie_values
 
 PREAUTH_CSRF_MAX_AGE = 3600
@@ -89,7 +88,7 @@ def require_preauth_csrf(request: Request, submitted: str, settings: Settings) -
 def set_preauth_csrf_cookie(
     response: Response, request: Request, token: str, settings: Settings
 ) -> None:
-    path = cookie_path(request, settings.cookie_path)
+    path = None if settings.cookie_path == "auto" else settings.cookie_path
     if path != "/":
         # Remove cookies produced by older deployments before mount-aware paths
         # were enabled. Otherwise browsers send both names and frameworks may
@@ -120,10 +119,10 @@ def set_preauth_csrf_cookie(
 
 
 def clear_preauth_csrf_cookie(response: Response, request: Request, settings: Settings) -> None:
-    path = cookie_path(request, settings.cookie_path)
+    path = None if settings.cookie_path == "auto" else settings.cookie_path
     response.delete_cookie(
         PREAUTH_CSRF_COOKIE,
-        path=path,
+        path=path or "/",
         secure=settings.cookie_secure,
         httponly=True,
         samesite="lax",

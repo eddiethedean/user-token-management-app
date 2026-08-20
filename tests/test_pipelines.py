@@ -18,10 +18,6 @@ def test_pipeline_workspace_renders_live_feedback_controls(client) -> None:
 
     assert response.status_code == 200
     assert "Build a transfer" in response.text
-    assert 'id="pipeline-progress-bar"' in response.text
-    assert 'id="pipeline-batch-stream"' in response.text
-    assert 'data-pipeline-start="true"' in response.text
-    assert 'id="pipeline-run-log"' in response.text
     assert "Saved pipelines" in response.text
     assert 'value="advana"' not in response.text
     assert 'value="mss"' not in response.text
@@ -35,9 +31,6 @@ def test_pipeline_workspace_renders_live_feedback_controls(client) -> None:
     assert 'id="pipeline-csv-inspection"' in response.text
     assert "0/3 connections ready" in response.text
     assert "Set up at least one connection" in response.text
-    run_button = re.search(r'<button[^>]+data-pipeline-start="true"[^>]*>', response.text)
-    assert run_button is not None
-    assert "disabled" in run_button.group(0)
 
 
 def test_pipeline_workspace_only_lists_configured_connections(client, demo_connections) -> None:
