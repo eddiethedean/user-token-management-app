@@ -1,4 +1,4 @@
-.PHONY: check demo demo-check hedron-check hedron-build migrate install serve create-admin email-worker pipeline-worker pipeline-janitor schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
+.PHONY: check demo demo-check hedron-check hedron-build hedron-security-check migrate install serve create-admin email-worker pipeline-worker pipeline-janitor schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
 
 install:
 	python -m pip install -e ".[dev]"
@@ -43,6 +43,10 @@ demo-check:
 
 hedron-check:
 	python -m hedron --app app.main:app check --severity warning
+
+hedron-security-check:
+	mkdir -p .hedron
+	python -m hedron security-check --policy strict --format sarif > .hedron/security-report.sarif
 
 hedron-build:
 	python -m hedron build

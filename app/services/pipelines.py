@@ -129,7 +129,7 @@ def save_pipeline(
             branch=source_branch or "master",
             file_paths=paths,
         )
-        final_source_schema = source_locator.branch
+        final_source_schema = source_locator.dataset_rid
         final_source_table = source_object or "all_supported"
 
     dest_caps = capabilities_for(destination_provider)
@@ -180,7 +180,7 @@ def save_pipeline(
             file_name=file_name,
         )
         write_policy = FoundryReplaceFilePolicy()
-        final_destination_schema = destination_locator.branch
+        final_destination_schema = destination_locator.dataset_rid
         final_destination_table = destination_locator.file_name
 
     parse_locator(source_locator.model_dump(by_alias=True))

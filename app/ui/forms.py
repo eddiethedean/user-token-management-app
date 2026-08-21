@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, cast
 
-from hedron import CsrfField, html
+from hedron import Button, CsrfField, html
 from hedron_core import NodeLike
 
 
@@ -27,16 +27,16 @@ def submit_button(
     type: str = "submit",
     **attrs: Any,
 ) -> NodeLike:
-    """Render a themed button (Data Mover ``.button`` classes)."""
-    classes = ["button", "hedron-button"]
+    """Render a native Hedron button with optional app-specific sizing."""
+    classes: list[str] = []
     if quiet:
-        classes.extend(("button-quiet", "hedron-button-secondary"))
+        native_variant = "secondary"
     elif danger:
-        classes.extend(("button-danger", "hedron-button-danger"))
+        native_variant = "danger"
     elif variant == "secondary":
-        classes.extend(("button-secondary", "hedron-button-secondary"))
+        native_variant = "secondary"
     else:
-        classes.append("button-primary")
+        native_variant = "primary"
     if wide:
         classes.append("button-wide")
     if small:
@@ -44,4 +44,10 @@ def submit_button(
     existing = attrs.pop("class_", None)
     if existing:
         classes.append(str(existing))
-    return html.button(label, class_=" ".join(classes), type=type, **attrs)
+    return Button(
+        label,
+        class_=" ".join(classes) or None,
+        type=cast(Literal["button", "submit", "reset"], type),
+        variant=cast(Literal["primary", "secondary", "danger"], native_variant),
+        **attrs,
+    )

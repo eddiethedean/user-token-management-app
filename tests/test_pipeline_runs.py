@@ -68,6 +68,7 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert queued.status_code in {200, 202}
     assert "pipeline-run-monitor" in queued.text
     assert "succeeded" in queued.text or "queued" in queued.text or "extracting" in queued.text
+    assert "Succeeded" in queued.text
 
     with SessionLocal() as db:
         run = db.scalar(

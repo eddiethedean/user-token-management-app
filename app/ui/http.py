@@ -10,14 +10,13 @@ from hedron import Card, InteractionResult, Page, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
 from hedron_core import NodeLike, RenderMode
-from hedron_posit import local_href
 from starlette.responses import Response
 
 from app.config import Settings
 from app.dependencies import AuthContext
 from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.layout import app_shell, main_panel, side_nav_oob
-from app.ui.urls import _browser_mount, mounted_path
+from app.ui.urls import mounted_path
 
 
 def _load_hedron_htmx_before_extensions(html_text: str) -> str:
@@ -166,7 +165,7 @@ async def render_authenticated_view(
             ok_fragment(
                 main_panel(*body),
                 oob=(side_nav_oob(request, auth),),
-                push_url=local_href(push_path, mount=_browser_mount(request)),
+                push_url=mounted_path(request, push_path),
             ),
         )
     return render_page(

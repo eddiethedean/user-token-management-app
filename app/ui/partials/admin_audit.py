@@ -7,15 +7,19 @@ from urllib.parse import urlencode
 
 from fastapi import Request
 from hedron import (
+    ActionGroup,
+    Badge,
     ComponentRef,
     ErrorState,
     Form,
     FormField,
     Lazy,
     Loading,
-    RefreshButton,
     Section,
+    Stack,
+    StateView,
     Table,
+    TableColumn,
     TextInput,
     html,
 )
@@ -44,19 +48,31 @@ def _audit_results_path(
 
 
 def audit_match_count(total: int, *, oob: bool = False) -> NodeLike:
-    attrs: dict[str, HtmlAttrValue] = {"id": "audit-match-count", "class_": "verification-badge"}
+    attrs: dict[str, HtmlAttrValue] = {"id": "audit-match-count"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
-    return html.span(f"{total} matching events", **attrs)
+    noun = "event" if total == 1 else "events"
+    return html.span(Badge(f"{total} matching {noun}", tone="info"), **attrs)
 
 
 def audit_refresh_button(
     request: Request, *, event_type: str = "", outcome: str = "", page: int = 1
 ) -> NodeLike:
     path = _audit_results_path(request, event_type=event_type, outcome=outcome, page=page)
-    return html.div(
-        RefreshButton.for_region(AUDIT_RESULTS, href=path, label="Refresh"),
-        class_="lazy-refresh",
+    return ActionGroup(
+        html.button(
+            "Refresh",
+            type="button",
+            class_="hedron-button hedron-button-secondary button-small",
+            **hx_attrs(
+                request,
+                path=path,
+                method="get",
+                target=AUDIT_RESULTS.selector,
+                swap="outerHTML",
+            ),
+        ),
+        align="end",
     )
 
 
@@ -98,7 +114,7 @@ def audit_panel(
             total_events=total_events,
             page_size=page_size,
         )
-    return html.div(refresh, body, class_="audit-panel")
+    return Stack(refresh, body)
 
 
 def audit_results(
@@ -158,7 +174,7 @@ def _audit_filter_form(request: Request, event_type_filter: str, outcome_filter:
         (
             html.a(
                 "Clear",
-                class_="button button-quiet button-small",
+                class_="hedron-button hedron-button-secondary button-small",
                 href=page_href(request, "admin/audit"),
                 **hx_attrs(
                     request,
@@ -201,20 +217,54 @@ def audit_results_body(
     page_size: int = 50,
 ) -> NodeLike:
     _ = page_count
-    headers = ["When", "Event", "Outcome", "Source", "Detail"]
+    results: NodeLike
     if events:
         rows: list[list[NodeLike]] = [
             [
-                event.occurred_at.strftime("%Y-%m-%d %H:%M"),
+                html.time(
+                    html.span(event.occurred_at.strftime("%b\u00a0%d")),
+                    html.br(),
+                    html.span(event.occurred_at.strftime("%H:%M")),
+                    datetime=event.occurred_at.isoformat(),
+                ),
                 event.event_type,
-                event.outcome,
-                event.source_ip or "",
-                (event.detail or "")[:120],
+                Badge(
+                    event.outcome,
+                    tone=(
+                        "success"
+                        if event.outcome == "success"
+                        else "danger"
+                        if event.outcome == "failure"
+                        else "neutral"
+                    ),
+                ),
+                event.source_ip or "—",
+                html.code(
+                    (event.detail or "{}")[:48],
+                    title=event.detail or "{}",
+                ),
             ]
             for event in events
         ]
+        results = Table(
+            rows=rows,
+            columns=[
+                TableColumn(header="When", size="narrow"),
+                TableColumn(header="Event"),
+                TableColumn(header="Outcome", size="narrow"),
+                TableColumn(header="Source", size="narrow"),
+                TableColumn(header="Detail", size="wide"),
+            ],
+            density="compact",
+            sticky_header=True,
+            zebra=True,
+        )
     else:
-        rows = [[f"No events ({total_events} total).", "", "", "", ""]]
+        results = StateView(
+            f"No events ({total_events} total).",
+            kind="empty",
+            description="Adjust the filters or wait for new security activity.",
+        )
     base = _filter_base_path(
         request,
         "/admin/audit",
@@ -229,7 +279,7 @@ def audit_results_body(
         page=str(current_page),
     )
     return html.div(
-        html.div(Table(headers, rows), class_="table-wrap"),
+        results,
         hedron_pagination(
             page=current_page,
             page_size=page_size,

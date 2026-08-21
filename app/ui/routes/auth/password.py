@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron
-from hedron_posit import HedronPosit
 from starlette.responses import Response
 
 from app.dependencies import DbSession, SettingsDep
@@ -29,6 +26,7 @@ from app.ui.params import (
     PreauthCsrfForm,
 )
 from app.ui.partials.auth import render_forgot_page, render_reset_page
+from app.ui.urls import mounted_path
 
 
 def register_password_routes(app: Hedron) -> None:
@@ -105,7 +103,7 @@ def register_password_routes(app: Hedron) -> None:
                 db, settings, raw_token=token, password=password, request=request
             )
             return RedirectResponse(
-                cast(HedronPosit, request.app).href("/login?password=changed", request=request),
+                mounted_path(request, "/login?password=changed"),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         except PasswordPolicyError as exc:

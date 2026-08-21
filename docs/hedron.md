@@ -18,6 +18,9 @@ subsystems.
 | Security policy integration | Hedron is told that Data Mover owns CSRF and response headers; fragment targets still fail closed. |
 | Production assets | `python -m hedron build` creates the checked production manifest; CI builds it after quality checks. |
 | Diagnostics | `make hedron-check` fails on Hedron warnings or errors, and `python -m hedron --app app.main:app routes` exposes the registered UI contract. |
+| 0.56 security plane | Data Mover publishes the `hedron-security-1` control-plane profile, bounded request budgets, and deny-by-default egress posture while retaining ownership of CSRF and response headers. |
+| Security posture | `make hedron-security-check` produces a strict SARIF posture report for CI/security review. |
+| Native styling | The shell uses the built-in `aurora` theme plus `AppShell`, `Container`, `PageHeader`, `SkipLink`, and `RequestIndicator`; shared surfaces, grids, actions, controls, alerts, badges, tabs, tables, workflow steps, and statuses use Hedron components. Custom CSS is limited to Data Mover domain presentation and small sizing hooks. |
 | Testing | Hedron page/fragment fixtures, render assertions, interaction assertions, target/region checks, and route-registry coverage. |
 
 | 0.48/0.49 compatibility features | App constructor asks for `preload`, while keeping explicit HTMX extension script compatibility for legacy runtime behavior; map/chart packages remain optional by design so we only ship what this product needs. |
@@ -47,6 +50,72 @@ and validating local behavior in your deployment target.
   product requirements. Add one only with a concrete feature need and a security review.
 - `hedron-native` acceleration is optional and unnecessary at the current rendering volume.
 
+## 0.56 status update
+
+Data Mover is pinned to the Hedron 0.56 train. The app deliberately keeps its existing
+application-owned CSRF/session and response-header middleware, but opts into the new shared
+security-plane composition metadata so Hedron diagnostics and future integrations see the same
+control-plane posture. The request budget is intentionally bounded to the app's 5 MiB upload
+limit and current long-running UI responses; connector-specific egress allowlists remain owned by
+the provider credential/configuration layer rather than being guessed globally.
+
+Run `make hedron-security-check` after installing the 0.56 environment.
+
+## 0.56 styling audit
+
+The 0.56.1 visual pass, validated against the checked-out Hedron source rather than cached
+documentation, moved the remaining standard composition patterns onto Hedron's first-class
+styling surface:
+
+- `SplitView` owns sign-in, profile/identity, password, and directory/invitation proportions;
+- `FormGrid` owns responsive profile and credential field columns;
+- `ActionGroup` owns page, pipeline, connection, invitation, and table action clusters;
+- `StateView` owns CSV empty and error presentation;
+- `Badge` owns connection and schema status chips; and
+- `Table`/`TableColumn` own the compact sticky CSV schema table.
+
+A second desktop inspection replaced additional product CSS with mature built-ins:
+
+- `AppShell` now owns the authenticated header, environment slot, account slot, sidebar, and main
+  layout, while `Nav` provides the single navigation landmark;
+- `Timeline` owns account security activity and its semantic ordered-list presentation;
+- `Alert` owns pipeline readiness, transfer-safety, and connection-availability notices;
+- `Badge` owns live OOB counts, verification, connection mode/state, write-policy, upload state,
+  user status, and audit outcomes;
+- `ProcessFlow` owns the extract/map/load stage sequence; and
+- static administration tables use `TableColumn` width/alignment metadata, compact density,
+  sticky headers, zebra rows, and Hedron's own scroll container.
+
+The product stylesheet remains appropriate for brand chrome and the transfer-specific provider,
+packet, telemetry, and log visuals. The audit also identified framework gaps that still force
+custom CSS or raw upload markup:
+
+- [#558](https://github.com/eddiethedean/hedron/issues/558) — CSP-safe layout spacing;
+- [#559](https://github.com/eddiethedean/hedron/issues/559) — responsive grid tracks and spans;
+- [#560](https://github.com/eddiethedean/hedron/issues/560) — Card/Section surface appearance;
+- [#561](https://github.com/eddiethedean/hedron/issues/561) — production FileUpload composition;
+- [#562](https://github.com/eddiethedean/hedron/issues/562) — text overflow and line clamps; and
+- [#563](https://github.com/eddiethedean/hedron/issues/563) — compact/live Status variants.
+
+The inspection also produced six higher-level presentation requests for the remaining reusable
+product CSS:
+
+- [#564](https://github.com/eddiethedean/hedron/issues/564) — typed AppShell brand, account,
+  environment, and navigation-status chrome;
+- [#565](https://github.com/eddiethedean/hedron/issues/565) — richer ProcessFlow step kinds, slots,
+  and connector states;
+- [#566](https://github.com/eddiethedean/hedron/issues/566) — complete static Table responsive,
+  row-state, and action presentation APIs;
+- [#567](https://github.com/eddiethedean/hedron/issues/567) — semantic ResourceList/ResourceRow
+  primitives;
+- [#568](https://github.com/eddiethedean/hedron/issues/568) — shared appearance vocabulary across
+  built-ins; and
+- [#569](https://github.com/eddiethedean/hedron/issues/569) — core Avatar and identity primitives.
+
+Do not rely on arbitrary `gap=` lengths while the standard CSP remains `style-src 'self'`.
+Hedron 0.56 emits those values as inline custom properties, which browsers discard under that
+policy; the bundled component fallback spacing remains active.
+
 ## 0.50.1 status update
 
 The following capabilities shipped in 0.50/0.50.1 and are now available for Data Mover migration:
@@ -61,7 +130,7 @@ The following capabilities shipped in 0.50/0.50.1 and are now available for Data
 
 Follow-up progress: manual `htmx:historyRestore` handling and `load`-error fallback were removed from app JavaScript; pending follow-through is on items 1, 3, 5, and 6 in the issue draft, with item 7 now partially reduced to native server-validated submit behavior.
 
-See [docs/hedron-enhancement-issues.md](/Volumes/SAN-DRIVE/coding/user-token-management-app/docs/hedron-enhancement-issues.md) for detailed issue drafts.
+See [hedron-enhancement-issues.md](hedron-enhancement-issues.md) for detailed issue drafts.
 
 ## Base-theme experiment
 
@@ -71,18 +140,14 @@ Run the full demo without Data Mover's custom stylesheet:
 CUSTOM_THEME_ENABLED=false make demo
 ```
 
-This keeps `app/static/theme.css` unchanged but omits its `<link>` element. Hedron's bundled
-`hedron-default.css` remains active. The application markup carries both its product classes and
-the corresponding Hedron shell, navigation, grid, card, and button classes so core structure and
-controls remain usable in either mode.
+This omits `app/static/theme.css`; Hedron's bundled `hedron-default.css` remains active. Shared
+structure and controls are rendered by native Hedron components, so the application remains usable
+without the product stylesheet. The product stylesheet now concentrates on transfer diagrams,
+provider identity, account branding, and a few compact/wide sizing hooks.
 
-Visual checks at desktop and mobile widths found three remaining base-theme needs:
-
-- a first-class skip-link treatment that keeps the link off-canvas until keyboard focus;
-- an idle-state rule for application-provided HTMX indicators when HTMX's injected indicator
-  styles are disabled; and
-- a header composition for branded application chrome (brand, environment status, and account
-  actions) so those elements have intentional spacing without a product stylesheet.
+The 0.56 migration now uses Hedron's first-class skip link, request indicator, application shell,
+page header, cards, grids, action groups, buttons, process flow, and statuses. These replace the
+previous generic CSS implementations.
 
 Pipeline diagrams and other domain-specific visualizations remain product-layer concerns. They
 are still readable in base-theme mode, but Hedron should not infer their presentation from generic

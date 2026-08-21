@@ -6,7 +6,7 @@ from typing import cast
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from hedron import Hedron, InteractionResult, html
+from hedron import Card, Hedron, InteractionResult, SplitView, html
 from hedron.htmx import is_htmx_request
 from hedron_posit import HedronPosit
 from sqlalchemy import select
@@ -68,6 +68,7 @@ from app.ui.regions import (
     USER_DIRECTORY_BODY,
     USER_MATCH_COUNT,
 )
+from app.ui.urls import mounted_path
 
 
 def register_admin_routes(app: Hedron) -> None:
@@ -158,17 +159,17 @@ def register_admin_routes(app: Hedron) -> None:
                 "Provision accounts, review status, and control application access.",
                 ui.user_match_count(listing["total_users"]),
             ),
-            html.div(
-                html.section(
+            SplitView(
+                primary=Card(
                     html.div(
                         html.h2("Directory"),
                         html.p("All application-managed identities."),
                         class_="panel-heading",
                     ),
                     directory,
-                    class_="panel panel-main hedron-card hedron-card-body",
+                    class_="panel panel-main",
                 ),
-                html.aside(
+                secondary=html.aside(
                     ui.invitation_panel(
                         request,
                         invitations,
@@ -177,8 +178,10 @@ def register_admin_routes(app: Hedron) -> None:
                         success=invitation_notices.get(notice, ""),
                     )
                 ),
-                class_="admin-layout hedron-grid",
-                data={"hedron-columns": "2"},
+                ratio="2:1",
+                gap="1.375rem",
+                collapse="lg",
+                class_="admin-layout",
             ),
         ]
         return await render_authenticated_view(
@@ -231,9 +234,7 @@ def register_admin_routes(app: Hedron) -> None:
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         if not is_htmx_request(request) and not error:
             return RedirectResponse(
-                cast(HedronPosit, request.app).href(
-                    "/admin/users?notice=invitation-queued", request=request
-                ),
+                mounted_path(request, "/admin/users?notice=invitation-queued"),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         if not is_htmx_request(request):
@@ -472,9 +473,7 @@ def register_admin_routes(app: Hedron) -> None:
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         return await mutation_response(
             request,
-            redirect=cast(HedronPosit, request.app).href(
-                "/admin/users?notice=invitation-revoked", request=request
-            ),
+            redirect=mounted_path(request, "/admin/users?notice=invitation-revoked"),
             fragment=ok_fragment(
                 ui.invitation_panel(
                     request,
@@ -556,7 +555,7 @@ def register_admin_routes(app: Hedron) -> None:
                 "Security-relevant actions recorded by the application.",
                 ui.audit_match_count(total),
             ),
-            html.section(
+            Card(
                 ui.audit_panel(
                     request,
                     events,
@@ -568,7 +567,7 @@ def register_admin_routes(app: Hedron) -> None:
                     page_size=AUDIT_PAGE_SIZE,
                     lazy=not (et or oc or page > 1),
                 ),
-                class_="panel panel-main hedron-card hedron-card-body",
+                class_="panel panel-main",
             ),
         ]
         return await render_authenticated_view(

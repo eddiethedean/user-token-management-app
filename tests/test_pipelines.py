@@ -31,6 +31,8 @@ def test_pipeline_workspace_renders_live_feedback_controls(client) -> None:
     assert 'id="pipeline-csv-inspection"' in response.text
     assert "0/3 connections ready" in response.text
     assert "Set up at least one connection" in response.text
+    assert "hedron-alert-warning" in response.text
+    assert "hedron-badge-info" in response.text
 
 
 def test_pipeline_workspace_only_lists_configured_connections(client, demo_connections) -> None:
@@ -39,6 +41,9 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
 
     assert response.status_code == 200
     assert "3/3 connections ready" in response.text
+    assert "hedron-process-flow" in response.text
+    assert "hedron-alert-success" in response.text
+    assert "hedron-badge-success" in response.text
     assert 'value="mss"' in response.text
     assert 'value="postgres"' in response.text
     assert 'value="mcscop"' in response.text
@@ -47,7 +52,36 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     assert "Create a new table" in response.text
     run_button = re.search(r'<button[^>]+data-pipeline-start="true"[^>]*>', response.text)
     assert run_button is not None
-    assert "disabled" not in run_button.group(0)
+    assert "disabled" in run_button.group(0)
+    assert "Save this pipeline to enable runs." in response.text
+    mode_select = re.search(
+        r'<select[^>]+id="pipeline-mode-select"[^>]*>.*?</select>',
+        response.text,
+    )
+    assert mode_select is not None
+    assert 'value="replace" selected' in mode_select.group(0)
+    assert 'value="upsert"' not in mode_select.group(0)
+    assert 'hx-post="/pipeline/preview"' in response.text
+    assert 'hx-get="/pipeline/preview"' not in response.text
+
+    preview = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(response.text),
+            "source_provider": "csv",
+            "source_schema": "uploaded",
+            "source_table": "pending.csv",
+            "destination_provider": "mss",
+            "destination_schema": "ri.foundry.main.dataset.demo-operations",
+            "destination_table": "mission_orders.parquet",
+            "destination_table_new": "",
+            "source_upload_id": "",
+            "write_mode": "replace",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+    assert preview.status_code == 200
+    assert "Upload a CSV to inspect its schema" in preview.text
 
 
 MSS_DATASET = "ri.foundry.main.dataset.demo-operations"
@@ -76,6 +110,7 @@ def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> Non
 
     assert saved.status_code == 303
     assert "notice=saved" in saved.headers["location"]
+    assert "pipeline_id=" in saved.headers["location"]
     with SessionLocal() as db:
         pipeline = db.scalar(
             select(PipelineDefinition).where(
@@ -105,6 +140,10 @@ def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> Non
     assert "Mission orders to warehouse" in reloaded.text
     assert f'data-pipeline-id="{pipeline.id}"' in reloaded.text
     assert 'data-pipeline-run="true"' in reloaded.text
+    assert f'<option value="{MSS_DATASET}" selected>' in reloaded.text
+    assert f'<option value="{MSS_FILE}" selected>' in reloaded.text
+    assert '<option value="public" selected>' in reloaded.text
+    assert '<option value="mission_orders" selected>' in reloaded.text
 
 
 def test_saved_pipeline_requires_distinct_systems(client, demo_connections) -> None:

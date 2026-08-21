@@ -242,8 +242,11 @@ def test_user_directory_separates_account_and_full_name_columns() -> None:
         )
     )
 
-    assert '<th scope="col">Account</th><th scope="col">Full name</th>' in html
-    assert "<td>ada@example.gov</td><td>Ada Lovelace</td>" in html
+    assert html.index(">Account</th>") < html.index(">Full name</th>")
+    assert html.index(">ada@example.gov</td>") < html.index(">Ada Lovelace</td>")
+    assert 'data-hedron-density="compact"' in html
+    assert 'data-hedron-sticky-header="true"' in html
+    assert 'data-hedron-zebra="true"' in html
 
 
 def test_session_list_and_secret_slot_render_html() -> None:
@@ -566,7 +569,7 @@ def test_audit_panel_includes_refresh_button() -> None:
             lazy=True,
         )
     )
-    assert "lazy-refresh" in html
+    assert 'data-hedron-align="end"' in html
     assert 'hx-get="/admin/audit/results"' in html
     assert 'hx-target="#audit-results-region"' in html
     assert 'hx-target="#audit-results-region-body"' in html

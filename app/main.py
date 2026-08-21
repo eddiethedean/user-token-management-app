@@ -9,7 +9,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 from urllib.parse import urlencode
 
 from fastapi import HTTPException, Request, Response, status
@@ -24,6 +24,7 @@ from hedron import Card, Heading, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
 from hedron_core import RenderMode
+from hedron_core.request_budget import RequestBudget, reset_request_budget, set_request_budget
 from hedron_posit import ConnectConfig, HedronPosit, PositConfig
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -39,6 +40,7 @@ from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
 from app.ui.routes import register_routes
 from app.ui.security_policy import access_registry_security_policy
+from app.ui.urls import mounted_path
 
 configure_logging()
 settings = get_settings()
@@ -82,6 +84,7 @@ app = HedronPosit(
     enable_sessions=False,
     htmx_extensions=("preload", "sse", "head-support"),
     explorer="off",
+    theme="aurora",
     default_styles=True,
     external_base_url=settings.public_base_url,
     posit=PositConfig(
@@ -100,6 +103,10 @@ register_routes(app)
 
 @app.middleware("http")
 async def security_and_session_middleware(request: Request, call_next):
+    budget_limits = getattr(AR_SECURITY, "request_budget_limits", None)
+    budget_token = (
+        set_request_budget(RequestBudget(limits=budget_limits)) if budget_limits else None
+    )
     supplied_request_id = request.headers.get("x-request-id", "")
     request.state.request_id = (
         supplied_request_id
@@ -119,6 +126,8 @@ async def security_and_session_middleware(request: Request, call_next):
             duration_ms,
         )
         clear_request_id()
+        if budget_token is not None:
+            reset_request_budget(budget_token)
         raise
     rotated = getattr(request.state, "rotated_tokens", None)
     if rotated:
@@ -151,6 +160,8 @@ async def security_and_session_middleware(request: Request, call_next):
         duration_ms,
     )
     clear_request_id()
+    if budget_token is not None:
+        reset_request_budget(budget_token)
     return response
 
 
@@ -163,9 +174,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         if request.url.query:
             next_path += f"?{request.url.query}"
         response = RedirectResponse(
-            cast(HedronPosit, request.app).href(
-                f"/login?{urlencode({'next': next_path})}", request=request
-            ),
+            mounted_path(request, f"/login?{urlencode({'next': next_path})}"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         clear_auth_cookies(response, settings, request)

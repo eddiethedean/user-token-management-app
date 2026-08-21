@@ -8,14 +8,13 @@ from urllib.parse import urlencode
 
 import httpx2
 from fastapi import Request
-from hedron_posit import local_href
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import Settings
 from app.models import User, UserStatus
 from app.security.email import normalize_email
-from app.ui.urls import _browser_mount
+from app.ui.urls import mounted_path
 
 log = logging.getLogger(__name__)
 
@@ -202,10 +201,7 @@ def user_listing_values(
 def user_listing_path(
     request: Request, *, query: str = "", status_filter: str = "", page: int = 1, notice: str = ""
 ) -> str:
-    parameters = {"q": query, "status": status_filter, "page": max(1, page)}
+    parameters = [("q", query), ("status", status_filter), ("page", str(max(1, page)))]
     if notice:
-        parameters["notice"] = notice
-    return local_href(
-        f"/admin/users?{urlencode(parameters)}",
-        mount=_browser_mount(request),
-    )
+        parameters.append(("notice", notice))
+    return mounted_path(request, "/admin/users?" + urlencode(parameters))

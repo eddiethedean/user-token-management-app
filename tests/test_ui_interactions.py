@@ -125,7 +125,8 @@ def test_history_restore_returns_full_document(htmx) -> None:
     assert response.status_code == 200
     assert 'id="main-panel"' in response.text
     assert 'id="side-nav"' in response.text
-    assert "site-header" in response.text or "Official use system" in response.text
+    assert "hedron-app-shell-header" in response.text
+    assert 'class="hedron-app-shell-nav side-nav"' in response.text
 
 
 def test_toast_oob_appends_for_queueing() -> None:
@@ -304,6 +305,8 @@ def test_security_activity_lazy_fragment(htmx) -> None:
     assert_fragment_body(adapter, contains="security-activity")
     assert_no_document_shell(adapter)
     assert "hedron-loading" not in response.text
+    assert "hedron-timeline" in response.text
+    assert "hedron-badge-success" in response.text
 
 
 def test_security_activity_undeclared_target_rejected(htmx) -> None:
@@ -327,7 +330,7 @@ def test_app_scenario_document_asserts(page) -> None:
     scenario.assert_html_contains("security-tabs", response=security)
     assert "lazy-refresh" not in security.body
     scenario.assert_html_contains("account-tabs", response=profile)
-    scenario.assert_html_contains("lazy-refresh", response=profile)
+    scenario.assert_html_contains('data-hedron-align="end"', response=profile)
     assert_ui_targets_subset_of_regions(security.body, APP_REGIONS)
 
 
@@ -416,7 +419,7 @@ def test_audit_full_page_lazy_placeholder(page) -> None:
     assert_html_contains(audit, "Loading audit activity")
     assert_html_contains(audit, 'hx-get="/admin/audit/results"')
     assert_html_contains(audit, 'id="audit-results-region"')
-    assert_html_contains(audit, "lazy-refresh")
+    assert_html_contains(audit, 'data-hedron-align="end"')
     assert_html_contains(audit, 'hx-target="#audit-results-region"')
     assert_ui_targets_subset_of_regions(audit.body, APP_REGIONS)
 
@@ -518,7 +521,7 @@ def test_connection_and_account_tabs_keep_controls_in_the_right_section() -> Non
     assert "Status" not in account_html
     assert 'hx-get="/profile/activity"' in account_html
     assert "hedron-loading" in account_html
-    assert "lazy-refresh" in account_html
+    assert 'data-hedron-align="end"' in account_html
     assert 'hx-target="#security-activity-body"' in account_html
     assert_ui_targets_subset_of_regions(account_html, APP_REGIONS)
 

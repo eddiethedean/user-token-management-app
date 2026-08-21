@@ -6,14 +6,19 @@ from typing import Any
 
 from fastapi import Request
 from hedron import (
+    ActionGroup,
     Badge,
+    Button,
+    Card,
     Dialog,
     Form,
     FormField,
     Heading,
     Section,
     Select,
+    StateView,
     Table,
+    TableColumn,
     Text,
     TextInput,
     html,
@@ -28,10 +33,11 @@ from app.ui.urls import form_action, hx_attrs
 
 
 def user_match_count(total: int, *, oob: bool = False) -> NodeLike:
-    attrs: dict[str, HtmlAttrValue] = {"id": "user-match-count", "class_": "verification-badge"}
+    attrs: dict[str, HtmlAttrValue] = {"id": "user-match-count"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
-    return html.span(f"{total} matching accounts", **attrs)
+    noun = "account" if total == 1 else "accounts"
+    return html.span(Badge(f"{total} matching {noun}", tone="info"), **attrs)
 
 
 def user_table(
@@ -58,9 +64,7 @@ def user_table(
                         hidden_field("q", query),
                         hidden_field("status", status_filter),
                         hidden_field("page", str(page)),
-                        html.button(
-                            label, class_="button button-small button-action", type="submit"
-                        ),
+                        Button(label, class_="button-small button-action", type="submit"),
                         action=form_action(request, f"admin/users/{user.id}/{action}"),
                         method="post",
                         **hx_attrs(
@@ -81,9 +85,9 @@ def user_table(
                 hidden_field("q", query),
                 hidden_field("status", status_filter),
                 hidden_field("page", str(page)),
-                html.button(
+                Button(
                     action_label,
-                    class_="button button-small button-action",
+                    class_="button-small button-action",
                     type="submit",
                 ),
                 action=form_action(request, f"admin/users/{user.id}/toggle"),
@@ -100,7 +104,7 @@ def user_table(
                     html.div(
                         html.button(
                             action_label,
-                            class_="button button-small",
+                            class_="hedron-button hedron-button-secondary button-small",
                             type="button",
                             data={"hedron-dialog-open": f"#{dialog_id}"},
                         ),
@@ -122,9 +126,23 @@ def user_table(
             [
                 user.email_original,
                 user.full_name or "—",
-                user.status,
+                Badge(
+                    user.status,
+                    tone=(
+                        "success"
+                        if user.status == UserStatus.ACTIVE.value
+                        else "warning"
+                        if user.status == UserStatus.PENDING.value
+                        else "neutral"
+                    ),
+                ),
                 ", ".join(user.role_names) or "user",
-                html.div(*actions, class_="table-actions"),
+                ActionGroup(
+                    *actions,
+                    gap="0.375rem",
+                    collapse="never",
+                    class_="table-actions",
+                ),
             ]
         )
     total = (
@@ -133,16 +151,38 @@ def user_table(
         else max(0, (page_count - 1) * page_size + len(users))
     )
     base = _filter_base_path(request, "/admin/users", q=query, status=status_filter)
+    columns = [
+        TableColumn(header="Account", size="wide"),
+        TableColumn(header="Full name"),
+        TableColumn(header="Status", size="narrow"),
+        TableColumn(header="Roles"),
+        TableColumn(header="Actions", align="end", size="narrow"),
+    ]
     table: NodeLike
     if rows:
-        table = Table(["Account", "Full name", "Status", "Roles", "Actions"], rows)
-    else:
         table = Table(
-            ["Account", "Full name", "Status", "Roles", "Actions"],
-            [["No users found.", "", "", "", ""]],
+            rows=rows,
+            columns=columns,
+            density="compact",
+            sticky_header=True,
+            zebra=True,
         )
-    return Section(
-        html.div(table, class_="table-wrap"),
+    else:
+        table = html.div(
+            Table(
+                rows=[],
+                columns=columns,
+                density="compact",
+                sticky_header=True,
+            ),
+            StateView(
+                "No users found.",
+                kind="empty",
+                description="Adjust the search or status filter to broaden the directory.",
+            ),
+        )
+    return Card(
+        table,
         hedron_pagination(
             page=page,
             page_size=page_size,
@@ -251,7 +291,7 @@ def invitation_panel(
                 html.div(
                     html.button(
                         "Revoke",
-                        class_="button button-danger button-small",
+                        class_="hedron-button hedron-button-danger button-small",
                         type="button",
                         data={"hedron-dialog-open": f"#{dialog_id}"},
                     ),
@@ -260,9 +300,9 @@ def invitation_panel(
                         html.p(f"Revoke the invitation for {invitation.email_original}?"),
                         Form(
                             csrf_hidden(csrf_token),
-                            html.button(
+                            Button(
                                 "Revoke invitation",
-                                class_="button button-danger",
+                                variant="danger",
                                 type="submit",
                             ),
                             action=form_action(
@@ -290,7 +330,13 @@ def invitation_panel(
                         f"{invitation.role_name.title()} · {invitation.created_at.strftime('%b %d')}"
                     ),
                 ),
-                html.div(*actions, class_="pending-actions"),
+                ActionGroup(
+                    *actions,
+                    align="end",
+                    gap="0.4375rem",
+                    collapse="never",
+                    class_="pending-actions",
+                ),
                 class_="pending-row",
             )
         )
@@ -330,10 +376,7 @@ def invitation_panel(
                     required=True,
                 ),
             ),
-            html.button(
-                "Send invitation", class_="button button-primary button-wide", type="submit"
-            ),
-            class_="stack-form",
+            Button("Send invitation", class_="button-wide", type="submit"),
             action=form_action(request, "admin/invitations"),
             method="post",
             **hx_attrs(
@@ -346,7 +389,11 @@ def invitation_panel(
         ),
         html.div(*pending_rows, class_="pending-list")
         if pending_rows
-        else html.p("No invitations yet."),
+        else StateView(
+            "No invitations yet.",
+            kind="empty",
+            description="Sent invitations and their current status will appear here.",
+        ),
         id="invitation-panel",
-        class_="panel invite-panel hedron-card hedron-card-body",
+        class_="panel invite-panel",
     )

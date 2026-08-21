@@ -7,19 +7,20 @@ from typing import Any
 from fastapi import Request
 from hedron import (
     Alert,
-    Footer,
+    AppShell,
+    Badge,
+    Container,
     Fragment,
-    Header,
-    Heading,
+    Inline,
+    Nav,
     OobUpdate,
     Page,
+    PageHeader,
     Section,
-    Stack,
-    Text,
     html,
 )
 from hedron_core import Component, HtmlAttrValue, NodeLike
-from hedron_core.builtins import BusyRegion, SwapReveal, ToastHost
+from hedron_core.builtins import BusyRegion, RequestIndicator, SkipLink, SwapReveal, ToastHost
 
 from app.config import Settings
 from app.dependencies import AuthContext
@@ -70,11 +71,11 @@ def account_summary(
     user = auth.user
     attrs: dict[str, HtmlAttrValue] = {
         "id": "account-summary",
-        "class_": "account-summary hedron-inline",
+        "class_": "account-summary",
     }
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
-    return html.div(
+    return Inline(
         html.span(
             (user.full_name or user.email_original or "?")[:1].upper(),
             class_="account-avatar",
@@ -109,7 +110,7 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
         return html.a(
             html.span(number, aria={"hidden": "true"}),
             f" {label}",
-            class_=f"nav-link hedron-nav-link {active}".strip(),
+            class_=f"nav-link {active}".strip(),
             href=page_href(request, href),
             **hx_attrs(
                 request,
@@ -146,16 +147,14 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
     return children
 
 
-def side_nav(request: Request, auth: AuthContext, *, oob: bool = False) -> NodeLike:
-    """Side nav keeps html.nav for aria-label and optional hx-swap-oob."""
-    attrs: dict[str, HtmlAttrValue] = {
-        "id": "side-nav",
-        "class_": "side-nav hedron-app-shell-nav",
-        "aria": {"label": "Account navigation"},
-    }
-    if oob:
-        attrs["hx-swap-oob"] = "outerHTML"
-    return html.nav(*side_nav_children(request, auth), **attrs)
+def side_nav(request: Request, auth: AuthContext) -> Nav:
+    """Typed navigation landmark composed into Hedron's AppShell."""
+    return Nav(
+        *side_nav_children(request, auth),
+        id="side-nav",
+        class_="side-nav",
+        aria={"label": "Account navigation"},
+    )
 
 
 def side_nav_oob(request: Request, auth: AuthContext) -> OobUpdate:
@@ -186,76 +185,73 @@ def app_shell(
     page_title: str,
     csrf_token: str = "",
 ) -> Page:
-    banner = html.div(
-        html.div(
-            html.span("▦", class_="flag-mark", aria={"hidden": "true"}),
-            html.span("Controlled workspace · Transfers are simulated in demo mode"),
-            class_="page-width banner-inner hedron-inline",
+    brand = html.a(
+        html.span("DM", class_="brand-mark", aria={"hidden": "true"}),
+        html.span(
+            html.strong(settings.app_name),
+            html.small("Secure data movement"),
         ),
-        class_="official-banner",
+        class_="brand",
+        href=page_href(request, "/"),
+        aria={"label": f"{settings.app_name} home"},
     )
-    header_children: list[NodeLike] = [
-        html.a(
-            html.span("DM", class_="brand-mark", aria={"hidden": "true"}),
-            html.span(
-                html.strong(settings.app_name),
-                html.small("Secure data movement"),
-            ),
-            html.span("Sandbox online", class_="brand-chip"),
-            class_="brand hedron-inline",
-            href=page_href(request, "/"),
-            aria={"label": f"{settings.app_name} home"},
-        )
-    ]
-    if auth and csrf_token:
-        header_children.append(account_summary(request, auth, csrf_token=csrf_token))
-    header = Header(
-        html.div(*header_children, class_="page-width header-inner hedron-inline"),
-        class_="site-header",
-    )
+    environment_badge = Badge("Sandbox online", tone="success")
     feedback = html.div(id="global-feedback", class_="global-feedback", aria={"live": "assertive"})
-    indicator = html.div(
+    indicator = RequestIndicator(
         "Working…",
         id="global-request-indicator",
-        class_="global-request-indicator htmx-indicator",
-        role="status",
-        aria={"live": "polite"},
+        placement="top",
     )
-    skip = html.a(
-        "Skip to main content", class_="skip-link", href=page_href(request, "/#main-content")
-    )
-    footer = Footer(
-        html.div(
-            html.span(settings.app_name),
-            html.span("Demo environment · No remote systems are contacted"),
-            class_="page-width footer-inner hedron-inline",
-        ),
-        class_="site-footer",
-    )
+    skip = SkipLink(target="#main-content", label="Skip to main content")
     if auth:
-        content = html.div(
-            side_nav(request, auth),
-            # html.main keeps tabindex for skip-link focus management.
-            html.main(
-                main_panel(*body),
-                id="main-content",
-                class_="main-content hedron-main-panel",
-                tabindex="-1",
+        content = AppShell(
+            nav=side_nav(request, auth),
+            body=main_panel(*body),
+            panel_id="main-content",
+            banner=Container(
+                html.span("▦", class_="flag-mark", aria={"hidden": "true"}),
+                html.span("Controlled workspace · Transfers are simulated in demo mode"),
+                class_="page-width banner-inner",
             ),
-            class_="page-width app-shell hedron-app-shell",
+            brand=brand,
+            env_badge=environment_badge,
+            account=(account_summary(request, auth, csrf_token=csrf_token) if csrf_token else None),
+            app_footer=Container(
+                html.span(settings.app_name),
+                html.span("Demo environment · No remote systems are contacted"),
+                class_="page-width footer-inner",
+            ),
+            content_width="wide",
+            # Keep the legacy hook during the CSS-to-native transition; the
+            # actual shell structure is now supplied by Hedron AppShell.
+            class_="data-mover-shell",
         )
     else:
+        banner = Container(
+            html.span("▦", class_="flag-mark", aria={"hidden": "true"}),
+            html.span("Controlled workspace · Transfers are simulated in demo mode"),
+            class_="page-width banner-inner",
+        )
+        header = html.header(
+            Container(brand, environment_badge, class_="page-width header-inner"),
+            class_="site-header",
+        )
         content = html.main(*body, id="main-content", class_="auth-main", tabindex="-1")
+        footer = html.footer(
+            Container(
+                html.span(settings.app_name),
+                html.span("Demo environment · No remote systems are contacted"),
+                class_="page-width footer-inner",
+            ),
+            class_="site-footer",
+        )
+    page_nodes: list[NodeLike] = [skip, feedback, indicator, toast_host(), dialog_host()]
+    if auth:
+        page_nodes.append(content)
+    else:
+        page_nodes.extend([banner, header, content, footer])
     return Page(
-        skip,
-        feedback,
-        indicator,
-        toast_host(),
-        dialog_host(),
-        banner,
-        header,
-        content,
-        footer,
+        *page_nodes,
         title=page_title or settings.app_name,
         head=document_head(
             request=request,
@@ -266,23 +262,21 @@ def app_shell(
     )
 
 
-def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> Stack:
-    return Stack(
-        html.div(
-            html.p(eyebrow, class_="eyebrow"),
-            Heading(title, level=1),
-            Text(lead),
-        ),
-        *extra,
+def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> PageHeader:
+    """Use Hedron's native page header while preserving optional page actions."""
+    return PageHeader(
+        title,
+        eyebrow=eyebrow,
+        description=lead,
+        actions=extra[0] if len(extra) == 1 else None,
         class_="page-heading",
-        gap="0px",
     )
 
 
 def main_panel(*body: NodeLike) -> Component[Any]:
     """Authenticated main panel root used for in-shell HTMX navigation swaps."""
     return BusyRegion(
-        SwapReveal(Section(*body, id="main-panel", class_="main-panel hedron-main-panel")),
+        SwapReveal(Section(*body, id="main-panel", class_="main-panel")),
         scope="document",
         indicator="#global-request-indicator",
     )

@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 from fastapi import Request
-from hedron import Hedron, html
-from hedron_posit import HedronPosit
+from hedron import Badge, Hedron
 from starlette.responses import Response
 
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
@@ -31,6 +28,7 @@ from app.ui.regions import (
     SIDE_NAV,
     TOAST_HOST,
 )
+from app.ui.urls import mounted_path
 
 
 def register_profile_routes(app: Hedron) -> None:
@@ -50,11 +48,7 @@ def register_profile_routes(app: Hedron) -> None:
     ) -> Response:
         request.state.hedron_authenticated = True
         csrf = auth.session.csrf_token
-        verified_badge = html.span(
-            html.span("✓", aria={"hidden": "true"}),
-            " Verified email",
-            class_="verification-badge",
-        )
+        verified_badge = Badge("Verified email", tone="success")
         values = security_page_values(db, auth.user, settings)
         notices = {"session-revoked": "The browser session was revoked."}
         body = [
@@ -68,17 +62,14 @@ def register_profile_routes(app: Hedron) -> None:
                 "Your profile has been updated." if updated else notices.get(notice, ""),
                 kind="success",
             ),
-            html.div(
-                ui.account_tabs(
-                    request,
-                    csrf_token=csrf,
-                    local_password=values["local_password"],
-                    sessions=values["sessions"],
-                    auth=auth,
-                    profile_content=ui.account_profile_panel(request, auth, csrf_token=csrf),
-                    active=tab,
-                ),
-                class_="security-stack",
+            ui.account_tabs(
+                request,
+                csrf_token=csrf,
+                local_password=values["local_password"],
+                sessions=values["sessions"],
+                auth=auth,
+                profile_content=ui.account_profile_panel(request, auth, csrf_token=csrf),
+                active=tab,
             ),
         ]
         return await render_authenticated_view(
@@ -119,7 +110,7 @@ def register_profile_routes(app: Hedron) -> None:
         )
         return await mutation_response(
             request,
-            redirect=cast(HedronPosit, request.app).href("/profile?updated=true", request=request),
+            redirect=mounted_path(request, "/profile?updated=true"),
             fragment=ok_fragment(
                 form,
                 oob=oob,

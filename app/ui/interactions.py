@@ -7,6 +7,7 @@ from typing import Literal
 
 from fastapi import Request
 from hedron import (
+    Badge,
     FragmentRegion,
     InteractionPolicy,
     InteractionResult,
@@ -81,30 +82,24 @@ def toast_oob(
 
 
 def user_match_count_oob(total: int) -> OobUpdate:
-    from hedron import html
-
     return OobUpdate(
-        content=html.span(f"{total} matching accounts", class_="verification-badge"),
+        content=Badge(f"{total} matching accounts", tone="info"),
         element_id="user-match-count",
         swap="outerHTML",
     )
 
 
 def audit_match_count_oob(total: int) -> OobUpdate:
-    from hedron import html
-
     return OobUpdate(
-        content=html.span(f"{total} matching events", class_="verification-badge"),
+        content=Badge(f"{total} matching events", tone="info"),
         element_id="audit-match-count",
         swap="outerHTML",
     )
 
 
 def session_count_oob(count: int) -> OobUpdate:
-    from hedron import html
-
     return OobUpdate(
-        content=html.span(str(count), class_="count-badge"),
+        content=Badge(str(count), tone="info"),
         element_id="session-count",
         swap="outerHTML",
     )

@@ -5,7 +5,22 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import Request
-from hedron import Badge, Form, FormField, Heading, OobUpdate, Section, TextInput, html
+from hedron import (
+    ActionGroup,
+    Badge,
+    Card,
+    DescriptionList,
+    Form,
+    FormField,
+    FormGrid,
+    Heading,
+    LinkButton,
+    OobUpdate,
+    Section,
+    SplitView,
+    TextInput,
+    html,
+)
 from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
@@ -22,7 +37,7 @@ def profile_form(
         alert_box(success, kind="success"),
         Form(
             csrf_hidden(csrf_token),
-            html.div(
+            FormGrid(
                 html.div(
                     FormField(
                         name="email",
@@ -88,14 +103,14 @@ def profile_form(
                     ),
                     class_="field-full",
                 ),
+                columns={"base": 1, "md": 2},
+                gap="1rem",
                 class_="field-grid",
             ),
-            html.div(
+            ActionGroup(
                 submit_button("Save changes"),
                 html.span("Saving…", class_="htmx-indicator"),
-                class_="form-actions",
             ),
-            class_="stack-form",
             action=form_action(request, "profile"),
             method="post",
             **hx_attrs(
@@ -124,28 +139,16 @@ def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) 
         html.div(initial, class_="identity-avatar"),
         Heading(user.full_name or "Account holder", level=2),
         html.p(user.email_original),
-        html.dl(
-            html.div(
-                html.dt("Account status"),
-                html.dd(Badge(user.status, tone="success")),
-            ),
-            html.div(
-                html.dt("Access level"),
-                html.dd((", ".join(user.role_names) or "user").title()),
-            ),
-            html.div(
-                html.dt("Created"),
-                html.dd(user.created_at.strftime("%b %d, %Y")),
-            ),
-            html.div(
-                html.dt("Last sign-in"),
-                html.dd(last_login),
-            ),
-            class_="detail-list",
+        DescriptionList(
+            ("Account status", Badge(user.status, tone="success")),
+            ("Access level", (", ".join(user.role_names) or "user").title()),
+            ("Created", user.created_at.strftime("%b %d, %Y")),
+            ("Last sign-in", last_login),
+            density="compact",
         ),
-        html.a(
+        LinkButton(
             "Manage connections",
-            class_="button button-secondary button-wide",
+            class_="button-wide",
             href=page_href(request, "/security"),
         ),
         **attrs,
@@ -153,8 +156,8 @@ def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) 
 
 
 def account_profile_panel(request: Request, auth: AuthContext, *, csrf_token: str) -> NodeLike:
-    return html.div(
-        html.section(
+    return SplitView(
+        primary=Card(
             html.div(
                 html.div(
                     html.h2("Profile details"),
@@ -163,11 +166,13 @@ def account_profile_panel(request: Request, auth: AuthContext, *, csrf_token: st
                 class_="panel-heading",
             ),
             profile_form(request, auth, csrf_token=csrf_token),
-            class_="panel panel-main hedron-card hedron-card-body",
+            class_="panel panel-main",
         ),
-        profile_identity(request, auth),
-        class_="content-grid profile-grid hedron-grid",
-        data={"hedron-columns": "2"},
+        secondary=profile_identity(request, auth),
+        ratio="2:1",
+        gap="1.375rem",
+        collapse="md",
+        class_="content-grid profile-grid",
     )
 
 

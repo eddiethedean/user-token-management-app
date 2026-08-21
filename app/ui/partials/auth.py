@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from fastapi import Request
 from hedron import (
+    ActionGroup,
     Card,
     FormField,
     Heading,
-    Section,
+    LinkButton,
+    SplitView,
     Stack,
     Text,
     TextInput,
@@ -98,7 +100,6 @@ def render_login_page(
                 submit_button("Continue with federated sign-in", wide=True),
                 action=form_action(request, "login/federated"),
                 method="post",
-                class_="stack-form",
             )
         )
         card_children.append(
@@ -141,7 +142,6 @@ def render_login_page(
                 submit_button("Sign in securely", wide=True),
                 action=form_action(request, "login"),
                 method="post",
-                class_="stack-form",
             )
         )
         card_children.append(
@@ -154,11 +154,13 @@ def render_login_page(
             )
         )
 
-    layout = Section(
-        intro,
-        Card(*card_children, class_="auth-card"),
-        class_="auth-layout hedron-grid",
-        data={"hedron-columns": "2"},
+    layout = SplitView(
+        primary=intro,
+        secondary=Card(*card_children, class_="auth-card"),
+        ratio="3:2",
+        gap="5.625rem",
+        collapse="md",
+        class_="auth-layout",
     )
     page = app_shell(layout, request=request, settings=settings, auth=None, page_title="Sign in")
     response = render_page(page, request=request, status_code=status_code)
@@ -210,7 +212,6 @@ def render_register_page(
                 submit_button("Submit request", wide=True),
                 action=form_action(request, "register"),
                 method="post",
-                class_="stack-form",
             )
         )
     body.append(
@@ -294,22 +295,13 @@ def render_verify_page(
                 *fields,
                 action=form_action(request, "registration/verify"),
                 method="post",
-                class_="stack-form",
             )
         )
     elif error:
         body.append(
-            html.div(
-                html.a(
-                    "Request access again",
-                    class_="button button-primary",
-                    href=page_href(request, "register"),
-                ),
-                html.a(
-                    "Back to sign in",
-                    class_="button button-quiet",
-                    href=page_href(request, "login"),
-                ),
+            ActionGroup(
+                LinkButton("Request access again", href=page_href(request, "register")),
+                LinkButton("Back to sign in", href=page_href(request, "login")),
                 class_="auth-actions",
             )
         )
@@ -352,7 +344,6 @@ def render_forgot_page(request: Request, settings: Settings, *, success: str = "
                 submit_button("Send reset link", wide=True),
                 action=form_action(request, "password/forgot"),
                 method="post",
-                class_="stack-form",
             )
         )
     body.append(
@@ -424,22 +415,13 @@ def render_reset_page(
                 submit_button("Update password", wide=True),
                 action=form_action(request, "password/reset"),
                 method="post",
-                class_="stack-form",
             )
         )
     else:
         body.append(
-            html.div(
-                html.a(
-                    "Request a new reset link",
-                    class_="button button-primary",
-                    href=page_href(request, "password/forgot"),
-                ),
-                html.a(
-                    "Back to sign in",
-                    class_="button button-quiet",
-                    href=page_href(request, "login"),
-                ),
+            ActionGroup(
+                LinkButton("Request a new reset link", href=page_href(request, "password/forgot")),
+                LinkButton("Back to sign in", href=page_href(request, "login")),
                 class_="auth-actions",
             )
         )
@@ -523,7 +505,6 @@ def render_invitation_page(
                 *fields,
                 action=form_action(request, "invitations/accept"),
                 method="post",
-                class_="stack-form",
             )
         )
         body.append(
@@ -535,12 +516,8 @@ def render_invitation_page(
         )
     elif error:
         body.append(
-            html.div(
-                html.a(
-                    "Back to sign in",
-                    class_="button button-primary",
-                    href=page_href(request, "login"),
-                ),
+            ActionGroup(
+                LinkButton("Back to sign in", href=page_href(request, "login")),
                 class_="auth-actions",
             )
         )

@@ -6,20 +6,29 @@ from typing import Any
 
 from fastapi import Request
 from hedron import (
+    ActionGroup,
+    Alert,
     Badge,
+    Button,
+    Card,
     ComponentRef,
     Dialog,
     ErrorState,
     Form,
     FormField,
+    FormGrid,
+    Grid,
     Heading,
     Lazy,
+    LinkButton,
     Loading,
-    RefreshButton,
     Section,
+    SplitView,
+    StateView,
     Tabs,
     Text,
     TextInput,
+    Timeline,
     html,
 )
 from hedron_core import Component, HtmlAttrValue, NodeLike
@@ -72,17 +81,17 @@ def password_form(
     if success:
         return Section(
             alert_box(success, kind="success"),
-            html.a(
-                "Return to sign in",
-                class_="button button-primary",
-                href=page_href(request, "/login"),
-            ),
+            LinkButton("Return to sign in", href=page_href(request, "/login")),
             id="password-form-region",
             class_="form-column",
         )
     top_error = error if error and not field_errors else ""
     return Section(
         alert_box(top_error),
+        Alert(
+            "Password requirements: use 15–128 characters; avoid your email and common passwords.",
+            tone="info",
+        ),
         Form(
             csrf_hidden(csrf_token),
             _password_field(
@@ -104,7 +113,6 @@ def password_form(
                 error=field_errors.get("new_password_confirm", ""),
             ),
             submit_button("Change password"),
-            class_="stack-form",
             action=form_action(request, "profile/password"),
             method="post",
             **hx_attrs(
@@ -131,9 +139,10 @@ def secret_slot(
 ) -> Component[Any]:
     configured = secret is not None
     if configured:
+        validation_message = secret.validation_message.rstrip(".")
         metadata = (
             f"Credentials saved {secret.updated_at.strftime('%b %d, %Y at %H:%M')}. "
-            f"{secret.validation_message}. Encrypted values cannot be revealed."
+            f"{validation_message}. Encrypted values cannot be revealed."
         )
     else:
         metadata = f"No {provider.label} credentials are available to your runs."
@@ -198,20 +207,22 @@ def secret_slot(
         html.p(metadata, class_="secret-metadata"),
         Form(
             csrf_hidden(csrf_token),
-            html.div(
+            FormGrid(
                 *[credential_field(field) for field in provider.fields],
+                columns={"base": 1, "sm": 2},
+                gap="0.6875rem",
                 class_="credential-fields",
             ),
             html.div(
-                html.button(
+                Button(
                     "Replace credentials" if configured else "Save connection",
-                    class_="button button-primary button-small button-action",
+                    class_="button-small button-action",
                     type="submit",
                 ),
                 (
                     html.button(
                         "Delete connection",
-                        class_="button button-danger button-small",
+                        class_="hedron-button hedron-button-danger button-small",
                         type="button",
                         data={"hedron-dialog-open": f"#delete-secret-{provider.name}"},
                     )
@@ -239,11 +250,7 @@ def secret_slot(
                 ),
                 Form(
                     csrf_hidden(csrf_token),
-                    html.button(
-                        "Delete connection",
-                        class_="button button-danger",
-                        type="submit",
-                    ),
+                    Button("Delete connection", variant="danger", type="submit"),
                     action=form_action(request, f"security/secrets/{provider.name}/delete"),
                     method="post",
                     **hx_attrs(
@@ -287,7 +294,15 @@ def connection_status_list(
             if configured
             else "Not configured"
         )
-        status_class = "is-connected" if connected else "is-unconfigured"
+        status_tone = (
+            "success"
+            if connected
+            else "danger"
+            if failed
+            else "warning"
+            if configured
+            else "neutral"
+        )
         if configured and secret.validated_at:
             detail = (
                 f"{secret.validation_message} · Checked "
@@ -305,9 +320,10 @@ def connection_status_list(
             actions.append(
                 Form(
                     csrf_hidden(csrf_token),
-                    html.button(
+                    Button(
                         "Test connection",
-                        class_="button button-quiet button-small button-action",
+                        variant="secondary",
+                        class_="button-small button-action",
                         type="submit",
                     ),
                     action=form_action(request, f"security/secrets/{provider.name}/test"),
@@ -334,9 +350,15 @@ def connection_status_list(
                     html.span(catalog.technology),
                     class_="connection-status-identity",
                 ),
-                html.span(status_label, class_=f"connection-health {status_class}"),
+                Badge(status_label, tone=status_tone),
                 html.p(detail),
-                html.div(*actions, class_="connection-status-actions"),
+                ActionGroup(
+                    *actions,
+                    align="end",
+                    gap="0.4375rem",
+                    collapse="never",
+                    class_="connection-status-actions",
+                ),
                 class_="connection-status-row",
             )
         )
@@ -367,7 +389,7 @@ def session_list(
             action_node = html.div(
                 html.button(
                     "Revoke",
-                    class_="button button-danger button-small",
+                    class_="hedron-button hedron-button-danger button-small",
                     type="button",
                     data={"hedron-dialog-open": f"#{dialog_id}"},
                 ),
@@ -376,9 +398,9 @@ def session_list(
                     html.p("Revoke this browser session? The device will need to sign in again."),
                     Form(
                         csrf_hidden(csrf_token),
-                        html.button(
+                        Button(
                             "Revoke session",
-                            class_="button button-danger",
+                            variant="danger",
                             type="submit",
                         ),
                         action=form_action(request, f"profile/sessions/{session.id}/revoke"),
@@ -412,15 +434,21 @@ def session_list(
             )
         )
     if not rows:
-        rows.append(html.p("No active sessions.", class_="empty-state"))
+        rows.append(
+            StateView(
+                "No active sessions.",
+                kind="empty",
+                description="New browser and client sessions will appear here.",
+            )
+        )
     return Section(*rows, id="session-list", class_="session-list")
 
 
 def session_count(sessions: list[RefreshSession], *, oob: bool = False) -> NodeLike:
-    attrs: dict[str, HtmlAttrValue] = {"id": "session-count", "class_": "count-badge"}
+    attrs: dict[str, HtmlAttrValue] = {"id": "session-count"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
-    return html.span(str(len(sessions)), **attrs)
+    return html.span(Badge(str(len(sessions)), tone="info"), **attrs)
 
 
 def security_activity(
@@ -430,7 +458,7 @@ def security_activity(
     oob: bool = False,
     with_polling: bool = True,
 ) -> NodeLike:
-    attrs: dict[str, HtmlAttrValue] = {"id": "security-activity", "class_": "event-list"}
+    attrs: dict[str, HtmlAttrValue] = {"id": "security-activity"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     if with_polling and request is not None:
@@ -445,24 +473,39 @@ def security_activity(
                 indicator=INDICATOR,
             )
         )
-    items: list[NodeLike] = []
+    entries: list[tuple[str, str, NodeLike]] = []
     for event in events:
-        title = event.event_type.replace(".", " ").title()
-        items.append(
-            html.div(
-                html.span("•", class_="event-icon", aria={"hidden": "true"}),
-                html.div(
-                    html.strong(title),
-                    html.small(
-                        f"{event.occurred_at.strftime('%b %d, %Y at %H:%M')} · {event.outcome}"
+        words = event.event_type.replace(".", " ").replace("_", " ").split()
+        title = " ".join(
+            word.upper() if word.casefold() in {"api", "csv", "ip", "mfa", "sso"} else word.title()
+            for word in words
+        )
+        entries.append(
+            (
+                event.occurred_at.strftime("%b %d, %Y at %H:%M"),
+                title,
+                Badge(
+                    event.outcome,
+                    tone=(
+                        "success"
+                        if event.outcome == "success"
+                        else "danger"
+                        if event.outcome == "failure"
+                        else "info"
                     ),
                 ),
-                class_="event-row",
             )
         )
-    if not items:
-        items.append(html.p("No recent security activity.", class_="empty-state"))
-    return html.div(*items, **attrs)
+    content: NodeLike
+    if entries:
+        content = Timeline(entries, label="Recent security activity")
+    else:
+        content = StateView(
+            "No recent security activity.",
+            kind="empty",
+            description="Security-relevant account events will appear here.",
+        )
+    return html.div(content, **attrs)
 
 
 def security_activity_error(
@@ -478,7 +521,6 @@ def security_activity_error(
             target="#security-activity",
         ),
         id="security-activity",
-        class_="event-list",
         data={"lazy-error": "security-activity"},
         **hx_attrs(
             request,
@@ -493,13 +535,20 @@ def security_activity_error(
 
 
 def security_activity_refresh(request: Request) -> NodeLike:
-    return html.div(
-        RefreshButton.for_region(
-            SECURITY_ACTIVITY,
-            href=mounted_path(request, "/profile/activity"),
-            label="Refresh",
+    return ActionGroup(
+        html.button(
+            "Refresh",
+            type="button",
+            class_="hedron-button hedron-button-secondary button-small",
+            **hx_attrs(
+                request,
+                path="/profile/activity",
+                method="get",
+                target=SECURITY_ACTIVITY.selector,
+                swap="outerHTML",
+            ),
         ),
-        class_="lazy-refresh",
+        align="end",
     )
 
 
@@ -525,7 +574,7 @@ def security_tabs(
     panels: list[tuple[str, NodeLike]] = [
         (
             "Credentials",
-            Section(
+            Card(
                 html.div(
                     html.div(
                         Heading("Remote connections", level=2),
@@ -535,19 +584,19 @@ def security_tabs(
                     ),
                     class_="panel-heading token-panel-heading",
                 ),
-                html.div(
+                Grid(
                     *[secret_slot(request, p, s, csrf_token=csrf_token) for p, s in secret_slots],
-                    class_="secret-grid hedron-grid",
-                    data={"hedron-columns": "2"},
+                    columns=2,
+                    class_="secret-grid",
                 ),
-                class_="panel panel-main hedron-card hedron-card-body",
+                class_="panel panel-main",
             ),
         )
     ]
     panels.append(
         (
             "Status",
-            Section(
+            Card(
                 html.div(
                     html.div(
                         Heading("Connection status", level=2),
@@ -555,7 +604,7 @@ def security_tabs(
                             "Testing a connection contacts the configured system. Saving credentials does not run a check."
                         ),
                     ),
-                    html.span("Connection checks", class_="demo-badge"),
+                    Badge("Connection checks", tone="info"),
                     class_="panel-heading",
                 ),
                 connection_status_list(
@@ -563,7 +612,7 @@ def security_tabs(
                     secret_slots,
                     csrf_token=csrf_token,
                 ),
-                class_="panel panel-main hedron-card hedron-card-body",
+                class_="panel panel-main",
             ),
         )
     )
@@ -587,27 +636,33 @@ def account_tabs(
         panels.append(
             (
                 "Password",
-                Section(
-                    html.div(
-                        Heading("Change password", level=2),
-                        Text(
-                            "Changing your password signs out every active session, including this one."
+                Card(
+                    SplitView(
+                        primary=html.div(
+                            Heading("Change password", level=2),
+                            Text(
+                                "Changing your password signs out every active session, including this one."
+                            ),
                         ),
+                        secondary=password_form(
+                            request,
+                            csrf_token=csrf_token,
+                            error=password_error,
+                            field_errors=password_field_errors,
+                        ),
+                        ratio="2:3",
+                        gap="3.375rem",
+                        collapse="md",
+                        class_="split-panel",
                     ),
-                    password_form(
-                        request,
-                        csrf_token=csrf_token,
-                        error=password_error,
-                        field_errors=password_field_errors,
-                    ),
-                    class_="panel panel-main split-panel hedron-card hedron-card-body",
+                    class_="panel panel-main",
                 ),
             )
         )
     panels.append(
         (
             "Sessions",
-            Section(
+            Card(
                 html.div(
                     html.div(
                         Heading("Active sessions", level=2),
@@ -617,14 +672,14 @@ def account_tabs(
                     class_="panel-heading",
                 ),
                 session_list(request, sessions, auth=auth, csrf_token=csrf_token),
-                class_="panel panel-main hedron-card hedron-card-body",
+                class_="panel panel-main",
             ),
         )
     )
     panels.append(
         (
             "Activity",
-            Section(
+            Card(
                 html.div(
                     html.div(
                         Heading("Recent security activity", level=2),
@@ -634,7 +689,7 @@ def account_tabs(
                     class_="panel-heading",
                 ),
                 security_activity_lazy(request),
-                class_="panel panel-main hedron-card hedron-card-body",
+                class_="panel panel-main",
             ),
         )
     )
