@@ -10,7 +10,6 @@ from hedron import (
     Alert,
     Badge,
     Button,
-    Card,
     ComponentRef,
     Dialog,
     ErrorState,
@@ -25,6 +24,7 @@ from hedron import (
     Section,
     SplitView,
     StateView,
+    Surface,
     Tabs,
     Text,
     TextInput,
@@ -37,6 +37,7 @@ from app.dependencies import AuthContext
 from app.models import AuditEvent, RefreshSession
 from app.services.catalogs import require_catalog_provider
 from app.services.secrets import CredentialField, SecretProvider
+from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.regions import SECURITY_ACTIVITY
@@ -188,87 +189,90 @@ def secret_slot(
             ).strip(),
         )
 
-    return Section(
-        html.div(
-            html.span(provider.mark, class_="secret-provider-mark", aria={"hidden": "true"}),
+    return DATA_MOVER_DESIGN.apply(
+        "data-mover-inset",
+        Surface(
             html.div(
-                Heading(provider.label, level=3),
-                html.code(provider.environment_variable),
-                class_="secret-card-identity",
-            ),
-            Badge(
-                "Configured" if configured else "Not configured",
-                tone="success" if configured else "neutral",
-            ),
-            class_="secret-card-heading",
-        ),
-        alert_box(error),
-        alert_box(success, kind="success"),
-        html.p(metadata, class_="secret-metadata"),
-        Form(
-            csrf_hidden(csrf_token),
-            FormGrid(
-                *[credential_field(field) for field in provider.fields],
-                columns={"base": 1, "sm": 2},
-                gap="sm",
-                class_="credential-fields",
-            ),
-            html.div(
-                Button(
-                    "Replace credentials" if configured else "Save connection",
-                    class_="button-small button-action",
-                    type="submit",
+                html.span(provider.mark, class_="secret-provider-mark", aria={"hidden": "true"}),
+                html.div(
+                    Heading(provider.label, level=3),
+                    html.code(provider.environment_variable),
+                    class_="secret-card-identity",
                 ),
-                (
-                    html.button(
-                        "Delete connection",
-                        class_="hedron-button hedron-button-danger button-small",
-                        type="button",
-                        data={"hedron-dialog-open": f"#delete-secret-{provider.name}"},
-                    )
-                    if configured
-                    else None
+                Badge(
+                    "Configured" if configured else "Not configured",
+                    tone="success" if configured else "neutral",
                 ),
-                class_="secret-card-actions",
+                class_="secret-card-heading",
             ),
-            class_="secret-form",
-            action=form_action(request, f"security/secrets/{provider.name}"),
-            method="post",
-            **hx_attrs(
-                request,
-                path=f"security/secrets/{provider.name}",
-                target=f"#secret-slot-{provider.name}",
-                sync="closest .secret-card:drop",
-                indicator=INDICATOR,
-            ),
-        ),
-        (
-            Dialog(
-                f"Delete {provider.label} connection",
-                html.p(
-                    f"Delete your {provider.label} credentials? Runs using them will stop working."
+            alert_box(error),
+            alert_box(success, kind="success"),
+            html.p(metadata, class_="secret-metadata"),
+            Form(
+                csrf_hidden(csrf_token),
+                FormGrid(
+                    *[credential_field(field) for field in provider.fields],
+                    columns={"base": 1, "sm": 2},
+                    gap="sm",
+                    class_="credential-fields",
                 ),
-                Form(
-                    csrf_hidden(csrf_token),
-                    Button("Delete connection", variant="danger", type="submit"),
-                    action=form_action(request, f"security/secrets/{provider.name}/delete"),
-                    method="post",
-                    **hx_attrs(
-                        request,
-                        path=f"security/secrets/{provider.name}/delete",
-                        target=f"#secret-slot-{provider.name}",
-                        sync="closest .secret-card:drop",
-                        indicator=INDICATOR,
+                html.div(
+                    Button(
+                        "Replace credentials" if configured else "Save connection",
+                        class_="button-small button-action",
+                        type="submit",
                     ),
+                    (
+                        html.button(
+                            "Delete connection",
+                            class_="hedron-button hedron-button-danger button-small",
+                            type="button",
+                            data={"hedron-dialog-open": f"#delete-secret-{provider.name}"},
+                        )
+                        if configured
+                        else None
+                    ),
+                    class_="secret-card-actions",
                 ),
-                id=f"delete-secret-{provider.name}",
-                open=False,
-            )
-            if configured
-            else html.div()
+                class_="secret-form",
+                action=form_action(request, f"security/secrets/{provider.name}"),
+                method="post",
+                **hx_attrs(
+                    request,
+                    path=f"security/secrets/{provider.name}",
+                    target=f"#secret-slot-{provider.name}",
+                    sync="closest .secret-card:drop",
+                    indicator=INDICATOR,
+                ),
+            ),
+            (
+                Dialog(
+                    f"Delete {provider.label} connection",
+                    html.p(
+                        f"Delete your {provider.label} credentials? Runs using them will stop working."
+                    ),
+                    Form(
+                        csrf_hidden(csrf_token),
+                        Button("Delete connection", variant="danger", type="submit"),
+                        action=form_action(request, f"security/secrets/{provider.name}/delete"),
+                        method="post",
+                        **hx_attrs(
+                            request,
+                            path=f"security/secrets/{provider.name}/delete",
+                            target=f"#secret-slot-{provider.name}",
+                            sync="closest .secret-card:drop",
+                            indicator=INDICATOR,
+                        ),
+                    ),
+                    id=f"delete-secret-{provider.name}",
+                    open=False,
+                )
+                if configured
+                else html.div()
+            ),
+            id=f"secret-slot-{provider.name}",
+            class_="secret-card",
         ),
-        id=f"secret-slot-{provider.name}",
-        class_="secret-card",
     )
 
 
@@ -574,7 +578,7 @@ def security_tabs(
     panels: list[tuple[str, NodeLike]] = [
         (
             "Credentials",
-            Card(
+            surface_card(
                 html.div(
                     html.div(
                         Heading("Remote connections", level=2),
@@ -589,14 +593,13 @@ def security_tabs(
                     columns=2,
                     class_="secret-grid",
                 ),
-                class_="panel panel-main",
             ),
         )
     ]
     panels.append(
         (
             "Status",
-            Card(
+            surface_card(
                 html.div(
                     html.div(
                         Heading("Connection status", level=2),
@@ -612,7 +615,6 @@ def security_tabs(
                     secret_slots,
                     csrf_token=csrf_token,
                 ),
-                class_="panel panel-main",
             ),
         )
     )
@@ -636,7 +638,7 @@ def account_tabs(
         panels.append(
             (
                 "Password",
-                Card(
+                surface_card(
                     SplitView(
                         primary=html.div(
                             Heading("Change password", level=2),
@@ -655,14 +657,13 @@ def account_tabs(
                         collapse="md",
                         class_="split-panel",
                     ),
-                    class_="panel panel-main",
                 ),
             )
         )
     panels.append(
         (
             "Sessions",
-            Card(
+            surface_card(
                 html.div(
                     html.div(
                         Heading("Active sessions", level=2),
@@ -672,14 +673,13 @@ def account_tabs(
                     class_="panel-heading",
                 ),
                 session_list(request, sessions, auth=auth, csrf_token=csrf_token),
-                class_="panel panel-main",
             ),
         )
     )
     panels.append(
         (
             "Activity",
-            Card(
+            surface_card(
                 html.div(
                     html.div(
                         Heading("Recent security activity", level=2),
@@ -689,7 +689,6 @@ def account_tabs(
                     class_="panel-heading",
                 ),
                 security_activity_lazy(request),
-                class_="panel panel-main",
             ),
         )
     )

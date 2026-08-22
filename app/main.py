@@ -20,7 +20,7 @@ from fastapi.exception_handlers import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from hedron import Card, Heading, html
+from hedron import Heading, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
 from hedron_core import RenderMode
@@ -36,7 +36,7 @@ from app.logging_config import bind_request_id, clear_request_id, configure_logg
 from app.schema import assert_schema_current
 from app.security.cookies import APPLICATION_COOKIE_NAMES
 from app.services.auth import ensure_default_roles
-from app.ui.design_system import DATA_MOVER_DESIGN
+from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
 from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
 from app.ui.routes import register_routes
@@ -197,12 +197,13 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         return response
     if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS and accepts_html:
         page = app_shell(
-            Card(
+            surface_card(
                 Heading("Too many requests", level=1),
                 html.p(
                     f"Please wait {(exc.headers or {}).get('Retry-After', '60')} seconds and try again."
                 ),
-                class_="panel auth-card",
+                recipe="data-mover-auth-panel",
+                class_="auth-card",
             ),
             request=request,
             settings=settings,
@@ -222,11 +223,12 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         elif exc.status_code == status.HTTP_404_NOT_FOUND:
             detail = "The requested page or record was not found."
         page = app_shell(
-            Card(
+            surface_card(
                 Heading("Request error", level=1),
                 alert_box(detail),
                 html.p(f"Status {exc.status_code}"),
-                class_="panel auth-card",
+                recipe="data-mover-auth-panel",
+                class_="auth-card",
             ),
             request=request,
             settings=settings,
@@ -260,7 +262,12 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
         response.headers["HX-Reswap"] = "innerHTML"
         return response
     page = app_shell(
-        Card(Heading("Request error", level=1), alert_box(message), class_="panel auth-card"),
+        surface_card(
+            Heading("Request error", level=1),
+            alert_box(message),
+            recipe="data-mover-auth-panel",
+            class_="auth-card",
+        ),
         request=request,
         settings=settings,
         auth=None,

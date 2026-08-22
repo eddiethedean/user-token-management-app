@@ -8,7 +8,6 @@ from fastapi import Request
 from hedron import (
     ActionGroup,
     Badge,
-    Card,
     DescriptionList,
     Form,
     FormField,
@@ -24,6 +23,7 @@ from hedron import (
 from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
+from app.ui.design_system import surface_card
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, account_summary, alert_box
 from app.ui.urls import form_action, hx_attrs, page_href
@@ -128,7 +128,7 @@ def profile_form(
 def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) -> NodeLike:
     """Identity aside keeps html.* for hx-swap-oob; uses Badge for status."""
     user = auth.user
-    attrs: dict[str, HtmlAttrValue] = {"id": "profile-identity", "class_": "panel identity-panel"}
+    attrs: dict[str, HtmlAttrValue] = {"id": "profile-identity", "class_": "identity-panel"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     initial = (user.full_name or user.email_original or "?")[:1].upper()
@@ -157,7 +157,7 @@ def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) 
 
 def account_profile_panel(request: Request, auth: AuthContext, *, csrf_token: str) -> NodeLike:
     return SplitView(
-        primary=Card(
+        primary=surface_card(
             html.div(
                 html.div(
                     html.h2("Profile details"),
@@ -166,7 +166,6 @@ def account_profile_panel(request: Request, auth: AuthContext, *, csrf_token: st
                 class_="panel-heading",
             ),
             profile_form(request, auth, csrf_token=csrf_token),
-            class_="panel panel-main",
         ),
         secondary=profile_identity(request, auth),
         ratio="2:1",

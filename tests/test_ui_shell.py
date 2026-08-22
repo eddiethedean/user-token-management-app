@@ -91,6 +91,10 @@ def test_hedron_058_design_system_and_action_recipe() -> None:
         "data-mover-primary-action",
         "data-mover-secondary-action",
         "data-mover-danger-action",
+        "data-mover-panel",
+        "data-mover-auth-panel",
+        "data-mover-inset",
+        "data-mover-compact-data",
     }
     rendered = render_html(submit_button("Run transfer"))
     assert 'data-hedron-appearance="solid"' in rendered

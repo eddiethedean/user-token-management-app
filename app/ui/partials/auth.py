@@ -5,7 +5,6 @@ from __future__ import annotations
 from fastapi import Request
 from hedron import (
     ActionGroup,
-    Card,
     FormField,
     Heading,
     LinkButton,
@@ -24,6 +23,7 @@ from starlette.responses import Response
 from app.config import Settings
 from app.models import Invitation, RegistrationVerification
 from app.security.csrf import issue_preauth_csrf, set_preauth_csrf_cookie
+from app.ui.design_system import surface_card
 from app.ui.forms import hidden_field, submit_button
 from app.ui.http import auth_card, render_page
 from app.ui.layout import alert_box, app_shell
@@ -156,7 +156,11 @@ def render_login_page(
 
     layout = SplitView(
         primary=intro,
-        secondary=Card(*card_children, class_="auth-card"),
+        secondary=surface_card(
+            *card_children,
+            recipe="data-mover-auth-panel",
+            class_="auth-card",
+        ),
         ratio="3:2",
         gap="xl",
         collapse="md",

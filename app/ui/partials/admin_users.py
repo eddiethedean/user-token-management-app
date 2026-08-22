@@ -26,6 +26,7 @@ from hedron import (
 from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.models import Invitation, Role, User, UserStatus
+from app.ui.design_system import apply_data_recipe
 from app.ui.forms import csrf_hidden, hidden_field, submit_button
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.partials.shared import _filter_base_path, hedron_pagination
@@ -160,20 +161,24 @@ def user_table(
     ]
     table: NodeLike
     if rows:
-        table = Table(
-            rows=rows,
-            columns=columns,
-            density="compact",
-            sticky_header=True,
-            zebra=True,
-        )
-    else:
-        table = html.div(
+        table = apply_data_recipe(
             Table(
-                rows=[],
+                rows=rows,
                 columns=columns,
                 density="compact",
                 sticky_header=True,
+                zebra=True,
+            )
+        )
+    else:
+        table = html.div(
+            apply_data_recipe(
+                Table(
+                    rows=[],
+                    columns=columns,
+                    density="compact",
+                    sticky_header=True,
+                )
             ),
             StateView(
                 "No users found.",
@@ -395,5 +400,5 @@ def invitation_panel(
             description="Sent invitations and their current status will appear here.",
         ),
         id="invitation-panel",
-        class_="panel invite-panel",
+        class_="invite-panel",
     )

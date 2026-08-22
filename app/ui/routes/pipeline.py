@@ -12,7 +12,6 @@ from hedron import (
     Alert,
     Badge,
     Button,
-    Card,
     DescriptionList,
     FlowStep,
     Grid,
@@ -63,6 +62,7 @@ from app.services.pipeline_runs import (
 )
 from app.services.pipelines import list_pipelines, save_pipeline
 from app.services.secrets import list_user_secrets
+from app.ui.design_system import apply_data_recipe, surface_card
 from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
 from app.ui.interactions import interaction_response, ok_fragment
@@ -420,36 +420,38 @@ def _csv_inspection(
                 class_="csv-inspection-heading",
             ),
             html.div(
-                Table(
-                    rows=[
-                        [
-                            column.name,
-                            html.span(
-                                column.inferred_type,
-                                class_=f"csv-type csv-type-{column.inferred_type}",
+                apply_data_recipe(
+                    Table(
+                        rows=[
+                            [
+                                column.name,
+                                html.span(
+                                    column.inferred_type,
+                                    class_=f"csv-type csv-type-{column.inferred_type}",
+                                ),
+                                (
+                                    f"{column.populated / inspection.row_count:.0%}"
+                                    if inspection.row_count
+                                    else "—"
+                                ),
+                                html.span(column.example or "—", class_="csv-example"),
+                            ]
+                            for column in inspection.columns
+                        ],
+                        columns=[
+                            TableColumn(header="Column"),
+                            TableColumn(header="Inferred type"),
+                            TableColumn(
+                                header="Complete",
+                                align="end",
+                                numeric=True,
+                                size="narrow",
                             ),
-                            (
-                                f"{column.populated / inspection.row_count:.0%}"
-                                if inspection.row_count
-                                else "—"
-                            ),
-                            html.span(column.example or "—", class_="csv-example"),
-                        ]
-                        for column in inspection.columns
-                    ],
-                    columns=[
-                        TableColumn(header="Column"),
-                        TableColumn(header="Inferred type"),
-                        TableColumn(
-                            header="Complete",
-                            align="end",
-                            numeric=True,
-                            size="narrow",
-                        ),
-                        TableColumn(header="Example", size="wide"),
-                    ],
-                    density="compact",
-                    sticky_header=True,
+                            TableColumn(header="Example", size="wide"),
+                        ],
+                        density="compact",
+                        sticky_header=True,
+                    )
                 ),
                 class_="csv-schema-table-wrap",
             ),
@@ -1011,7 +1013,7 @@ def _pipeline_body(
             "Pipeline saved. You can load or run it any time." if notice == "saved" else "",
             kind="success",
         ),
-        Card(
+        surface_card(
             html.form(
                 csrf_hidden(csrf_token),
                 html.input(type="hidden", name="pipeline_id", value=pipeline_id, id="pipeline-id"),
@@ -1426,11 +1428,11 @@ def _pipeline_body(
                 id="pipeline-form",
                 class_="pipeline-form",
             ),
-            class_="panel pipeline-builder",
+            class_="pipeline-builder",
             id="pipeline-builder",
         ),
         Grid(
-            Card(
+            surface_card(
                 html.div(
                     html.div(
                         html.p("02 / Observe", class_="section-number"),
@@ -1459,9 +1461,9 @@ def _pipeline_body(
                     ),
                     class_="run-log",
                 ),
-                class_="panel run-monitor",
+                class_="run-monitor",
             ),
-            Card(
+            surface_card(
                 html.div(
                     html.p("Reusable routes", class_="section-number"),
                     Heading("Saved pipelines", level=2),
@@ -1483,7 +1485,7 @@ def _pipeline_body(
                     tone="warning" if demo_mode else "success",
                     class_="sandbox-note",
                 ),
-                class_="panel run-history",
+                class_="run-history",
             ),
             columns=2,
             gap="lg",

@@ -6,7 +6,7 @@ from typing import cast
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from hedron import Card, Hedron, InteractionResult, SplitView, html
+from hedron import Hedron, InteractionResult, SplitView, html
 from hedron.htmx import is_htmx_request
 from hedron_posit import HedronPosit
 from sqlalchemy import select
@@ -32,6 +32,7 @@ from app.services.directory import (
     validate_directory_email,
 )
 from app.ui import partials as ui
+from app.ui.design_system import surface_card
 from app.ui.http import hx_target, is_filter_fragment, mutation_response, render_authenticated_view
 from app.ui.interactions import (
     audit_match_count_oob,
@@ -160,14 +161,13 @@ def register_admin_routes(app: Hedron) -> None:
                 ui.user_match_count(listing["total_users"]),
             ),
             SplitView(
-                primary=Card(
+                primary=surface_card(
                     html.div(
                         html.h2("Directory"),
                         html.p("All application-managed identities."),
                         class_="panel-heading",
                     ),
                     directory,
-                    class_="panel panel-main",
                 ),
                 secondary=html.aside(
                     ui.invitation_panel(
@@ -555,7 +555,7 @@ def register_admin_routes(app: Hedron) -> None:
                 "Security-relevant actions recorded by the application.",
                 ui.audit_match_count(total),
             ),
-            Card(
+            surface_card(
                 ui.audit_panel(
                     request,
                     events,
@@ -567,7 +567,6 @@ def register_admin_routes(app: Hedron) -> None:
                     page_size=AUDIT_PAGE_SIZE,
                     lazy=not (et or oc or page > 1),
                 ),
-                class_="panel panel-main",
             ),
         ]
         return await render_authenticated_view(

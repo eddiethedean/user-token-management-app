@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 
 from fastapi import Request, status
 from fastapi.responses import RedirectResponse
-from hedron import Card, InteractionResult, Page, html
+from hedron import InteractionResult, Page, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
 from hedron_core import NodeLike, RenderMode
@@ -14,6 +14,7 @@ from starlette.responses import Response
 
 from app.config import Settings
 from app.dependencies import AuthContext
+from app.ui.design_system import surface_card
 from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.layout import app_shell, main_panel, side_nav_oob
 from app.ui.urls import mounted_path
@@ -94,7 +95,7 @@ def render_page(
 def auth_card(*children: NodeLike) -> NodeLike:
     """Center the compact authentication card within the public-page canvas."""
     return html.div(
-        Card(*children, class_="panel auth-card"),
+        surface_card(*children, recipe="data-mover-auth-panel", class_="auth-card"),
         class_="center-card-wrap",
     )
 

@@ -26,6 +26,7 @@ from hedron import (
 from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.models import AuditEvent
+from app.ui.design_system import apply_data_recipe
 from app.ui.forms import submit_button
 from app.ui.layout import INDICATOR
 from app.ui.partials.shared import _filter_base_path, hedron_pagination
@@ -246,18 +247,20 @@ def audit_results_body(
             ]
             for event in events
         ]
-        results = Table(
-            rows=rows,
-            columns=[
-                TableColumn(header="When", size="narrow"),
-                TableColumn(header="Event"),
-                TableColumn(header="Outcome", size="narrow"),
-                TableColumn(header="Source", size="narrow"),
-                TableColumn(header="Detail", size="wide"),
-            ],
-            density="compact",
-            sticky_header=True,
-            zebra=True,
+        results = apply_data_recipe(
+            Table(
+                rows=rows,
+                columns=[
+                    TableColumn(header="When", size="narrow"),
+                    TableColumn(header="Event"),
+                    TableColumn(header="Outcome", size="narrow"),
+                    TableColumn(header="Source", size="narrow"),
+                    TableColumn(header="Detail", size="wide"),
+                ],
+                density="compact",
+                sticky_header=True,
+                zebra=True,
+            )
         )
     else:
         results = StateView(
