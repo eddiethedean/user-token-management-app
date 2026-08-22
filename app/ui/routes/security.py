@@ -111,9 +111,9 @@ def register_security_routes(app: Hedron) -> None:
             headers={"Cache-Control": "no-store"},
         )
 
-    @app.fragment(
+    @app.component(
         "/profile/activity",
-        regions=(SECURITY_ACTIVITY, SECURITY_ACTIVITY_LAZY_BODY),
+        fragment_regions=(SECURITY_ACTIVITY, SECURITY_ACTIVITY_LAZY_BODY),
         include_in_schema=False,
     )
     async def security_activity_fragment(
@@ -283,7 +283,6 @@ def register_security_routes(app: Hedron) -> None:
             SECRET_SLOT_MSS,
             SECRET_SLOT_POSTGRES,
             CONNECTION_STATUS_LIST,
-            SECURITY_ACTIVITY,
             TOAST_HOST,
         ),
         include_in_schema=False,
@@ -331,7 +330,6 @@ def register_security_routes(app: Hedron) -> None:
                 else status.HTTP_400_BAD_REQUEST
             )
         values = security_page_values(db, auth.user, settings)
-        events = values["events"]
         status_list = connection_status_oob(
             request,
             values["secret_slots"],
@@ -352,7 +350,7 @@ def register_security_routes(app: Hedron) -> None:
                 request,
                 ok_fragment(
                     slot,
-                    oob=(security_activity_oob(events), status_list),
+                    oob=(status_list,),
                     status_code=response_status,
                     toast=error,
                     toast_tone="danger",
@@ -363,7 +361,7 @@ def register_security_routes(app: Hedron) -> None:
             redirect=mounted_path(request, "/security?notice=secret-saved"),
             fragment=ok_fragment(
                 slot,
-                oob=(security_activity_oob(events), status_list),
+                oob=(status_list,),
                 toast=f"{specification.label} credentials saved.",
             ),
         )
@@ -375,7 +373,6 @@ def register_security_routes(app: Hedron) -> None:
             SECRET_SLOT_MSS,
             SECRET_SLOT_POSTGRES,
             CONNECTION_STATUS_LIST,
-            SECURITY_ACTIVITY,
             TOAST_HOST,
         ),
         include_in_schema=False,
@@ -400,7 +397,6 @@ def register_security_routes(app: Hedron) -> None:
                 status_code=status.HTTP_404_NOT_FOUND, detail="Connection is not configured."
             )
         values = security_page_values(db, auth.user, settings)
-        events = values["events"]
         return await mutation_response(
             request,
             redirect=mounted_path(request, "/security?notice=secret-deleted"),
@@ -413,7 +409,6 @@ def register_security_routes(app: Hedron) -> None:
                     success=f"{specification.label} credentials deleted.",
                 ),
                 oob=(
-                    security_activity_oob(events),
                     connection_status_oob(
                         request,
                         values["secret_slots"],
@@ -426,7 +421,7 @@ def register_security_routes(app: Hedron) -> None:
 
     @app.action(
         "/security/secrets/{provider}/test",
-        fragment_regions=(CONNECTION_STATUS_LIST, SECURITY_ACTIVITY, TOAST_HOST),
+        fragment_regions=(CONNECTION_STATUS_LIST, TOAST_HOST),
         include_in_schema=False,
     )
     async def connection_test_submit(
@@ -454,7 +449,6 @@ def register_security_routes(app: Hedron) -> None:
                     values["secret_slots"],
                     csrf_token=auth.session.csrf_token,
                 ),
-                oob=(security_activity_oob(values["events"]),),
                 toast=f"{specification.label} connection passed its health check.",
             ),
         )

@@ -7,6 +7,8 @@ from typing import Any, Literal, cast
 from hedron import Button, CsrfField, html
 from hedron_core import NodeLike
 
+from app.ui.design_system import apply_action_recipe
+
 
 def hidden_field(name: str, value: str) -> NodeLike:
     return html.input(type="hidden", name=name, value=value)
@@ -44,10 +46,11 @@ def submit_button(
     existing = attrs.pop("class_", None)
     if existing:
         classes.append(str(existing))
-    return Button(
+    button = Button(
         label,
         class_=" ".join(classes) or None,
         type=cast(Literal["button", "submit", "reset"], type),
         variant=cast(Literal["primary", "secondary", "danger"], native_variant),
         **attrs,
     )
+    return apply_action_recipe(button, variant=native_variant)

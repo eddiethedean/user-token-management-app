@@ -72,7 +72,7 @@ def render_login_page(
             aria={"label": "Security features"},
         ),
         class_="auth-intro",
-        gap="0.75rem",
+        gap="sm",
     )
 
     card_children: list[NodeLike] = [
@@ -158,7 +158,7 @@ def render_login_page(
         primary=intro,
         secondary=Card(*card_children, class_="auth-card"),
         ratio="3:2",
-        gap="5.625rem",
+        gap="xl",
         collapse="md",
         class_="auth-layout",
     )

@@ -139,7 +139,7 @@ def user_table(
                 ", ".join(user.role_names) or "user",
                 ActionGroup(
                     *actions,
-                    gap="0.375rem",
+                    gap="xs",
                     collapse="never",
                     class_="table-actions",
                 ),
@@ -333,7 +333,7 @@ def invitation_panel(
                 ActionGroup(
                     *actions,
                     align="end",
-                    gap="0.4375rem",
+                    gap="xs",
                     collapse="never",
                     class_="pending-actions",
                 ),

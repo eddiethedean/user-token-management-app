@@ -142,8 +142,7 @@ def _write_mode_select(
     resolved = _resolved_write_mode(catalog, selected)
     supported = catalog.write_modes if catalog is not None else ()
     options = [
-        _option(mode, _WRITE_MODE_LABELS[mode], selected=mode == resolved)
-        for mode in supported
+        _option(mode, _WRITE_MODE_LABELS[mode], selected=mode == resolved) for mode in supported
     ]
     if not options:
         options = [_option("", "Choose a destination first", selected=True, disabled=True)]
@@ -426,8 +425,8 @@ def _csv_inspection(
                         [
                             column.name,
                             html.span(
-                                    column.inferred_type,
-                                    class_=f"csv-type csv-type-{column.inferred_type}",
+                                column.inferred_type,
+                                class_=f"csv-type csv-type-{column.inferred_type}",
                             ),
                             (
                                 f"{column.populated / inspection.row_count:.0%}"
@@ -578,9 +577,7 @@ def _saved_pipeline_data(pipeline: PipelineDefinition, *, run: bool = False) -> 
         "pipeline-target-table": (
             CREATE_TABLE_VALUE if pipeline.destination_create else destination_object
         ),
-        "pipeline-target-table-new": (
-            destination_object if pipeline.destination_create else ""
-        ),
+        "pipeline-target-table-new": (destination_object if pipeline.destination_create else ""),
         "pipeline-mode": pipeline.write_mode,
     }
     if run:
@@ -709,7 +706,7 @@ def _saved_pipeline_cards(
                             swap="outerHTML",
                         ),
                     ),
-                    gap="0.4375rem",
+                    gap="xs",
                     collapse="never",
                     class_="saved-pipeline-actions",
                 ),
@@ -842,11 +839,7 @@ def _pipeline_preview_fragment(
         html.div(
             Alert(
                 availability_message,
-                tone=(
-                    "success"
-                    if source_runtime_ready and target_runtime_ready
-                    else "warning"
-                ),
+                tone=("success" if source_runtime_ready and target_runtime_ready else "warning"),
             ),
             id="pipeline-availability-note",
             **{"hx-swap-oob": "outerHTML:#pipeline-availability-note"},
@@ -972,7 +965,9 @@ def _pipeline_body(
     else:
         availability_message = "Source and destination connections are ready."
     if initial_run_ready and not pipeline_id:
-        availability_message = "Source and destination are ready. Save this pipeline to enable runs."
+        availability_message = (
+            "Source and destination are ready. Save this pipeline to enable runs."
+        )
     connection_summary = ActionGroup(
         Badge(
             f"{ready_count}/{len(connections)} connections ready",
@@ -983,7 +978,7 @@ def _pipeline_body(
             tone="warning" if get_settings().is_demo_mode else "success",
         ),
         align="end",
-        gap="0.5625rem",
+        gap="sm",
         collapse="never",
         class_="heading-actions",
     )
@@ -1050,7 +1045,7 @@ def _pipeline_body(
                             **pipeline_run_attrs,
                             aria={"describedby": "pipeline-availability-note"},
                         ),
-                        gap="0.5625rem",
+                        gap="sm",
                         collapse="never",
                         class_="builder-actions",
                     ),
@@ -1347,7 +1342,7 @@ def _pipeline_body(
                         class_="object-picker target-object-picker",
                     ),
                     columns=2,
-                    gap="0.8125rem",
+                    gap="sm",
                     class_="object-picker-grid",
                 ),
                 html.div(
@@ -1491,7 +1486,7 @@ def _pipeline_body(
                 class_="panel run-history",
             ),
             columns=2,
-            gap="1.375rem",
+            gap="lg",
             class_="pipeline-observe-grid",
         ),
     ]
@@ -1806,30 +1801,6 @@ def register_pipeline_routes(app: Hedron) -> None:
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="pipeline_id is required to start a pipeline run",
             )
-        return await _start_pipeline_run(
-            request=request,
-            auth=auth,
-            db=db,
-            settings=settings,
-            _csrf=_csrf,
-            pipeline_id=pipeline_id,
-            idempotency_token=idempotency_token,
-        )
-
-    @app.action(
-        "/pipeline/{pipeline_id}/runs",
-        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST),
-        include_in_schema=False,
-    )
-    async def pipeline_run_start_legacy(
-        request: Request,
-        auth: Auth,
-        db: DbSession,
-        settings: SettingsDep,
-        _csrf: RequireCsrf,
-        pipeline_id: str,
-        idempotency_token: PipelineIdForm = "",
-    ) -> Response:
         return await _start_pipeline_run(
             request=request,
             auth=auth,

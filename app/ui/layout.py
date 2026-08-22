@@ -17,6 +17,7 @@ from hedron import (
     Page,
     PageHeader,
     Section,
+    StyleScope,
     html,
 )
 from hedron_core import Component, HtmlAttrValue, NodeLike
@@ -123,7 +124,6 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
                 disabled_elt="#side-nav a.nav-link",
                 indicator=INDICATOR,
                 hx_ext="preload",
-                emit_data_hx=True,
             ),
         )
 
@@ -203,6 +203,10 @@ def app_shell(
         placement="top",
     )
     skip = SkipLink(target="#main-content", label="Skip to main content")
+    content: NodeLike
+    banner: NodeLike | None = None
+    header: NodeLike | None = None
+    footer: NodeLike | None = None
     if auth:
         content = AppShell(
             nav=side_nav(request, auth),
@@ -222,9 +226,6 @@ def app_shell(
                 class_="page-width footer-inner",
             ),
             content_width="wide",
-            # Keep the legacy hook during the CSS-to-native transition; the
-            # actual shell structure is now supplied by Hedron AppShell.
-            class_="data-mover-shell",
         )
     else:
         banner = Container(
@@ -249,7 +250,7 @@ def app_shell(
     if auth:
         page_nodes.append(content)
     else:
-        page_nodes.extend([banner, header, content, footer])
+        page_nodes.extend(item for item in (banner, header, content, footer) if item is not None)
     return Page(
         *page_nodes,
         title=page_title or settings.app_name,
@@ -276,7 +277,13 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> PageH
 def main_panel(*body: NodeLike) -> Component[Any]:
     """Authenticated main panel root used for in-shell HTMX navigation swaps."""
     return BusyRegion(
-        SwapReveal(Section(*body, id="main-panel", class_="main-panel")),
+        SwapReveal(
+            StyleScope(
+                Section(*body, id="main-panel", class_="main-panel"),
+                theme="aurora",
+                density="comfortable",
+            )
+        ),
         scope="document",
         indicator="#global-request-indicator",
     )

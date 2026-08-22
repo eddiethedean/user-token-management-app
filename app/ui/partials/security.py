@@ -210,7 +210,7 @@ def secret_slot(
             FormGrid(
                 *[credential_field(field) for field in provider.fields],
                 columns={"base": 1, "sm": 2},
-                gap="0.6875rem",
+                gap="sm",
                 class_="credential-fields",
             ),
             html.div(
@@ -355,7 +355,7 @@ def connection_status_list(
                 ActionGroup(
                     *actions,
                     align="end",
-                    gap="0.4375rem",
+                    gap="xs",
                     collapse="never",
                     class_="connection-status-actions",
                 ),
@@ -651,7 +651,7 @@ def account_tabs(
                             field_errors=password_field_errors,
                         ),
                         ratio="2:3",
-                        gap="3.375rem",
+                        gap="xl",
                         collapse="md",
                         class_="split-panel",
                     ),

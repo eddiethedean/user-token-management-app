@@ -1,7 +1,10 @@
 # Hedron Enhancement Issue Drafts (Data Mover App)
 
-These items reflect manual JS gaps that remain in the app after the latest migration pass.  
-Hedron 0.50.1 now ships the corresponding upstream primitives, so these are migration work items (not missing feature requests).
+This file is a historical record of Hedron enhancement proposals and migration notes. It is
+not a list of current application workarounds: as of the Hedron 0.58.1 pass, `app/static/app.js`
+contains only application-owned dialog-close and navigation-scroll behavior. The detailed issue
+descriptions below are retained for upstream context and should not be read as evidence that the
+described legacy handlers still exist locally.
 
 ## Base-theme parity issue set
 
@@ -44,7 +47,7 @@ Pipeline form still relies on imperative logic for:
 - create-new-table synthetic value flow
 - preview/label fields computed from selection + validation state
 
-### Current local workaround
+### Historical local workaround
 Functions in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js), especially `syncPipelineObjectPicker`, `syncPipelineTables`, `replaceSelectOptions`, `commitNewTableName`, and `updatePipelinePreview`.
 
 ### Suggested API behavior
@@ -71,7 +74,7 @@ The app still injects a custom fallback for lazy-loaded regions when `load` requ
 - reconstructing fallback DOM markup
 - manual `htmx.process` call
 
-### Current local workaround
+### Historical local workaround
 `lazyLoadFailed(event)` in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js)
 
 Implemented via built-in lazy-load behavior in this follow-up pass (manual fallback removed).
@@ -100,7 +103,7 @@ Toast behavior is manual:
 - custom leaving transition + removal
 - bare toast fallback cleanup
 
-### Current local workaround
+### Historical local workaround
 `scheduleToastDismiss`, `pruneToastQueue`, and custom host queueing in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js)
 
 In this pass, server-generated toast payloads were aligned to native `Toast` markup and toast-lifecycle attachment moved to a single host hydration path.
@@ -127,7 +130,7 @@ The app still handles `htmx:historyRestore` manually with:
 - explicit ajax restore request
 - explicit select targets for main panel/side nav OOB
 
-### Current local workaround
+### Historical local workaround
 `htmx:historyRestore` handler in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js)
 
 Implemented via route-level restore semantics in this follow-up pass (manual event handler removed).
@@ -149,7 +152,7 @@ Provide a first-class pattern for long-running monitor fragments
 ### Why this is needed
 The pipeline transfer UX still maintains custom run-state transitions around status regions and toasts.
 
-### Current local workaround
+### Historical local workaround
 Status reconciliation in `runPipelineTransfer()`, polling behavior, and `htmx:afterSwap` logic in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js).
 
 ### Suggested API behavior
@@ -176,7 +179,9 @@ Status reconciliation in `runPipelineTransfer()`, polling behavior, and `htmx:af
 
 ### Migration status
 - Upstream status: both linked issues are **closed in Hedron**.
-- App status: Item 4 is now migrated out of local app.js. Item 3 is partially migrated (server toast markup and host hydration path refactor). Item 7 is now partially addressed by removing the client submit gate and relying on server-side route validation plus native form behavior. Items 1, 3 (full replacement), 5, and 6 remain pending.
+- App status: the historical handlers described here have been removed or superseded by server-side
+  interaction responses and native Hedron behavior. Remaining opportunities are framework-level
+  feature requests, not local legacy-code cleanup items.
 
 ### Draft issue payloads
 For each item, include:
@@ -190,12 +195,13 @@ For each item, include:
 Add a declarative action-chaining primitive for "load a record, then conditionally run an action"
 
 ### Why this is needed
-Loading a saved pipeline and auto-running if the card is marked `data-pipeline-run` still depends on manual JS:
+Historically, loading a saved pipeline and auto-running when a card was marked `data-pipeline-run`
+depended on manual JS:
 - inspect clicked card metadata
 - apply state to inputs and dependent previews
 - schedule a delayed click to trigger the run button
 
-### Current local workaround
+### Historical local workaround
 `loadSavedPipeline(button)` in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js), including the delayed `setTimeout(...click())` path for auto-run.
 
 ### Suggested API behavior
@@ -221,7 +227,7 @@ Pipeline save submit currently performs imperative validation and state checks i
 - CSV readiness checks
 - inline messaging and temporary busy state updates
 
-### Current local workaround
+### Historical local workaround
 `document.addEventListener("submit", ...)` and helper logic in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js).
 
 ### Suggested API behavior

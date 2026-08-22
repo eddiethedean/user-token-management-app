@@ -570,7 +570,7 @@ Suggested HTMX endpoints:
 - `GET /pipeline/catalog/{provider}/objects?namespace=...`;
 - `POST /pipeline/object/inspect`;
 - `POST /pipeline/save` with typed provider locator fields;
-- `POST /pipeline/{pipeline_id}/runs`;
+- `POST /pipeline/runs` with a saved `pipeline_id` form field;
 - `POST /pipeline/runs/{run_id}/cancel`;
 - `GET /pipeline/runs/{run_id}/status` returning the run-monitor fragment;
 - `GET /pipeline/runs/{run_id}/events?after_sequence=...` returning new log fragments.

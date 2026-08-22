@@ -20,6 +20,8 @@ from hedron_core import RenderMode
 from starlette.requests import Request
 
 from app.ui import partials as ui
+from app.ui.design_system import DATA_MOVER_DESIGN
+from app.ui.forms import submit_button
 from app.ui.interactions import APP_REGIONS
 from app.ui.layout import alert_box, document_head, page_heading
 from app.ui.urls import hx_attrs
@@ -79,6 +81,20 @@ def test_document_head_can_disable_custom_theme() -> None:
         )
     )
     assert "/assets/theme.css" not in rendered
+
+
+def test_hedron_058_design_system_and_action_recipe() -> None:
+    plan = DATA_MOVER_DESIGN.explain()
+    assert plan.schema == "hedron.design-system-plan/1"
+    assert plan.logical_id == "design:aurora"
+    assert {recipe["name"] for recipe in plan.recipes} == {
+        "data-mover-primary-action",
+        "data-mover-secondary-action",
+        "data-mover-danger-action",
+    }
+    rendered = render_html(submit_button("Run transfer"))
+    assert 'data-hedron-appearance="solid"' in rendered
+    assert 'data-hedron-emphasis="primary"' in rendered
 
 
 def test_register_page_document(access_app) -> None:
@@ -387,7 +403,7 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, "historyCacheSize")
 
 
-def test_hedron_htmx_core_loads_before_extensions(page) -> None:
+def test_hedron_emits_htmx_core_before_extensions(page) -> None:
     response = page.get("/login")
     core = response.body.index("hedron-static/htmx.min.js")
     head_support = response.body.index("hedron-static/ext/head-support.js")
@@ -405,7 +421,7 @@ def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
     ]
     assert Counter(route.kind for route in routes) == {
         "page": 13,
-        "action": 25,
+        "action": 24,
         "component": 2,
     }
     assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)

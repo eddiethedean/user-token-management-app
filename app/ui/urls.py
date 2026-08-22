@@ -36,8 +36,8 @@ def mounted_path(request: Request, path: str) -> str:
         query=query or None,
         fragment=parsed.fragment or None,
     )
-    # Hedron historically rejects paths that normalize only by dropping a terminal slash.
-    # The root app URL is the one exception: without a mount it must remain "/".
+    # Hedron rejects paths that normalize only by dropping a terminal slash. The
+    # root app URL is the one exception: without a mount it must remain "/".
     normalized = mounted.rstrip("/") or "/"
     return normalized
 
@@ -51,13 +51,13 @@ def form_action(request: Request, path: str) -> SafeUrl:
 
 
 def hx_path(request: Request, path: str) -> SafeUrl:
-    # Hedron requires purpose=navigation for hx-* URL attributes.
+    # HTMX navigation attributes use Hedron's navigation-safe URL purpose.
     return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.NAVIGATION)
 
 
 def asset_href(request: Request, path: str) -> SafeUrl:
-    # Hedron historically validates URL purpose by HTML attribute: a stylesheet's
-    # ``href`` is a navigation URL even though the resource is an asset.
+    # A stylesheet's HTML ``href`` is a navigation URL even though it points to
+    # an asset resource.
     return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.NAVIGATION)
 
 
@@ -79,7 +79,6 @@ def hx_attrs(
     indicator: str | None = None,
     hx_trigger: str | None = None,
     hx_ext: str | None = None,
-    emit_data_hx: bool = False,
     polling: str | float | int | None = None,
 ) -> dict[str, Any]:
     """Build hyphenated HTMX attributes accepted by Hedron's HTML allowlist."""
@@ -123,16 +122,6 @@ def hx_attrs(
             attrs["hx-trigger"] = f"every {interval}"
         else:
             attrs["hx-trigger"] = interval
-    if emit_data_hx:
-        hx_items = list(attrs.items())
-        for key, value in hx_items:
-            if not key.startswith("hx-"):
-                continue
-            # Hedron 0.50 treats data-hx-push-url as a URL slot (SafeUrl only).
-            # Boolean push-url must stay on hx-push-url as true/false.
-            if key == "hx-push-url" and value in {True, False, "true", "false"}:
-                continue
-            attrs[f"data-{key}"] = value
     if indicator is not None:
         attrs["hx-indicator"] = indicator
     return attrs

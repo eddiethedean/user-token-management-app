@@ -36,6 +36,7 @@ from app.logging_config import bind_request_id, clear_request_id, configure_logg
 from app.schema import assert_schema_current
 from app.security.cookies import APPLICATION_COOKIE_NAMES
 from app.services.auth import ensure_default_roles
+from app.ui.design_system import DATA_MOVER_DESIGN
 from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
 from app.ui.routes import register_routes
@@ -84,7 +85,7 @@ app = HedronPosit(
     enable_sessions=False,
     htmx_extensions=("preload", "sse", "head-support"),
     explorer="off",
-    theme="aurora",
+    theme=DATA_MOVER_DESIGN,
     default_styles=True,
     external_base_url=settings.public_base_url,
     posit=PositConfig(

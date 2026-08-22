@@ -179,7 +179,7 @@ def register_admin_routes(app: Hedron) -> None:
                     )
                 ),
                 ratio="2:1",
-                gap="1.375rem",
+                gap="lg",
                 collapse="lg",
                 class_="admin-layout",
             ),
@@ -580,9 +580,9 @@ def register_admin_routes(app: Hedron) -> None:
             push_path="/admin/audit",
         )
 
-    @app.fragment(
+    @app.component(
         "/admin/audit/results",
-        regions=(AUDIT_RESULTS, AUDIT_RESULTS_LAZY_BODY, AUDIT_MATCH_COUNT),
+        fragment_regions=(AUDIT_RESULTS, AUDIT_RESULTS_LAZY_BODY, AUDIT_MATCH_COUNT),
         include_in_schema=False,
     )
     async def audit_results_fragment(

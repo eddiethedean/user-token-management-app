@@ -104,7 +104,7 @@ def profile_form(
                     class_="field-full",
                 ),
                 columns={"base": 1, "md": 2},
-                gap="1rem",
+                gap="md",
                 class_="field-grid",
             ),
             ActionGroup(
@@ -170,7 +170,7 @@ def account_profile_panel(request: Request, auth: AuthContext, *, csrf_token: st
         ),
         secondary=profile_identity(request, auth),
         ratio="2:1",
-        gap="1.375rem",
+        gap="lg",
         collapse="md",
         class_="content-grid profile-grid",
     )

@@ -173,6 +173,7 @@ def test_mss_connection_can_be_tested(client, make_user) -> None:
     )
     assert retested.status_code == 200
     assert "Connected" in retested.text or "Demo handshake" in retested.text
+    assert 'id="security-activity"' not in retested.text
 
     with SessionLocal() as db:
         stored = db.scalar(

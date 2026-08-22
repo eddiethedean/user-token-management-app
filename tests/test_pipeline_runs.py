@@ -61,8 +61,11 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
         pipeline_id = pipeline.id
 
     queued = client.post(
-        f"/pipeline/{pipeline_id}/runs",
-        data={"csrf_token": csrf_from(client.get("/pipeline").text)},
+        "/pipeline/runs",
+        data={
+            "csrf_token": csrf_from(client.get("/pipeline").text),
+            "pipeline_id": str(pipeline_id),
+        },
         headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor", "Accept": "text/html"},
     )
     assert queued.status_code in {200, 202}
