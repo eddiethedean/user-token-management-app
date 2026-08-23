@@ -12,6 +12,9 @@ from hedron import (
     Alert,
     Badge,
     Button,
+    ConnectorFlow,
+    ConnectorNode,
+    ConnectorTrack,
     DescriptionList,
     FlowStep,
     Grid,
@@ -515,38 +518,21 @@ def _provider_node(
             if configured
             else "Setup required"
         )
-    connection_tone = (
-        "warning"
-        if connection_label == "Cluster sleeping"
-        else "success"
-        if configured
-        else "neutral"
-    )
-    return html.article(
-        html.div(
-            html.span(
-                mark,
-                class_=f"provider-logo provider-logo-{kind}",
-                aria={"hidden": "true"},
-            ),
-            html.div(
-                html.p(kind, class_="node-kicker"),
-                html.h3(label, id=f"pipeline-{kind}-name"),
-            ),
-            class_="provider-node-heading",
+    return ConnectorNode(
+        label,
+        leading=html.span(
+            mark,
+            class_="hedron-connector-node-mark",
+            aria={"hidden": "true"},
         ),
-        html.div(
-            Badge(connection_label, tone=connection_tone),
-            id=f"pipeline-{kind}-connection",
-        ),
-        DescriptionList(
+        state="ready" if configured else "blocked",
+        kind="source" if kind == "source" else "target",
+        detail=f"{kind.title()} · {connection_label}",
+        runtime=runtime or technology,
+        children=DescriptionList(
             (
                 "Object",
                 html.span(detail, id=f"pipeline-{kind}-detail", title=detail),
-            ),
-            (
-                "Engine",
-                html.span(technology, id=f"pipeline-{kind}-engine", title=technology),
             ),
             (
                 "Region",
@@ -559,7 +545,7 @@ def _provider_node(
             density="compact",
             layout="inline",
         ),
-        class_=f"provider-node provider-node-{kind}",
+        id=f"pipeline-{kind}-node",
     )
 
 
@@ -1353,7 +1339,7 @@ def _pipeline_body(
                     gap="sm",
                     class_="object-picker-grid",
                 ),
-                html.div(
+                ConnectorFlow(
                     _provider_node(
                         kind="source",
                         catalog=source_catalog,
@@ -1369,14 +1355,7 @@ def _pipeline_body(
                             else ""
                         ),
                     ),
-                    html.div(
-                        html.div(
-                            html.span(class_="transfer-packet packet-one"),
-                            html.span(class_="transfer-packet packet-two"),
-                            html.span(class_="transfer-packet packet-three"),
-                            class_="transfer-track",
-                            aria={"hidden": "true"},
-                        ),
+                    ConnectorTrack(
                         ProcessFlow(
                             FlowStep("Extract", status="complete", status_text="Ready"),
                             FlowStep(
@@ -1390,7 +1369,7 @@ def _pipeline_body(
                             class_="transfer-stages",
                         ),
                         html.p("TLS 1.3 · Encrypted in transit", class_="transfer-protocol"),
-                        class_="transfer-link",
+                        label="Transfer stages",
                     ),
                     _provider_node(
                         kind="target",
@@ -1407,6 +1386,8 @@ def _pipeline_body(
                             else ""
                         ),
                     ),
+                    direction="horizontal",
+                    collapse="md",
                     class_="pipeline-canvas",
                     id="pipeline-canvas",
                 ),

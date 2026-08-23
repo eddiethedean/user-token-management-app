@@ -7,8 +7,11 @@ from typing import Any
 from fastapi import Request
 from hedron import (
     Alert,
+    AccountSummary,
     AppShell,
+    AppFooter,
     Badge,
+    Brand,
     Container,
     EnvironmentBanner,
     Fragment,
@@ -71,32 +74,24 @@ def alert_box(message: str, *, kind: str = "error") -> Alert | Fragment:
 def account_summary(
     request: Request, auth: AuthContext, *, csrf_token: str, oob: bool = False
 ) -> NodeLike:
-    """Account chrome; stays on html.* so hx-swap-oob and nested form attrs remain valid."""
+    """Typed account chrome with a real action slot for HTMX OOB updates."""
     user = auth.user
-    attrs: dict[str, HtmlAttrValue] = {
-        "id": "account-summary",
-        "class_": "account-summary",
-    }
+    attrs: dict[str, HtmlAttrValue] = {}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
-    return Inline(
-        html.span(
-            (user.full_name or user.email_original or "?")[:1].upper(),
-            class_="account-avatar",
-            aria={"hidden": "true"},
-        ),
-        html.span(
-            html.strong(user.full_name or user.email_original),
-            html.small(user.email_original),
-            class_="account-copy",
-        ),
-        html.form(
+    return AccountSummary(
+        user.full_name or user.email_original,
+        detail=user.email_original,
+        mark_text=(user.full_name or user.email_original or "?")[:1].upper(),
+        action=html.form(
             csrf_hidden(csrf_token),
             submit_button("Sign out", quiet=True, small=True),
             action=form_action(request, "logout"),
             method="post",
         ),
-        **attrs,
+        id="account-summary",
+        class_="account-summary",
+        attrs=attrs,
     )
 
 
@@ -185,12 +180,10 @@ def app_shell(
     page_title: str,
     csrf_token: str = "",
 ) -> Page:
-    brand = html.a(
-        html.span("DM", class_="brand-mark", aria={"hidden": "true"}),
-        html.span(
-            html.strong(settings.app_name),
-            html.small("Secure data movement"),
-        ),
+    brand = Brand(
+        settings.app_name,
+        mark_text="DM",
+        subtitle="Secure data movement",
         class_="brand",
         href=page_href(request, "/"),
         aria={"label": f"{settings.app_name} home"},
@@ -221,8 +214,8 @@ def app_shell(
             env_badge=environment_badge,
             account=(account_summary(request, auth, csrf_token=csrf_token) if csrf_token else None),
             nav_footer=shell_nav_footer(),
-            app_footer=Container(
-                html.span(settings.app_name),
+            app_footer=AppFooter(
+                settings.app_name,
                 html.span("Demo environment · No remote systems are contacted"),
                 class_="footer-inner",
             ),
@@ -242,12 +235,9 @@ def app_shell(
             class_="site-header",
         )
         content = html.main(*body, id="main-content", class_="auth-main", tabindex="-1")
-        footer = html.footer(
-            Container(
-                html.span(settings.app_name),
-                html.span("Demo environment · No remote systems are contacted"),
-                class_="footer-inner",
-            ),
+        footer = AppFooter(
+            settings.app_name,
+            html.span("Demo environment · No remote systems are contacted"),
             class_="site-footer",
         )
     page_nodes: list[NodeLike] = [skip, feedback, indicator, toast_host(), dialog_host()]
