@@ -13,6 +13,7 @@ from hedron import (
     Dialog,
     Form,
     FormField,
+    FormGrid,
     Heading,
     Section,
     Select,
@@ -65,7 +66,7 @@ def user_table(
                         hidden_field("q", query),
                         hidden_field("status", status_filter),
                         hidden_field("page", str(page)),
-                        Button(label, class_="button-small button-action", type="submit"),
+                        Button(label, class_="button-action", size="sm", type="submit"),
                         action=form_action(request, f"admin/users/{user.id}/{action}"),
                         method="post",
                         **hx_attrs(
@@ -88,7 +89,8 @@ def user_table(
                 hidden_field("page", str(page)),
                 Button(
                     action_label,
-                    class_="button-small button-action",
+                    class_="button-action",
+                    size="sm",
                     type="submit",
                 ),
                 action=form_action(request, f"admin/users/{user.id}/toggle"),
@@ -105,9 +107,12 @@ def user_table(
                     html.div(
                         html.button(
                             action_label,
-                            class_="hedron-button hedron-button-secondary button-small",
+                            class_="hedron-button hedron-button-secondary",
                             type="button",
-                            data={"hedron-dialog-open": f"#{dialog_id}"},
+                            data={
+                                "hedron-dialog-open": f"#{dialog_id}",
+                                "hedron-size": "sm",
+                            },
                         ),
                         Dialog(
                             "Disable account",
@@ -216,31 +221,34 @@ def user_directory(
     return Section(
         alert_box(success, kind="success"),
         Form(
-            FormField(
-                name="q",
-                label="Search",
-                id="user-query",
-                control=TextInput(
-                    "q",
+            FormGrid(
+                FormField(
+                    name="q",
+                    label="Search",
                     id="user-query",
-                    value=query,
-                    placeholder="email or name",
-                    type="search",
+                    control=TextInput(
+                        "q",
+                        id="user-query",
+                        value=query,
+                        placeholder="email or name",
+                        type="search",
+                    ),
                 ),
-            ),
-            FormField(
-                name="status",
-                label="Status",
-                id="status-filter",
-                control=Select(
-                    "status",
-                    status_options,
+                FormField(
+                    name="status",
+                    label="Status",
                     id="status-filter",
-                    value=status_filter or None,
+                    control=Select(
+                        "status",
+                        status_options,
+                        id="status-filter",
+                        value=status_filter or None,
+                    ),
                 ),
+                columns={"base": 1, "md": 3},
+                gap="sm",
             ),
-            submit_button("Filter", variant="secondary", small=True),
-            class_="filter-form",
+            ActionGroup(submit_button("Filter", variant="secondary", small=True), align="end"),
             action=form_action(request, "admin/users"),
             method="get",
             aria={"label": "Filter users"},
@@ -296,9 +304,12 @@ def invitation_panel(
                 html.div(
                     html.button(
                         "Revoke",
-                        class_="hedron-button hedron-button-danger button-small",
+                        class_="hedron-button hedron-button-danger",
                         type="button",
-                        data={"hedron-dialog-open": f"#{dialog_id}"},
+                        data={
+                            "hedron-dialog-open": f"#{dialog_id}",
+                            "hedron-size": "sm",
+                        },
                     ),
                     Dialog(
                         "Revoke invitation",
@@ -381,7 +392,7 @@ def invitation_panel(
                     required=True,
                 ),
             ),
-            Button("Send invitation", class_="button-wide", type="submit"),
+            Button("Send invitation", width="full", type="submit"),
             action=form_action(request, "admin/invitations"),
             method="post",
             **hx_attrs(

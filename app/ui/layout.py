@@ -10,9 +10,12 @@ from hedron import (
     AppShell,
     Badge,
     Container,
+    EnvironmentBanner,
     Fragment,
+    HtmxLink,
     Inline,
     Nav,
+    NavStatus,
     OobUpdate,
     Page,
     PageHeader,
@@ -26,7 +29,7 @@ from hedron_core.builtins import BusyRegion, RequestIndicator, SkipLink, SwapRev
 from app.config import Settings
 from app.dependencies import AuthContext
 from app.ui.forms import csrf_hidden, submit_button
-from app.ui.urls import asset_href, form_action, hx_attrs, page_href
+from app.ui.urls import asset_href, form_action, page_href
 
 INDICATOR = "#global-request-indicator"
 
@@ -108,23 +111,18 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
         active = (
             "active" if normalized == href_norm or normalized.startswith(f"{href_norm}/") else ""
         )
-        return html.a(
-            html.span(number, aria={"hidden": "true"}),
-            f" {label}",
-            class_=f"nav-link {active}".strip(),
-            href=page_href(request, href),
-            **hx_attrs(
-                request,
-                method="get",
-                path=href.lstrip("/"),
-                target="#main-panel",
-                swap="outerHTML",
-                push_url=True,
-                select="#main-panel",
-                disabled_elt="#side-nav a.nav-link",
-                indicator=INDICATOR,
-                hx_ext="preload",
-            ),
+        return HtmxLink(
+            f"{number} · {label}",
+            page_href(request, href),
+            target="#main-panel",
+            swap="outerHTML",
+            push_url=True,
+            select="#main-panel",
+            disabled_elt="#side-nav",
+            indicator=INDICATOR,
+            preload="mouseover",
+            active=bool(active),
+            class_="nav-link",
         )
 
     children: list[NodeLike] = [
@@ -137,13 +135,6 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
         children.append(html.p("Administration", class_="nav-label nav-label-spaced"))
         children.append(link("/admin/users", "04", "Team"))
         children.append(link("/admin/audit", "05", "Activity"))
-    children.append(
-        html.div(
-            html.span(class_="status-dot", aria={"hidden": "true"}),
-            html.div(html.strong("Sandbox healthy"), html.small("Credentials encrypted")),
-            class_="nav-status",
-        )
-    )
     return children
 
 
@@ -154,6 +145,15 @@ def side_nav(request: Request, auth: AuthContext) -> Nav:
         id="side-nav",
         class_="side-nav",
         aria={"label": "Account navigation"},
+    )
+
+
+def shell_nav_footer() -> NavStatus:
+    """Use Hedron's typed AppShell status slot for workspace health."""
+    return NavStatus(
+        "Sandbox healthy · Credentials encrypted",
+        tone="success",
+        mark="●",
     )
 
 
@@ -212,29 +212,33 @@ def app_shell(
             nav=side_nav(request, auth),
             body=main_panel(*body),
             panel_id="main-content",
-            banner=Container(
-                html.span("▦", class_="flag-mark", aria={"hidden": "true"}),
-                html.span("Controlled workspace · Transfers are simulated in demo mode"),
-                class_="page-width banner-inner",
+            banner=EnvironmentBanner(
+                "Controlled workspace · Transfers are simulated in demo mode",
+                tone="info",
+                mark="▦",
             ),
             brand=brand,
             env_badge=environment_badge,
             account=(account_summary(request, auth, csrf_token=csrf_token) if csrf_token else None),
+            nav_footer=shell_nav_footer(),
             app_footer=Container(
                 html.span(settings.app_name),
                 html.span("Demo environment · No remote systems are contacted"),
-                class_="page-width footer-inner",
+                class_="footer-inner",
             ),
             content_width="wide",
         )
     else:
         banner = Container(
-            html.span("▦", class_="flag-mark", aria={"hidden": "true"}),
-            html.span("Controlled workspace · Transfers are simulated in demo mode"),
-            class_="page-width banner-inner",
+            EnvironmentBanner(
+                "Controlled workspace · Transfers are simulated in demo mode",
+                tone="info",
+                mark="▦",
+            ),
+            class_="banner-inner",
         )
         header = html.header(
-            Container(brand, environment_badge, class_="page-width header-inner"),
+            Container(brand, environment_badge, class_="header-inner"),
             class_="site-header",
         )
         content = html.main(*body, id="main-content", class_="auth-main", tabindex="-1")
@@ -242,7 +246,7 @@ def app_shell(
             Container(
                 html.span(settings.app_name),
                 html.span("Demo environment · No remote systems are contacted"),
-                class_="page-width footer-inner",
+                class_="footer-inner",
             ),
             class_="site-footer",
         )

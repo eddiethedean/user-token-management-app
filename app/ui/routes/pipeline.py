@@ -664,8 +664,11 @@ def _saved_pipeline_cards(
                     html.button(
                         "Load",
                         type="button",
-                        class_="hedron-button hedron-button-secondary button-small",
-                        data=_saved_pipeline_data(pipeline),
+                        class_="hedron-button hedron-button-secondary",
+                        data={
+                            **_saved_pipeline_data(pipeline),
+                            "hedron-size": "sm",
+                        },
                         **hx_attrs(
                             request,
                             method="get",
@@ -688,8 +691,11 @@ def _saved_pipeline_cards(
                         html.button(
                             "Run now",
                             type="submit",
-                            class_="hedron-button hedron-button-secondary button-small",
-                            data=_saved_pipeline_data(pipeline, run=True),
+                            class_="hedron-button hedron-button-secondary",
+                            data={
+                                **_saved_pipeline_data(pipeline, run=True),
+                                "hedron-size": "sm",
+                            },
                             disabled=not runnable,
                             title=(
                                 "Reconnect this pipeline's source and destination before running it."
@@ -1030,7 +1036,7 @@ def _pipeline_body(
                         Button(
                             "Save pipeline",
                             variant="secondary",
-                            class_="button-small",
+                            size="sm",
                             type="submit",
                         ),
                         html.button(

@@ -84,10 +84,37 @@ button, a { -webkit-tap-highlight-color: transparent; }
 :focus-visible { outline: 3px solid #f8cd68; outline-offset: 3px; }
 ::selection { color: white; background: rgba(133, 135, 255, 0.52); }
 
-.page-width { width: min(1360px, calc(100% - 48px)); margin-inline: auto; }
-
 .banner-inner { min-height: 32px; display: flex; align-items: center; gap: 9px; }
-.flag-mark { color: var(--amber); font-size: 0.78rem; }
+.hedron-environment-banner {
+  border: 1px solid rgba(166, 167, 255, 0.2);
+  border-radius: 14px;
+  background: linear-gradient(100deg, rgba(53, 63, 133, 0.78), rgba(27, 70, 84, 0.58));
+  box-shadow: 0 14px 32px rgba(7, 12, 28, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.hedron-environment-banner::before {
+  color: var(--amber);
+  content: attr(data-hedron-mark);
+  font-size: 0.78rem;
+}
+.hedron-app-shell-banner {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.hedron-nav-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hedron-nav-status::before {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--teal);
+  box-shadow: 0 0 0 4px rgba(57, 214, 191, 0.11), 0 0 18px rgba(57, 214, 191, 0.45);
+  content: "";
+}
 
 .site-header {
   position: relative;
@@ -161,15 +188,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .nav-label { margin: 4px 0 9px 11px; color: #74829e; font-size: 0.63rem; font-weight: 850; letter-spacing: 0.15em; text-transform: uppercase; }
 .nav-label-spaced { margin-top: 28px; }
 .nav-link { position: relative; display: flex; align-items: center; gap: 11px; margin-bottom: 4px; padding: 10px 11px; border: 1px solid transparent; border-radius: 10px; color: #aeb8cf; font-size: 0.82rem; font-weight: 700; text-decoration: none; transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease, transform 0.16s ease; }
-.nav-link span { width: 23px; height: 23px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 7px; color: #7f8da8; background: rgba(255, 255, 255, 0.035); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.6rem; }
 .nav-link:hover { color: white; background: rgba(133, 135, 255, 0.08); border-color: rgba(133, 135, 255, 0.16); text-decoration: none; transform: translateX(2px); }
 .nav-link.active { color: white; background: linear-gradient(115deg, rgba(133, 135, 255, 0.26), rgba(133, 135, 255, 0.11)); border-color: rgba(166, 167, 255, 0.28); box-shadow: 0 10px 26px rgba(57, 53, 150, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.08); }
-.nav-link.active span { color: #dedfff; border-color: rgba(166, 167, 255, 0.28); background: rgba(133, 135, 255, 0.17); }
-.nav-status { display: flex; align-items: flex-start; gap: 10px; margin-top: 30px; padding: 14px 10px 4px; border-top: 1px solid var(--line); color: #aeb8ce; }
-.nav-status strong, .nav-status small { display: block; }
-.nav-status strong { font-size: 0.69rem; }
-.nav-status small { margin-top: 2px; color: #74819b; font-size: 0.63rem; }
-.status-dot { display: inline-block; width: 8px; height: 8px; flex: 0 0 auto; margin-top: 4px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 4px rgba(57, 214, 191, 0.11), 0 0 18px rgba(57, 214, 191, 0.45); }
 
 .auth-intro h1, .auth-card h1, .auth-card h2 { font-family: var(--font-display); }
 .eyebrow, .section-number { margin: 0 0 9px !important; color: var(--teal) !important; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.65rem !important; font-weight: 850; letter-spacing: 0.15em; text-transform: uppercase; }
@@ -181,8 +201,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .identity-panel > p { margin: 0; color: var(--muted); font-size: 0.78rem; word-break: break-word; }
 
 .field-full { grid-column: 1 / -1; }
-.button-small { min-height: 32px; padding: 6px 10px; font-size: 0.67rem; }
-.button-wide { width: 100%; }
+.hedron-button[data-hedron-size="sm"] { min-height: 32px; padding: 6px 10px; font-size: 0.67rem; }
 .auth-main { position: relative; flex: 1; overflow: hidden; background: radial-gradient(700px 540px at 10% 35%, rgba(105, 103, 232, 0.23), transparent 68%), radial-gradient(620px 460px at 86% 48%, rgba(57, 214, 191, 0.08), transparent 70%); }
 .auth-main::before, .auth-main::after { position: absolute; z-index: 0; border-radius: 50%; filter: blur(2px); pointer-events: none; content: ""; }
 .auth-main::before { width: 430px; height: 430px; top: -280px; right: 14%; border: 1px solid rgba(166, 167, 255, 0.12); box-shadow: 0 0 100px rgba(133, 135, 255, 0.08); }
@@ -257,10 +276,6 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .pending-row strong { max-width: 205px; overflow: hidden; font-size: 0.82rem; text-overflow: ellipsis; white-space: nowrap; }
 .pending-row small { color: var(--muted); font-size: 0.75rem; }
 
-.filter-form { display: flex; align-items: end; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-small); background: var(--paper-soft); }
-.filter-form > div, .filter-form > .hedron-form-field { flex: 1 1 170px; }
-.filter-form label { display: block; margin-bottom: 5px; color: var(--muted-strong); font-size: 0.78rem; font-weight: 750; }
-.filter-form input, .filter-form select { width: 100%; min-height: 39px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 9px; color: var(--ink); background: rgba(6, 11, 24, 0.54); }
 code { padding: 2px 6px; border: 1px solid var(--line); border-radius: 6px; color: #c9cbff; background: rgba(133, 135, 255, 0.07); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.66rem; }
 
 .site-footer { margin-top: auto; border-top: 1px solid var(--line); color: #8f9bb3; background: rgba(4, 8, 17, 0.72); font-size: 0.75rem; }
@@ -300,9 +315,10 @@ form.htmx-request .button-action::after,
 }
 
 @media (max-width: 900px) {
-  .side-nav { position: static; display: flex; gap: 5px; overflow-x: auto; padding: 8px; }
-  .side-nav .nav-label, .nav-status { display: none; }
-  .nav-link { flex: 0 0 auto; margin: 0; }
+  .side-nav { position: static; }
+  .side-nav .nav-label { display: none; }
+  .hedron-app-shell-nav-footer { display: none; }
+  .nav-link { margin: 0; }
   .nav-link:hover { transform: none; }
   .auth-layout { gap: 34px; min-height: auto; padding-block: 48px; }
   .auth-intro { text-align: center; }
@@ -315,7 +331,6 @@ form.htmx-request .button-action::after,
 }
 
 @media (max-width: 660px) {
-  .page-width { width: min(100% - 24px, 1220px); }
   .header-inner { min-height: 72px; }
   .account-copy { display: none; }
   .brand small { display: none; }
@@ -346,6 +361,14 @@ form.htmx-request .button-action::after,
 
 @supports not (backdrop-filter: blur(1px)) {
   .site-header, .side-nav, .hedron-card, .auth-card, .trust-list > div { background-color: #111a31; }
+}
+
+/* ---- Authenticated Hedron shell polish ---- */
+body:has(.hedron-app-shell) {
+  padding: 16px 24px 24px;
+}
+body:has(.hedron-app-shell) > .hedron-app-shell {
+  margin-top: 0;
 }
 
 /* ---- Data Mover data-movement workspace ---- */
@@ -432,6 +455,7 @@ form.htmx-request .button-action::after,
 .provider-logo-target { color: #aef2e8; border-color: rgba(57, 214, 191, 0.23); background: linear-gradient(145deg, rgba(57, 214, 191, 0.18), rgba(133, 135, 255, 0.09)); }
 .node-kicker { margin: 0 !important; color: #75839e !important; font-size: 0.57rem !important; font-weight: 850; letter-spacing: 0.13em; text-transform: uppercase; }
 .provider-node .hedron-description-list dd { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-node .hedron-description-list dd > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: inherit; }
 
 .transfer-link { position: relative; z-index: 1; min-width: 0; text-align: center; }
 .transfer-track { position: relative; height: 44px; }
@@ -510,6 +534,7 @@ form.htmx-request .button-action::after,
   .run-history-list { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 600px) {
+  body:has(.hedron-app-shell) { padding: 12px; }
   .pipeline-builder, .run-monitor, .run-history { padding: 20px; }
   .pipeline-section-heading { flex-direction: column; }
   .builder-actions { width: 100%; }

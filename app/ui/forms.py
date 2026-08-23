@@ -39,10 +39,6 @@ def submit_button(
         native_variant = "secondary"
     else:
         native_variant = "primary"
-    if wide:
-        classes.append("button-wide")
-    if small:
-        classes.append("button-small")
     existing = attrs.pop("class_", None)
     if existing:
         classes.append(str(existing))
@@ -51,6 +47,8 @@ def submit_button(
         class_=" ".join(classes) or None,
         type=cast(Literal["button", "submit", "reset"], type),
         variant=cast(Literal["primary", "secondary", "danger"], native_variant),
+        size="sm" if small else None,
+        width="full" if wide else None,
         **attrs,
     )
     return apply_action_recipe(button, variant=native_variant)

@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased / Hedron 0.59.0] — 2026-08-22
+
+### Changed
+- Migrated the shared shell, typed controls, navigation, sizing, and pipeline presentation to
+  the Hedron 0.59 contract while preserving Data Mover routes, CSRF, HTMX behavior, and domain
+  execution ownership.
+
 All notable changes to Data Mover are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

@@ -148,7 +148,7 @@ def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) 
         ),
         LinkButton(
             "Manage connections",
-            class_="button-wide",
+            width="full",
             href=page_href(request, "/security"),
         ),
         **attrs,

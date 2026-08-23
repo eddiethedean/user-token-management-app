@@ -13,6 +13,7 @@ from hedron import (
     ErrorState,
     Form,
     FormField,
+    FormGrid,
     Lazy,
     Loading,
     Section,
@@ -64,7 +65,8 @@ def audit_refresh_button(
         html.button(
             "Refresh",
             type="button",
-            class_="hedron-button hedron-button-secondary button-small",
+            class_="hedron-button hedron-button-secondary",
+            data={"hedron-size": "sm"},
             **hx_attrs(
                 request,
                 path=path,
@@ -147,49 +149,56 @@ def audit_results(
 
 def _audit_filter_form(request: Request, event_type_filter: str, outcome_filter: str) -> Form:
     return Form(
-        FormField(
-            name="event_type",
-            label="Event type",
-            id="event-type-filter",
-            control=TextInput(
-                "event_type",
+        FormGrid(
+            FormField(
+                name="event_type",
+                label="Event type",
                 id="event-type-filter",
-                value=event_type_filter,
-                placeholder="auth.login",
-                autocomplete="off",
-            ),
-        ),
-        FormField(
-            name="outcome",
-            label="Outcome",
-            id="outcome-filter",
-            control=TextInput(
-                "outcome",
-                id="outcome-filter",
-                value=outcome_filter,
-                placeholder="success",
-                autocomplete="off",
-            ),
-        ),
-        submit_button("Apply filters", variant="secondary", small=True),
-        (
-            html.a(
-                "Clear",
-                class_="hedron-button hedron-button-secondary button-small",
-                href=page_href(request, "admin/audit"),
-                **hx_attrs(
-                    request,
-                    method="get",
-                    path="admin/audit",
-                    target="#audit-results-region",
-                    push_url=True,
-                    indicator=INDICATOR,
+                control=TextInput(
+                    "event_type",
+                    id="event-type-filter",
+                    value=event_type_filter,
+                    placeholder="auth.login",
+                    autocomplete="off",
                 ),
-            )
-            if event_type_filter or outcome_filter
-            else html.div()
+            ),
+            FormField(
+                name="outcome",
+                label="Outcome",
+                id="outcome-filter",
+                control=TextInput(
+                    "outcome",
+                    id="outcome-filter",
+                    value=outcome_filter,
+                    placeholder="success",
+                    autocomplete="off",
+                ),
+            ),
+            columns={"base": 1, "md": 3},
+            gap="sm",
         ),
-        class_="filter-form",
+        ActionGroup(
+            submit_button("Apply filters", variant="secondary", small=True),
+            (
+                html.a(
+                    "Clear",
+                    class_="hedron-button hedron-button-secondary",
+                    data={"hedron-size": "sm"},
+                    href=page_href(request, "admin/audit"),
+                    **hx_attrs(
+                        request,
+                        method="get",
+                        path="admin/audit",
+                        target="#audit-results-region",
+                        push_url=True,
+                        indicator=INDICATOR,
+                    ),
+                )
+                if event_type_filter or outcome_filter
+                else html.div()
+            ),
+            align="end",
+        ),
         action=form_action(request, "admin/audit"),
         method="get",
         aria={"label": "Filter audit events"},
