@@ -451,7 +451,7 @@ def test_htmx_unauthenticated_redirect_and_admin_error_retarget(client) -> None:
         headers={"HX-Request": "true", "HX-Target": "#user-directory-body"},
     )
     assert rejected.status_code == 400
-    assert rejected.headers.get("HX-Retarget") == "#global-feedback"
+    assert rejected.headers.get("HX-Retarget") == "#hedron-toast"
     assert rejected.headers.get("HX-Reswap") == "innerHTML"
     assert "cannot disable your own account" in rejected.text.lower()
     assert "<html" not in rejected.text.lower()

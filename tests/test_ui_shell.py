@@ -83,10 +83,10 @@ def test_document_head_can_disable_custom_theme() -> None:
     assert "/assets/theme.css" not in rendered
 
 
-def test_hedron_058_design_system_and_action_recipe() -> None:
+def test_hedron_059_design_system_and_action_recipe() -> None:
     plan = DATA_MOVER_DESIGN.explain()
     assert plan.schema == "hedron.design-system-plan/1"
-    assert plan.logical_id == "design:aurora"
+    assert plan.logical_id == "design:data-mover"
     assert {recipe["name"] for recipe in plan.recipes} == {
         "data-mover-primary-action",
         "data-mover-secondary-action",
@@ -95,6 +95,8 @@ def test_hedron_058_design_system_and_action_recipe() -> None:
         "data-mover-auth-panel",
         "data-mover-inset",
         "data-mover-compact-data",
+        "data-mover-operational-status",
+        "data-mover-supporting-copy",
     }
     rendered = render_html(submit_button("Run transfer"))
     assert 'data-hedron-appearance="solid"' in rendered
@@ -425,7 +427,7 @@ def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
     ]
     assert Counter(route.kind for route in routes) == {
         "page": 13,
-        "action": 24,
+        "action": 25,
         "component": 2,
     }
     assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)
@@ -458,7 +460,6 @@ def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:
     assert_html_contains(adapter, "security-tabs")
     assert_html_contains(adapter, "hx-swap-oob")
     assert "<!doctype" not in security.text.lower()
-    assert 'class="site-header"' not in security.text
     assert security.headers.get("HX-Push-Url")
 
 

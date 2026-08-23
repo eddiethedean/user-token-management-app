@@ -20,13 +20,13 @@ subsystems.
 | Diagnostics | `make hedron-check` fails on Hedron warnings or errors, and `python -m hedron --app app.main:app routes` exposes the registered UI contract. |
 | 0.56 security plane | Data Mover publishes the `hedron-security-1` control-plane profile, bounded request budgets, and deny-by-default egress posture while retaining ownership of CSRF and response headers. |
 | Security posture | `make hedron-security-check` produces a strict SARIF posture report for CI/security review. |
-| 0.57/0.58 presentation contract | Layout gaps use Hedron's named CSP-safe tokens; the app supplies a Data Mover `DesignSystem` based on Aurora, named control/surface/data `StyleRecipe`s, and an explicit authenticated-workspace `StyleScope`. |
-| 0.58.1 release train | Runtime and Posit integration are pinned to `>=0.58.1,<0.59`; the 0.58.1 patch is verified against the existing route, interaction, security, and deployment boundaries. |
-| Native styling | The shell uses the built-in `aurora` theme plus `AppShell`, `Container`, `PageHeader`, `SkipLink`, and `RequestIndicator`; shared surfaces, grids, actions, controls, alerts, badges, tabs, tables, workflow steps, and statuses use Hedron components. Named recipes now own the common card/auth/inset surface and compact data-view treatments; custom CSS remains for brand chrome, auth composition, credential-field details, and transfer-specific visuals. |
+| 0.60 presentation contract | The app's `data-mover` brand is authored with Hedron `Color`, `ThemeBuilder`, validated `ThemeSpec`, accessibility modes, theme variants, typed recipe families, named control/surface/data/status/content recipes, and scoped auth/workspace recipe defaults. |
+| 0.60.0 release train | Runtime and Posit integration are pinned to `>=0.60.0,<0.61`; the 0.60 pass is verified against route, interaction, security, and deployment boundaries. |
+| Native styling | `AppShell`, `Container`, `PageHeader`, `SkipLink`, `RequestIndicator`, typed buttons, links, grids, actions, alerts, badges, tabs, tables, dialogs, `Avatar`, `ConnectorFlow`, `ConnectorNode`, `ConnectorTrack`, `ProcessFlow`, `ScrollRegion`, `ThemePicker`, and `Status` own the UI structure and behavior. `app/static/theme.css` is now an empty compatibility asset; Hedron owns every rendered style rule. |
 | Testing | Hedron page/fragment fixtures, render assertions, interaction assertions, target/region checks, and route-registry coverage. |
 
 | 0.50/0.50.1 feature baseline | Required Hedron runtime includes action chaining, submit gates, long-running run-state, and lazy/toast/history primitives used by Data Mover. |
-| 0.58 runtime cleanup | Removed the pre-0.58 HTMX asset-order and `data-hx-*` compatibility shims; current `hx-*` attributes use Hedron-safe `SafeUrl` values directly. |
+| Runtime cleanup | The pre-0.58 HTMX asset-order and `data-hx-*` compatibility shims are gone; current `hx-*` attributes use Hedron-safe `SafeUrl` values directly. |
 
 ## Deliberate boundaries
 
@@ -34,8 +34,8 @@ subsystems.
   application has server-side refresh-session revocation, security-version invalidation,
   pre-authentication CSRF, proxy trust rules, and a product-specific CSP.
 - Hedron default styles are always loaded so native components remain usable without the
-  product layer. Data Mover's custom theme is enabled by default and may be disabled for
-  compatibility experiments with `CUSTOM_THEME_ENABLED=false`.
+  product layer. Data Mover's registered Hedron theme is enabled by default; the
+  `CUSTOM_THEME_ENABLED=false` switch now only omits the empty compatibility asset.
 - Explorer stays off in production to avoid exposing a component-development surface.
 - Caching is not used for authenticated pages or secret-adjacent fragments; responses are
   `no-store` by design.
@@ -47,25 +47,30 @@ subsystems.
   product requirements. Add one only with a concrete feature need and a security review.
 - `hedron-native` acceleration is optional and unnecessary at the current rendering volume.
 
-## 0.58.1 status update
+## 0.60.0 status update
 
-Data Mover is pinned to Hedron 0.58.1 and the compatible 0.58 train. The app deliberately keeps its existing
+Data Mover is pinned to Hedron 0.60.0 and the compatible 0.60 train. The app deliberately keeps its existing
 application-owned CSRF/session and response-header middleware, but opts into the new shared
 security-plane composition metadata so Hedron diagnostics and future integrations see the same
 control-plane posture. The request budget is intentionally bounded to the app's 5 MiB upload
 limit and current long-running UI responses; connector-specific egress allowlists remain owned by
 the provider credential/configuration layer rather than being guessed globally.
 
-The 0.58 presentation layer is now active as well: the Data Mover `DesignSystem` uses Hedron's
-bundled Aurora theme while exposing named control, surface, and data recipes to explanation and
-style tooling. Cards, auth panels, credential surfaces, and compact tables apply those recipes;
-`StyleScope` marks the authenticated workspace's theme and density boundary.
-The app also uses the 0.57/0.58 named gap vocabulary so strict-CSP rendering fails closed on
+The 0.60 presentation layer is active: the Data Mover brand compiler starts from Hedron's bundled
+Aurora theme with an OKLCH accent, then passes through an immutable `ThemeSpec` with aliases,
+groups, flow recipes, forced-colors/more-contrast modes, metadata, and workflow conformance
+validation before bridging to the runtime `Theme`. `StyleScope` marks the authenticated
+workspace and auth density boundaries and carries explicit recipe defaults.
+The app also uses the named gap vocabulary so strict-CSP rendering fails closed on
 unsupported ad-hoc layout values.
 
-Run `make hedron-security-check` after installing the 0.58.1 environment.
+Authenticated pages now expose Hedron's server-first `ThemePicker` for the allowlisted
+`data-mover` and `aurora` themes plus system/light/dark modes. Host-owned cookies persist the
+preference, while the page emits native theme markers before content renders.
 
-## 0.58 styling audit
+Run `make hedron-security-check` after installing the 0.60.0 environment.
+
+## 0.60 styling audit
 
 The established visual pass, validated against the checked-out Hedron source rather than cached
 documentation, moved the remaining standard composition patterns onto Hedron's first-class
@@ -90,7 +95,7 @@ A second desktop inspection replaced additional product CSS with mature built-in
 - static administration tables use `TableColumn` width/alignment metadata, compact density,
   sticky headers, zebra rows, and Hedron's own scroll container.
 
-The follow-up 0.58.1 styling pass moved the remaining reusable surface primitives onto Hedron's
+The follow-up 0.60 styling pass moved the remaining reusable surface primitives onto Hedron's
 recipe vocabulary:
 
 - `data-mover-panel` owns the shared raised Card contract for pipeline, account, connection, and
@@ -99,39 +104,30 @@ recipe vocabulary:
 - `data-mover-inset` owns credential-card surface treatment through Hedron `Surface`; and
 - `data-mover-compact-data` owns compact, horizontally scrollable admin/CSV table behavior.
 
-The product stylesheet remains appropriate for brand chrome, auth layout composition, credential
-field details, and the transfer-specific provider, packet, telemetry, and log visuals. The audit
-also identified framework gaps that still force custom CSS or raw upload markup:
+The product stylesheet now contains no CSS rules. Brand subtitle overflow, toast placement,
+pipeline canvas texture/minimum size/overflow, bounded run-log scrolling, forced-colors, and
+contrast modes are native Hedron 0.60. Auth composition, credentials, cards, controls, shell
+chrome, responsive layout, accessibility media, print behavior, and request-error placement are
+native Hedron.
+The 0.60 release closes the custom-theme gaps reported during this migration:
 
-- [#558](https://github.com/eddiethedean/hedron/issues/558) — CSP-safe layout spacing;
-- [#559](https://github.com/eddiethedean/hedron/issues/559) — responsive grid tracks and spans;
-- [#560](https://github.com/eddiethedean/hedron/issues/560) — Card/Section surface appearance;
-- [#561](https://github.com/eddiethedean/hedron/issues/561) — production FileUpload composition;
-- [#562](https://github.com/eddiethedean/hedron/issues/562) — text overflow and line clamps; and
-- [#563](https://github.com/eddiethedean/hedron/issues/563) — compact/live Status variants.
-
-The inspection also produced six higher-level presentation requests for the remaining reusable
-product CSS:
-
-- [#564](https://github.com/eddiethedean/hedron/issues/564) — typed AppShell brand, account,
-  environment, and navigation-status chrome;
-- [#565](https://github.com/eddiethedean/hedron/issues/565) — richer ProcessFlow step kinds, slots,
-  and connector states;
-- [#566](https://github.com/eddiethedean/hedron/issues/566) — complete static Table responsive,
-  row-state, and action presentation APIs;
-- [#567](https://github.com/eddiethedean/hedron/issues/567) — semantic ResourceList/ResourceRow
-  primitives;
-- [#568](https://github.com/eddiethedean/hedron/issues/568) — shared appearance vocabulary across
-  built-ins; and
-- [#569](https://github.com/eddiethedean/hedron/issues/569) — core Avatar and identity primitives.
+- [#627](https://github.com/eddiethedean/hedron/issues/627) — native Brand subtitle constraints;
+- [#628](https://github.com/eddiethedean/hedron/issues/628) — native ToastHost placement;
+- [#629](https://github.com/eddiethedean/hedron/issues/629) — themed ConnectorFlow canvas;
+- [#630](https://github.com/eddiethedean/hedron/issues/630) — bounded ScrollRegion;
+- [#631](https://github.com/eddiethedean/hedron/issues/631) — scoped recipe defaults;
+- [#632](https://github.com/eddiethedean/hedron/issues/632) — extensible typed recipe families;
+- [#633](https://github.com/eddiethedean/hedron/issues/633) — modern color-space inputs;
+- [#634](https://github.com/eddiethedean/hedron/issues/634) — forced-colors and contrast modes; and
+- [#635](https://github.com/eddiethedean/hedron/issues/635) — native persisted theme selection.
 
 Do not rely on arbitrary `gap=` lengths while the standard CSP remains `style-src 'self'`.
-Hedron 0.58 rejects unsupported values and emits named spacing markers that remain safe under
+Hedron 0.60 rejects unsupported values and emits named spacing markers that remain safe under
 the policy. Data Mover's component gaps are now expressed as `xs`/`sm`/`md`/`lg`/`xl` tokens.
 
 ## Progressive-feature boundary
 
-The 0.58 beginner facades were evaluated against Data Mover's existing authorities:
+The 0.60 beginner facades were evaluated against Data Mover's existing authorities:
 
 - `DesignSystem`, `StyleRecipe`, and `StyleScope` fit and are enabled.
 - `screen` and `form_command` are appropriate for future simple pages and commands, but the
@@ -149,7 +145,7 @@ The 0.58 beginner facades were evaluated against Data Mover's existing authoriti
 - `DashboardWorkspace`/`DataWorkspace` are not enabled because provider catalogs and pipeline
   ownership are not generic CRUD/data-source surfaces.
 
-This keeps the 0.58 progressive layer additive without introducing a second authority for
+This keeps the 0.60 progressive layer additive without introducing a second authority for
 authorization, storage, workers, or external connector access.
 
 ## 0.50.1 status update
@@ -177,11 +173,10 @@ CUSTOM_THEME_ENABLED=false make demo
 ```
 
 This omits `app/static/theme.css`; Hedron's bundled `hedron-default.css` remains active. Shared
-structure and controls are rendered by native Hedron components, so the application remains usable
-without the product stylesheet. The product stylesheet concentrates on brand/auth composition,
-credential-field details, transfer diagrams, provider identity, and compact/wide sizing hooks.
+structure, controls, identity, and feedback are rendered by native Hedron components, so the
+application remains fully usable without any product stylesheet.
 
-The 0.58 migration now uses Hedron's first-class skip link, request indicator, application shell,
+The 0.60 migration now uses Hedron's first-class skip link, request indicator, application shell,
 page header, cards, grids, action groups, buttons, process flow, and statuses. These replace the
 previous generic CSS implementations.
 

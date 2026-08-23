@@ -6,7 +6,9 @@ from fastapi import Request
 from hedron import (
     ActionGroup,
     FormField,
+    Grid,
     Heading,
+    Inline,
     LinkButton,
     SplitView,
     Stack,
@@ -23,7 +25,7 @@ from starlette.responses import Response
 from app.config import Settings
 from app.models import Invitation, RegistrationVerification
 from app.security.csrf import issue_preauth_csrf, set_preauth_csrf_cookie
-from app.ui.design_system import surface_card
+from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
 from app.ui.forms import hidden_field, submit_button
 from app.ui.http import auth_card, render_page
 from app.ui.layout import alert_box, app_shell
@@ -45,30 +47,37 @@ def render_login_page(
     federated = settings.authentication_mode == "trusted_header"
 
     def trust_item(title: str, detail: str) -> NodeLike:
-        return html.div(
+        return Inline(
             html.span("✓", aria={"hidden": "true"}),
-            html.p(html.strong(title), html.small(detail)),
+            Stack(html.strong(title), html.small(detail), gap="xs"),
+            gap="sm",
         )
 
     intro = Stack(
         html.p("Secure data operations", class_="eyebrow"),
         Heading("Move data. Keep control.", level=1),
-        Text(
-            "Build dependable routes between your remote systems while your credentials "
-            "stay encrypted and under your control."
+        DATA_MOVER_DESIGN.apply(
+            "data-mover-supporting-copy",
+            Text(
+                "Build dependable routes between your remote systems while your credentials "
+                "stay encrypted and under your control."
+            ),
         ),
         html.div(
-            trust_item(
-                "Bring your own connections",
-                "Use the service credentials already approved for your account.",
+            Grid(
+                trust_item(
+                    "Bring your own connections",
+                    "Use the service credentials already approved for your account.",
+                ),
+                trust_item(
+                    "Secrets stay sealed", "Saved credentials are encrypted and never displayed."
+                ),
+                trust_item(
+                    "Observable by default", "Every transfer has progress, metrics, and a run log."
+                ),
+                columns={"base": 1, "md": 3},
+                gap="sm",
             ),
-            trust_item(
-                "Secrets stay sealed", "Saved credentials are encrypted and never displayed."
-            ),
-            trust_item(
-                "Observable by default", "Every transfer has progress, metrics, and a run log."
-            ),
-            class_="trust-list hedron-stack",
             aria={"label": "Security features"},
         ),
         class_="auth-intro",
@@ -97,7 +106,7 @@ def render_login_page(
             HedronForm(
                 hidden_field("next", next),
                 hidden_field("preauth_csrf_token", preauth),
-                submit_button("Continue with federated sign-in", wide=True),
+                submit_button("Continue with federated sign-in", width="full"),
                 action=form_action(request, "login/federated"),
                 method="post",
             )
@@ -139,7 +148,7 @@ def render_login_page(
                     required=True,
                     autocomplete="current-password",
                 ),
-                submit_button("Sign in securely", wide=True),
+                submit_button("Sign in securely", width="full"),
                 action=form_action(request, "login"),
                 method="post",
             )
@@ -164,7 +173,6 @@ def render_login_page(
         ratio="3:2",
         gap="xl",
         collapse="md",
-        class_="auth-layout",
     )
     page = app_shell(layout, request=request, settings=settings, auth=None, page_title="Sign in")
     response = render_page(page, request=request, status_code=status_code)
@@ -213,7 +221,7 @@ def render_register_page(
                     id="full_name",
                     control=TextInput("full_name", id="full_name", value=full_name),
                 ),
-                submit_button("Submit request", wide=True),
+                submit_button("Submit request", width="full"),
                 action=form_action(request, "register"),
                 method="post",
             )
@@ -293,7 +301,7 @@ def render_verify_page(
                     ),
                 ]
             )
-        fields.append(submit_button("Verify", wide=True))
+        fields.append(submit_button("Verify", width="full"))
         body.append(
             HedronForm(
                 *fields,
@@ -345,7 +353,7 @@ def render_forgot_page(request: Request, settings: Settings, *, success: str = "
                     required=True,
                     control=TextInput("email", id="email", type="email", required=True),
                 ),
-                submit_button("Send reset link", wide=True),
+                submit_button("Send reset link", width="full"),
                 action=form_action(request, "password/forgot"),
                 method="post",
             )
@@ -416,7 +424,7 @@ def render_reset_page(
                         required=True,
                     ),
                 ),
-                submit_button("Update password", wide=True),
+                submit_button("Update password", width="full"),
                 action=form_action(request, "password/reset"),
                 method="post",
             )
@@ -503,7 +511,7 @@ def render_invitation_page(
                     ),
                 ]
             )
-        fields.append(submit_button("Accept invitation", wide=True))
+        fields.append(submit_button("Accept invitation", width="full"))
         body.append(
             HedronForm(
                 *fields,

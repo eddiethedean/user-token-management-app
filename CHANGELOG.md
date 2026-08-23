@@ -1,6 +1,14 @@
 # Changelog
 
-## [Unreleased / Hedron 0.59.0] — 2026-08-22
+## [Unreleased / Hedron 0.60.0] — 2026-08-23
+
+- Upgraded the runtime and Posit integration to Hedron 0.60.0.
+- Added validated 0.60 ThemeSpec authoring with modern color input, accessibility modes, aliases,
+  typed flow recipe-family metadata, and native theme preference selection.
+- Replaced the remaining brand, toast, connector-canvas, and run-log compatibility CSS with
+  Hedron 0.60 built-ins; only server-retargeted request-error placement remains application CSS.
+
+## Hedron 0.59.0 — 2026-08-22
 
 ### Changed
 - Migrated the shared shell, typed controls, navigation, sizing, and pipeline presentation to

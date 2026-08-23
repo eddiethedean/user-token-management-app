@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse
 from hedron import (
     ActionGroup,
     Alert,
+    Avatar,
     Badge,
     Button,
     ConnectorFlow,
@@ -22,6 +23,7 @@ from hedron import (
     Hedron,
     OobUpdate,
     ProcessFlow,
+    ScrollRegion,
     StateView,
     Status,
     Table,
@@ -65,7 +67,7 @@ from app.services.pipeline_runs import (
 )
 from app.services.pipelines import list_pipelines, save_pipeline
 from app.services.secrets import list_user_secrets
-from app.ui.design_system import apply_data_recipe, surface_card
+from app.ui.design_system import DATA_MOVER_DESIGN, apply_data_recipe, surface_card
 from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
 from app.ui.interactions import interaction_response, ok_fragment
@@ -520,10 +522,11 @@ def _provider_node(
         )
     return ConnectorNode(
         label,
-        leading=html.span(
-            mark,
-            class_="hedron-connector-node-mark",
-            aria={"hidden": "true"},
+        leading=Avatar(
+            mark or label,
+            size="md",
+            appearance="soft",
+            shape="rounded",
         ),
         state="ready" if configured else "blocked",
         kind="source" if kind == "source" else "target",
@@ -647,58 +650,56 @@ def _saved_pipeline_cards(
                     f"{pipeline.updated_at.strftime('%b %d, %H:%M')}"
                 ),
                 ActionGroup(
-                    html.button(
+                    Button(
                         "Load",
                         type="button",
-                        class_="hedron-button hedron-button-secondary",
-                        data={
-                            **_saved_pipeline_data(pipeline),
-                            "hedron-size": "sm",
+                        variant="secondary",
+                        size="sm",
+                        attrs={
+                            **{
+                                f"data-{key}": value
+                                for key, value in _saved_pipeline_data(pipeline).items()
+                            },
+                            **hx_attrs(
+                                request,
+                                method="get",
+                                path=f"/pipeline?pipeline_id={pipeline.id}",
+                                target="#main-panel",
+                                swap="outerHTML",
+                                push_url=True,
+                                select="#main-panel",
+                            ),
                         },
-                        **hx_attrs(
-                            request,
-                            method="get",
-                            path=f"/pipeline?pipeline_id={pipeline.id}",
-                            target="#main-panel",
-                            swap="outerHTML",
-                            push_url=True,
-                            select="#main-panel",
-                        ),
                         disabled=not connections_configured,
-                        title=(
-                            "Reconnect this pipeline's source and destination before loading it."
-                            if not connections_configured
-                            else None
-                        ),
                     ),
                     html.form(
                         html.input(type="hidden", name="pipeline_id", value=pipeline.id),
                         html.input(type="hidden", name="csrf_token", value=csrf_token),
-                        html.button(
+                        Button(
                             "Run now",
                             type="submit",
-                            class_="hedron-button hedron-button-secondary",
-                            data={
-                                **_saved_pipeline_data(pipeline, run=True),
-                                "hedron-size": "sm",
+                            variant="secondary",
+                            size="sm",
+                            attrs={
+                                **{
+                                    f"data-{key}": value
+                                    for key, value in _saved_pipeline_data(
+                                        pipeline, run=True
+                                    ).items()
+                                },
+                                **hx_attrs(
+                                    request,
+                                    path="/pipeline/runs",
+                                    method="post",
+                                    target="#pipeline-run-monitor",
+                                    swap="outerHTML",
+                                ),
                             },
                             disabled=not runnable,
-                            title=(
-                                "Reconnect this pipeline's source and destination before running it."
-                                if not connections_configured
-                                else None
-                            ),
                         ),
                         action=form_action(request, "/pipeline/runs"),
                         method="post",
                         id=f"pipeline-run-form-{pipeline.id}",
-                        **hx_attrs(
-                            request,
-                            path="/pipeline/runs",
-                            method="post",
-                            target="#pipeline-run-monitor",
-                            swap="outerHTML",
-                        ),
                     ),
                     gap="xs",
                     collapse="never",
@@ -826,8 +827,9 @@ def _pipeline_preview_fragment(
             **{"hx-swap-oob": "outerHTML:#pipeline-target-detail"},
         ),
         html.span(
-            f"Map {field_count} fields" if field_count else "Map fields",
+            f"{field_count} fields" if field_count else "Choose source",
             id="pipeline-field-map-label",
+            class_="hedron-process-flow-description",
             **{"hx-swap-oob": "outerHTML:#pipeline-field-map-label"},
         ),
         html.div(
@@ -883,6 +885,11 @@ def _pipeline_body(
         else require_catalog_provider(source_provider)
     )
     target_catalog = require_catalog_provider(target_provider) if target_provider else None
+    field_count = (
+        len(loaded_source_inspection.columns)
+        if source_provider == "csv" and loaded_source_inspection is not None
+        else 14
+    )
     source_schema_name = (
         _first_namespace(source_provider) if source_provider != "csv" else "uploaded"
     )
@@ -1025,19 +1032,18 @@ def _pipeline_body(
                             size="sm",
                             type="submit",
                         ),
-                        html.button(
+                        Button(
                             "Run transfer",
-                            class_="hedron-button hedron-button-primary run-transfer-button",
                             type="button",
-                            data={"pipeline-start": "true"},
+                            variant="primary",
+                            size="md",
+                            class_="run-transfer-button",
+                            attrs={
+                                "data-pipeline-start": "true",
+                                **pipeline_run_attrs,
+                                "aria-describedby": "pipeline-availability-note",
+                            },
                             disabled=not initial_run_ready or not pipeline_id,
-                            title=(
-                                "Save this pipeline before running it."
-                                if initial_run_ready and not pipeline_id
-                                else None
-                            ),
-                            **pipeline_run_attrs,
-                            aria={"describedby": "pipeline-availability-note"},
                         ),
                         gap="sm",
                         collapse="never",
@@ -1359,14 +1365,19 @@ def _pipeline_body(
                         ProcessFlow(
                             FlowStep("Extract", status="complete", status_text="Ready"),
                             FlowStep(
-                                "Map 14 fields",
+                                "Map",
+                                html.span(
+                                    f"{field_count} fields" if field_count else "Choose source",
+                                    id="pipeline-field-map-label",
+                                    class_="hedron-process-flow-description",
+                                ),
                                 status="current",
                                 status_text="Configured",
-                                id="pipeline-field-map-label",
                             ),
                             FlowStep("Load", status="pending"),
                             label="Transfer stages",
-                            class_="transfer-stages",
+                            direction="vertical",
+                            collapse="never",
                         ),
                         html.p("TLS 1.3 · Encrypted in transit", class_="transfer-protocol"),
                         label="Transfer stages",
@@ -1388,7 +1399,10 @@ def _pipeline_body(
                     ),
                     direction="horizontal",
                     collapse="md",
-                    class_="pipeline-canvas",
+                    appearance="soft",
+                    background="grid",
+                    overflow="auto",
+                    min_size="md",
                     id="pipeline-canvas",
                 ),
                 html.div(
@@ -1426,7 +1440,10 @@ def _pipeline_body(
                         Heading("Live run", level=2),
                     ),
                     html.div(
-                        Status("Ready", tone="success", live=False, class_="run-status is-ready"),
+                        DATA_MOVER_DESIGN.apply(
+                            "data-mover-operational-status",
+                            Status("Ready", tone="success", live=False),
+                        ),
                         id="pipeline-run-status",
                     ),
                     class_="pipeline-section-heading",
@@ -1439,10 +1456,12 @@ def _pipeline_body(
                         class_="run-log-heading",
                     ),
                     html.div(
-                        html.div(
+                        ScrollRegion(
                             html.p("No run yet. Save a pipeline, then queue a transfer."),
                             id="pipeline-run-log",
-                            class_="run-log-list",
+                            axis="block",
+                            size="sm",
+                            label="Run log",
                         ),
                         id="pipeline-run-monitor",
                     ),
@@ -1865,7 +1884,6 @@ def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
     }
     run_status = (run.status or "idle").lower()
     run_badge_text = "Ready"
-    run_badge_class = "run-status is-ready"
     run_badge_tone = "success"
     if run_status == "succeeded":
         run_badge_text = "Succeeded"
@@ -1879,15 +1897,12 @@ def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
         "verifying",
     }:
         run_badge_text = "Running"
-        run_badge_class = "run-status is-running"
         run_badge_tone = "info"
     elif run_status == "cancelled":
         run_badge_text = "Cancelled"
-        run_badge_class = "run-status is-blocked"
         run_badge_tone = "warning"
     elif run_status in {"failed", "failed_needs_reconciliation"}:
         run_badge_text = "Failed"
-        run_badge_class = "run-status is-blocked"
         run_badge_tone = "danger"
     hx_poll = hx_attrs(
         request,
@@ -1900,7 +1915,10 @@ def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
     )
     return html.div(
         html.div(
-            Status(run_badge_text, tone=run_badge_tone, live=False, class_=run_badge_class),
+            DATA_MOVER_DESIGN.apply(
+                "data-mover-operational-status",
+                Status(run_badge_text, tone=run_badge_tone, live=False),
+            ),
             id="pipeline-run-status",
             **{"hx-swap-oob": "outerHTML:#pipeline-run-status"},
         ),
@@ -1908,10 +1926,12 @@ def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
             f"{run.status} · {run.source_rows} extracted · {run.loaded_rows} loaded",
             id="pipeline-run-summary",
         ),
-        html.ol(
-            *[html.li(event.message) for event in lines],
+        ScrollRegion(
+            html.ol(*[html.li(event.message) for event in lines]),
             id="pipeline-run-log",
-            class_="run-log-list",
+            axis="block",
+            size="sm",
+            label="Run log",
         ),
         id="pipeline-run-monitor",
         **({} if not monitor_active else hx_poll),

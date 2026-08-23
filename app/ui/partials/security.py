@@ -219,19 +219,16 @@ def secret_slot(
                 html.div(
                     Button(
                         "Replace credentials" if configured else "Save connection",
-                        class_="button-action",
                         size="sm",
                         type="submit",
                     ),
                     (
-                        html.button(
+                        Button(
                             "Delete connection",
-                            class_="hedron-button hedron-button-danger",
                             type="button",
-                            data={
-                                "hedron-dialog-open": f"#delete-secret-{provider.name}",
-                                "hedron-size": "sm",
-                            },
+                            variant="danger",
+                            size="sm",
+                            attrs={"data-hedron-dialog-open": f"#delete-secret-{provider.name}"},
                         )
                         if configured
                         else None
@@ -331,7 +328,6 @@ def connection_status_list(
                     Button(
                         "Test connection",
                         variant="secondary",
-                        class_="button-action",
                         size="sm",
                         type="submit",
                     ),
@@ -396,14 +392,12 @@ def session_list(
         else:
             dialog_id = f"revoke-session-{session.id}"
             action_node = html.div(
-                html.button(
+                Button(
                     "Revoke",
-                    class_="hedron-button hedron-button-danger",
                     type="button",
-                    data={
-                        "hedron-dialog-open": f"#{dialog_id}",
-                        "hedron-size": "sm",
-                    },
+                    variant="danger",
+                    size="sm",
+                    attrs={"data-hedron-dialog-open": f"#{dialog_id}"},
                 ),
                 Dialog(
                     "Revoke session",
@@ -549,12 +543,12 @@ def security_activity_error(
 
 def security_activity_refresh(request: Request) -> NodeLike:
     return ActionGroup(
-        html.button(
+        Button(
             "Refresh",
             type="button",
-            class_="hedron-button hedron-button-secondary",
-            data={"hedron-size": "sm"},
-            **hx_attrs(
+            variant="secondary",
+            size="sm",
+            attrs=hx_attrs(
                 request,
                 path="/profile/activity",
                 method="get",

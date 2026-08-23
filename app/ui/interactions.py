@@ -57,13 +57,12 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.AUDIT_MATCH_COUNT,
     region_defs.SECURITY_ACTIVITY,
     region_defs.SECURITY_ACTIVITY_LAZY_BODY,
-    region_defs.GLOBAL_FEEDBACK,
 )
 
 APP_POLICY = InteractionPolicy(
     declared_regions=APP_REGIONS,
     allow_undeclared_targets=False,
-    error_retarget="#global-feedback",
+    error_retarget="#hedron-toast",
     error_reswap="innerHTML",
     indicator="#global-request-indicator",
 )

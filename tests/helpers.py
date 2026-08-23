@@ -154,8 +154,6 @@ def assert_no_document_shell(response: AdapterResponse) -> None:
     """Fragment responses must not re-emit authenticated shell chrome."""
     lower = response.body.lower()
     assert "<html" not in lower
-    assert 'class="site-header"' not in response.body
-    assert 'class="official-banner"' not in response.body
 
 
 def assert_hx_redirect(response: AdapterResponse, contains: str) -> None:

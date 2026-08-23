@@ -22,14 +22,14 @@ def submit_button(
     label: str,
     *,
     variant: str = "primary",
-    wide: bool = False,
-    small: bool = False,
+    size: Literal["sm", "md", "lg"] = "md",
+    width: Literal["content", "field", "full"] | None = None,
     quiet: bool = False,
     danger: bool = False,
     type: str = "submit",
     **attrs: Any,
 ) -> NodeLike:
-    """Render a native Hedron button with optional app-specific sizing."""
+    """Render a typed Hedron button with semantic size and width contracts."""
     classes: list[str] = []
     if quiet:
         native_variant = "secondary"
@@ -47,8 +47,8 @@ def submit_button(
         class_=" ".join(classes) or None,
         type=cast(Literal["button", "submit", "reset"], type),
         variant=cast(Literal["primary", "secondary", "danger"], native_variant),
-        size="sm" if small else None,
-        width="full" if wide else None,
+        size=size,
+        width=width,
         **attrs,
     )
     return apply_action_recipe(button, variant=native_variant)

@@ -66,7 +66,7 @@ def user_table(
                         hidden_field("q", query),
                         hidden_field("status", status_filter),
                         hidden_field("page", str(page)),
-                        Button(label, class_="button-action", size="sm", type="submit"),
+                        Button(label, size="sm", type="submit"),
                         action=form_action(request, f"admin/users/{user.id}/{action}"),
                         method="post",
                         **hx_attrs(
@@ -89,7 +89,6 @@ def user_table(
                 hidden_field("page", str(page)),
                 Button(
                     action_label,
-                    class_="button-action",
                     size="sm",
                     type="submit",
                 ),
@@ -105,14 +104,12 @@ def user_table(
             if is_active:
                 actions.append(
                     html.div(
-                        html.button(
+                        Button(
                             action_label,
-                            class_="hedron-button hedron-button-secondary",
                             type="button",
-                            data={
-                                "hedron-dialog-open": f"#{dialog_id}",
-                                "hedron-size": "sm",
-                            },
+                            variant="secondary",
+                            size="sm",
+                            attrs={"data-hedron-dialog-open": f"#{dialog_id}"},
                         ),
                         Dialog(
                             "Disable account",
@@ -248,7 +245,7 @@ def user_directory(
                 columns={"base": 1, "md": 3},
                 gap="sm",
             ),
-            ActionGroup(submit_button("Filter", variant="secondary", small=True), align="end"),
+            ActionGroup(submit_button("Filter", variant="secondary", size="sm"), align="end"),
             action=form_action(request, "admin/users"),
             method="get",
             aria={"label": "Filter users"},
@@ -302,14 +299,12 @@ def invitation_panel(
             dialog_id = f"revoke-invite-{invitation.id}"
             actions.append(
                 html.div(
-                    html.button(
+                    Button(
                         "Revoke",
-                        class_="hedron-button hedron-button-danger",
                         type="button",
-                        data={
-                            "hedron-dialog-open": f"#{dialog_id}",
-                            "hedron-size": "sm",
-                        },
+                        variant="danger",
+                        size="sm",
+                        attrs={"data-hedron-dialog-open": f"#{dialog_id}"},
                     ),
                     Dialog(
                         "Revoke invitation",

@@ -9,12 +9,14 @@ from fastapi import Request
 from hedron import (
     ActionGroup,
     Badge,
+    Button,
     ComponentRef,
     ErrorState,
     Form,
     FormField,
     FormGrid,
     Lazy,
+    LinkButton,
     Loading,
     Section,
     Stack,
@@ -62,12 +64,12 @@ def audit_refresh_button(
 ) -> NodeLike:
     path = _audit_results_path(request, event_type=event_type, outcome=outcome, page=page)
     return ActionGroup(
-        html.button(
+        Button(
             "Refresh",
             type="button",
-            class_="hedron-button hedron-button-secondary",
-            data={"hedron-size": "sm"},
-            **hx_attrs(
+            variant="secondary",
+            size="sm",
+            attrs=hx_attrs(
                 request,
                 path=path,
                 method="get",
@@ -178,14 +180,14 @@ def _audit_filter_form(request: Request, event_type_filter: str, outcome_filter:
             gap="sm",
         ),
         ActionGroup(
-            submit_button("Apply filters", variant="secondary", small=True),
+            submit_button("Apply filters", variant="secondary", size="sm"),
             (
-                html.a(
+                LinkButton(
                     "Clear",
-                    class_="hedron-button hedron-button-secondary",
-                    data={"hedron-size": "sm"},
                     href=page_href(request, "admin/audit"),
-                    **hx_attrs(
+                    size="sm",
+                    appearance="outline",
+                    attrs=hx_attrs(
                         request,
                         method="get",
                         path="admin/audit",

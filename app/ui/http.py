@@ -16,7 +16,7 @@ from app.config import Settings
 from app.dependencies import AuthContext
 from app.ui.design_system import surface_card
 from app.ui.interactions import interaction_response, ok_fragment
-from app.ui.layout import app_shell, main_panel, side_nav_oob
+from app.ui.layout import app_shell, main_panel, side_nav_oob, theme_preference_for_request
 from app.ui.urls import mounted_path
 
 
@@ -113,10 +113,17 @@ async def render_authenticated_view(
 ) -> Response:
     """Serve main-panel nav fragment or full authenticated document."""
     if is_main_panel_nav(request):
+        preference = theme_preference_for_request(request)
         return await interaction_response(
             request,
             ok_fragment(
-                main_panel(*body),
+                main_panel(
+                    *body,
+                    theme=preference.theme,
+                    color_mode=(
+                        preference.color_mode if preference.color_mode != "system" else None
+                    ),
+                ),
                 oob=(side_nav_oob(request, auth),),
                 push_url=mounted_path(request, push_path),
             ),

@@ -192,7 +192,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
             extra_headers=exc.headers,
             allow_undeclared_targets=True,
         )
-        response.headers["HX-Retarget"] = "#global-feedback"
+        response.headers["HX-Retarget"] = "#hedron-toast"
         response.headers["HX-Reswap"] = "innerHTML"
         return response
     if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS and accepts_html:
@@ -258,7 +258,7 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             allow_undeclared_targets=True,
         )
-        response.headers["HX-Retarget"] = "#global-feedback"
+        response.headers["HX-Retarget"] = "#hedron-toast"
         response.headers["HX-Reswap"] = "innerHTML"
         return response
     page = app_shell(

@@ -164,8 +164,3 @@ SECURITY_ACTIVITY_LAZY_BODY = FragmentRegion(
     selector="#security-activity-body",
     description="Hedron Lazy inner slot for security activity",
 )
-GLOBAL_FEEDBACK = FragmentRegion(
-    id="global-feedback",
-    selector="#global-feedback",
-    description="Global request feedback",
-)

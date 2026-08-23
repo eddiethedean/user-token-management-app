@@ -6,17 +6,16 @@ from typing import Any
 
 from fastapi import Request
 from hedron import (
-    Alert,
     AccountSummary,
-    AppShell,
+    Alert,
     AppFooter,
+    AppShell,
     Badge,
     Brand,
     Container,
     EnvironmentBanner,
     Fragment,
     HtmxLink,
-    Inline,
     Nav,
     NavStatus,
     OobUpdate,
@@ -24,10 +23,20 @@ from hedron import (
     PageHeader,
     Section,
     StyleScope,
+    ThemePicker,
     html,
 )
 from hedron_core import Component, HtmlAttrValue, NodeLike
-from hedron_core.builtins import BusyRegion, RequestIndicator, SkipLink, SwapReveal, ToastHost
+from hedron_core.builtins import (
+    BusyRegion,
+    RequestIndicator,
+    SkipLink,
+    SwapReveal,
+    ThemePreference,
+    ToastHost,
+    resolve_theme_preference,
+    theme_markers,
+)
 
 from app.config import Settings
 from app.dependencies import AuthContext
@@ -35,6 +44,10 @@ from app.ui.forms import csrf_hidden, submit_button
 from app.ui.urls import asset_href, form_action, page_href
 
 INDICATOR = "#global-request-indicator"
+THEME_COOKIE = "data_mover_theme"
+COLOR_MODE_COOKIE = "data_mover_color_mode"
+THEME_CHOICES = ("data-mover", "aurora")
+COLOR_MODE_CHOICES = ("system", "light", "dark")
 
 HTMX_CONFIG = (
     '{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,'
@@ -44,12 +57,29 @@ HTMX_CONFIG = (
 )
 
 
+def theme_preference_for_request(request: Request) -> ThemePreference:
+    """Resolve the allowlisted Hedron 0.60 preference from host-owned cookies."""
+
+    return resolve_theme_preference(
+        request.cookies.get(THEME_COOKIE),
+        request.cookies.get(COLOR_MODE_COOKIE),
+        allowed_themes=THEME_CHOICES,
+    )
+
+
 def document_head(
-    *, request: Request, page_title: str, app_name: str, custom_theme_enabled: bool
+    *,
+    request: Request,
+    page_title: str,
+    app_name: str,
+    custom_theme_enabled: bool,
+    preference: ThemePreference | None = None,
 ) -> Fragment:
+    preference = preference or ThemePreference()
     title = f"{page_title} · {app_name}" if page_title else app_name
+    color_scheme = "light dark" if preference.color_mode == "system" else preference.color_mode
     nodes: list[NodeLike] = [
-        html.meta(name="color-scheme", content="dark"),
+        html.meta(name="color-scheme", content=color_scheme),
         html.meta(name="theme-color", content="#080d1a"),
         html.meta(name="htmx-config", content=HTMX_CONFIG),
         html.title(title),
@@ -76,18 +106,30 @@ def account_summary(
 ) -> NodeLike:
     """Typed account chrome with a real action slot for HTMX OOB updates."""
     user = auth.user
+    preference = theme_preference_for_request(request)
     attrs: dict[str, HtmlAttrValue] = {}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     return AccountSummary(
         user.full_name or user.email_original,
-        detail=user.email_original,
+        detail=user.email_original if user.full_name else None,
         mark_text=(user.full_name or user.email_original or "?")[:1].upper(),
-        action=html.form(
-            csrf_hidden(csrf_token),
-            submit_button("Sign out", quiet=True, small=True),
-            action=form_action(request, "logout"),
-            method="post",
+        action=html.div(
+            ThemePicker(
+                themes=THEME_CHOICES,
+                color_modes=COLOR_MODE_CHOICES,
+                selected=preference,
+                action=form_action(request, "/preferences/theme"),
+                csrf_token=csrf_token,
+                compact=True,
+            ),
+            html.form(
+                csrf_hidden(csrf_token),
+                submit_button("Sign out", quiet=True, size="sm"),
+                action=form_action(request, "logout"),
+                method="post",
+            ),
+            class_="account-actions",
         ),
         id="account-summary",
         class_="account-summary",
@@ -162,7 +204,13 @@ def side_nav_oob(request: Request, auth: AuthContext) -> OobUpdate:
 
 
 def toast_host(*, oob: bool = False) -> NodeLike:
-    host = ToastHost()
+    host = ToastHost(
+        placement="top-end",
+        position="fixed",
+        width="content",
+        max_width="md",
+        gap="sm",
+    )
     if oob:
         return html.div(host, hx_swap_oob="outerHTML")
     return host
@@ -180,16 +228,18 @@ def app_shell(
     page_title: str,
     csrf_token: str = "",
 ) -> Page:
+    preference = theme_preference_for_request(request)
+    markers = theme_markers(preference)
     brand = Brand(
         settings.app_name,
         mark_text="DM",
         subtitle="Secure data movement",
+        subtitle_overflow="truncate",
         class_="brand",
         href=page_href(request, "/"),
         aria={"label": f"{settings.app_name} home"},
     )
     environment_badge = Badge("Sandbox online", tone="success")
-    feedback = html.div(id="global-feedback", class_="global-feedback", aria={"live": "assertive"})
     indicator = RequestIndicator(
         "Working…",
         id="global-request-indicator",
@@ -203,7 +253,11 @@ def app_shell(
     if auth:
         content = AppShell(
             nav=side_nav(request, auth),
-            body=main_panel(*body),
+            body=main_panel(
+                *body,
+                theme=preference.theme,
+                color_mode=(preference.color_mode if preference.color_mode != "system" else None),
+            ),
             panel_id="main-content",
             banner=EnvironmentBanner(
                 "Controlled workspace · Transfers are simulated in demo mode",
@@ -217,7 +271,6 @@ def app_shell(
             app_footer=AppFooter(
                 settings.app_name,
                 html.span("Demo environment · No remote systems are contacted"),
-                class_="footer-inner",
             ),
             content_width="wide",
         )
@@ -228,19 +281,34 @@ def app_shell(
                 tone="info",
                 mark="▦",
             ),
-            class_="banner-inner",
         )
         header = html.header(
-            Container(brand, environment_badge, class_="header-inner"),
-            class_="site-header",
+            Container(brand, environment_badge),
         )
-        content = html.main(*body, id="main-content", class_="auth-main", tabindex="-1")
+        content = StyleScope(
+            html.main(
+                Container(
+                    *body,
+                    query="inline-size",
+                    name="auth",
+                ),
+                id="main-content",
+                tabindex="-1",
+            ),
+            theme=preference.theme,
+            color_mode=preference.color_mode if preference.color_mode != "system" else None,
+            variant="auth",
+            design="data-mover",
+            recipe_defaults={
+                "surface": "data-mover-auth-panel",
+                "content": "data-mover-supporting-copy",
+            },
+        )
         footer = AppFooter(
             settings.app_name,
             html.span("Demo environment · No remote systems are contacted"),
-            class_="site-footer",
         )
-    page_nodes: list[NodeLike] = [skip, feedback, indicator, toast_host(), dialog_host()]
+    page_nodes: list[NodeLike] = [skip, indicator, toast_host(), dialog_host()]
     if auth:
         page_nodes.append(content)
     else:
@@ -248,11 +316,14 @@ def app_shell(
     return Page(
         *page_nodes,
         title=page_title or settings.app_name,
+        data_theme=markers["data-theme"],
+        data_hedron_theme=markers["data-hedron-theme"],
         head=document_head(
             request=request,
             page_title=page_title,
             app_name=settings.app_name,
             custom_theme_enabled=settings.custom_theme_enabled,
+            preference=preference,
         ),
     )
 
@@ -268,14 +339,32 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> PageH
     )
 
 
-def main_panel(*body: NodeLike) -> Component[Any]:
+def main_panel(
+    *body: NodeLike,
+    theme: str = "data-mover",
+    color_mode: str | None = None,
+) -> Component[Any]:
     """Authenticated main panel root used for in-shell HTMX navigation swaps."""
     return BusyRegion(
         SwapReveal(
             StyleScope(
-                Section(*body, id="main-panel", class_="main-panel"),
-                theme="aurora",
+                Container(
+                    Section(*body, id="main-panel"),
+                    query="inline-size",
+                    name="workspace",
+                    class_="main-panel",
+                ),
+                theme=theme,
+                color_mode=color_mode,
                 density="comfortable",
+                variant="workspace",
+                design="data-mover",
+                recipe_defaults={
+                    "control": "data-mover-primary-action",
+                    "surface": "data-mover-panel",
+                    "data": "data-mover-compact-data",
+                    "flow": "data-mover-flow",
+                },
             )
         ),
         scope="document",
