@@ -17,6 +17,12 @@
 
 All notable changes to Data Mover are documented in this file.
 
+Release-note detail is split into the [release-notes index](docs/releases/README.md), including the
+[Data Mover 0.1.0 baseline](docs/releases/data-mover-0.1.0.md), the
+[Hedron 0.60 repository note](docs/releases/data-mover-hedron-0.60.md), the
+[HTMX Framework 0.16 draft](docs/releases/hedron-0.16.0.md), and the
+[ETL Beta review](docs/releases/etl-beta-review.md).
+
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 

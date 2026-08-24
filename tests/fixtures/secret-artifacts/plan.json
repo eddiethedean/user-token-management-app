@@ -1,0 +1,21 @@
+{
+  "pipeline": "readiness-sync",
+  "source": {
+    "provider": "postgres",
+    "secret_ref": {
+      "id": "secret-ref-postgres-01",
+      "provider": "postgres",
+      "context": "pipeline:run",
+      "version": "current"
+    }
+  },
+  "destination": {
+    "provider": "mss",
+    "secret_ref": {
+      "id": "secret-ref-mss-01",
+      "provider": "mss",
+      "context": "pipeline:run",
+      "version": "current"
+    }
+  }
+}

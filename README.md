@@ -1,8 +1,5 @@
 # Data Mover
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-
 Data Mover is a self-hosted data-movement application for organizations that want to
 configure connections, browse remote objects, save pipelines, and run durable transfers
 between MSS, MCS-COP, PostgreSQL, and local CSV files using each user's encrypted credentials.
@@ -56,12 +53,14 @@ pipeline worker contacts configured providers.
 
 ## Screenshots
 
-These screenshots were captured from the local `make demo` environment. Demo connectors are
-simulated, remote endpoints are not contacted, and the images contain no real credentials.
+These full-page desktop screenshots were captured from the local `make demo` environment. Demo
+connectors are simulated, remote endpoints are not contacted, and the images contain no real
+credentials. Each capture includes the shell, navigation, primary content, controls, status details,
+and footer so the complete workflow is visible without relying on a cropped viewport.
 
 ### Pipeline workspace
 
-![Data Mover Pipeline workspace showing a succeeded live transfer](docs/screenshots/pipeline-live.jpg)
+![Full-page Data Mover Pipeline workspace showing a succeeded live transfer, stage cards, metrics, event feed, and Run again action](docs/screenshots/pipeline-live.jpg)
 
 The Pipeline workspace combines route setup, saved routes, and live transfer monitoring. The live
 view shows the source and destination, transfer progress, stage completion, row/byte counters, and
@@ -69,7 +68,7 @@ the persisted event feed that operators can use to understand what happened duri
 
 ### Connection status
 
-![Data Mover Connection status screen showing connected MSS, MCS-COP, and PostgreSQL checks](docs/screenshots/connections-status.jpg)
+![Full-page Data Mover Connection status screen showing connected MSS, MCS-COP, and PostgreSQL checks](docs/screenshots/connections-status.jpg)
 
 The Connection status screen makes readiness explicit. Each provider shows its latest health-check
 result and offers an on-demand **Test connection** action; only connections that are saved and
@@ -77,7 +76,7 @@ connected are available to Pipeline selectors.
 
 ### Audit activity
 
-![Data Mover Audit activity screen showing filtered security events](docs/screenshots/audit-activity.jpg)
+![Full-page Data Mover Audit activity screen showing filters, security events, pagination, and redacted details](docs/screenshots/audit-activity.jpg)
 
 The administrator Audit activity screen records security-relevant application events with timestamps,
 event types, outcomes, sources, and redacted details. Filters make it possible to narrow the event
@@ -109,6 +108,8 @@ log during routine review or incident investigation.
 | [docs/runbooks/pipeline-worker.md](docs/runbooks/pipeline-worker.md) | Web + worker operations |
 | [docs/providers/mss.md](docs/providers/mss.md) | Frozen Foundry/Postgres protocol notes |
 | [docs/hedron.md](docs/hedron.md) | Hedron integration and feature coverage |
+| [docs/plans/README.md](docs/plans/README.md) | Roadmap artifacts, ETL/security contracts, ADE learning path, and delivery evidence |
+| [examples/no_node_data_app/README.md](examples/no_node_data_app/README.md) | Runnable FastAPI + Hedron + HTMX example without Node.js or Streamlit |
 | [SECURITY.md](SECURITY.md) | Decision register + production gate |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development and UI contributions |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes |

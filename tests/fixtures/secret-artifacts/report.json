@@ -1,0 +1,7 @@
+{
+  "run_id": "run-2026-08-24-001",
+  "status": "succeeded",
+  "source": {"provider": "postgres", "secret_ref_id": "secret-ref-postgres-01"},
+  "destination": {"provider": "mss", "secret_ref_id": "secret-ref-mss-01"},
+  "metrics": {"source_rows": 3, "loaded_rows": 3}
+}
