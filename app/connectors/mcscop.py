@@ -20,6 +20,10 @@ class McscopConnector(FoundryConnector):
         namespaces_label="Dataset",
         objects_label="File",
         writer_enabled=False,
+        schema_inspection=False,
+        exact_row_counts=False,
+        verification_level="local_manifest",
+        limitations=("Foundry file metadata does not expose portable schema or row counts.",),
     )
 
 

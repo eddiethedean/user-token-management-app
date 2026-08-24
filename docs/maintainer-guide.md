@@ -214,6 +214,22 @@ expired lease during load or verification becomes `failed_needs_reconciliation`.
 timeouts are recorded as `publish_uncertain` and are not automatically retried. See the
 [pipeline worker runbook](runbooks/pipeline-worker.md).
 
+Run verification also records the captured column schema in both run manifests and best-effort
+destination row snapshots in `verification_json`: `destination_rows_before`,
+`destination_rows_after`, and `destination_row_delta`. PostgreSQL returns exact table counts;
+providers without a portable count API return `null` and the UI labels the metric as unavailable.
+Schema and count telemetry must never prevent a transfer from completing.
+
+Run manifests also carry a redaction-safe `metadata` block describing provenance for rows and
+schema (`exact`, `estimated`, `captured`, `local_manifest`, or `unavailable`). Keep the raw row
+values for compatibility, but use provenance when adding UI or reporting features. The pure helpers
+in `app/services/pipeline_metadata.py` own provenance labels and deterministic schema diffs.
+
+The live monitor exposes cancellation, retryable-failure recovery, and reconciliation review. The
+reconciliation review is deliberately an operator acknowledgement, not a destination mutation or
+automatic retry. Preserve the `failed_needs_reconciliation` safety block unless a future provider
+contract adds a verified reconciliation operation.
+
 Never log tokens, passwords, DSNs, raw CSV cells, or decrypted credential payloads. Use the stable
 connector error taxonomy in `app/connectors/errors.py` and redact provider responses before logging.
 

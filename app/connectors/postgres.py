@@ -236,6 +236,39 @@ class PostgresConnector:
         finally:
             conn.close()
 
+    def count_rows(self, credentials, locator: Locator) -> int | None:
+        """Return the exact destination row count, or zero when the table is new."""
+
+        if not isinstance(locator, PostgresTableLocator):
+            raise ConnectorError(
+                TransferErrorCode.DESTINATION_NOT_FOUND, "PostgreSQL locator is invalid."
+            )
+        conn = connect(credentials, self.settings)
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.tables
+                        WHERE table_schema = %s AND table_name = %s
+                    )
+                    """,
+                    (locator.schema_name, locator.table),
+                )
+                exists_row = cursor.fetchone()
+                if not exists_row or not exists_row[0]:
+                    return 0
+                cursor.execute(
+                    sql.SQL("SELECT COUNT(*) FROM {}").format(
+                        sql.Identifier(locator.schema_name, locator.table)
+                    )
+                )
+                count_row = cursor.fetchone()
+                return int(count_row[0]) if count_row else 0
+        finally:
+            conn.close()
+
     def extract(
         self, credentials, locator: Locator, *, batch_rows: int, batch_bytes: int
     ) -> Iterator[TransferBatch]:

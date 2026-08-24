@@ -149,12 +149,24 @@ applicable. If a connection used by a saved pipeline is later deleted, the card 
 
 ## Run a transfer
 
-Select **Run transfer** to enqueue a run. Demo mode may complete the run immediately with fake
-connectors. Real mode waits for `python -m app pipeline-worker`. The interface shows only persisted
-facts: status, extracted/loaded counts, and the run event log.
+Before running, the **Schema & row counts** review shows the selected source and destination
+columns, types, nullability, primary key, and available row counts. Select **Run transfer** to
+enqueue a run. Demo mode may complete the run immediately with fake connectors. Real mode waits for
+`python -m app pipeline-worker`. After completion, **Run schema & row counts** shows the persisted
+source and destination schemas plus destination counts before and after the run. The destination
+metric includes a signed delta such as `1,000 → 1,250 rows` and `+250 rows`. Providers without a
+portable count API are labeled as unavailable rather than showing an estimate. Every preview and
+run fact also identifies whether it is exact, estimated, captured during the run, or unavailable.
 
-Cancel requests `cancel_requested_at`; the UI stays on cancelling until the worker records a
-terminal state. Retry creates a new run from the saved definition after revalidation.
+The **Route capabilities** panel explains what the selected providers can expose before and after a
+run. For example, a catalog estimate is different from an exact destination count, and Foundry
+file routes may only provide a local manifest after the transfer.
+
+Use **Cancel run** in the live monitor to request a safe stop. The monitor stays active until the
+worker records a terminal state. Retry is shown only for failures marked safe to retry. If a worker
+stops after destination work begins, the run enters **Failed / reconciliation needed** and the
+monitor provides **Record reconciliation review**. Inspect the destination first; recording the
+review does not clear the safety block or make an uncertain write safe automatically.
 
 ### Transfer lifecycle
 
@@ -169,6 +181,10 @@ terminal state. Retry creates a new run from the saved definition after revalida
 | **Failed** | The run stopped before a successful final state. | Read the error summary; correct the pipeline or connection before retrying. |
 | **Cancelled** | A cancellation request was honored. | Start a new run when the source and destination are ready. |
 | **Failed / reconciliation needed** | A worker lease expired during destination work. | Do not blindly retry; have an operator inspect the destination first. |
+
+The terminal recovery panel shows the sanitized error code and summary. A retry action appears only
+when the connector marks the failure retryable. Reconciliation-required runs remain blocked from
+retry until an operator has reviewed the destination.
 
 Foundry publish timeouts may be marked **publish uncertain** in the event details. Treat the remote
 destination as unknown until an operator confirms whether the file was published.

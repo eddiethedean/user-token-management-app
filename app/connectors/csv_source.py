@@ -37,6 +37,9 @@ class CsvSourceConnector:
         namespaces_label="Upload",
         objects_label="File",
         writer_enabled=False,
+        exact_row_counts=False,
+        verification_level="local_manifest",
+        limitations=("CSV metadata is available only after the upload is scanned.",),
     )
     content_lookup = None
 
@@ -61,6 +64,9 @@ class CsvSourceConnector:
             ),
             estimated_rows=frame.height,
         )
+
+    def count_rows(self, credentials, locator: Locator) -> int | None:
+        return None
 
     def extract(
         self, credentials, locator: Locator, *, batch_rows: int, batch_bytes: int

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -20,6 +21,7 @@ from app.services.pipeline_runs import (
     ALLOWED_TRANSITIONS,
     enqueue_run,
     janitor,
+    record_reconciliation_review,
     request_cancel,
     snapshot_from_definition,
 )
@@ -76,6 +78,12 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert 'aria-label="Live transfer stages"' in queued.text
     assert 'aria-label="Event feed for Worker handshake"' in queued.text
     assert "Transfer succeeded." in queued.text
+    assert "Destination table" in queued.text
+    assert "0 → 3 rows" in queued.text
+    assert "+3 rows" in queued.text
+    assert "Run schema &amp; row counts" in queued.text
+    assert "Persisted schema" in queued.text
+    assert "event_id" in queued.text
 
     restored = client.get(f"/pipeline?pipeline_id={pipeline_id}")
     assert "Live transfer" in restored.text
@@ -88,6 +96,10 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
         )
         assert run is not None
         assert run.status == PipelineRunStatus.SUCCEEDED.value
+        verification = json.loads(run.verification_json or "{}")
+        assert verification["destination_rows_before"] == 0
+        assert verification["destination_rows_after"] == 3
+        assert verification["destination_row_delta"] == 3
         events = list(
             db.scalars(select(PipelineRunEvent).where(PipelineRunEvent.run_id == run.id)).all()
         )
@@ -123,6 +135,66 @@ def test_cancel_before_claim_marks_run_cancelled(client, demo_connections) -> No
         run = enqueue_run(db, user=user, pipeline=pipeline, snapshot=snapshot)
         cancelled = request_cancel(db, user=user, run_id=run.id)
         assert cancelled.status == PipelineRunStatus.CANCELLED.value
+
+
+def test_active_run_monitor_exposes_cancel_control(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    saved = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Cancel monitor",
+            "source_provider": "mss",
+            "source_schema": "ri.foundry.main.dataset.demo-operations",
+            "source_table": "mission_orders.parquet",
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "mission_orders",
+            "write_mode": "append",
+        },
+    )
+    assert saved.status_code == 303
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Cancel monitor")
+        )
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert pipeline is not None and user is not None
+        run = enqueue_run(
+            db, user=user, pipeline=pipeline, snapshot=snapshot_from_definition(pipeline)
+        )
+        run_id = run.id
+    response = client.get(
+        f"/pipeline/runs/{run_id}/status",
+        headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor"},
+    )
+    assert response.status_code == 200
+    assert "Cancel run" in response.text
+    assert f'hx-post="/pipeline/runs/{run_id}/cancel"' in response.text
+
+
+def test_reconciliation_review_is_recorded_without_clearing_safety_state(access_app) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        run = PipelineRun(
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            status=PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
+            stage="reconcile",
+        )
+        db.add(run)
+        db.commit()
+        run_id = run.id
+        reviewed = record_reconciliation_review(db, user=user, run_id=run_id)
+        verification = json.loads(reviewed.verification_json or "{}")
+        assert reviewed.status == PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value
+        assert verification["reconciliation_reviewed_at"]
+        events = list(
+            db.scalars(select(PipelineRunEvent).where(PipelineRunEvent.run_id == run_id)).all()
+        )
+        assert any("reconciliation review" in event.message.casefold() for event in events)
 
 
 def test_janitor_purges_expired_events_and_terminal_runs(access_app, tmp_path) -> None:

@@ -14,8 +14,46 @@ from app.connectors.locators import DefinitionSnapshot
 from app.connectors.registry import connector_for, writer_enabled
 from app.models import PipelineRun, utcnow
 from app.services import pipeline_runs
+from app.services.pipeline_metadata import manifest_metadata
 
 CancelCheck = Callable[[], bool]
+
+
+def _destination_row_count(destination, credentials, locator) -> int | None:
+    """Read destination counts as best-effort telemetry, never as a run prerequisite."""
+
+    count_rows = getattr(destination, "count_rows", None)
+    if count_rows is None:
+        return None
+    try:
+        value = count_rows(credentials, locator)
+    except Exception:
+        return None
+    return int(value) if value is not None else None
+
+
+def _schema_manifest(schema: ObjectSchema) -> dict:
+    return {
+        "columns": [
+            {
+                "name": column.name,
+                "data_type": column.data_type,
+                "nullable": column.nullable,
+                "example": column.example,
+            }
+            for column in schema.columns
+        ],
+        "primary_key": list(schema.primary_key),
+        "unique_constraints": [list(item) for item in schema.unique_constraints],
+    }
+
+
+def _inspect_destination_schema(destination, credentials, locator) -> ObjectSchema | None:
+    try:
+        inspected = destination.inspect_object(credentials, locator)
+    except Exception:
+        return None
+    return inspected if inspected.columns else None
 
 
 def _demo_stage_pause(settings: Settings) -> None:
@@ -54,6 +92,12 @@ def execute_transfer(
     _demo_stage_pause(settings)
     source.test_connection(source_credentials)
     destination.test_connection(destination_credentials)
+    destination_rows_before = _destination_row_count(
+        destination, destination_credentials, snapshot.destination
+    )
+    destination_schema_before = _inspect_destination_schema(
+        destination, destination_credentials, snapshot.destination
+    )
     source_schema = source.inspect_object(source_credentials, snapshot.source)
     pipeline_runs.transition(
         db,
@@ -168,23 +212,62 @@ def execute_transfer(
         )
         _demo_stage_pause(settings)
         manifest = destination.finalize(session)
+        destination_rows_after = _destination_row_count(
+            destination, destination_credentials, snapshot.destination
+        )
+        destination_schema_after = _inspect_destination_schema(
+            destination, destination_credentials, snapshot.destination
+        )
         verification = {
             "source_rows": extracted_rows,
             "loaded_rows": manifest.rows or loaded_rows,
             "source_bytes": extracted_bytes,
             "loaded_bytes": manifest.bytes or loaded_bytes,
+            "destination_rows_before": destination_rows_before,
+            "destination_rows_after": destination_rows_after,
+            "destination_row_delta": (
+                destination_rows_after - destination_rows_before
+                if destination_rows_before is not None and destination_rows_after is not None
+                else None
+            ),
         }
         pipeline_runs.complete_run(
             db,
             run,
             lease_token=lease_token,
-            source_manifest={"rows": extracted_rows, "bytes": extracted_bytes},
+            source_manifest={
+                "rows": extracted_rows,
+                "bytes": extracted_bytes,
+                "schema": _schema_manifest(schema),
+                "metadata": manifest_metadata(
+                    rows=extracted_rows,
+                    schema_available=bool(schema.columns),
+                    row_provenance="exact",
+                    schema_provenance="captured",
+                ),
+            },
             destination_manifest={
                 "rows": manifest.rows,
                 "bytes": manifest.bytes,
                 "checksum": manifest.checksum,
                 "remote_id": manifest.remote_id,
                 "details": dict(manifest.details),
+                "schema": _schema_manifest(destination_schema_after or schema),
+                "schema_before": (
+                    _schema_manifest(destination_schema_before)
+                    if destination_schema_before is not None
+                    else None
+                ),
+                "metadata": manifest_metadata(
+                    rows=manifest.rows,
+                    schema_available=bool(destination_schema_after or schema),
+                    row_provenance=(
+                        "exact" if destination_rows_after is not None else "local_manifest"
+                    ),
+                    schema_provenance=(
+                        "captured" if destination_schema_after is not None else "local_manifest"
+                    ),
+                ),
             },
             verification=verification,
         )

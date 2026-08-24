@@ -46,6 +46,7 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.PIPELINE_TARGET_SCHEMA_SELECT,
     region_defs.PIPELINE_TARGET_TABLE_SELECT,
     region_defs.PIPELINE_PREVIEW_REGION,
+    region_defs.PIPELINE_SCHEMA_PREVIEW,
     region_defs.PIPELINE_RUN_MONITOR,
     region_defs.INVITATION_PANEL,
     region_defs.USER_DIRECTORY,

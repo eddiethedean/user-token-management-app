@@ -25,6 +25,10 @@ class ProviderCatalog:
     destination: bool
     write_modes: tuple[str, ...]
     supports_runtime_wake: bool = False
+    schema_inspection: bool = True
+    exact_row_counts: bool = True
+    verification_level: str = "exact"
+    limitations: tuple[str, ...] = ()
 
 
 def _ensure_registry() -> None:
@@ -47,6 +51,10 @@ def provider_catalog(capabilities: ProviderCapabilities) -> ProviderCatalog:
         source=capabilities.source,
         destination=capabilities.destination,
         write_modes=capabilities.write_modes,
+        schema_inspection=capabilities.schema_inspection,
+        exact_row_counts=capabilities.exact_row_counts,
+        verification_level=capabilities.verification_level,
+        limitations=capabilities.limitations,
     )
 
 
@@ -67,6 +75,10 @@ CSV_SOURCE_CATALOG = ProviderCatalog(
     source=True,
     destination=False,
     write_modes=(),
+    schema_inspection=True,
+    exact_row_counts=False,
+    verification_level="local_manifest",
+    limitations=("Scan the upload to inspect schema and exact row counts.",),
 )
 PROVIDER_CATALOG_MAP = {"csv": CSV_SOURCE_CATALOG}
 

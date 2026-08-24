@@ -95,6 +95,9 @@ class FakePostgresConnector(_BaseFake):
         writer_enabled=True,
     )
 
+    def __init__(self) -> None:
+        self._row_count = 0
+
     def list_namespaces(self, credentials) -> list[RemoteNamespace]:
         return [
             RemoteNamespace(name=name, display_name=name, kind="schema")
@@ -133,6 +136,9 @@ class FakePostgresConnector(_BaseFake):
             estimated_rows=3,
         )
 
+    def count_rows(self, credentials, locator: Locator) -> int | None:
+        return self._row_count
+
     def extract(self, credentials, locator: Locator, *, batch_rows: int, batch_bytes: int):
         frame = _demo_frame()
         yield TransferBatch(
@@ -161,6 +167,7 @@ class FakePostgresConnector(_BaseFake):
         )
 
     def finalize(self, load_session: LoadSession) -> DestinationManifest:
+        self._row_count = 3
         return DestinationManifest(
             locator=load_session.locator, rows=3, bytes=128, remote_id="demo-pg"
         )
@@ -190,6 +197,7 @@ class FakeFoundryConnector(_BaseFake):
             writer_enabled=True,
         )
         self._files = files
+        self._row_count = 0
 
     def list_namespaces(self, credentials) -> list[RemoteNamespace]:
         return [RemoteNamespace(name=rid, display_name=rid, kind="dataset") for rid in self._files]
@@ -230,6 +238,9 @@ class FakeFoundryConnector(_BaseFake):
             estimated_rows=3,
         )
 
+    def count_rows(self, credentials, locator: Locator) -> int | None:
+        return self._row_count
+
     def extract(self, credentials, locator: Locator, *, batch_rows: int, batch_bytes: int):
         frame = _demo_frame()
         yield TransferBatch(
@@ -253,6 +264,7 @@ class FakeFoundryConnector(_BaseFake):
         )
 
     def finalize(self, load_session: LoadSession) -> DestinationManifest:
+        self._row_count = 3
         name = getattr(load_session.locator, "file_name", "demo.parquet")
         return DestinationManifest(
             locator=load_session.locator, rows=3, bytes=128, remote_id=str(name), checksum="demo"
@@ -274,6 +286,9 @@ class FakeCsvConnector(_BaseFake):
         writer_enabled=False,
     )
     content_lookup = None
+
+    def count_rows(self, credentials, locator: Locator) -> int | None:
+        return None
 
     def list_namespaces(self, credentials) -> list[RemoteNamespace]:
         return [RemoteNamespace(name="uploaded", display_name="Uploaded files", kind="upload")]

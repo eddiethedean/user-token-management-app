@@ -287,6 +287,11 @@ class FoundryConnector:
     def inspect_object(self, credentials, locator: Locator) -> ObjectSchema:
         return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
 
+    def count_rows(self, credentials, locator: Locator) -> int | None:
+        """Foundry file metadata does not provide a portable row-count API."""
+
+        return None
+
     def extract(
         self, credentials, locator: Locator, *, batch_rows: int, batch_bytes: int
     ) -> Iterator[TransferBatch]:

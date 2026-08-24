@@ -19,12 +19,12 @@ from hedron import (
     ConnectorNode,
     ConnectorTrack,
     DescriptionList,
+    Expander,
     FileUpload,
     FlowStep,
     FormField,
     FormGrid,
     Grid,
-    Heading,
     Hedron,
     Inline,
     Metric,
@@ -57,7 +57,7 @@ from app.connectors.locators import (
     parse_locator,
     parse_snapshot,
 )
-from app.connectors.registry import connector_for
+from app.connectors.registry import capabilities_for, connector_for
 from app.database import SessionLocal
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.models import PipelineDefinition, PipelineUpload
@@ -74,11 +74,13 @@ from app.services.csv_uploads import (
     inspection_from_upload,
     store_csv_upload,
 )
+from app.services.pipeline_metadata import provenance_label, schema_diff
 from app.services.pipeline_runs import (
     enqueue_run,
     events_after,
     latest_run_map,
     owned_run,
+    record_reconciliation_review,
     request_cancel,
     snapshot_from_definition,
 )
@@ -107,6 +109,7 @@ from app.ui.regions import (
     MAIN_PANEL,
     PIPELINE_PREVIEW_REGION,
     PIPELINE_RUN_MONITOR,
+    PIPELINE_SCHEMA_PREVIEW,
     PIPELINE_SOURCE_SCHEMA_SELECT,
     PIPELINE_SOURCE_TABLE_SELECT,
     PIPELINE_TARGET_SCHEMA_SELECT,
@@ -361,6 +364,92 @@ def _pipeline_form_locations(pipeline: PipelineDefinition) -> tuple[str, str, st
     return source_namespace, source_object, destination_namespace, destination_object
 
 
+def _capability_surface(
+    source_catalog: ProviderCatalog, destination_catalog: ProviderCatalog | None
+):
+    def facts(catalog: ProviderCatalog | None, *, destination: bool = False):
+        if catalog is None:
+            return DescriptionList(
+                ("Status", Badge("Select a destination", tone="warning")), density="compact"
+            )
+        count_label = (
+            "Exact counts"
+            if destination and catalog.exact_row_counts
+            else "Catalog estimates"
+            if catalog.exact_row_counts
+            else "Counts unavailable"
+        )
+        schema_label = (
+            "Schema preview" if catalog.schema_inspection else "Schema captured during run"
+        )
+        return DescriptionList(
+            ("Provider", catalog.label),
+            (
+                "Schema",
+                Badge(schema_label, tone="success" if catalog.schema_inspection else "info"),
+            ),
+            ("Rows", Badge(count_label, tone="success" if catalog.exact_row_counts else "warning")),
+            ("Verification", catalog.verification_level.replace("_", " ").title()),
+            ("Write modes", ", ".join(catalog.write_modes) if destination else "Source only"),
+            density="compact",
+        )
+
+    return DATA_MOVER_DESIGN.apply(
+        "data-mover-inset",
+        Surface(
+            PageHeader(
+                "Route capabilities",
+                eyebrow="What will be known before and after the run",
+                description="Provider support varies; unavailable facts are reported instead of estimated silently.",
+                level=3,
+                density="compact",
+            ),
+            Grid(
+                facts(source_catalog),
+                facts(destination_catalog, destination=True),
+                columns={"base": 1, "lg": 2},
+                gap="sm",
+            ),
+            appearance="plain",
+            padding="sm",
+            elevation="none",
+        ),
+    )
+
+
+def _run_duration_label(run: object) -> str:
+    started = getattr(run, "started_at", None)
+    finished = getattr(run, "finished_at", None)
+    if started is None or finished is None:
+        return "Duration unavailable"
+    seconds = max(0.0, (finished - started).total_seconds())
+    return f"{seconds:.1f}s" if seconds < 60 else f"{seconds / 60:.1f}m"
+
+
+def _saved_run_summary(run: object | None) -> str:
+    if run is None:
+        return "No runs yet"
+    verification = _run_manifest(getattr(run, "verification_json", None))
+    before = verification.get("destination_rows_before")
+    after = verification.get("destination_rows_after")
+    if isinstance(before, int) and isinstance(after, int):
+        destination = f"destination {before:,} → {after:,} ({after - before:+,})"
+    elif isinstance(after, int):
+        destination = f"destination {after:,} rows"
+    else:
+        destination = "destination count unavailable"
+    timestamp = getattr(run, "finished_at", None) or getattr(run, "created_at", None)
+    timestamp_label = (
+        timestamp.strftime("%b %d, %H:%M") if timestamp is not None else "time unavailable"
+    )
+    return (
+        f"Last run {timestamp_label} · "
+        f"{getattr(run, 'source_rows', 0):,} extracted · "
+        f"{getattr(run, 'loaded_rows', 0):,} loaded · {destination} · "
+        f"{_run_duration_label(run)}"
+    )
+
+
 def _catalog_data(catalogs: tuple[ProviderCatalog, ...], pipelines: list[PipelineDefinition]):
     nodes = []
     for catalog in catalogs:
@@ -422,6 +511,278 @@ def _csv_columns_json(inspection: CsvInspection) -> str:
             for column in inspection.columns
         ],
         separators=(",", ":"),
+    )
+
+
+def _remote_object_preview(provider: str, namespace: str, object_name: str):
+    if not provider or not namespace or not object_name or object_name == CREATE_TABLE_VALUE:
+        return None
+    try:
+        connector = connector_for(provider)
+        page = connector.list_objects({}, namespace)
+        return next((item for item in page.items if item.name == object_name), None)
+    except Exception:
+        return None
+
+
+def _route_schema_preview(
+    provider: str,
+    namespace: str,
+    object_name: str,
+    *,
+    destination: bool = False,
+    creating: bool = False,
+    csv_inspection: CsvInspection | None = None,
+):
+    if csv_inspection is not None:
+        return {
+            "rows": csv_inspection.row_count,
+            "size_bytes": csv_inspection.size_bytes,
+            "columns": [
+                {
+                    "name": column.name,
+                    "data_type": column.inferred_type,
+                    "nullable": column.nulls > 0,
+                    "example": column.example,
+                }
+                for column in csv_inspection.columns
+            ],
+            "primary_key": [],
+            "status": "Scanned locally",
+            "schema_provenance": "catalog",
+            "row_provenance": "exact",
+            "size_provenance": "catalog",
+            "capabilities": {
+                "schema_inspection": True,
+                "exact_row_counts": True,
+                "verification_level": "local_manifest",
+                "limitations": (),
+            },
+        }
+    if creating:
+        return {
+            "rows": None,
+            "size_bytes": None,
+            "columns": [],
+            "primary_key": [],
+            "status": "Created by run",
+            "schema_provenance": "unavailable",
+            "row_provenance": "unavailable",
+            "size_provenance": "unavailable",
+            "capabilities": {
+                "schema_inspection": True,
+                "exact_row_counts": False,
+                "verification_level": "local_manifest",
+                "limitations": ("The destination schema is created during the run.",),
+            },
+        }
+    remote = _remote_object_preview(provider, namespace, object_name)
+    if remote is None:
+        return None
+    capabilities = capabilities_for(provider)
+    columns: list[dict[str, object]] = []
+    primary_key: list[str] = []
+    estimated_rows = remote.estimated_rows
+    schema_provenance = (
+        "provider_unavailable" if not capabilities.schema_inspection else "unavailable"
+    )
+    row_provenance = "estimated" if estimated_rows is not None else "unavailable"
+    try:
+        inspected = connector_for(provider).inspect_object({}, remote.locator)
+        estimated_rows = inspected.estimated_rows or estimated_rows
+        primary_key = list(inspected.primary_key)
+        columns = [
+            {
+                "name": column.name,
+                "data_type": column.data_type,
+                "nullable": column.nullable,
+                "example": column.example,
+            }
+            for column in inspected.columns
+        ]
+        if columns:
+            schema_provenance = "catalog"
+        if inspected.estimated_rows is not None:
+            row_provenance = "estimated"
+    except Exception:
+        pass
+    if destination and capabilities.exact_row_counts:
+        try:
+            counted = connector_for(provider).count_rows({}, remote.locator)
+            estimated_rows = counted if counted is not None else estimated_rows
+            if counted is not None:
+                row_provenance = "exact"
+        except Exception:
+            pass
+    return {
+        "rows": estimated_rows,
+        "size_bytes": remote.size_bytes,
+        "columns": columns,
+        "primary_key": primary_key,
+        "status": "Catalog preview",
+        "schema_provenance": schema_provenance,
+        "row_provenance": row_provenance,
+        "size_provenance": "catalog" if remote.size_bytes is not None else "unavailable",
+        "capabilities": {
+            "schema_inspection": capabilities.schema_inspection,
+            "exact_row_counts": capabilities.exact_row_counts,
+            "verification_level": capabilities.verification_level,
+            "limitations": capabilities.limitations,
+        },
+    }
+
+
+def _schema_columns_table(columns: list[dict[str, object]], label: str):
+    if not columns:
+        return StateView(
+            "Schema details will appear during validation",
+            kind="empty",
+            description="The provider does not expose column metadata before a run.",
+        )
+    return ScrollRegion(
+        Table(
+            rows=[
+                [
+                    html.strong(str(column.get("name") or "—")),
+                    Badge(str(column.get("data_type") or "unknown"), tone="info", size="sm"),
+                    "Nullable" if column.get("nullable") else "Required",
+                    html.code(str(column.get("example") or "—")),
+                ]
+                for column in columns
+            ],
+            columns=[
+                TableColumn(header="Column"),
+                TableColumn(header="Type"),
+                TableColumn(header="Nullability"),
+                TableColumn(header="Example", size="wide"),
+            ],
+            density="compact",
+            sticky_header=True,
+            zebra=True,
+        ),
+        axis="block",
+        size="sm",
+        label=label,
+    )
+
+
+def _schema_preview_surface(
+    title: str, preview: dict[str, Any] | None, *, destination: bool = False
+):
+    if preview is None:
+        return Surface(
+            PageHeader(title, eyebrow="Schema preview", level=3, density="compact"),
+            StateView(
+                "Select an object to preview it",
+                kind="empty",
+                description="Choose a source or destination object to see available schema facts.",
+            ),
+            appearance="plain",
+            padding="sm",
+            elevation="none",
+        )
+    rows = preview.get("rows")
+    row_value = (
+        "New table"
+        if rows is None and preview.get("status") == "Created by run"
+        else (f"{rows:,} rows" if isinstance(rows, int) else "Unavailable")
+    )
+    size = preview.get("size_bytes")
+    size_text = _format_file_size(int(size)) if isinstance(size, int) else "Size unavailable"
+    schema_provenance = str(preview.get("schema_provenance") or "unavailable")
+    row_provenance = str(preview.get("row_provenance") or "unavailable")
+    preview_complete = bool(preview.get("columns")) and row_provenance in {"exact", "estimated"}
+    capabilities_value = preview.get("capabilities")
+    capabilities: dict[str, Any] = (
+        capabilities_value if isinstance(capabilities_value, dict) else {}
+    )
+    limitations = tuple(str(item) for item in capabilities.get("limitations") or ())
+    status_label = "Ready to compare" if preview_complete else "Limited preview"
+    status_tone = "success" if preview_complete else "warning"
+    limitation = limitations[0] if limitations else None
+    return Surface(
+        PageHeader(
+            title,
+            eyebrow="Destination schema" if destination else "Source schema",
+            description=(
+                f"{preview.get('status') or 'Schema preview'} · {size_text} · "
+                f"Rows: {provenance_label(row_provenance)} · "
+                f"Schema: {provenance_label(schema_provenance)}"
+            ),
+            level=3,
+            density="compact",
+            meta=Badge(status_label, tone=status_tone),
+        ),
+        Grid(
+            Metric("Rows before run" if destination else "Source rows", row_value),
+            Metric("Columns", f"{len(preview.get('columns') or []):,}"),
+            Metric(
+                "Primary key",
+                ", ".join(str(item) for item in preview.get("primary_key") or []) or "None",
+            ),
+            columns={"base": 1, "sm": 3},
+            gap="sm",
+        ),
+        StateView(
+            "Provider limitation" if limitation else "Preview facts",
+            kind="info" if limitation else "empty",
+            description=limitation
+            or "These facts will be captured again by the worker during the run.",
+        )
+        if limitation and not preview_complete
+        else None,
+        _schema_columns_table(preview.get("columns") or [], f"Columns in {title}"),
+        appearance="plain",
+        padding="sm",
+        elevation="none",
+    )
+
+
+def _pipeline_schema_preview_panel(
+    *,
+    source_provider: str,
+    source_schema: str,
+    source_object: str,
+    destination_provider: str,
+    destination_schema: str,
+    destination_object: str,
+    destination_create: bool,
+    csv_inspection: CsvInspection | None,
+):
+    source = _route_schema_preview(
+        source_provider,
+        source_schema,
+        source_object,
+        csv_inspection=csv_inspection,
+    )
+    destination = _route_schema_preview(
+        destination_provider,
+        destination_schema,
+        destination_object,
+        destination=True,
+        creating=destination_create,
+    )
+    return DATA_MOVER_DESIGN.apply(
+        "data-mover-inset",
+        Surface(
+            PageHeader(
+                "Schema & row counts",
+                eyebrow="Pre-run review",
+                description="Confirm the columns and current row counts before starting this route.",
+                level=3,
+                density="compact",
+            ),
+            Grid(
+                _schema_preview_surface("Source", source),
+                _schema_preview_surface("Destination", destination, destination=True),
+                columns={"base": 1, "lg": 2},
+                gap="sm",
+            ),
+            id="pipeline-schema-preview",
+            appearance="plain",
+            padding="sm",
+            elevation="none",
+        ),
     )
 
 
@@ -669,7 +1030,7 @@ def _saved_pipeline_cards(
                 description=(
                     f"{source_object if pipeline.source_provider == 'csv' else f'{source_namespace}.{source_object}'} → "
                     f"{destination_namespace}.{destination_object} · Updated "
-                    f"{pipeline.updated_at.strftime('%b %d, %H:%M')}"
+                    f"{pipeline.updated_at.strftime('%b %d, %H:%M')} · {_saved_run_summary(latest)}"
                 ),
                 meta=Inline(
                     Badge(str(state).replace("_", " ").title(), tone=state_tone),
@@ -786,7 +1147,9 @@ def _pipeline_preview_fragment(
         else "Source and destination connections are ready."
     )
     source_object_name = (
-        source_table if source_provider == "csv" else _first_object(source_provider, source_schema)
+        source_table
+        if source_provider == "csv"
+        else source_table or _first_object(source_provider, source_schema)
     )
     table_name = (
         _committed_new_table_name(destination_table_new) or destination_table_new or target_table
@@ -1081,6 +1444,7 @@ def _pipeline_body(
             density="comfortable",
         ),
         setup_flow,
+        _capability_surface(source_catalog, target_catalog),
         alert_box(
             "Pipeline saved. You can load or run it any time." if notice == "saved" else "",
             kind="success",
@@ -1528,6 +1892,18 @@ def _pipeline_body(
                             min_size="sm",
                             id="pipeline-canvas",
                         ),
+                        _pipeline_schema_preview_panel(
+                            source_provider=source_provider,
+                            source_schema=source_schema_name,
+                            source_object=source_object_name,
+                            destination_provider=target_provider,
+                            destination_schema=target_schema_name,
+                            destination_object=target_object_name,
+                            destination_create=target_table_name == CREATE_TABLE_VALUE,
+                            csv_inspection=(
+                                loaded_source_inspection if source_provider == "csv" else None
+                            ),
+                        ),
                         html.div(id="pipeline-preview-region", hidden=True),
                         action=form_action(request, "/pipeline/save"),
                         method="post",
@@ -1766,6 +2142,7 @@ def register_pipeline_routes(app: Hedron) -> None:
             PIPELINE_TARGET_SCHEMA_SELECT,
             PIPELINE_TARGET_TABLE_SELECT,
             PIPELINE_PREVIEW_REGION,
+            PIPELINE_SCHEMA_PREVIEW,
             TOAST_HOST,
         ),
         include_in_schema=False,
@@ -1795,31 +2172,54 @@ def register_pipeline_routes(app: Hedron) -> None:
                 except ValueError:
                     csv_upload = None
                     csv_inspection = None
+        connections = {
+            provider.name: {
+                "configured": secret is not None,
+                "validation": secret.validation_status if secret is not None else "unconfigured",
+                "runtime": secret.runtime_status if secret is not None else "",
+            }
+            for provider, secret in list_user_secrets(db, auth.user)
+        }
+        preview_fragment = _pipeline_preview_fragment(
+            source_provider=source_provider,
+            source_schema=source_schema,
+            source_table=source_table,
+            target_provider=destination_provider,
+            target_schema=destination_schema,
+            target_table=destination_table,
+            destination_table_new=destination_table_new,
+            source_upload_id=source_upload_id,
+            write_mode=write_mode,
+            csv_inspection=csv_inspection,
+            csv_upload=csv_upload,
+            connections=connections,
+        )
+        source_object = (
+            source_table
+            if source_provider == "csv"
+            else source_table or _first_object(source_provider, source_schema)
+        )
+        destination_object = _committed_new_table_name(destination_table_new) or destination_table
+        if destination_table == CREATE_TABLE_VALUE:
+            destination_object = _committed_new_table_name(destination_table_new) or "new_table"
+        schema_preview = _pipeline_schema_preview_panel(
+            source_provider=source_provider,
+            source_schema=source_schema,
+            source_object=source_object,
+            destination_provider=destination_provider,
+            destination_schema=destination_schema,
+            destination_object=destination_object,
+            destination_create=destination_table == CREATE_TABLE_VALUE,
+            csv_inspection=csv_inspection if csv_upload is not None else None,
+        )
         return await interaction_response(
             request,
             ok_fragment(
-                _pipeline_preview_fragment(
-                    source_provider=source_provider,
-                    source_schema=source_schema,
-                    source_table=source_table,
-                    target_provider=destination_provider,
-                    target_schema=destination_schema,
-                    target_table=destination_table,
-                    destination_table_new=destination_table_new,
-                    source_upload_id=source_upload_id,
-                    write_mode=write_mode,
-                    csv_inspection=csv_inspection,
-                    csv_upload=csv_upload,
-                    connections={
-                        provider.name: {
-                            "configured": secret is not None,
-                            "validation": secret.validation_status
-                            if secret is not None
-                            else "unconfigured",
-                            "runtime": secret.runtime_status if secret is not None else "",
-                        }
-                        for provider, secret in list_user_secrets(db, auth.user)
-                    },
+                preview_fragment,
+                oob=(
+                    OobUpdate(
+                        schema_preview, element_id="pipeline-schema-preview", swap="outerHTML"
+                    ),
                 ),
             ),
         )
@@ -2010,6 +2410,31 @@ def register_pipeline_routes(app: Hedron) -> None:
             ),
         )
 
+    @app.action(
+        "/pipeline/runs/{run_id}/reconcile",
+        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST),
+        include_in_schema=False,
+    )
+    async def pipeline_run_reconcile(
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        _csrf: RequireCsrf,
+        run_id: str,
+    ) -> Response:
+        try:
+            run = record_reconciliation_review(db, user=auth.user, run_id=run_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        return await interaction_response(
+            request,
+            ok_fragment(
+                _run_status_fragment(request, db, run, csrf_token=auth.session.csrf_token),
+                toast="Reconciliation review recorded.",
+                toast_tone="info",
+            ),
+        )
+
 
 def _run_status_toasts(run):
     if run.status == "succeeded":
@@ -2105,6 +2530,283 @@ def _run_flow_steps(flow_statuses: tuple[str, str, str, str]) -> tuple[FlowStep,
     )  # type: ignore[return-value]
 
 
+def _destination_count_metric(run) -> Metric:
+    """Build a before/after destination count metric from persisted verification data."""
+
+    try:
+        verification = json.loads(run.verification_json or "{}")
+    except (TypeError, ValueError):
+        verification = {}
+    before = verification.get("destination_rows_before")
+    after = verification.get("destination_rows_after")
+    delta = verification.get("destination_row_delta")
+    if isinstance(before, int) and isinstance(after, int):
+        delta = after - before if not isinstance(delta, int) else delta
+        tone = "up" if delta > 0 else "down" if delta < 0 else "neutral"
+        return Metric(
+            "Destination table",
+            f"{before:,} → {after:,} rows",
+            delta=f"{delta:+,} rows",
+            delta_tone=tone,
+        )
+    if isinstance(after, int):
+        return Metric(
+            "Destination table",
+            f"{after:,} rows after run",
+            delta="Before count unavailable",
+            delta_tone="neutral",
+        )
+    return Metric(
+        "Destination table",
+        "Count unavailable",
+        delta="Provider does not expose counts",
+        delta_tone="neutral",
+    )
+
+
+def _run_manifest(value: str | None) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value or "{}")
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _run_schema_surface(title: str, manifest: dict[str, Any], row_value: str):
+    schema_value = manifest.get("schema")
+    schema: dict[str, Any] = schema_value if isinstance(schema_value, dict) else {}
+    columns_value = schema.get("columns")
+    columns = columns_value if isinstance(columns_value, list) else []
+    primary_key_value = schema.get("primary_key")
+    primary_key = primary_key_value if isinstance(primary_key_value, list) else []
+    schema_before = manifest.get("schema_before")
+    metadata_value = manifest.get("metadata")
+    metadata: dict[str, Any] = metadata_value if isinstance(metadata_value, dict) else {}
+    row_metadata_value = metadata.get("rows")
+    row_metadata: dict[str, Any] = (
+        row_metadata_value if isinstance(row_metadata_value, dict) else {}
+    )
+    schema_metadata_value = metadata.get("schema")
+    schema_metadata: dict[str, Any] = (
+        schema_metadata_value if isinstance(schema_metadata_value, dict) else {}
+    )
+    snapshot_label = "Before + after" if isinstance(schema_before, dict) else "Captured"
+    return Surface(
+        PageHeader(
+            title,
+            eyebrow="Persisted schema",
+            description="Schema and counts captured by the worker for this run.",
+            level=3,
+            density="compact",
+            meta=ActionGroup(
+                Badge(
+                    snapshot_label, tone="success" if isinstance(schema_before, dict) else "info"
+                ),
+                Badge(
+                    provenance_label(str(row_metadata.get("provenance") or "unavailable")),
+                    tone="success"
+                    if row_metadata.get("provenance") in {"exact", "captured"}
+                    else "info",
+                ),
+                Badge(
+                    provenance_label(str(schema_metadata.get("provenance") or "unavailable")),
+                    tone="success" if schema_metadata.get("available") else "warning",
+                ),
+                gap="xs",
+                collapse="never",
+            ),
+        ),
+        Grid(
+            Metric("Rows", row_value),
+            Metric("Columns", f"{len(columns):,}"),
+            Metric("Primary key", ", ".join(str(item) for item in primary_key) or "None"),
+            columns={"base": 1, "sm": 3},
+            gap="sm",
+        ),
+        _schema_columns_table(columns, f"Persisted columns in {title}"),
+        appearance="plain",
+        padding="sm",
+        elevation="none",
+    )
+
+
+def _run_schema_results(run):
+    source_manifest = _run_manifest(run.source_manifest_json)
+    destination_manifest = _run_manifest(run.destination_manifest_json)
+    verification = _run_manifest(run.verification_json)
+    before = verification.get("destination_rows_before")
+    after = verification.get("destination_rows_after")
+    destination_rows = (
+        f"{before:,} → {after:,}"
+        if isinstance(before, int) and isinstance(after, int)
+        else "Unavailable"
+    )
+    source_rows = source_manifest.get("rows", run.source_rows)
+    differences = schema_diff(source_manifest, destination_manifest)
+    return DATA_MOVER_DESIGN.apply(
+        "data-mover-inset",
+        Surface(
+            PageHeader(
+                "Run schema & row counts",
+                eyebrow="After-run review",
+                description="Compare the schema captured by the worker with the destination count change.",
+                level=3,
+                density="compact",
+            ),
+            Expander(
+                "Source and destination manifests",
+                Grid(
+                    _run_schema_surface("Source", source_manifest, f"{int(source_rows):,}"),
+                    _run_schema_surface("Destination", destination_manifest, destination_rows),
+                    columns={"base": 1, "lg": 2},
+                    gap="sm",
+                ),
+                open=False,
+            ),
+            _schema_diff_surface(differences),
+            id="pipeline-run-schema-results",
+            appearance="plain",
+            padding="sm",
+            elevation="none",
+        ),
+    )
+
+
+def _schema_diff_surface(differences: list[dict[str, str]]):
+    if not differences:
+        return StateView(
+            "Schema comparison unavailable",
+            kind="empty",
+            description="One or both run manifests did not include column metadata.",
+        )
+    status_labels = {
+        "match": ("Match", "success"),
+        "changed": ("Changed", "warning"),
+        "missing_destination": ("Missing at destination", "danger"),
+        "extra_destination": ("Extra at destination", "info"),
+    }
+    return Surface(
+        PageHeader(
+            "Schema comparison",
+            eyebrow="Source versus destination",
+            description="Review column names, types, and nullability captured for this run.",
+            level=3,
+            density="compact",
+        ),
+        ScrollRegion(
+            Table(
+                rows=[
+                    [
+                        Badge(
+                            status_labels.get(row["status"], ("Review", "warning"))[0],
+                            tone=status_labels.get(row["status"], ("Review", "warning"))[1],
+                            size="sm",
+                        ),
+                        html.strong(row["name"]),
+                        f"{row['source_type']} · {row['source_nullable']}",
+                        f"{row['destination_type']} · {row['destination_nullable']}",
+                    ]
+                    for row in differences
+                ],
+                columns=[
+                    TableColumn(header="Status"),
+                    TableColumn(header="Column"),
+                    TableColumn(header="Source"),
+                    TableColumn(header="Destination"),
+                ],
+                density="compact",
+                sticky_header=True,
+                zebra=True,
+            ),
+            axis="block",
+            size="sm",
+            label="Schema comparison",
+        ),
+        appearance="plain",
+        padding="sm",
+        elevation="none",
+    )
+
+
+def _run_recovery_surface(request: Request, run, *, csrf_token: str):
+    run_status = str(run.status or "")
+    if run_status not in {"failed", "failed_needs_reconciliation"}:
+        return None
+    review_recorded = bool(_run_manifest(run.verification_json).get("reconciliation_reviewed_at"))
+    retry_form = None
+    if run_status == "failed" and run.retryable and run.pipeline_definition_id:
+        retry_form = html.form(
+            csrf_hidden(csrf_token),
+            html.input(type="hidden", name="pipeline_id", value=run.pipeline_definition_id),
+            Button(
+                "Retry run",
+                type="submit",
+                variant="primary",
+                size="sm",
+                attrs=hx_attrs(
+                    request,
+                    path="/pipeline/runs",
+                    method="post",
+                    target="#pipeline-run-monitor",
+                    swap="outerHTML",
+                    indicator=INDICATOR,
+                ),
+            ),
+            action=form_action(request, "/pipeline/runs"),
+            method="post",
+        )
+    review_form = None
+    if run_status == "failed_needs_reconciliation":
+        review_form = html.form(
+            csrf_hidden(csrf_token),
+            Button(
+                "Review recorded" if review_recorded else "Record reconciliation review",
+                type="submit",
+                variant="secondary",
+                size="sm",
+                disabled=review_recorded,
+                attrs=hx_attrs(
+                    request,
+                    path=f"/pipeline/runs/{run.id}/reconcile",
+                    method="post",
+                    target="#pipeline-run-monitor",
+                    swap="outerHTML",
+                    indicator=INDICATOR,
+                    confirm="Confirm that an operator reviewed the destination before any retry.",
+                ),
+            ),
+            action=form_action(request, f"/pipeline/runs/{run.id}/reconcile"),
+            method="post",
+        )
+    return DATA_MOVER_DESIGN.apply(
+        "data-mover-inset",
+        Surface(
+            PageHeader(
+                "Recovery guidance",
+                eyebrow="Operator action required",
+                description=(
+                    "The transfer failed and can be retried safely."
+                    if run_status == "failed" and run.retryable
+                    else "Destination state may be uncertain. Inspect it before retrying."
+                ),
+                level=3,
+                density="compact",
+            ),
+            Alert(
+                run.error_summary or "The transfer ended without a recoverable summary.",
+                title=run.error_code or "Transfer failure",
+                tone="danger" if run_status == "failed" else "warning",
+            ),
+            ActionGroup(retry_form, review_form, gap="sm", collapse="never")
+            if retry_form or review_form
+            else None,
+            appearance="plain",
+            padding="sm",
+            elevation="none",
+        ),
+    )
+
+
 def _run_status_fragment(
     request: Request,
     db,
@@ -2188,11 +2890,16 @@ def _run_status_fragment(
                 value=run.pipeline_definition_id or "",
             ),
             Button(
-                "Run again",
+                "Retry run" if run_status == "failed" and run.retryable else "Run again",
                 type="submit",
                 variant="primary",
                 size="sm",
-                disabled=monitor_active or not run.pipeline_definition_id,
+                disabled=(
+                    monitor_active
+                    or not run.pipeline_definition_id
+                    or run_status == "failed_needs_reconciliation"
+                    or (run_status == "failed" and not run.retryable)
+                ),
                 attrs=hx_attrs(
                     request,
                     path="/pipeline/runs",
@@ -2207,6 +2914,31 @@ def _run_status_fragment(
             id=f"pipeline-run-again-form-{run.id}",
         )
         if run.pipeline_definition_id
+        and (run_status not in {"failed", "failed_needs_reconciliation"} or run.retryable)
+        else None
+    )
+    cancel_form = (
+        html.form(
+            csrf_hidden(csrf_token),
+            Button(
+                "Cancel run",
+                type="submit",
+                variant="danger",
+                size="sm",
+                attrs=hx_attrs(
+                    request,
+                    path=f"/pipeline/runs/{run.id}/cancel",
+                    method="post",
+                    target="#pipeline-run-monitor",
+                    swap="outerHTML",
+                    indicator=INDICATOR,
+                    confirm="Cancel this transfer? The worker will stop at its next safe checkpoint.",
+                ),
+            ),
+            action=form_action(request, f"/pipeline/runs/{run.id}/cancel"),
+            method="post",
+        )
+        if monitor_active
         else None
     )
     return html.div(
@@ -2221,6 +2953,7 @@ def _run_status_fragment(
                 ),
             ),
             Badge(snapshot.name, tone="neutral"),
+            cancel_form,
             run_again_form,
             align="between",
             gap="sm",
@@ -2289,6 +3022,7 @@ def _run_status_fragment(
             title=f"{stage_label} stage",
             tone="danger" if failed else "success" if run_status == "succeeded" else "info",
         ),
+        _run_recovery_surface(request, run, csrf_token=csrf_token),
         Grid(
             Metric(
                 "Extracted",
@@ -2302,37 +3036,44 @@ def _run_status_fragment(
                 delta=_format_file_size(run.loaded_bytes),
                 delta_tone="up" if run.loaded_rows else "neutral",
             ),
+            _destination_count_metric(run),
             Metric(
                 "Worker stage",
                 stage_label,
                 delta=f"Attempt {run.attempt}",
             ),
-            columns={"base": 1, "sm": 3},
+            columns={"base": 1, "sm": 4},
             gap="sm",
         ),
-        Heading("Live event feed", level=3),
-        Status(
-            "Listening for worker events" if monitor_active else "Persisted run history",
-            tone="info" if monitor_active else run_badge_tone,
-            live=False,
-            variant="activity" if monitor_active else "compact",
-        ),
-        ScrollRegion(
-            Timeline(
-                [
-                    (
-                        event.occurred_at.strftime("%H:%M:%S"),
-                        _EVENT_STAGE_LABELS.get(event.stage, event.stage.title()),
-                        event.message,
-                    )
-                    for event in lines
-                ],
-                label=f"Event feed for {snapshot.name}",
+        _run_schema_results(run)
+        if run_status in {"succeeded", "failed", "cancelled", "failed_needs_reconciliation"}
+        else None,
+        Expander(
+            "Live event feed",
+            Status(
+                "Listening for worker events" if monitor_active else "Persisted run history",
+                tone="info" if monitor_active else run_badge_tone,
+                live=False,
+                variant="activity" if monitor_active else "compact",
             ),
-            id="pipeline-run-log",
-            axis="block",
-            size="md",
-            label="Live event feed",
+            ScrollRegion(
+                Timeline(
+                    [
+                        (
+                            event.occurred_at.strftime("%H:%M:%S"),
+                            _EVENT_STAGE_LABELS.get(event.stage, event.stage.title()),
+                            event.message,
+                        )
+                        for event in lines
+                    ],
+                    label=f"Event feed for {snapshot.name}",
+                ),
+                id="pipeline-run-log",
+                axis="block",
+                size="md",
+                label="Live event feed",
+            ),
+            open=monitor_active,
         ),
         id="pipeline-run-monitor",
         aria={"live": "polite"},

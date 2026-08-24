@@ -55,6 +55,8 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     assert "PostgreSQL 16" in response.text
     assert "Palantir Foundry" in response.text
     assert "Create a new table" in response.text
+    assert "Schema &amp; row counts" in response.text
+    assert "Pre-run review" in response.text
     run_button = re.search(r'<button[^>]+data-pipeline-start="true"[^>]*>', response.text)
     assert run_button is not None
     assert "disabled" in run_button.group(0)
@@ -87,6 +89,23 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     )
     assert preview.status_code == 200
     assert "Upload a CSV to inspect its schema" in preview.text
+    assert "pipeline-schema-preview" in preview.text
+
+
+def test_pipeline_surface_exposes_metadata_capabilities_and_accessible_regions(
+    client, demo_connections
+) -> None:
+    web_login(client, next_path="/pipeline")
+    response = client.get("/pipeline")
+
+    assert response.status_code == 200
+    assert "Route capabilities" in response.text
+    assert "What will be known before and after the run" in response.text
+    assert 'aria-label="Workspace"' in response.text
+    assert 'aria-label="Account navigation"' in response.text
+    assert 'role="tablist"' in response.text
+    assert 'aria-live="polite"' in response.text
+    assert "Schema: Catalog metadata" in response.text
 
 
 MSS_DATASET = "ri.foundry.main.dataset.demo-operations"

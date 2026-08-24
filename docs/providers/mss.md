@@ -21,6 +21,13 @@ MSS is a Palantir Foundry dataset, not a relational catalog.
 
 ## Read contract
 
+### Metadata capability
+
+Foundry file metadata does not expose a portable exact row-count or column-schema API. Pipeline
+previews therefore show catalog facts when available and label schema/counts as unavailable when
+they cannot be verified. The worker captures a local schema and row-count manifest after reading
+the file; this is reported as a local manifest, not as a remote destination query.
+
 List files:
 
 ```

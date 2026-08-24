@@ -45,6 +45,7 @@ __all__ = [
     "enqueue_run",
     "janitor",
     "request_cancel",
+    "record_reconciliation_review",
     "snapshot_from_definition",
 ]
 
@@ -108,6 +109,26 @@ def request_cancel(db: Session, *, user: User, run_id: str) -> PipelineRun:
         append_event(db, run, "Run cancelled before a worker claimed it.", stage="cancelled")
     else:
         append_event(db, run, "Cancellation requested.", stage=run.stage)
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+def record_reconciliation_review(db: Session, *, user: User, run_id: str) -> PipelineRun:
+    """Record that an operator reviewed an uncertain destination before retrying."""
+
+    run = owned_run(db, user=user, run_id=run_id)
+    if run.status != PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value:
+        return run
+    try:
+        verification = json.loads(run.verification_json or "{}")
+    except (TypeError, ValueError):
+        verification = {}
+    if not isinstance(verification, dict):
+        verification = {}
+    verification["reconciliation_reviewed_at"] = utcnow().isoformat()
+    run.verification_json = json.dumps(redact_mapping(verification), separators=(",", ":"))
+    append_event(db, run, "Operator recorded reconciliation review.", stage="reconcile")
     db.commit()
     db.refresh(run)
     return run

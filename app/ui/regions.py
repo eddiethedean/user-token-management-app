@@ -119,6 +119,11 @@ PIPELINE_PREVIEW_REGION = FragmentRegion(
     selector="#pipeline-preview-region",
     description="Pipeline preview refresh region",
 )
+PIPELINE_SCHEMA_PREVIEW = FragmentRegion(
+    id="pipeline-schema-preview",
+    selector="#pipeline-schema-preview",
+    description="Pipeline pre-run schema and row-count preview",
+)
 PIPELINE_RUN_MONITOR = FragmentRegion(
     id="pipeline-run-monitor",
     selector="#pipeline-run-monitor",

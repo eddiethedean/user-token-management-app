@@ -25,6 +25,10 @@ class ProviderCapabilities:
     namespaces_label: str
     objects_label: str
     writer_enabled: bool = False
+    schema_inspection: bool = True
+    exact_row_counts: bool = True
+    verification_level: str = "exact"
+    limitations: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -124,6 +128,8 @@ class Connector(Protocol):
     ) -> CatalogPage: ...
 
     def inspect_object(self, credentials: Credentials, locator: Locator) -> ObjectSchema: ...
+
+    def count_rows(self, credentials: Credentials, locator: Locator) -> int | None: ...
 
     def extract(
         self,
