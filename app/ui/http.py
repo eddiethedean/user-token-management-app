@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 
 from fastapi import Request, status
 from fastapi.responses import RedirectResponse
-from hedron import InteractionResult, Page, html
+from hedron import Grid, GridItem, InteractionResult, Page, Stack, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
 from hedron_core import NodeLike, RenderMode
@@ -94,9 +94,18 @@ def render_page(
 
 def auth_card(*children: NodeLike) -> NodeLike:
     """Center the compact authentication card within the public-page canvas."""
-    return html.div(
-        surface_card(*children, recipe="data-mover-auth-panel", class_="auth-card"),
-        class_="center-card-wrap",
+    return Grid(
+        html.div(aria={"hidden": "true"}),
+        GridItem(
+            surface_card(
+                Stack(*children, gap="md"),
+                recipe="data-mover-auth-panel",
+            ),
+            span=2,
+        ),
+        html.div(aria={"hidden": "true"}),
+        columns=4,
+        gap="md",
     )
 
 

@@ -6,11 +6,9 @@ from fastapi import Request
 from hedron import (
     ActionGroup,
     Alert,
-    Button,
     Divider,
     FlowStep,
     FormField,
-    Heading,
     Link,
     LinkButton,
     PageHeader,
@@ -31,10 +29,57 @@ from app.config import Settings
 from app.models import Invitation, RegistrationVerification
 from app.security.csrf import issue_preauth_csrf, set_preauth_csrf_cookie
 from app.ui.design_system import surface_card
-from app.ui.forms import hidden_field, submit_button
+from app.ui.forms import compact_password_input, hidden_field, submit_button
 from app.ui.http import auth_card, render_page
 from app.ui.layout import alert_box, app_shell
 from app.ui.urls import form_action, page_href
+
+
+def _auth_heading(eyebrow: str, title: str, description: str) -> PageHeader:
+    """Give every account-access screen the same compact visual hierarchy."""
+
+    return PageHeader(
+        title,
+        eyebrow=eyebrow,
+        description=description,
+        level=1,
+        density="compact",
+    )
+
+
+def _auth_password_field(
+    name: str,
+    label: str,
+    *,
+    autocomplete: str,
+    help_text: str | None = None,
+) -> FormField:
+    """Password field with the same accessible reveal affordance used at sign-in."""
+
+    return FormField(
+        name=name,
+        label=label,
+        id=name,
+        required=True,
+        help=help_text,
+        control=compact_password_input(
+            name,
+            id=name,
+            autocomplete=autocomplete,
+            required=True,
+        ),
+    )
+
+
+def _auth_footer_link(request: Request, label: str, href: str) -> Stack:
+    return Stack(
+        Divider(),
+        ActionGroup(
+            LinkButton(label, href=page_href(request, href), appearance="ghost", size="sm"),
+            align="center",
+        ),
+        gap="sm",
+    )
 
 
 def render_login_page(
@@ -51,32 +96,11 @@ def render_login_page(
     preauth = issue_preauth_csrf(settings)
     federated = settings.authentication_mode == "trusted_header"
 
-    password_control = html.span(
-        html.input(
-            id="password",
-            name="password",
-            type="password",
-            required=True,
-            autocomplete="current-password",
-            class_="hedron-text-input",
-            aria={"required": "true"},
-        ),
-        Button(
-            "Show",
-            type="button",
-            variant="secondary",
-            size="sm",
-            id="password-visibility",
-            attrs={
-                "data-hedron-password-toggle": "password",
-                "data-compact-password-toggle": "true",
-                "aria-controls": "password",
-                "aria-label": "Show password",
-                "aria-pressed": "false",
-            },
-        ),
-        class_="hedron-password-field",
-        data={"hedron-password": "true"},
+    password_control = compact_password_input(
+        "password",
+        id="password",
+        autocomplete="current-password",
+        required=True,
     )
 
     intro = Stack(
@@ -154,9 +178,10 @@ def render_login_page(
             )
         )
         card_children.append(
-            html.p(
+            Text(
                 "Your identity must already be provisioned and active in this application.",
-                class_="card-footnote",
+                role="caption",
+                overflow="wrap",
             )
         )
     else:
@@ -233,12 +258,11 @@ def render_register_page(
 ) -> Response:
     preauth = issue_preauth_csrf(settings)
     body: list[NodeLike] = [
-        html.p("Identity request", class_="eyebrow"),
-        Heading("Request access", level=1),
-        html.p(
+        _auth_heading(
+            "Identity request",
+            "Request access",
             "Use your government email. After you verify the address, an administrator "
             "will review your request.",
-            class_="muted",
         ),
         alert_box(error),
         alert_box(success, kind="success"),
@@ -267,12 +291,7 @@ def render_register_page(
                 method="post",
             )
         )
-    body.append(
-        html.p(
-            html.a("Back to sign in", href=page_href(request, "login")),
-            class_="card-footnote",
-        )
-    )
+    body.append(_auth_footer_link(request, "Back to sign in", "login"))
     response = render_page(
         app_shell(
             auth_card(*body),
@@ -301,15 +320,14 @@ def render_verify_page(
 ) -> Response:
     _ = verification
     body: list[NodeLike] = [
-        html.p("Email verification", class_="eyebrow"),
-        Heading("Verify registration", level=1),
-        html.p(
+        _auth_heading(
+            "Email verification",
+            "Verify registration",
             (
                 "Confirm your address and choose the credentials for your application account."
                 if verification
                 else "This link cannot be used to verify a registration."
             ),
-            class_="muted",
         ),
         alert_box(error),
         alert_box(success, kind="success"),
@@ -319,26 +337,16 @@ def render_verify_page(
         if settings.authentication_mode == "local_password":
             fields.extend(
                 [
-                    FormField(
-                        name="password",
-                        label="Password",
-                        id="password",
-                        required=True,
-                        control=TextInput(
-                            "password", id="password", type="password", required=True
-                        ),
+                    _auth_password_field(
+                        "password",
+                        "Password",
+                        autocomplete="new-password",
+                        help_text="Use 15–128 characters and avoid common passwords.",
                     ),
-                    FormField(
-                        name="password_confirm",
-                        label="Confirm password",
-                        id="password_confirm",
-                        required=True,
-                        control=TextInput(
-                            "password_confirm",
-                            id="password_confirm",
-                            type="password",
-                            required=True,
-                        ),
+                    _auth_password_field(
+                        "password_confirm",
+                        "Confirm password",
+                        autocomplete="new-password",
                     ),
                 ]
             )
@@ -355,7 +363,7 @@ def render_verify_page(
             ActionGroup(
                 LinkButton("Request access again", href=page_href(request, "register")),
                 LinkButton("Back to sign in", href=page_href(request, "login")),
-                class_="auth-actions",
+                align="center",
             )
         )
     return render_page(
@@ -374,12 +382,11 @@ def render_verify_page(
 def render_forgot_page(request: Request, settings: Settings, *, success: str = "") -> Response:
     preauth = issue_preauth_csrf(settings)
     body: list[NodeLike] = [
-        html.p("Account recovery", class_="eyebrow"),
-        Heading("Forgot password", level=1),
-        html.p(
+        _auth_heading(
+            "Account recovery",
+            "Recover your account",
             "Enter your government email. If an eligible account exists, we will send "
             "a time-limited reset link.",
-            class_="muted",
         ),
         alert_box(success, kind="success"),
     ]
@@ -399,12 +406,7 @@ def render_forgot_page(request: Request, settings: Settings, *, success: str = "
                 method="post",
             )
         )
-    body.append(
-        html.p(
-            html.a("Back to sign in", href=page_href(request, "login")),
-            class_="card-footnote",
-        )
-    )
+    body.append(_auth_footer_link(request, "Back to sign in", "login"))
     response = render_page(
         app_shell(
             auth_card(*body),
@@ -430,15 +432,14 @@ def render_reset_page(
     status_code: int = 200,
 ) -> Response:
     body: list[NodeLike] = [
-        html.p("Account recovery", class_="eyebrow"),
-        Heading("Reset password", level=1),
-        html.p(
+        _auth_heading(
+            "Account recovery",
+            "Create a new password",
             (
                 "Choose a new password for your account."
                 if not error or can_retry
                 else "This reset link can no longer be used. Request a new one to continue."
             ),
-            class_="muted",
         ),
         alert_box(error),
     ]
@@ -446,24 +447,16 @@ def render_reset_page(
         body.append(
             HedronForm(
                 hidden_field("token", token),
-                FormField(
-                    name="password",
-                    label="New password",
-                    id="password",
-                    required=True,
-                    control=TextInput("password", id="password", type="password", required=True),
+                _auth_password_field(
+                    "password",
+                    "New password",
+                    autocomplete="new-password",
+                    help_text="Use 15–128 characters and avoid common passwords.",
                 ),
-                FormField(
-                    name="password_confirm",
-                    label="Confirm password",
-                    id="password_confirm",
-                    required=True,
-                    control=TextInput(
-                        "password_confirm",
-                        id="password_confirm",
-                        type="password",
-                        required=True,
-                    ),
+                _auth_password_field(
+                    "password_confirm",
+                    "Confirm password",
+                    autocomplete="new-password",
                 ),
                 submit_button("Update password", width="full"),
                 action=form_action(request, "password/reset"),
@@ -475,7 +468,7 @@ def render_reset_page(
             ActionGroup(
                 LinkButton("Request a new reset link", href=page_href(request, "password/forgot")),
                 LinkButton("Back to sign in", href=page_href(request, "login")),
-                class_="auth-actions",
+                align="center",
             )
         )
     return render_page(
@@ -502,23 +495,27 @@ def render_invitation_page(
     status_code: int = 200,
 ) -> Response:
     body: list[NodeLike] = [
-        html.p("Account invitation", class_="eyebrow"),
-        Heading("Accept invitation", level=1),
-        html.p(
+        _auth_heading(
+            "Account invitation",
+            "Join the workspace",
             (
                 "Complete your profile to activate this approved invitation."
                 if invitation
                 else "This invitation link is no longer available. Ask an administrator to "
                 "send a new invitation."
             ),
-            class_="muted",
         ),
         alert_box(error),
     ]
     if invitation:
         fields: list[NodeLike] = [
             hidden_field("token", token),
-            html.p(f"Invited as {invitation.email_original} ({invitation.role_name})"),
+            Alert(
+                f"{invitation.email_original} · {invitation.role_name.title()} access",
+                title="Approved invitation",
+                tone="success",
+                appearance="soft",
+            ),
             FormField(
                 name="full_name",
                 label="Full name",
@@ -529,26 +526,16 @@ def render_invitation_page(
         if settings.authentication_mode == "local_password":
             fields.extend(
                 [
-                    FormField(
-                        name="password",
-                        label="Password",
-                        id="password",
-                        required=True,
-                        control=TextInput(
-                            "password", id="password", type="password", required=True
-                        ),
+                    _auth_password_field(
+                        "password",
+                        "Password",
+                        autocomplete="new-password",
+                        help_text="Use 15–128 characters and avoid common passwords.",
                     ),
-                    FormField(
-                        name="password_confirm",
-                        label="Confirm password",
-                        id="password_confirm",
-                        required=True,
-                        control=TextInput(
-                            "password_confirm",
-                            id="password_confirm",
-                            type="password",
-                            required=True,
-                        ),
+                    _auth_password_field(
+                        "password_confirm",
+                        "Confirm password",
+                        autocomplete="new-password",
                     ),
                 ]
             )
@@ -561,17 +548,19 @@ def render_invitation_page(
             )
         )
         body.append(
-            html.p(
-                "Already have access? ",
-                html.a("Sign in", href=page_href(request, "login")),
-                class_="card-footnote",
+            ActionGroup(
+                Text("Already have access?", as_="span", role="caption"),
+                Link("Sign in", href=page_href(request, "login")),
+                align="center",
+                gap="xs",
+                collapse="never",
             )
         )
     elif error:
         body.append(
             ActionGroup(
                 LinkButton("Back to sign in", href=page_href(request, "login")),
-                class_="auth-actions",
+                align="center",
             )
         )
     return render_page(

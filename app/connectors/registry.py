@@ -9,46 +9,78 @@ from app.connectors.errors import ConnectorError, TransferErrorCode
 
 ConnectorFactory = Callable[[], Connector]
 
-_REGISTRY: dict[str, ConnectorFactory] = {}
-_CAPABILITIES: dict[str, ProviderCapabilities] = {}
+
+class ConnectorRegistry:
+    """Replaceable connector registry for application and test composition."""
+
+    def __init__(self) -> None:
+        self._factories: dict[str, ConnectorFactory] = {}
+        self._capabilities: dict[str, ProviderCapabilities] = {}
+
+    def register(self, factory: ConnectorFactory) -> ConnectorFactory:
+        connector = factory()
+        provider = connector.capabilities.provider.casefold()
+        self._factories[provider] = factory
+        self._capabilities[provider] = connector.capabilities
+        return factory
+
+    def connector_for(self, provider: str) -> Connector:
+        factory = self._factories.get(provider.casefold())
+        if factory is None:
+            raise ConnectorError(
+                code=TransferErrorCode.INTERNAL_ERROR,
+                summary="Select a supported connection provider.",
+                retryable=False,
+            )
+        return factory()
+
+    def capabilities_for(self, provider: str) -> ProviderCapabilities:
+        try:
+            return self._capabilities[provider.casefold()]
+        except KeyError as exc:
+            raise ConnectorError(
+                code=TransferErrorCode.INTERNAL_ERROR,
+                summary="Select a supported connection provider.",
+                retryable=False,
+            ) from exc
+
+    def listed_capabilities(
+        self,
+        *,
+        sources: bool | None = None,
+        destinations: bool | None = None,
+    ) -> list[ProviderCapabilities]:
+        items = list(self._capabilities.values())
+        if sources is not None:
+            items = [item for item in items if item.source is sources]
+        if destinations is not None:
+            items = [item for item in items if item.destination is destinations]
+        return items
+
+    def clear(self) -> None:
+        self._factories.clear()
+        self._capabilities.clear()
+
+
+_DEFAULT_REGISTRY = ConnectorRegistry()
+_REGISTRY = _DEFAULT_REGISTRY._factories
+_CAPABILITIES = _DEFAULT_REGISTRY._capabilities
 
 
 def register_connector(factory: ConnectorFactory) -> ConnectorFactory:
-    connector = factory()
-    _REGISTRY[connector.capabilities.provider] = factory
-    _CAPABILITIES[connector.capabilities.provider] = connector.capabilities
-    return factory
+    return _DEFAULT_REGISTRY.register(factory)
 
 
 def connector_for(provider: str) -> Connector:
-    factory = _REGISTRY.get(provider.casefold())
-    if factory is None:
-        raise ConnectorError(
-            code=TransferErrorCode.INTERNAL_ERROR,
-            summary="Select a supported connection provider.",
-            retryable=False,
-        )
-    return factory()
+    return _DEFAULT_REGISTRY.connector_for(provider)
 
 
 def capabilities_for(provider: str) -> ProviderCapabilities:
-    try:
-        return _CAPABILITIES[provider.casefold()]
-    except KeyError as exc:
-        raise ConnectorError(
-            code=TransferErrorCode.INTERNAL_ERROR,
-            summary="Select a supported connection provider.",
-            retryable=False,
-        ) from exc
+    return _DEFAULT_REGISTRY.capabilities_for(provider)
 
 
 def listed_capabilities(*, sources: bool | None = None, destinations: bool | None = None):
-    items = list(_CAPABILITIES.values())
-    if sources is not None:
-        items = [item for item in items if item.source is sources]
-    if destinations is not None:
-        items = [item for item in items if item.destination is destinations]
-    return items
+    return _DEFAULT_REGISTRY.listed_capabilities(sources=sources, destinations=destinations)
 
 
 def route_allowed(source_provider: str, destination_provider: str) -> bool:
@@ -84,8 +116,7 @@ def supported_write_modes(destination_provider: str) -> tuple[str, ...]:
 
 def load_builtin_connectors(*, demo: bool) -> None:
     """Register fake or real connectors. Safe to call more than once."""
-    _REGISTRY.clear()
-    _CAPABILITIES.clear()
+    _DEFAULT_REGISTRY.clear()
     if demo:
         from app.connectors import fake as _fake
 

@@ -6,7 +6,7 @@ from typing import cast
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from hedron import Hedron, InteractionResult, SplitView, html
+from hedron import Hedron, InteractionResult, PageHeader, SplitView, html
 from hedron.htmx import is_htmx_request
 from hedron_posit import HedronPosit
 from sqlalchemy import select
@@ -162,26 +162,29 @@ def register_admin_routes(app: Hedron) -> None:
             ),
             SplitView(
                 primary=surface_card(
-                    html.div(
-                        html.h2("Directory"),
-                        html.p("All application-managed identities."),
-                        class_="panel-heading",
+                    PageHeader(
+                        "Directory",
+                        eyebrow="Identity management",
+                        description="Search, review, and manage every application account.",
+                        level=2,
+                        density="compact",
                     ),
                     directory,
                 ),
                 secondary=html.aside(
-                    ui.invitation_panel(
-                        request,
-                        invitations,
-                        roles,
-                        csrf_token=csrf,
-                        success=invitation_notices.get(notice, ""),
+                    surface_card(
+                        ui.invitation_panel(
+                            request,
+                            invitations,
+                            roles,
+                            csrf_token=csrf,
+                            success=invitation_notices.get(notice, ""),
+                        )
                     )
                 ),
                 ratio="2:1",
                 gap="lg",
                 collapse="lg",
-                class_="admin-layout",
             ),
         ]
         return await render_authenticated_view(

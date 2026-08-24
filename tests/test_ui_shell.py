@@ -240,11 +240,11 @@ def test_user_directory_fragment_render() -> None:
     )
     assert 'id="user-directory"' in html
     assert 'id="user-directory-body"' in html
-    assert "Full name" in html
+    assert "Account" in html
     assert "No users found." in html
 
 
-def test_user_directory_separates_account_and_full_name_columns() -> None:
+def test_user_directory_groups_account_identity_in_one_column() -> None:
     user = SimpleNamespace(
         id="user-1",
         email_original="ada@example.gov",
@@ -264,8 +264,9 @@ def test_user_directory_separates_account_and_full_name_columns() -> None:
         )
     )
 
-    assert html.index(">Account</th>") < html.index(">Full name</th>")
-    assert html.index(">ada@example.gov</td>") < html.index(">Ada Lovelace</td>")
+    assert ">Account</th>" in html
+    assert ">Full name</th>" not in html
+    assert html.index(">ada@example.gov<") < html.index(">Ada Lovelace<")
     assert 'data-hedron-density="compact"' in html
     assert 'data-hedron-sticky-header="true"' in html
     assert 'data-hedron-zebra="true"' in html
@@ -306,6 +307,8 @@ def test_session_list_and_secret_slot_render_html() -> None:
     assert "MSS_API_TOKEN" in slot
     assert 'id="mss-endpoint"' in slot
     assert 'id="mss-token"' in slot
+    assert slot.count('id="mss-token"') == 1
+    assert 'id="mss-token-visibility"' in slot
     assert "security/secrets/mss" in slot
     assert 'class="hedron-action-group"' in slot
 

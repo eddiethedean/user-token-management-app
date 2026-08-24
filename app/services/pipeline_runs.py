@@ -23,82 +23,30 @@ from app.models import (
     utcnow,
 )
 from app.services.audit import record_event
+from app.services.pipeline_state import (
+    ACTIVE_STATUSES,
+    ALLOWED_TRANSITIONS,
+    STAGE_FOR_STATUS,
+    TERMINAL_STATUSES,
+    WORKER_OWNED_STATUSES,
+    PipelineRunStateMachine,
+    RunConflictError,
+)
 
-ACTIVE_STATUSES = {
-    PipelineRunStatus.QUEUED.value,
-    PipelineRunStatus.VALIDATING.value,
-    PipelineRunStatus.EXTRACTING.value,
-    PipelineRunStatus.LOADING.value,
-    PipelineRunStatus.VERIFYING.value,
-}
+_STATE_MACHINE = PipelineRunStateMachine()
 
-WORKER_OWNED_STATUSES = {
-    PipelineRunStatus.VALIDATING.value,
-    PipelineRunStatus.EXTRACTING.value,
-    PipelineRunStatus.LOADING.value,
-    PipelineRunStatus.VERIFYING.value,
-}
-
-TERMINAL_STATUSES = {
-    PipelineRunStatus.SUCCEEDED.value,
-    PipelineRunStatus.FAILED.value,
-    PipelineRunStatus.CANCELLED.value,
-    PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
-}
-
-ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
-    PipelineRunStatus.QUEUED.value: frozenset(
-        {
-            PipelineRunStatus.VALIDATING.value,
-            PipelineRunStatus.CANCELLED.value,
-        }
-    ),
-    PipelineRunStatus.VALIDATING.value: frozenset(
-        {
-            PipelineRunStatus.EXTRACTING.value,
-            PipelineRunStatus.FAILED.value,
-            PipelineRunStatus.CANCELLED.value,
-        }
-    ),
-    PipelineRunStatus.EXTRACTING.value: frozenset(
-        {
-            PipelineRunStatus.LOADING.value,
-            PipelineRunStatus.FAILED.value,
-            PipelineRunStatus.CANCELLED.value,
-        }
-    ),
-    PipelineRunStatus.LOADING.value: frozenset(
-        {
-            PipelineRunStatus.VERIFYING.value,
-            PipelineRunStatus.FAILED.value,
-            PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
-            PipelineRunStatus.CANCELLED.value,
-        }
-    ),
-    PipelineRunStatus.VERIFYING.value: frozenset(
-        {
-            PipelineRunStatus.SUCCEEDED.value,
-            PipelineRunStatus.FAILED.value,
-            PipelineRunStatus.CANCELLED.value,
-        }
-    ),
-}
-
-STAGE_FOR_STATUS = {
-    PipelineRunStatus.QUEUED.value: "queued",
-    PipelineRunStatus.VALIDATING.value: "authenticate",
-    PipelineRunStatus.EXTRACTING.value: "inspect",
-    PipelineRunStatus.LOADING.value: "transfer",
-    PipelineRunStatus.VERIFYING.value: "verify",
-    PipelineRunStatus.SUCCEEDED.value: "verify",
-    PipelineRunStatus.FAILED.value: "failed",
-    PipelineRunStatus.CANCELLED.value: "cancelled",
-    PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value: "reconcile",
-}
-
-
-class RunConflictError(ValueError):
-    pass
+__all__ = [
+    "ACTIVE_STATUSES",
+    "ALLOWED_TRANSITIONS",
+    "STAGE_FOR_STATUS",
+    "TERMINAL_STATUSES",
+    "WORKER_OWNED_STATUSES",
+    "RunConflictError",
+    "enqueue_run",
+    "janitor",
+    "request_cancel",
+    "snapshot_from_definition",
+]
 
 
 def enqueue_run(
@@ -429,28 +377,15 @@ def snapshot_from_definition(pipeline: PipelineDefinition) -> DefinitionSnapshot
 
 
 def _require_lease(run: PipelineRun, lease_token: str) -> None:
-    if run.lease_token != lease_token:
-        raise RunConflictError("This worker no longer holds the run lease.")
+    _STATE_MACHINE.require_lease(run, lease_token)
 
 
 def _transition(run: PipelineRun, status: str, *, lease_token: str | None) -> None:
-    allowed = ALLOWED_TRANSITIONS.get(run.status, frozenset())
-    if status not in allowed:
-        raise RunConflictError(f"Cannot move a {run.status} run to {status}.")
-    _set_status(run, status, lease_token=lease_token)
+    _STATE_MACHINE.transition(run, status, lease_token=lease_token)
 
 
 def _set_status(run: PipelineRun, status: str, *, lease_token: str | None) -> None:
-    run.status = status
-    run.stage = STAGE_FOR_STATUS[status]
-    run.updated_at = utcnow()
-    if status in TERMINAL_STATUSES:
-        run.finished_at = utcnow()
-        run.worker_id = None
-        run.lease_token = None
-        run.lease_expires_at = None
-    elif lease_token:
-        run.lease_token = lease_token
+    _STATE_MACHINE.set_status(run, status, lease_token=lease_token)
 
 
 def janitor(db: Session, settings) -> dict[str, int]:

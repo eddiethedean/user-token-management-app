@@ -17,12 +17,12 @@ from hedron import (
     Form,
     FormField,
     FormGrid,
-    Grid,
     Heading,
     Inline,
     Lazy,
     LinkButton,
     Loading,
+    PageHeader,
     ResourceList,
     ResourceRow,
     Section,
@@ -43,7 +43,7 @@ from app.models import AuditEvent, RefreshSession
 from app.services.catalogs import require_catalog_provider
 from app.services.secrets import CredentialField, SecretProvider
 from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
-from app.ui.forms import csrf_hidden, submit_button
+from app.ui.forms import compact_password_input, csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.regions import SECURITY_ACTIVITY
 from app.ui.tabs import NavigationTabs
@@ -57,22 +57,18 @@ def _password_field(
     autocomplete: str,
     error: str = "",
 ) -> NodeLike:
-    return html.div(
-        FormField(
-            name=field_id,
-            label=label,
+    return FormField(
+        name=field_id,
+        label=label,
+        id=field_id,
+        required=True,
+        error=error or None,
+        control=compact_password_input(
+            field_id,
             id=field_id,
+            autocomplete=autocomplete,
             required=True,
-            error=error or None,
-            control=TextInput(
-                field_id,
-                id=field_id,
-                type="password",
-                autocomplete=autocomplete,
-                required=True,
-            ),
         ),
-        class_="password-field",
     )
 
 
@@ -90,7 +86,6 @@ def password_form(
             alert_box(success, kind="success"),
             LinkButton("Return to sign in", href=page_href(request, "/login")),
             id="password-form-region",
-            class_="form-column",
         )
     top_error = error if error and not field_errors else ""
     return Section(
@@ -131,7 +126,6 @@ def password_form(
             ),
         ),
         id="password-form-region",
-        class_="form-column",
     )
 
 
@@ -164,6 +158,15 @@ def secret_slot(
                 required=field.required,
                 value=field.default,
             )
+        elif field.input_type == "password":
+            control = compact_password_input(
+                field.name,
+                id=field_id,
+                autocomplete=field.autocomplete,
+                required=field.required,
+                placeholder=field.placeholder,
+                value=field.default,
+            )
         else:
             control = TextInput(
                 field.name,
@@ -183,6 +186,34 @@ def secret_slot(
             control=control,
         )
 
+    credential_fields = [credential_field(field) for field in provider.fields]
+    token_field_index = next(
+        (index for index, field in enumerate(provider.fields) if field.name == "token"),
+        None,
+    )
+    if token_field_index is not None:
+        primary_fields = credential_fields[: token_field_index + 1]
+        secondary_fields = credential_fields[token_field_index + 1 :]
+        credential_layout: NodeLike = Stack(
+            *primary_fields,
+            (
+                FormGrid(
+                    *secondary_fields,
+                    columns={"base": 1, "lg": 2},
+                    gap="sm",
+                )
+                if secondary_fields
+                else None
+            ),
+            gap="sm",
+        )
+    else:
+        credential_layout = FormGrid(
+            *credential_fields,
+            columns={"base": 1, "lg": 2},
+            gap="sm",
+        )
+
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
         Surface(
@@ -196,7 +227,7 @@ def secret_slot(
                     ),
                     Stack(
                         Heading(provider.label, level=3),
-                        Text(provider.environment_variable),
+                        Text(provider.environment_variable, role="caption", overflow="truncate"),
                         gap="xs",
                     ),
                     gap="sm",
@@ -210,14 +241,10 @@ def secret_slot(
             ),
             alert_box(error),
             alert_box(success, kind="success"),
-            html.p(metadata, class_="secret-metadata"),
+            Text(metadata, overflow="wrap"),
             Form(
                 csrf_hidden(csrf_token),
-                FormGrid(
-                    *[credential_field(field) for field in provider.fields],
-                    columns={"base": 1, "lg": 2},
-                    gap="sm",
-                ),
+                credential_layout,
                 ActionGroup(
                     Button(
                         "Replace credentials" if configured else "Save connection",
@@ -383,8 +410,10 @@ def session_list(
     for session in sessions:
         is_current = session.id == auth.session.id
         if is_current:
-            action_node: NodeLike = Badge("Current", tone="success")
+            meta_node: NodeLike = Badge("Current", tone="success")
+            action_node: NodeLike = None
         else:
+            meta_node = Badge("Active", tone="info")
             dialog_id = f"revoke-session-{session.id}"
             action_node = html.div(
                 Button(
@@ -420,30 +449,33 @@ def session_list(
                 ),
             )
         rows.append(
-            html.div(
-                html.div("▣", class_="session-device", aria={"hidden": "true"}),
-                html.div(
-                    html.strong("Current session" if is_current else "Browser session"),
-                    html.span((session.user_agent or "Unknown client")[:90]),
-                    html.small(
-                        f"Last active {session.last_seen_at.strftime('%b %d, %Y %H:%M')} · "
-                        f"{session.source_ip or 'source unavailable'}"
-                    ),
-                    class_="session-copy",
+            ResourceRow(
+                "Current session" if is_current else "Browser session",
+                description=(
+                    f"{(session.user_agent or 'Unknown client')[:90]} · Last active "
+                    f"{session.last_seen_at.strftime('%b %d, %Y %H:%M')} · "
+                    f"{session.source_ip or 'source unavailable'}"
                 ),
-                action_node,
-                class_="session-row",
+                meta=meta_node,
+                actions=action_node,
+                density="comfortable",
             )
         )
     if not rows:
-        rows.append(
+        return Section(
             StateView(
                 "No active sessions.",
                 kind="empty",
                 description="New browser and client sessions will appear here.",
-            )
+            ),
+            id="session-list",
         )
-    return Section(*rows, id="session-list", class_="session-list")
+    return ResourceList(
+        *rows,
+        label="Active sessions",
+        density="comfortable",
+        id="session-list",
+    )
 
 
 def session_count(sessions: list[RefreshSession], *, oob: bool = False) -> NodeLike:
@@ -578,19 +610,20 @@ def security_tabs(
         (
             "Credentials",
             surface_card(
-                html.div(
-                    html.div(
-                        Heading("Remote connections", level=2),
-                        Text(
-                            "Add each system once. Data Mover encrypts every field at rest and never reveals saved plaintext."
-                        ),
+                PageHeader(
+                    "Remote connections",
+                    eyebrow="Encrypted credentials",
+                    description=(
+                        "Add each system once. Every field stays encrypted at rest and saved "
+                        "plaintext is never displayed."
                     ),
-                    class_="panel-heading token-panel-heading",
+                    level=2,
+                    density="compact",
+                    meta=Badge(f"{len(secret_slots)} providers", tone="neutral"),
                 ),
-                Grid(
+                Stack(
                     *[secret_slot(request, p, s, csrf_token=csrf_token) for p, s in secret_slots],
-                    columns=2,
-                    class_="secret-grid",
+                    gap="md",
                 ),
             ),
         )
@@ -599,15 +632,16 @@ def security_tabs(
         (
             "Status",
             surface_card(
-                html.div(
-                    html.div(
-                        Heading("Connection status", level=2),
-                        Text(
-                            "Testing a connection contacts the configured system. Saving credentials does not run a check."
-                        ),
+                PageHeader(
+                    "Connection status",
+                    eyebrow="Runtime readiness",
+                    description=(
+                        "Test saved credentials before browsing remote objects or running a "
+                        "transfer."
                     ),
-                    Badge("Connection checks", tone="info"),
-                    class_="panel-heading",
+                    level=2,
+                    density="compact",
+                    meta=Badge("On-demand checks", tone="info"),
                 ),
                 connection_status_list(
                     request,
@@ -639,11 +673,15 @@ def account_tabs(
                 "Password",
                 surface_card(
                     SplitView(
-                        primary=html.div(
-                            Heading("Change password", level=2),
-                            Text(
-                                "Changing your password signs out every active session, including this one."
+                        primary=PageHeader(
+                            "Change password",
+                            eyebrow="Account security",
+                            description=(
+                                "Changing your password signs out every active session, "
+                                "including this one."
                             ),
+                            level=2,
+                            density="compact",
                         ),
                         secondary=password_form(
                             request,
@@ -654,7 +692,6 @@ def account_tabs(
                         ratio="2:3",
                         gap="xl",
                         collapse="md",
-                        class_="split-panel",
                     ),
                 ),
             )
@@ -663,13 +700,13 @@ def account_tabs(
         (
             "Sessions",
             surface_card(
-                html.div(
-                    html.div(
-                        Heading("Active sessions", level=2),
-                        Text("Revoke any browser or client you no longer recognize."),
-                    ),
-                    session_count(sessions),
-                    class_="panel-heading",
+                PageHeader(
+                    "Active sessions",
+                    eyebrow="Signed-in devices",
+                    description="Revoke any browser or client you no longer recognize.",
+                    level=2,
+                    density="compact",
+                    meta=session_count(sessions),
                 ),
                 session_list(request, sessions, auth=auth, csrf_token=csrf_token),
             ),
@@ -679,13 +716,13 @@ def account_tabs(
         (
             "Activity",
             surface_card(
-                html.div(
-                    html.div(
-                        Heading("Recent security activity", level=2),
-                        Text("Latest events associated with your account."),
-                    ),
-                    security_activity_refresh(request),
-                    class_="panel-heading",
+                PageHeader(
+                    "Recent security activity",
+                    eyebrow="Account event log",
+                    description="Review the latest security-relevant events for your account.",
+                    level=2,
+                    density="compact",
+                    actions=security_activity_refresh(request),
                 ),
                 security_activity_lazy(request),
             ),

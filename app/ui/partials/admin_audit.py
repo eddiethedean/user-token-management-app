@@ -18,6 +18,7 @@ from hedron import (
     Lazy,
     LinkButton,
     Loading,
+    PageHeader,
     Section,
     Stack,
     StateView,
@@ -119,7 +120,18 @@ def audit_panel(
             total_events=total_events,
             page_size=page_size,
         )
-    return Stack(refresh, body)
+    return Stack(
+        PageHeader(
+            "Event log",
+            eyebrow="Security records",
+            description="Filter the recorded events or refresh the current result set.",
+            level=2,
+            density="compact",
+            actions=refresh,
+        ),
+        body,
+        gap="lg",
+    )
 
 
 def audit_results(
@@ -176,7 +188,7 @@ def _audit_filter_form(request: Request, event_type_filter: str, outcome_filter:
                     autocomplete="off",
                 ),
             ),
-            columns={"base": 1, "md": 3},
+            columns={"base": 1, "md": 2},
             gap="sm",
         ),
         ActionGroup(

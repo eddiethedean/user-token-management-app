@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse
 from hedron import (
     ActionGroup,
     Alert,
+    AttrHost,
     Avatar,
     Badge,
     Button,
@@ -18,7 +19,10 @@ from hedron import (
     ConnectorNode,
     ConnectorTrack,
     DescriptionList,
+    FileUpload,
     FlowStep,
+    FormField,
+    FormGrid,
     Grid,
     Heading,
     Hedron,
@@ -31,8 +35,10 @@ from hedron import (
     ResourceList,
     ResourceRow,
     ScrollRegion,
+    Stack,
     StateView,
     Status,
+    Surface,
     Table,
     TableColumn,
     Timeline,
@@ -432,38 +438,35 @@ def _csv_inspection(
             description=error,
         )
     elif upload is not None and inspection is not None:
-        content = html.div(
-            html.div(
-                ActionGroup(
-                    html.span("CSV", class_="csv-file-mark", aria={"hidden": "true"}),
-                    html.div(
-                        html.strong(inspection.filename),
-                        html.span(
-                            f"{inspection.row_count:,} rows · {len(inspection.columns)} columns · "
-                            f"{_format_file_size(inspection.size_bytes)}"
-                        ),
-                    ),
-                    class_="csv-inspection-file",
-                ),
-                Badge("Schema detected", tone="success"),
-                class_="csv-inspection-heading",
+        content = Stack(
+            PageHeader(
+                inspection.filename,
+                eyebrow="CSV source",
+                description="Schema inspection completed and this file is ready to map.",
+                level=3,
+                density="compact",
+                meta=Badge("Schema detected", tone="success"),
             ),
-            html.div(
+            Grid(
+                Metric("Rows", f"{inspection.row_count:,}"),
+                Metric("Columns", f"{len(inspection.columns)}"),
+                Metric("File size", _format_file_size(inspection.size_bytes)),
+                columns={"base": 1, "sm": 3},
+                gap="sm",
+            ),
+            ScrollRegion(
                 apply_data_recipe(
                     Table(
                         rows=[
                             [
-                                column.name,
-                                html.span(
-                                    column.inferred_type,
-                                    class_=f"csv-type csv-type-{column.inferred_type}",
-                                ),
+                                html.strong(column.name),
+                                Badge(column.inferred_type, tone="info", size="sm"),
                                 (
                                     f"{column.populated / inspection.row_count:.0%}"
                                     if inspection.row_count
                                     else "—"
                                 ),
-                                html.span(column.example or "—", class_="csv-example"),
+                                html.code(column.example or "—"),
                             ]
                             for column in inspection.columns
                         ],
@@ -480,11 +483,14 @@ def _csv_inspection(
                         ],
                         density="compact",
                         sticky_header=True,
+                        zebra=True,
                     )
                 ),
-                class_="csv-schema-table-wrap",
+                axis="block",
+                size="md",
+                label=f"Detected columns in {inspection.filename}",
             ),
-            class_="csv-inspection-success",
+            gap="md",
         )
     else:
         content = StateView(
@@ -502,7 +508,6 @@ def _csv_inspection(
         ),
         content,
         id="pipeline-csv-inspection",
-        class_="csv-inspection",
         data=(
             {
                 "csv-ready": "true",
@@ -1007,7 +1012,6 @@ def _pipeline_body(
         align="end",
         gap="sm",
         collapse="never",
-        class_="heading-actions",
     )
     csv_upload_attrs = hx_attrs(
         request,
@@ -1073,7 +1077,6 @@ def _pipeline_body(
                                     type="button",
                                     variant="primary",
                                     size="md",
-                                    class_="run-transfer-button",
                                     attrs={
                                         "data-pipeline-start": "true",
                                         **pipeline_run_attrs,
@@ -1092,10 +1095,13 @@ def _pipeline_body(
                             ),
                             id="pipeline-availability-note",
                         ),
-                        html.div(
-                            html.div(
-                                html.label("Pipeline name", for_="pipeline-name"),
-                                html.input(
+                        FormGrid(
+                            FormField(
+                                name="pipeline_name",
+                                label="Pipeline name",
+                                id="pipeline-name",
+                                required=True,
+                                control=html.input(
                                     id="pipeline-name",
                                     name="pipeline_name",
                                     value=pipeline_name,
@@ -1103,288 +1109,328 @@ def _pipeline_body(
                                     required=True,
                                 ),
                             ),
-                            html.div(
-                                html.label("Write mode", for_="pipeline-mode-select"),
-                                _write_mode_select(target_catalog, selected=write_mode),
+                            FormField(
+                                name="write_mode",
+                                label="Write mode",
+                                id="pipeline-mode-select",
+                                control=_write_mode_select(
+                                    target_catalog,
+                                    selected=write_mode,
+                                ),
                             ),
-                            class_="route-meta-controls",
+                            columns={"base": 1, "md": 2},
+                            gap="md",
                         ),
                         Grid(
-                            html.section(
-                                html.div(
-                                    Heading("Source", level=3),
-                                    Badge(source_catalog.label, tone="success"),
-                                ),
-                                html.div(
-                                    html.div(
-                                        html.label("Source type", for_="pipeline-source-select"),
-                                        html.select(
-                                            *_source_provider_options(
-                                                connections, selected=source_provider
-                                            ),
-                                            id="pipeline-source-select",
+                            DATA_MOVER_DESIGN.apply(
+                                "data-mover-inset",
+                                Surface(
+                                    PageHeader(
+                                        "Source",
+                                        eyebrow="Read from",
+                                        description="Choose a connected object or scan a local CSV.",
+                                        level=3,
+                                        density="compact",
+                                        meta=Badge(source_catalog.label, tone="success"),
+                                    ),
+                                    Stack(
+                                        FormField(
                                             name="source_provider",
-                                            data={"pipeline-control": "source-provider"},
-                                            **hx_attrs(
-                                                request,
-                                                path="/pipeline/preview",
-                                                method="post",
-                                                target="#pipeline-preview-region",
-                                                swap="outerHTML",
-                                                include="#pipeline-form",
-                                                trigger="change",
-                                                select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                            label="Source type",
+                                            id="pipeline-source-select",
+                                            control=html.select(
+                                                *_source_provider_options(
+                                                    connections, selected=source_provider
+                                                ),
+                                                id="pipeline-source-select",
+                                                name="source_provider",
+                                                data={"pipeline-control": "source-provider"},
+                                                **hx_attrs(
+                                                    request,
+                                                    path="/pipeline/preview",
+                                                    method="post",
+                                                    target="#pipeline-preview-region",
+                                                    swap="outerHTML",
+                                                    include="#pipeline-form",
+                                                    trigger="change",
+                                                    select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                                ),
                                             ),
                                         ),
-                                    ),
-                                    html.div(
-                                        html.label("Schema", for_="pipeline-source-schema-select"),
-                                        html.select(
-                                            *(
-                                                _schema_options(
-                                                    source_provider,
-                                                    preferred_schema=source_schema_name,
-                                                )
-                                                if source_provider != "csv"
-                                                else [
-                                                    _option(
-                                                        "uploaded",
-                                                        "Upload a CSV to inspect its schema",
-                                                        selected=True,
-                                                        disabled=True,
-                                                    )
-                                                ]
+                                        FormGrid(
+                                            FormField(
+                                                name="source_schema",
+                                                label="Schema",
+                                                id="pipeline-source-schema-select",
+                                                control=html.select(
+                                                    *(
+                                                        _schema_options(
+                                                            source_provider,
+                                                            preferred_schema=source_schema_name,
+                                                        )
+                                                        if source_provider != "csv"
+                                                        else [
+                                                            _option(
+                                                                "uploaded",
+                                                                "Detected from CSV",
+                                                                selected=True,
+                                                                disabled=True,
+                                                            )
+                                                        ]
+                                                    ),
+                                                    id="pipeline-source-schema-select",
+                                                    name="source_schema",
+                                                    data={"pipeline-control": "source-schema"},
+                                                    **hx_attrs(
+                                                        request,
+                                                        path="/pipeline/preview",
+                                                        method="post",
+                                                        target="#pipeline-preview-region",
+                                                        swap="outerHTML",
+                                                        include="#pipeline-form",
+                                                        trigger="change",
+                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                                    ),
+                                                ),
                                             ),
-                                            id="pipeline-source-schema-select",
-                                            name="source_schema",
-                                            data={"pipeline-control": "source-schema"},
-                                            **hx_attrs(
-                                                request,
-                                                path="/pipeline/preview",
-                                                method="post",
-                                                target="#pipeline-preview-region",
-                                                swap="outerHTML",
-                                                include="#pipeline-form",
-                                                trigger="change",
-                                                select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                            FormField(
+                                                name="source_table",
+                                                label="Table",
+                                                id="pipeline-source-table-select",
+                                                control=html.select(
+                                                    *(
+                                                        _table_options(
+                                                            source_provider,
+                                                            source_schema_name,
+                                                            preferred_table=source_table_display,
+                                                        )
+                                                        if source_provider != "csv"
+                                                        else [
+                                                            _option(
+                                                                "",
+                                                                "Upload required",
+                                                                selected=True,
+                                                                disabled=True,
+                                                            )
+                                                        ]
+                                                    ),
+                                                    id="pipeline-source-table-select",
+                                                    name="source_table",
+                                                    data={"pipeline-control": "source-table"},
+                                                    **hx_attrs(
+                                                        request,
+                                                        path="/pipeline/preview",
+                                                        method="post",
+                                                        target="#pipeline-preview-region",
+                                                        swap="outerHTML",
+                                                        include="#pipeline-form",
+                                                        trigger="change",
+                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                                    ),
+                                                ),
                                             ),
+                                            columns={"base": 1, "md": 2},
+                                            gap="sm",
                                         ),
-                                        class_="source-remote-field",
-                                    ),
-                                    html.div(
-                                        html.label("Table", for_="pipeline-source-table-select"),
-                                        html.select(
-                                            *(
-                                                _table_options(
-                                                    source_provider,
-                                                    source_schema_name,
-                                                    preferred_table=source_table_display,
-                                                )
-                                                if source_provider != "csv"
-                                                else [
-                                                    _option(
-                                                        "",
-                                                        "Upload required",
-                                                        selected=True,
-                                                        disabled=True,
-                                                    )
-                                                ]
-                                            ),
-                                            id="pipeline-source-table-select",
-                                            name="source_table",
-                                            data={"pipeline-control": "source-table"},
-                                            **hx_attrs(
-                                                request,
-                                                path="/pipeline/preview",
-                                                method="post",
-                                                target="#pipeline-preview-region",
-                                                swap="outerHTML",
-                                                include="#pipeline-form",
-                                                trigger="change",
-                                                select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
-                                            ),
-                                        ),
-                                        class_="source-remote-field",
-                                    ),
-                                    html.div(
-                                        html.div(
-                                            html.div(
-                                                html.strong("Upload CSV source"),
-                                                html.span(
-                                                    Badge("UTF-8 · 5 MB maximum", tone="neutral"),
+                                        Surface(
+                                            PageHeader(
+                                                "CSV alternative",
+                                                eyebrow="Local source",
+                                                description="Scan a UTF-8 CSV and use its detected schema.",
+                                                level=4,
+                                                density="compact",
+                                                meta=html.span(
+                                                    Badge("5 MB maximum", tone="neutral"),
                                                     id="pipeline-csv-upload-state",
                                                 ),
                                             ),
-                                            html.label(
-                                                html.span("Choose CSV file"),
-                                                html.input(
-                                                    type="file",
+                                            AttrHost(
+                                                FileUpload(
                                                     name="csv_file",
                                                     accept=".csv,text/csv",
-                                                    id="pipeline-csv-file",
-                                                    **csv_upload_attrs,
+                                                    maximum_size=MAX_CSV_UPLOAD_BYTES,
+                                                    label="Choose CSV file",
+                                                    hint="UTF-8 CSV · scanned locally before use",
+                                                    status="Select a file to inspect its schema.",
+                                                    appearance="soft",
+                                                    density="comfortable",
                                                 ),
-                                                class_="csv-upload-button",
+                                                id="pipeline-csv-file",
+                                                attrs={
+                                                    str(key): str(value)
+                                                    for key, value in csv_upload_attrs.items()
+                                                },
                                             ),
-                                            class_="csv-upload-heading",
+                                            _csv_inspection(
+                                                loaded_source_upload
+                                                if source_provider == "csv"
+                                                else None,
+                                                loaded_source_inspection
+                                                if source_provider == "csv"
+                                                else None,
+                                            ),
+                                            appearance="plain",
+                                            padding="sm",
+                                            elevation="none",
                                         ),
-                                        _csv_inspection(
-                                            loaded_source_upload
-                                            if source_provider == "csv"
-                                            else None,
-                                            loaded_source_inspection
-                                            if source_provider == "csv"
-                                            else None,
-                                        ),
-                                        id="pipeline-csv-upload-panel",
-                                        class_="csv-upload-panel",
-                                        hidden=True,
+                                        gap="md",
                                     ),
-                                    class_="object-picker-fields",
                                 ),
-                                class_="object-picker source-object-picker",
                             ),
-                            html.section(
-                                html.div(
-                                    Heading("Destination", level=3),
-                                    Badge(
-                                        target_catalog.label
-                                        if target_catalog is not None
-                                        else "Not selected",
-                                        tone="info",
+                            DATA_MOVER_DESIGN.apply(
+                                "data-mover-inset",
+                                Surface(
+                                    PageHeader(
+                                        "Destination",
+                                        eyebrow="Write to",
+                                        description="Select a connected target and write policy.",
+                                        level=3,
+                                        density="compact",
+                                        meta=Badge(
+                                            target_catalog.label
+                                            if target_catalog is not None
+                                            else "Not selected",
+                                            tone="info",
+                                        ),
                                     ),
-                                ),
-                                html.div(
-                                    html.div(
-                                        html.label("Connection", for_="pipeline-target-select"),
-                                        html.select(
-                                            *(
-                                                _provider_options(
-                                                    connections, selected=target_provider
-                                                )
-                                                if target_catalog is not None
-                                                else [
-                                                    _option(
-                                                        "",
-                                                        "Set up a connection first",
-                                                        selected=True,
-                                                        disabled=True,
-                                                    )
-                                                ]
-                                            ),
-                                            id="pipeline-target-select",
+                                    Stack(
+                                        FormField(
                                             name="destination_provider",
-                                            data={"pipeline-control": "target-provider"},
-                                            disabled=target_catalog is None,
-                                            **hx_attrs(
-                                                request,
-                                                path="/pipeline/preview",
-                                                method="post",
-                                                target="#pipeline-preview-region",
-                                                swap="outerHTML",
-                                                include="#pipeline-form",
-                                                trigger="change",
-                                                select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
-                                            ),
-                                        ),
-                                    ),
-                                    html.div(
-                                        html.label("Schema", for_="pipeline-target-schema-select"),
-                                        html.select(
-                                            *(
-                                                _schema_options(
-                                                    target_provider,
-                                                    preferred_schema=target_schema_name,
-                                                )
-                                                if target_catalog is not None
-                                                else [
-                                                    _option(
-                                                        "",
-                                                        "No connection available",
-                                                        selected=True,
-                                                        disabled=True,
+                                            label="Connection",
+                                            id="pipeline-target-select",
+                                            control=html.select(
+                                                *(
+                                                    _provider_options(
+                                                        connections, selected=target_provider
                                                     )
-                                                ]
-                                            ),
-                                            id="pipeline-target-schema-select",
-                                            name="destination_schema",
-                                            data={"pipeline-control": "target-schema"},
-                                            disabled=target_catalog is None,
-                                            **hx_attrs(
-                                                request,
-                                                path="/pipeline/preview",
-                                                method="post",
-                                                target="#pipeline-preview-region",
-                                                swap="outerHTML",
-                                                include="#pipeline-form",
-                                                trigger="change",
-                                                select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                                    if target_catalog is not None
+                                                    else [
+                                                        _option(
+                                                            "",
+                                                            "Set up a connection first",
+                                                            selected=True,
+                                                            disabled=True,
+                                                        )
+                                                    ]
+                                                ),
+                                                id="pipeline-target-select",
+                                                name="destination_provider",
+                                                data={"pipeline-control": "target-provider"},
+                                                disabled=target_catalog is None,
+                                                **hx_attrs(
+                                                    request,
+                                                    path="/pipeline/preview",
+                                                    method="post",
+                                                    target="#pipeline-preview-region",
+                                                    swap="outerHTML",
+                                                    include="#pipeline-form",
+                                                    trigger="change",
+                                                    select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                                ),
                                             ),
                                         ),
-                                    ),
-                                    html.div(
-                                        html.label("Table", for_="pipeline-target-table-select"),
-                                        html.select(
-                                            *(
-                                                _table_options(
-                                                    target_provider,
-                                                    target_schema_name,
-                                                    preferred_table=target_table_name,
-                                                    allow_create=True,
-                                                    additional_tables=_created_destination_tables(
-                                                        pipelines,
-                                                        target_provider,
-                                                        target_schema_name,
+                                        FormGrid(
+                                            FormField(
+                                                name="destination_schema",
+                                                label="Schema",
+                                                id="pipeline-target-schema-select",
+                                                control=html.select(
+                                                    *(
+                                                        _schema_options(
+                                                            target_provider,
+                                                            preferred_schema=target_schema_name,
+                                                        )
+                                                        if target_catalog is not None
+                                                        else [
+                                                            _option(
+                                                                "",
+                                                                "No connection available",
+                                                                selected=True,
+                                                                disabled=True,
+                                                            )
+                                                        ]
                                                     ),
-                                                )
-                                                if target_catalog is not None
-                                                else [
-                                                    _option(
-                                                        "",
-                                                        "No connection available",
-                                                        selected=True,
-                                                        disabled=True,
-                                                    )
-                                                ]
+                                                    id="pipeline-target-schema-select",
+                                                    name="destination_schema",
+                                                    data={"pipeline-control": "target-schema"},
+                                                    disabled=target_catalog is None,
+                                                    **hx_attrs(
+                                                        request,
+                                                        path="/pipeline/preview",
+                                                        method="post",
+                                                        target="#pipeline-preview-region",
+                                                        swap="outerHTML",
+                                                        include="#pipeline-form",
+                                                        trigger="change",
+                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                                    ),
+                                                ),
                                             ),
-                                            id="pipeline-target-table-select",
-                                            name="destination_table",
-                                            data={"pipeline-control": "target-table"},
-                                            disabled=target_catalog is None,
-                                            **hx_attrs(
-                                                request,
-                                                path="/pipeline/preview",
-                                                method="post",
-                                                target="#pipeline-preview-region",
-                                                swap="outerHTML",
-                                                include="#pipeline-form",
-                                                trigger="change",
+                                            FormField(
+                                                name="destination_table",
+                                                label="Table",
+                                                id="pipeline-target-table-select",
+                                                control=html.select(
+                                                    *(
+                                                        _table_options(
+                                                            target_provider,
+                                                            target_schema_name,
+                                                            preferred_table=target_table_name,
+                                                            allow_create=True,
+                                                            additional_tables=_created_destination_tables(
+                                                                pipelines,
+                                                                target_provider,
+                                                                target_schema_name,
+                                                            ),
+                                                        )
+                                                        if target_catalog is not None
+                                                        else [
+                                                            _option(
+                                                                "",
+                                                                "No connection available",
+                                                                selected=True,
+                                                                disabled=True,
+                                                            )
+                                                        ]
+                                                    ),
+                                                    id="pipeline-target-table-select",
+                                                    name="destination_table",
+                                                    data={"pipeline-control": "target-table"},
+                                                    disabled=target_catalog is None,
+                                                    **hx_attrs(
+                                                        request,
+                                                        path="/pipeline/preview",
+                                                        method="post",
+                                                        target="#pipeline-preview-region",
+                                                        swap="outerHTML",
+                                                        include="#pipeline-form",
+                                                        trigger="change",
+                                                    ),
+                                                ),
                                             ),
+                                            columns={"base": 1, "md": 2},
+                                            gap="sm",
                                         ),
-                                    ),
-                                    html.div(
-                                        html.label(
-                                            "New table name", for_="pipeline-target-table-new"
-                                        ),
-                                        html.input(
-                                            id="pipeline-target-table-new",
+                                        FormField(
                                             name="destination_table_new",
-                                            value=new_target_table_name,
-                                            maxlength="63",
-                                            placeholder="readiness_events_copy",
-                                            pattern="[A-Za-z][A-Za-z0-9_]{1,62}",
+                                            label="New table name",
+                                            id="pipeline-target-table-new",
+                                            help="Used only when Create a new table is selected.",
+                                            control=html.input(
+                                                id="pipeline-target-table-new",
+                                                name="destination_table_new",
+                                                value=new_target_table_name,
+                                                maxlength="63",
+                                                placeholder="readiness_events_copy",
+                                                pattern="[A-Za-z][A-Za-z0-9_]{1,62}",
+                                            ),
                                         ),
-                                        id="pipeline-new-table-field",
-                                        class_="new-table-field",
-                                        hidden=True,
+                                        gap="md",
                                     ),
-                                    class_="object-picker-fields",
                                 ),
-                                class_="object-picker target-object-picker",
                             ),
-                            columns=2,
-                            gap="sm",
-                            class_="object-picker-grid",
+                            columns={"base": 1, "lg": 2},
+                            gap="md",
                         ),
                         ConnectorFlow(
                             _provider_node(
@@ -1447,9 +1493,7 @@ def _pipeline_body(
                         action=form_action(request, "/pipeline/save"),
                         method="post",
                         id="pipeline-form",
-                        class_="pipeline-form",
                     ),
-                    class_="pipeline-builder",
                     id="pipeline-builder",
                 ),
             ),
@@ -1477,7 +1521,6 @@ def _pipeline_body(
                         ),
                         id="pipeline-run-monitor",
                     ),
-                    class_="run-monitor",
                 ),
             ),
             (
@@ -1507,7 +1550,6 @@ def _pipeline_body(
                         title="Safe to explore" if demo_mode else "Live transfers",
                         tone="warning" if demo_mode else "success",
                     ),
-                    class_="run-history",
                 ),
             ),
             active=("Route setup" if notice == "saved" or run_monitor is None else "Live transfer"),

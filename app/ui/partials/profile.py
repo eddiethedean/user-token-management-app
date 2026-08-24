@@ -16,6 +16,7 @@ from hedron import (
     Inline,
     LinkButton,
     OobUpdate,
+    PageHeader,
     Section,
     SplitView,
     Stack,
@@ -87,20 +88,21 @@ def profile_form(
                         value=user.job_title or "",
                     ),
                 ),
-                FormField(
-                    name="phone",
-                    label="Work phone",
-                    id="phone",
-                    control=TextInput(
-                        "phone",
-                        id="phone",
-                        type="tel",
-                        value=user.phone or "",
-                        autocomplete="tel",
-                    ),
-                ),
                 columns={"base": 1, "md": 2},
                 gap="md",
+            ),
+            FormField(
+                name="phone",
+                label="Work phone",
+                id="phone",
+                help="Optional contact number for account coordination.",
+                control=TextInput(
+                    "phone",
+                    id="phone",
+                    type="tel",
+                    value=user.phone or "",
+                    autocomplete="tel",
+                ),
             ),
             submit_button("Save changes"),
             action=form_action(request, "profile"),
@@ -169,20 +171,19 @@ def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) 
 def account_profile_panel(request: Request, auth: AuthContext, *, csrf_token: str) -> NodeLike:
     return SplitView(
         primary=surface_card(
-            html.div(
-                html.div(
-                    html.h2("Profile details"),
-                    html.p("Information shown to application administrators."),
-                ),
-                class_="panel-heading",
+            PageHeader(
+                "Profile details",
+                eyebrow="Workspace identity",
+                description="Keep the details visible to application administrators current.",
+                level=2,
+                density="compact",
             ),
             profile_form(request, auth, csrf_token=csrf_token),
         ),
         secondary=profile_identity(request, auth),
-        ratio="2:1",
+        ratio="3:2",
         gap="lg",
         collapse="md",
-        class_="content-grid profile-grid",
     )
 
 

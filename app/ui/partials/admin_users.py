@@ -14,9 +14,12 @@ from hedron import (
     Form,
     FormField,
     FormGrid,
-    Heading,
+    PageHeader,
+    ResourceList,
+    ResourceRow,
     Section,
     Select,
+    Stack,
     StateView,
     Table,
     TableColumn,
@@ -127,8 +130,15 @@ def user_table(
                 actions.append(toggle_form)
         rows.append(
             [
-                user.email_original,
-                user.full_name or "—",
+                Stack(
+                    Text(user.email_original, role="label", overflow="truncate"),
+                    Text(
+                        user.full_name or "Name not provided",
+                        role="caption",
+                        overflow="truncate",
+                    ),
+                    gap="xs",
+                ),
                 Badge(
                     user.status,
                     tone=(
@@ -144,7 +154,6 @@ def user_table(
                     *actions,
                     gap="xs",
                     collapse="never",
-                    class_="table-actions",
                 ),
             ]
         )
@@ -156,7 +165,6 @@ def user_table(
     base = _filter_base_path(request, "/admin/users", q=query, status=status_filter)
     columns = [
         TableColumn(header="Account", size="wide"),
-        TableColumn(header="Full name"),
         TableColumn(header="Status", size="narrow"),
         TableColumn(header="Roles"),
         TableColumn(header="Actions", align="end", size="narrow"),
@@ -242,7 +250,7 @@ def user_directory(
                         value=status_filter or None,
                     ),
                 ),
-                columns={"base": 1, "md": 3},
+                columns={"base": 1, "md": 2},
                 gap="sm",
             ),
             ActionGroup(submit_button("Filter", variant="secondary", size="sm"), align="end"),
@@ -294,7 +302,7 @@ def invitation_panel(
             pill = Badge("revoked", tone="neutral")
         else:
             pill = Badge("pending", tone="warning")
-        actions: list[NodeLike] = [pill]
+        actions: list[NodeLike] = []
         if not invitation.accepted_at and not invitation.revoked_at:
             dialog_id = f"revoke-invite-{invitation.id}"
             actions.append(
@@ -334,29 +342,33 @@ def invitation_panel(
                 )
             )
         pending_rows.append(
-            html.div(
-                html.div(
-                    html.strong(invitation.email_original),
-                    html.small(
-                        f"{invitation.role_name.title()} · {invitation.created_at.strftime('%b %d')}"
-                    ),
+            ResourceRow(
+                invitation.email_original,
+                description=(
+                    f"{invitation.role_name.title()} access · Sent "
+                    f"{invitation.created_at.strftime('%b %d, %Y')}"
                 ),
-                ActionGroup(
-                    *actions,
-                    align="end",
-                    gap="xs",
-                    collapse="never",
-                    class_="pending-actions",
+                meta=pill,
+                actions=(
+                    ActionGroup(*actions, align="end", gap="xs", collapse="never")
+                    if actions
+                    else None
                 ),
-                class_="pending-row",
+                density="comfortable",
             )
         )
     email_error = field_errors.get("invite_email", "")
     role_error = field_errors.get("invite_role", "")
     top_error = error if error and not field_errors else ""
     return Section(
-        Heading("Invitations", level=2),
-        Text("Send a government-email invitation with an initial role."),
+        PageHeader(
+            "Invite a teammate",
+            eyebrow="Provision access",
+            description="Send a government-email invitation with an initial role.",
+            level=2,
+            density="compact",
+            meta=Badge(f"{len(pending_rows)} sent", tone="neutral"),
+        ),
         alert_box(top_error),
         alert_box(success, kind="success"),
         Form(
@@ -398,7 +410,11 @@ def invitation_panel(
                 indicator=INDICATOR,
             ),
         ),
-        html.div(*pending_rows, class_="pending-list")
+        ResourceList(
+            *pending_rows,
+            label="Invitation history",
+            density="comfortable",
+        )
         if pending_rows
         else StateView(
             "No invitations yet.",
@@ -406,5 +422,4 @@ def invitation_panel(
             description="Sent invitations and their current status will appear here.",
         ),
         id="invitation-panel",
-        class_="invite-panel",
     )

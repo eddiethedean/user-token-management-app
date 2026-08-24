@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal, cast
 
 from hedron import Button, CsrfField, html
-from hedron_core import NodeLike
+from hedron_core import Component, HtmlAttrValue, NodeLike, Props
 
 from app.ui.design_system import apply_action_recipe
 
@@ -16,6 +16,112 @@ def hidden_field(name: str, value: str) -> NodeLike:
 
 def csrf_hidden(token: str, *, name: str = "csrf_token") -> NodeLike:
     return CsrfField(name=name, token=token)
+
+
+class CompactPasswordInputProps(Props):
+    """Props required for FormField to bind a compact password control."""
+
+    name: str
+    id: str | None = None
+    value: str = ""
+    placeholder: str | None = None
+    required: bool = False
+    autocomplete: str | None = None
+    aria_describedby: str | None = None
+    aria_invalid: str | None = None
+    aria_required: str | None = None
+
+
+class CompactPasswordInput(Component[CompactPasswordInputProps]):
+    """Hedron password input with a quiet native Button reveal action."""
+
+    props_type = CompactPasswordInputProps
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        id: str,
+        autocomplete: str | None = None,
+        required: bool = False,
+        placeholder: str | None = None,
+        value: str = "",
+        aria_describedby: str | None = None,
+        aria_invalid: str | None = None,
+        aria_required: str | None = None,
+    ) -> None:
+        super().__init__(
+            CompactPasswordInputProps(
+                name=name,
+                id=id,
+                autocomplete=autocomplete,
+                required=required,
+                placeholder=placeholder,
+                value=value,
+                aria_describedby=aria_describedby,
+                aria_invalid=aria_invalid,
+                aria_required=aria_required,
+            )
+        )
+
+    def render(self) -> NodeLike:
+        field_id = self.props.id or f"field-{self.props.name}"
+        input_attrs: dict[str, HtmlAttrValue] = {
+            "id": field_id,
+            "name": self.props.name,
+            "type": "password",
+            "value": self.props.value,
+            "required": self.props.required or None,
+            "autocomplete": self.props.autocomplete,
+            "placeholder": self.props.placeholder,
+            "class_": "hedron-text-input",
+            "aria": {
+                "describedby": self.props.aria_describedby,
+                "invalid": self.props.aria_invalid,
+                "required": self.props.aria_required,
+            },
+        }
+        return html.span(
+            html.input(**input_attrs),
+            Button(
+                "Show",
+                type="button",
+                variant="secondary",
+                appearance="ghost",
+                size="sm",
+                id=f"{field_id}-visibility",
+                attrs={
+                    "data-hedron-password-toggle": field_id,
+                    "data-compact-password-toggle": "true",
+                    "aria-controls": field_id,
+                    "aria-label": "Show password",
+                    "aria-pressed": "false",
+                },
+            ),
+            class_="hedron-password-field",
+            data={"hedron-password": "true"},
+        )
+
+
+def compact_password_input(
+    name: str,
+    *,
+    id: str,
+    autocomplete: str | None = None,
+    required: bool = False,
+    placeholder: str | None = None,
+    value: str = "",
+) -> NodeLike:
+    """Render a roomy password field with a quiet native Hedron reveal action."""
+
+    return CompactPasswordInput(
+        name,
+        id=id,
+        autocomplete=autocomplete,
+        required=required,
+        placeholder=placeholder,
+        value=value,
+    )
 
 
 def submit_button(

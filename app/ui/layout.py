@@ -14,6 +14,7 @@ from hedron import (
     Badge,
     Brand,
     Container,
+    EnvironmentBanner,
     Fragment,
     HtmxLink,
     Inline,
@@ -264,7 +265,7 @@ def app_shell(
     brand = Brand(
         settings.app_name,
         mark_text="DM",
-        subtitle="Secure data movement",
+        subtitle="Secure transfer operations",
         subtitle_overflow="truncate",
         href=page_href(request, "/"),
         aria={"label": f"{settings.app_name} home"},
@@ -277,7 +278,10 @@ def app_shell(
     )
     skip = SkipLink(target="#main-content", label="Skip to main content")
     content: NodeLike
-    banner: NodeLike | None = None
+    banner: NodeLike | None = EnvironmentBanner(
+        "Controlled demo workspace · Transfers are simulated and remote endpoints stay untouched",
+        tone="warning",
+    )
     header: NodeLike | None = None
     footer: NodeLike | None = None
     if auth:
@@ -289,11 +293,7 @@ def app_shell(
                 color_mode=(preference.color_mode if preference.color_mode != "system" else None),
             ),
             panel_id="main-content",
-            banner=Inline(
-                Badge("Demo workspace", tone="warning"),
-                Text("Transfers are simulated; no remote endpoints are contacted."),
-                gap="sm",
-            ),
+            banner=banner,
             brand=brand,
             env_badge=environment_badge,
             account=(account_summary(request, auth, csrf_token=csrf_token) if csrf_token else None),
@@ -369,7 +369,8 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> PageH
         title,
         eyebrow=eyebrow,
         description=lead,
-        actions=extra[0] if len(extra) == 1 else None,
+        meta=extra[0] if len(extra) == 1 else None,
+        density="comfortable",
     )
 
 
