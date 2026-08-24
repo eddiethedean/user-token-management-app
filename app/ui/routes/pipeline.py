@@ -1031,6 +1031,44 @@ def _pipeline_body(
         include="#pipeline-form",
         indicator=INDICATOR,
     )
+    setup_flow = ProcessFlow(
+        FlowStep(
+            "Connect",
+            status=("complete" if connections and ready_count == len(connections) else "current"),
+            description=(
+                f"{ready_count} of {len(connections)} connections validated."
+                if connections
+                else "Add a source and destination connection."
+            ),
+            status_text=(
+                "Ready"
+                if connections and ready_count == len(connections)
+                else "Needs attention"
+                if connections
+                else "Start here"
+            ),
+        ),
+        FlowStep(
+            "Configure",
+            status="complete" if pipeline_id else "current",
+            description="Choose the source, destination, and write policy.",
+            status_text="Saved" if pipeline_id else "In progress",
+        ),
+        FlowStep(
+            "Run",
+            status="current" if pipeline_id and initial_run_ready else "pending",
+            description=(
+                "Start a transfer and follow each persisted worker event."
+                if pipeline_id and initial_run_ready
+                else "Save a ready route to enable transfers."
+            ),
+            status_text="Ready" if pipeline_id and initial_run_ready else "Next",
+        ),
+        label="Pipeline workflow",
+        direction="horizontal",
+        collapse="never",
+        density="compact",
+    )
     return [
         PageHeader(
             "Pipeline workspace",
@@ -1042,6 +1080,7 @@ def _pipeline_body(
             actions=connection_summary,
             density="comfortable",
         ),
+        setup_flow,
         alert_box(
             "Pipeline saved. You can load or run it any time." if notice == "saved" else "",
             kind="success",
@@ -1638,7 +1677,12 @@ def register_pipeline_routes(app: Hedron) -> None:
                 loaded_source_inspection=loaded_source_inspection,
                 latest_runs=latest_runs,
                 run_monitor=(
-                    _run_status_fragment(request, db, displayed_run)
+                    _run_status_fragment(
+                        request,
+                        db,
+                        displayed_run,
+                        csrf_token=auth.session.csrf_token,
+                    )
                     if displayed_run is not None
                     else None
                 ),
@@ -1868,7 +1912,7 @@ def register_pipeline_routes(app: Hedron) -> None:
             response = await interaction_response(
                 request,
                 ok_fragment(
-                    _run_status_fragment(request, db, run),
+                    _run_status_fragment(request, db, run, csrf_token=auth.session.csrf_token),
                     status_code=status.HTTP_202_ACCEPTED,
                 ),
             )
@@ -1931,7 +1975,13 @@ def register_pipeline_routes(app: Hedron) -> None:
         return await interaction_response(
             request,
             ok_fragment(
-                _run_status_fragment(request, db, run, after_sequence=after_sequence),
+                _run_status_fragment(
+                    request,
+                    db,
+                    run,
+                    after_sequence=after_sequence,
+                    csrf_token=auth.session.csrf_token,
+                ),
                 **_run_status_toasts(run),
             ),
         )
@@ -1954,7 +2004,10 @@ def register_pipeline_routes(app: Hedron) -> None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
         return await interaction_response(
             request,
-            ok_fragment(_run_status_fragment(request, db, run), **_run_status_toasts(run)),
+            ok_fragment(
+                _run_status_fragment(request, db, run, csrf_token=auth.session.csrf_token),
+                **_run_status_toasts(run),
+            ),
         )
 
 
@@ -1981,6 +2034,21 @@ _RUN_STAGE_INDEX = {
     "extracting": 1,
     "loading": 2,
     "verifying": 3,
+}
+
+_RUN_STAGE_COPY = {
+    "queued": ("Queued", "Waiting for an available worker."),
+    "validating": ("Validating", "Checking the route and connection handshakes."),
+    "extracting": ("Extracting", "Reading source batches and counting rows."),
+    "loading": ("Loading", "Writing batches to the destination."),
+    "verifying": ("Verifying", "Comparing persisted results with the source."),
+    "succeeded": ("Complete", "Transfer verified and ready for review."),
+    "cancelled": ("Cancelled", "The transfer was stopped before completion."),
+    "failed": ("Failed", "The worker stopped and recorded a failure."),
+    "failed_needs_reconciliation": (
+        "Needs review",
+        "The worker stopped; reconcile the destination before retrying.",
+    ),
 }
 
 _EVENT_STAGE_LABELS = {
@@ -2012,7 +2080,38 @@ def _run_flow_statuses(run_status: str) -> tuple[str, str, str, str]:
     )  # type: ignore[return-value]
 
 
-def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
+def _run_flow_steps(flow_statuses: tuple[str, str, str, str]) -> tuple[FlowStep, ...]:
+    labels = ("Validate", "Extract", "Load", "Verify")
+    descriptions = (
+        "Check credentials and route settings.",
+        "Read source batches.",
+        "Write destination batches.",
+        "Confirm row counts and checksums.",
+    )
+    status_text = {
+        "complete": "Complete",
+        "current": "In progress",
+        "blocked": "Stopped",
+        "pending": "Waiting",
+    }
+    return tuple(
+        FlowStep(
+            label,
+            status=step_status,
+            description=description,
+            status_text=status_text[step_status],
+        )
+        for label, description, step_status in zip(labels, descriptions, flow_statuses, strict=True)
+    )  # type: ignore[return-value]
+
+
+def _run_status_fragment(
+    request: Request,
+    db,
+    run,
+    after_sequence: int = 0,
+    csrf_token: str = "",
+):
     lines = events_after(db, run=run, after_sequence=0)
     next_sequence = lines[-1].sequence if lines else after_sequence
     monitor_active = run.status not in {
@@ -2035,7 +2134,7 @@ def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
         "loading",
         "verifying",
     }:
-        run_badge_text = "Running"
+        run_badge_text = _RUN_STAGE_COPY.get(run_status, ("Running", ""))[0]
         run_badge_tone = "info"
     elif run_status == "cancelled":
         run_badge_text = "Cancelled"
@@ -2044,6 +2143,10 @@ def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
         run_badge_text = "Failed"
         run_badge_tone = "danger"
     progress_value = _RUN_PROGRESS.get(run_status, 0)
+    stage_label, stage_description = _RUN_STAGE_COPY.get(
+        run_status,
+        (run_status.replace("_", " ").title(), "Worker state persisted to the run log."),
+    )
     flow_statuses = _run_flow_statuses(run_status)
     snapshot = parse_snapshot(run.definition_snapshot_json)
     source_label = _provider_label(snapshot.source_provider)
@@ -2076,6 +2179,36 @@ def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
         polling=1.5,
         indicator=INDICATOR,
     )
+    run_again_form = (
+        html.form(
+            csrf_hidden(csrf_token),
+            html.input(
+                type="hidden",
+                name="pipeline_id",
+                value=run.pipeline_definition_id or "",
+            ),
+            Button(
+                "Run again",
+                type="submit",
+                variant="primary",
+                size="sm",
+                disabled=monitor_active or not run.pipeline_definition_id,
+                attrs=hx_attrs(
+                    request,
+                    path="/pipeline/runs",
+                    method="post",
+                    target="#pipeline-run-monitor",
+                    swap="outerHTML",
+                    indicator=INDICATOR,
+                ),
+            ),
+            action=form_action(request, "/pipeline/runs"),
+            method="post",
+            id=f"pipeline-run-again-form-{run.id}",
+        )
+        if run.pipeline_definition_id
+        else None
+    )
     return html.div(
         ActionGroup(
             DATA_MOVER_DESIGN.apply(
@@ -2088,6 +2221,7 @@ def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
                 ),
             ),
             Badge(snapshot.name, tone="neutral"),
+            run_again_form,
             align="between",
             gap="sm",
             collapse="never",
@@ -2104,11 +2238,12 @@ def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
             ConnectorTrack(
                 Inline(
                     CircularProgress(
-                        progress_value,
+                        None if monitor_active else progress_value,
+                        indeterminate=monitor_active,
                         label=f"Transfer {progress_value}% complete",
                     ),
                     Status(
-                        f"{progress_value}% · {run.stage.replace('_', ' ').title()}",
+                        f"{progress_value}% · {stage_label}",
                         tone=run_badge_tone,
                         live=False,
                         variant="activity" if monitor_active else "compact",
@@ -2143,14 +2278,16 @@ def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
             min_size="sm",
         ),
         ProcessFlow(
-            FlowStep("Validate", status=flow_statuses[0]),
-            FlowStep("Extract", status=flow_statuses[1]),
-            FlowStep("Load", status=flow_statuses[2]),
-            FlowStep("Verify", status=flow_statuses[3]),
+            *_run_flow_steps(flow_statuses),
             label="Live transfer stages",
             direction="horizontal",
-            collapse="sm",
+            collapse="never",
             density="compact",
+        ),
+        Alert(
+            stage_description,
+            title=f"{stage_label} stage",
+            tone="danger" if failed else "success" if run_status == "succeeded" else "info",
         ),
         Grid(
             Metric(
@@ -2167,7 +2304,7 @@ def _run_status_fragment(request: Request, db, run, after_sequence: int = 0):
             ),
             Metric(
                 "Worker stage",
-                run.stage.replace("_", " ").title(),
+                stage_label,
                 delta=f"Attempt {run.attempt}",
             ),
             columns={"base": 1, "sm": 3},
