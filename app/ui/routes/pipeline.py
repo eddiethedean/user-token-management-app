@@ -9,7 +9,10 @@ from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import (
     ActionGroup,
+    ActionState,
+    ActionTrace,
     Alert,
+    AsyncRegion,
     AttrHost,
     Avatar,
     Badge,
@@ -29,6 +32,7 @@ from hedron import (
     Inline,
     Metric,
     OobUpdate,
+    OperationIdentity,
     PageHeader,
     ProcessFlow,
     Progress,
@@ -1084,6 +1088,7 @@ def _saved_pipeline_cards(
                                     method="post",
                                     target="#pipeline-run-monitor",
                                     swap="outerHTML",
+                                    busy="region",
                                 ),
                             },
                             disabled=not runnable,
@@ -1393,6 +1398,7 @@ def _pipeline_body(
         swap="outerHTML",
         include="#pipeline-form",
         indicator=INDICATOR,
+        busy="region",
     )
     setup_flow = ProcessFlow(
         FlowStep(
@@ -2309,11 +2315,14 @@ def register_pipeline_routes(app: Hedron) -> None:
             process_one(db, settings)
             db.refresh(run)
         if is_htmx_request(request):
+            action_state, action_trace = _run_action_metadata(db, run)
             response = await interaction_response(
                 request,
                 ok_fragment(
                     _run_status_fragment(request, db, run, csrf_token=auth.session.csrf_token),
                     status_code=status.HTTP_202_ACCEPTED,
+                    action_state=action_state,
+                    action_trace=action_trace,
                 ),
             )
             if settings.is_demo_mode and settings.app_env != "test":
@@ -2372,6 +2381,7 @@ def register_pipeline_routes(app: Hedron) -> None:
             run = owned_run(db, user=auth.user, run_id=run_id)
         except LookupError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        action_state, action_trace = _run_action_metadata(db, run)
         return await interaction_response(
             request,
             ok_fragment(
@@ -2383,6 +2393,8 @@ def register_pipeline_routes(app: Hedron) -> None:
                     csrf_token=auth.session.csrf_token,
                 ),
                 **_run_status_toasts(run),
+                action_state=action_state,
+                action_trace=action_trace,
             ),
         )
 
@@ -2402,11 +2414,14 @@ def register_pipeline_routes(app: Hedron) -> None:
             run = request_cancel(db, user=auth.user, run_id=run_id)
         except LookupError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        action_state, action_trace = _run_action_metadata(db, run)
         return await interaction_response(
             request,
             ok_fragment(
                 _run_status_fragment(request, db, run, csrf_token=auth.session.csrf_token),
                 **_run_status_toasts(run),
+                action_state=action_state,
+                action_trace=action_trace,
             ),
         )
 
@@ -2426,12 +2441,15 @@ def register_pipeline_routes(app: Hedron) -> None:
             run = record_reconciliation_review(db, user=auth.user, run_id=run_id)
         except LookupError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        action_state, action_trace = _run_action_metadata(db, run)
         return await interaction_response(
             request,
             ok_fragment(
                 _run_status_fragment(request, db, run, csrf_token=auth.session.csrf_token),
                 toast="Reconciliation review recorded.",
                 toast_tone="info",
+                action_state=action_state,
+                action_trace=action_trace,
             ),
         )
 
@@ -2442,6 +2460,76 @@ def _run_status_toasts(run):
     if run.status in {"failed", "cancelled", "failed_needs_reconciliation"}:
         return {"toast": "Transfer ended.", "toast_tone": "warning"}
     return {}
+
+
+def _run_action_phase(status: str) -> str:
+    if status in {"queued", "validating", "extracting", "transforming", "loading", "verifying"}:
+        return "pending"
+    if status == "succeeded":
+        return "success"
+    if status == "cancelled":
+        return "cancelled"
+    if status == "failed_needs_reconciliation":
+        return "conflict"
+    if status == "failed":
+        return "error"
+    return "idle"
+
+
+def _run_operation(run, *, revision: int | None = None) -> OperationIdentity:
+    """Project a persisted run into Hedron's bounded operation identity."""
+    attempt = max(int(run.attempt or 1) - 1, 0)
+    return OperationIdentity(
+        str(run.id),
+        generation=attempt,
+        target="#pipeline-run-monitor",
+        correlation_id=run.pipeline_definition_id,
+        attempt=attempt,
+        revision=revision,
+    )
+
+
+def _run_action_state(
+    run,
+    *,
+    progress: int | None = None,
+    revision: int | None = None,
+) -> ActionState:
+    status = str(run.status or "idle").lower()
+    phase = _run_action_phase(status)
+    operation = _run_operation(run, revision=revision)
+    message = (
+        run.error_summary
+        if phase in {"error", "conflict"}
+        else _RUN_STAGE_COPY.get(status, (status.replace("_", " ").title(), ""))[0]
+    )
+    return ActionState(
+        phase=phase,
+        operation=operation,
+        message=(message or None),
+        retryable=bool(phase == "error" and run.retryable),
+        progress=progress,
+        revision=revision,
+    )
+
+
+def _run_action_trace(run, events, state: ActionState) -> ActionTrace:
+    trace = ActionTrace()
+    for event in events:
+        trace = trace.append(
+            "pending",
+            operation=state.operation,
+            facts={"stage": event.stage, "sequence": event.sequence, "message": event.message},
+        )
+    return trace.append(state.phase, operation=state.operation, facts={"status": run.status})
+
+
+def _run_action_metadata(db, run) -> tuple[ActionState, ActionTrace]:
+    events = events_after(db, run=run, after_sequence=0)
+    revision = events[-1].sequence if events else None
+    status = str(run.status or "idle").lower()
+    state = _run_action_state(run, progress=_RUN_PROGRESS.get(status), revision=revision)
+    return state, _run_action_trace(run, events, state)
 
 
 _RUN_PROGRESS = {
@@ -2750,6 +2838,7 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
                     target="#pipeline-run-monitor",
                     swap="outerHTML",
                     indicator=INDICATOR,
+                    busy="region",
                 ),
             ),
             action=form_action(request, "/pipeline/runs"),
@@ -2772,6 +2861,7 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
                     target="#pipeline-run-monitor",
                     swap="outerHTML",
                     indicator=INDICATOR,
+                    busy="region",
                     confirm="Confirm that an operator reviewed the destination before any retry.",
                 ),
             ),
@@ -2845,6 +2935,11 @@ def _run_status_fragment(
         run_badge_text = "Failed"
         run_badge_tone = "danger"
     progress_value = _RUN_PROGRESS.get(run_status, 0)
+    action_state = _run_action_state(
+        run,
+        progress=progress_value if not monitor_active else None,
+        revision=next_sequence,
+    )
     stage_label, stage_description = _RUN_STAGE_COPY.get(
         run_status,
         (run_status.replace("_", " ").title(), "Worker state persisted to the run log."),
@@ -2880,6 +2975,7 @@ def _run_status_fragment(
         swap="outerHTML",
         polling=1.5,
         indicator=INDICATOR,
+        busy="region",
     )
     run_again_form = (
         html.form(
@@ -2907,6 +3003,7 @@ def _run_status_fragment(
                     target="#pipeline-run-monitor",
                     swap="outerHTML",
                     indicator=INDICATOR,
+                    busy="region",
                 ),
             ),
             action=form_action(request, "/pipeline/runs"),
@@ -2932,6 +3029,7 @@ def _run_status_fragment(
                     target="#pipeline-run-monitor",
                     swap="outerHTML",
                     indicator=INDICATOR,
+                    busy="region",
                     confirm="Cancel this transfer? The worker will stop at its next safe checkpoint.",
                 ),
             ),
@@ -2941,7 +3039,7 @@ def _run_status_fragment(
         if monitor_active
         else None
     )
-    return html.div(
+    status_bar = AsyncRegion(
         ActionGroup(
             DATA_MOVER_DESIGN.apply(
                 "data-mover-operational-status",
@@ -2959,6 +3057,12 @@ def _run_status_fragment(
             gap="sm",
             collapse="never",
         ),
+        state=action_state.phase,
+        label=f"Pipeline run {run.id} status",
+        mark="pipeline-run-status",
+    )
+    return html.div(
+        status_bar,
         ConnectorFlow(
             ConnectorNode(
                 source_label,

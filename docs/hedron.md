@@ -21,7 +21,10 @@ subsystems.
 | 0.56 security plane | Data Mover publishes the `hedron-security-1` control-plane profile, bounded request budgets, and deny-by-default egress posture while retaining ownership of CSRF and response headers. |
 | Security posture | `make hedron-security-check` produces a strict SARIF posture report for CI/security review. |
 | 0.60 presentation contract | The app's `data-mover` brand is authored with Hedron `Color`, `ThemeBuilder`, validated `ThemeSpec`, accessibility modes, theme variants, typed recipe families, named control/surface/data/status/content recipes, and scoped auth/workspace recipe defaults. |
-| 0.60.0 release train | Runtime and Posit integration are pinned to `>=0.60.0,<0.61`; the 0.60 pass is verified against route, interaction, security, and deployment boundaries. |
+| 0.61.0 release train | Runtime and Posit integration are pinned to `>=0.61.0,<0.62`; the 0.61 pass is verified against route, interaction, security, and deployment boundaries. |
+| 0.61 action lifecycle | Pipeline start, poll, cancel, retry, and reconciliation responses project Hedron `ActionState`/`ActionTrace` metadata with stable `OperationIdentity` values. |
+| 0.61 async regions | The live pipeline monitor uses the server-authored `AsyncRegion` to expose pending, success, error, cancelled, and conflict phases without application CSS or browser state. |
+| 0.61 busy controls | Pipeline run forms opt into Hedron's region busy lifecycle (`data-hedron-busy="region"`), which coordinates accessibility state and the global request indicator. |
 | Native styling | `AppShell`, `Container`, `PageHeader`, `SkipLink`, `RequestIndicator`, typed buttons, links, grids, actions, alerts, badges, tabs, tables, dialogs, `Avatar`, `ConnectorFlow`, `ConnectorNode`, `ConnectorTrack`, `ProcessFlow`, `ScrollRegion`, `ThemePicker`, and `Status` own the UI structure and behavior. `app/static/theme.css` is now an empty compatibility asset; Hedron owns every rendered style rule. |
 | Testing | Hedron page/fragment fixtures, render assertions, interaction assertions, target/region checks, and route-registry coverage. |
 
@@ -47,9 +50,9 @@ subsystems.
   product requirements. Add one only with a concrete feature need and a security review.
 - `hedron-native` acceleration is optional and unnecessary at the current rendering volume.
 
-## 0.60.0 status update
+## 0.61.0 status update
 
-Data Mover is pinned to Hedron 0.60.0 and the compatible 0.60 train. The app deliberately keeps its existing
+Data Mover is pinned to Hedron 0.61.0 and the compatible 0.61 train. The app deliberately keeps its existing
 application-owned CSRF/session and response-header middleware, but opts into the new shared
 security-plane composition metadata so Hedron diagnostics and future integrations see the same
 control-plane posture. The request budget is intentionally bounded to the app's 5 MiB upload
@@ -68,7 +71,19 @@ Authenticated pages now expose Hedron's server-first `ThemePicker` for the allow
 `data-mover` and `aurora` themes plus system/light/dark modes. Host-owned cookies persist the
 preference, while the page emits native theme markers before content renders.
 
-Run `make hedron-security-check` after installing the 0.60.0 environment.
+The pipeline monitor now projects every persisted run into Hedron's unified server-first action
+lifecycle. A run id is the bounded operation id, its retry attempt is the generation, and the
+latest event sequence is the revision. Each response carries a redacted bounded `ActionTrace`
+for diagnostics while the rendered monitor exposes the same phase through `AsyncRegion`. This
+keeps the database-backed worker authoritative and makes stale or out-of-order fragment results
+observable without adding a second browser state store.
+
+The new `OperationWorkflow` and Hedron job backends were evaluated but are not enabled: Data Mover
+uses its own leased SQL worker and durable run/event tables, so adopting a second job authority
+would weaken cancellation and reconciliation guarantees. SSE job helpers are similarly deferred;
+the existing mount-aware HTMX polling is sufficient for the current deployment boundaries.
+
+Run `make hedron-security-check` after installing the 0.61.0 environment.
 
 ## 0.60 styling audit
 

@@ -558,6 +558,13 @@ def test_numeric_polling_intervals_are_seconds() -> None:
     assert hx_attrs(_request(), path="/status", polling="750ms")["hx-trigger"] == "every 750ms"
 
 
+def test_region_busy_attributes_use_hedron_061_action_lifecycle() -> None:
+    attrs = hx_attrs(_request(), path="/status", method="post", busy="region", indicator="#busy")
+    assert attrs["data-hedron-busy"] == "region"
+    assert attrs["data-hedron-action-phase"] == "idle"
+    assert attrs["data-hedron-busy-indicator"] == "#busy"
+
+
 def test_password_form_field_errors() -> None:
     html = render_html(
         ui.password_form(

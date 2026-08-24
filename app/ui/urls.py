@@ -80,6 +80,7 @@ def hx_attrs(
     hx_trigger: str | None = None,
     hx_ext: str | None = None,
     polling: str | float | int | None = None,
+    busy: str | None = None,
 ) -> dict[str, Any]:
     """Build hyphenated HTMX attributes accepted by Hedron's HTML allowlist."""
     key = f"hx-{method.lower()}"
@@ -124,4 +125,11 @@ def hx_attrs(
             attrs["hx-trigger"] = interval
     if indicator is not None:
         attrs["hx-indicator"] = indicator
+    if busy in {"region", "document"}:
+        attrs["data-hedron-busy"] = busy
+        attrs["aria-busy"] = "false"
+        attrs["data-hedron-action-phase"] = "idle"
+        attrs["data-hedron-action-generation"] = "0"
+        if indicator is not None and str(indicator).startswith("#"):
+            attrs["data-hedron-busy-indicator"] = indicator
     return attrs

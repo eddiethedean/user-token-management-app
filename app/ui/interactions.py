@@ -7,6 +7,8 @@ from typing import Literal
 
 from fastapi import Request
 from hedron import (
+    ActionState,
+    ActionTrace,
     Badge,
     FragmentRegion,
     InteractionPolicy,
@@ -141,6 +143,8 @@ def ok_fragment(
     region_id: str | None = None,
     swap: str | None = None,
     reswap: str | None = None,
+    action_state: ActionState | None = None,
+    action_trace: ActionTrace | None = None,
 ) -> InteractionResult:
     """Build an InteractionResult via Hedron ``swap``, with AR toast-host + policy."""
     return build_swap(
@@ -153,6 +157,8 @@ def ok_fragment(
         region_id=region_id,
         swap=swap,
         reswap=reswap,
+        action_state=action_state,
+        action_trace=action_trace,
         policy=APP_POLICY,
         cache="no-store",
     )

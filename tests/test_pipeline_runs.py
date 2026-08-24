@@ -84,6 +84,8 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert "Run schema &amp; row counts" in queued.text
     assert "Persisted schema" in queued.text
     assert "event_id" in queued.text
+    assert 'data-hedron-async-region="true"' in queued.text
+    assert 'data-hedron-action-phase="success"' in queued.text
 
     restored = client.get(f"/pipeline?pipeline_id={pipeline_id}")
     assert "Live transfer" in restored.text
@@ -172,6 +174,7 @@ def test_active_run_monitor_exposes_cancel_control(client, demo_connections) -> 
     assert response.status_code == 200
     assert "Cancel run" in response.text
     assert f'hx-post="/pipeline/runs/{run_id}/cancel"' in response.text
+    assert 'data-hedron-action-phase="pending"' in response.text
 
 
 def test_reconciliation_review_is_recorded_without_clearing_safety_state(access_app) -> None:
