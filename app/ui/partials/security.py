@@ -8,6 +8,7 @@ from fastapi import Request
 from hedron import (
     ActionGroup,
     Alert,
+    Avatar,
     Badge,
     Button,
     ComponentRef,
@@ -18,14 +19,18 @@ from hedron import (
     FormGrid,
     Grid,
     Heading,
+    Inline,
     Lazy,
     LinkButton,
     Loading,
+    ResourceList,
+    ResourceRow,
     Section,
+    Select,
     SplitView,
+    Stack,
     StateView,
     Surface,
-    Tabs,
     Text,
     TextInput,
     Timeline,
@@ -41,6 +46,7 @@ from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.regions import SECURITY_ACTIVITY
+from app.ui.tabs import NavigationTabs
 from app.ui.urls import form_action, hx_attrs, mounted_path, page_href
 
 
@@ -151,59 +157,56 @@ def secret_slot(
     def credential_field(field: CredentialField) -> NodeLike:
         field_id = f"{provider.name}-{field.name}"
         if field.options:
-            control = html.select(
-                *[
-                    html.option(
-                        option,
-                        value=option,
-                        selected=option == field.default,
-                    )
-                    for option in field.options
-                ],
+            control = Select(
+                field.name,
+                [(option, option) for option in field.options],
                 id=field_id,
-                name=field.name,
                 required=field.required,
-                autocomplete=field.autocomplete,
+                value=field.default,
             )
         else:
-            control = html.input(
+            control = TextInput(
+                field.name,
                 id=field_id,
-                name=field.name,
                 type=field.input_type,
                 autocomplete=field.autocomplete,
                 required=field.required,
                 placeholder=field.placeholder,
                 value=field.default,
-                spellcheck="false",
             )
-        return html.div(
-            html.label(
-                field.label,
-                html.span("Required" if field.required else "Optional"),
-                for_=field_id,
-            ),
-            control,
-            class_=(
-                f"credential-field credential-field-{field.name} "
-                f"{'is-wide' if field.name == 'endpoint' else ''}"
-            ).strip(),
+        return FormField(
+            name=field.name,
+            label=field.label,
+            id=field_id,
+            required=field.required,
+            help="Optional" if not field.required else None,
+            control=control,
         )
 
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
         Surface(
-            html.div(
-                html.span(provider.mark, class_="secret-provider-mark", aria={"hidden": "true"}),
-                html.div(
-                    Heading(provider.label, level=3),
-                    html.code(provider.environment_variable),
-                    class_="secret-card-identity",
+            ActionGroup(
+                Inline(
+                    Avatar(
+                        provider.label,
+                        mark=provider.mark,
+                        appearance="soft",
+                        shape="rounded",
+                    ),
+                    Stack(
+                        Heading(provider.label, level=3),
+                        Text(provider.environment_variable),
+                        gap="xs",
+                    ),
+                    gap="sm",
                 ),
                 Badge(
                     "Configured" if configured else "Not configured",
                     tone="success" if configured else "neutral",
                 ),
-                class_="secret-card-heading",
+                align="between",
+                collapse="never",
             ),
             alert_box(error),
             alert_box(success, kind="success"),
@@ -212,11 +215,10 @@ def secret_slot(
                 csrf_hidden(csrf_token),
                 FormGrid(
                     *[credential_field(field) for field in provider.fields],
-                    columns={"base": 1, "sm": 2},
+                    columns={"base": 1, "lg": 2},
                     gap="sm",
-                    class_="credential-fields",
                 ),
-                html.div(
+                ActionGroup(
                     Button(
                         "Replace credentials" if configured else "Save connection",
                         size="sm",
@@ -233,16 +235,16 @@ def secret_slot(
                         if configured
                         else None
                     ),
-                    class_="secret-card-actions",
+                    gap="xs",
+                    collapse="never",
                 ),
-                class_="secret-form",
                 action=form_action(request, f"security/secrets/{provider.name}"),
                 method="post",
                 **hx_attrs(
                     request,
                     path=f"security/secrets/{provider.name}",
                     target=f"#secret-slot-{provider.name}",
-                    sync="closest .secret-card:drop",
+                    sync=f"#secret-slot-{provider.name}:drop",
                     indicator=INDICATOR,
                 ),
             ),
@@ -261,7 +263,7 @@ def secret_slot(
                             request,
                             path=f"security/secrets/{provider.name}/delete",
                             target=f"#secret-slot-{provider.name}",
-                            sync="closest .secret-card:drop",
+                            sync=f"#secret-slot-{provider.name}:drop",
                             indicator=INDICATOR,
                         ),
                     ),
@@ -272,7 +274,6 @@ def secret_slot(
                 else html.div()
             ),
             id=f"secret-slot-{provider.name}",
-            class_="secret-card",
         ),
     )
 
@@ -344,37 +345,31 @@ def connection_status_list(
             )
 
         rows.append(
-            html.article(
-                html.span(
-                    provider.mark,
-                    class_="connection-status-mark",
-                    aria={"hidden": "true"},
-                ),
-                html.div(
-                    html.strong(provider.label),
-                    html.span(catalog.technology),
-                    class_="connection-status-identity",
-                ),
-                Badge(status_label, tone=status_tone),
-                html.p(detail),
-                ActionGroup(
+            ResourceRow(
+                provider.label,
+                description=f"{catalog.technology} · {detail}",
+                mark=provider.mark,
+                meta=Badge(status_label, tone=status_tone),
+                actions=ActionGroup(
                     *actions,
                     align="end",
                     gap="xs",
                     collapse="never",
-                    class_="connection-status-actions",
                 ),
-                class_="connection-status-row",
             )
         )
 
-    attrs: dict[str, HtmlAttrValue] = {
-        "id": "connection-status-list",
-        "class_": "connection-status-list",
-    }
+    attrs: dict[str, HtmlAttrValue] = {"id": "connection-status-list"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
-    return html.div(*rows, **attrs)
+    return html.div(
+        ResourceList(
+            *rows,
+            label="Connection readiness",
+            density="comfortable",
+        ),
+        **attrs,
+    )
 
 
 def session_list(
@@ -578,7 +573,7 @@ def security_tabs(
     *,
     csrf_token: str,
     secret_slots,
-) -> Tabs:
+) -> NavigationTabs:
     panels: list[tuple[str, NodeLike]] = [
         (
             "Credentials",
@@ -622,7 +617,7 @@ def security_tabs(
             ),
         )
     )
-    return Tabs(*panels, id="security-tabs")
+    return NavigationTabs(*panels, id="security-tabs")
 
 
 def account_tabs(
@@ -636,7 +631,7 @@ def account_tabs(
     active: str = "Profile",
     password_error: str = "",
     password_field_errors: dict[str, str] | None = None,
-) -> Tabs:
+) -> NavigationTabs:
     panels: list[tuple[str, NodeLike]] = [("Profile", profile_content)]
     if local_password:
         panels.append(
@@ -697,7 +692,7 @@ def account_tabs(
         )
     )
     panel_names = {name for name, _ in panels}
-    return Tabs(
+    return NavigationTabs(
         *panels,
         active=active if active in panel_names else "Profile",
         id="account-tabs",

@@ -72,6 +72,15 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert "pipeline-run-monitor" in queued.text
     assert "succeeded" in queued.text or "queued" in queued.text or "extracting" in queued.text
     assert "Succeeded" in queued.text
+    assert 'data-hedron-connector-active="false"' in queued.text
+    assert 'aria-label="Live transfer stages"' in queued.text
+    assert 'aria-label="Event feed for Worker handshake"' in queued.text
+    assert "Transfer succeeded." in queued.text
+
+    restored = client.get(f"/pipeline?pipeline_id={pipeline_id}")
+    assert "Live transfer" in restored.text
+    assert "Persisted run history" in restored.text
+    assert "Transfer succeeded." in restored.text
 
     with SessionLocal() as db:
         run = db.scalar(

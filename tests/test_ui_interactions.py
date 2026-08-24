@@ -83,6 +83,8 @@ def test_auth_and_shell_pages_are_documents(page) -> None:
     assert_html_contains(profile, 'id="hedron-toast"')
     assert_html_contains(profile, 'id="dialog-host"')
     assert_html_contains(profile, 'id="global-request-indicator"')
+    assert_html_contains(profile, 'data-hedron-navigation-tabs="true"')
+    assert_html_contains(profile, 'data-navigation-tab-label="Profile"')
     assert_html_contains(profile, 'hx-select="#main-panel"')
     assert 'hx-select-oob="#side-nav"' not in profile.body
     assert_budget(profile.body, max_bytes=250_000)
@@ -91,7 +93,7 @@ def test_auth_and_shell_pages_are_documents(page) -> None:
 def test_main_panel_nav_swaps_all_authenticated_routes(htmx) -> None:
     htmx_login(htmx)
     routes = (
-        ("/pipeline", "pipeline-builder", "Build a transfer"),
+        ("/pipeline", "pipeline-builder", "Pipeline workspace"),
         ("/profile", "account-tabs", "Profile details"),
         ("/security", "security-tabs", "Workspace settings"),
         ("/admin/users", "user-directory", "Users and invitations"),
@@ -126,7 +128,7 @@ def test_history_restore_returns_full_document(htmx) -> None:
     assert 'id="main-panel"' in response.text
     assert 'id="side-nav"' in response.text
     assert "hedron-app-shell-header" in response.text
-    assert 'class="hedron-app-shell-nav side-nav"' in response.text
+    assert 'class="hedron-app-shell-nav"' in response.text
 
 
 def test_toast_oob_appends_for_queueing() -> None:

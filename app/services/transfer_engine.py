@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 
 from sqlalchemy.orm import Session
@@ -15,6 +16,13 @@ from app.models import PipelineRun, utcnow
 from app.services import pipeline_runs
 
 CancelCheck = Callable[[], bool]
+
+
+def _demo_stage_pause(settings: Settings) -> None:
+    """Keep local demo stages visible without slowing tests or real transfers."""
+
+    if settings.is_demo_mode and settings.app_env != "test":
+        time.sleep(0.7)
 
 
 def execute_transfer(
@@ -43,6 +51,7 @@ def execute_transfer(
     pipeline_runs.heartbeat(
         db, run, lease_token=lease_token, lease_seconds=settings.pipeline_lease_seconds
     )
+    _demo_stage_pause(settings)
     source.test_connection(source_credentials)
     destination.test_connection(destination_credentials)
     source_schema = source.inspect_object(source_credentials, snapshot.source)
@@ -53,6 +62,7 @@ def execute_transfer(
         lease_token=lease_token,
         message="Source and destination connections validated.",
     )
+    _demo_stage_pause(settings)
 
     batches: list[TransferBatch] = []
     extracted_rows = 0
@@ -91,6 +101,7 @@ def execute_transfer(
             stage="inspect",
         )
         db.commit()
+        _demo_stage_pause(settings)
 
     schema = source_schema
     if batches:
@@ -114,6 +125,7 @@ def execute_transfer(
         lease_token=lease_token,
         message="Starting destination load.",
     )
+    _demo_stage_pause(settings)
     session = destination.prepare_destination(
         destination_credentials,
         snapshot.destination,
@@ -146,6 +158,7 @@ def execute_transfer(
                 stage="transfer",
             )
             db.commit()
+            _demo_stage_pause(settings)
         pipeline_runs.transition(
             db,
             run,
@@ -153,6 +166,7 @@ def execute_transfer(
             lease_token=lease_token,
             message="Finalizing destination write.",
         )
+        _demo_stage_pause(settings)
         manifest = destination.finalize(session)
         verification = {
             "source_rows": extracted_rows,

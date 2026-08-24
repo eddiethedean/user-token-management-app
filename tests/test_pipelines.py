@@ -17,8 +17,13 @@ def test_pipeline_workspace_renders_live_feedback_controls(client) -> None:
     response = client.get("/pipeline")
 
     assert response.status_code == 200
-    assert "Build a transfer" in response.text
-    assert "Saved pipelines" in response.text
+    assert "Pipeline workspace" in response.text
+    assert 'role="tablist"' in response.text
+    assert 'data-hedron-navigation-tabs="true"' in response.text
+    assert 'data-hedron-appearance="plain"' in response.text
+    assert "Route setup" in response.text
+    assert "Live transfer" in response.text
+    assert "Saved routes" in response.text
     assert 'value="advana"' not in response.text
     assert 'value="mss"' not in response.text
     assert 'value="postgres"' not in response.text

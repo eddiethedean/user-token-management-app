@@ -5,11 +5,16 @@ from __future__ import annotations
 from fastapi import Request
 from hedron import (
     ActionGroup,
+    Alert,
+    Button,
+    Divider,
+    FlowStep,
     FormField,
-    Grid,
     Heading,
-    Inline,
+    Link,
     LinkButton,
+    PageHeader,
+    ProcessFlow,
     SplitView,
     Stack,
     Text,
@@ -25,7 +30,7 @@ from starlette.responses import Response
 from app.config import Settings
 from app.models import Invitation, RegistrationVerification
 from app.security.csrf import issue_preauth_csrf, set_preauth_csrf_cookie
-from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
+from app.ui.design_system import surface_card
 from app.ui.forms import hidden_field, submit_button
 from app.ui.http import auth_card, render_page
 from app.ui.layout import alert_box, app_shell
@@ -46,53 +51,90 @@ def render_login_page(
     preauth = issue_preauth_csrf(settings)
     federated = settings.authentication_mode == "trusted_header"
 
-    def trust_item(title: str, detail: str) -> NodeLike:
-        return Inline(
-            html.span("✓", aria={"hidden": "true"}),
-            Stack(html.strong(title), html.small(detail), gap="xs"),
-            gap="sm",
-        )
+    password_control = html.span(
+        html.input(
+            id="password",
+            name="password",
+            type="password",
+            required=True,
+            autocomplete="current-password",
+            class_="hedron-text-input",
+            aria={"required": "true"},
+        ),
+        Button(
+            "Show",
+            type="button",
+            variant="secondary",
+            size="sm",
+            id="password-visibility",
+            attrs={
+                "data-hedron-password-toggle": "password",
+                "data-compact-password-toggle": "true",
+                "aria-controls": "password",
+                "aria-label": "Show password",
+                "aria-pressed": "false",
+            },
+        ),
+        class_="hedron-password-field",
+        data={"hedron-password": "true"},
+    )
 
     intro = Stack(
-        html.p("Secure data operations", class_="eyebrow"),
-        Heading("Move data. Keep control.", level=1),
-        DATA_MOVER_DESIGN.apply(
-            "data-mover-supporting-copy",
-            Text(
-                "Build dependable routes between your remote systems while your credentials "
-                "stay encrypted and under your control."
+        PageHeader(
+            "Move data without moving secrets.",
+            eyebrow="Secure transfer workspace",
+            description=(
+                "Build dependable routes between approved systems while credentials remain "
+                "encrypted, access-controlled, and out of every run log."
             ),
+            level=2,
+            density="compact",
         ),
-        html.div(
-            Grid(
-                trust_item(
-                    "Bring your own connections",
-                    "Use the service credentials already approved for your account.",
-                ),
-                trust_item(
-                    "Secrets stay sealed", "Saved credentials are encrypted and never displayed."
-                ),
-                trust_item(
-                    "Observable by default", "Every transfer has progress, metrics, and a run log."
-                ),
-                columns={"base": 1, "md": 3},
-                gap="sm",
+        ProcessFlow(
+            FlowStep(
+                "Connect",
+                status="complete",
+                status_text="Protected",
+                description="Use approved sources and destinations.",
             ),
-            aria={"label": "Security features"},
+            FlowStep(
+                "Shape",
+                status="current",
+                status_text="Preview",
+                description="Inspect schemas and map every field.",
+            ),
+            FlowStep(
+                "Move",
+                status="pending",
+                status_text="Observable",
+                description="Run with progress, metrics, and audit history.",
+            ),
+            label="Data movement workflow",
+            direction="horizontal",
+            collapse="sm",
+            density="compact",
         ),
-        class_="auth-intro",
-        gap="sm",
+        Alert(
+            "Explore the complete workflow without contacting external systems.",
+            title="Safe demo environment",
+            tone="warning",
+            appearance="soft",
+        ),
+        gap="md",
     )
 
     card_children: list[NodeLike] = [
-        html.p("Account access", class_="eyebrow"),
-        Heading("Sign in", level=2),
-        html.p(
-            "Continue through the approved identity-aware proxy using your CAC or "
-            "federated credential."
-            if federated
-            else "Use the email associated with your approved Data Mover workspace.",
-            class_="muted",
+        PageHeader(
+            "Welcome back",
+            eyebrow="Account access",
+            description=(
+                "Continue through the approved identity-aware proxy using your CAC or "
+                "federated credential."
+                if federated
+                else "Sign in with the email associated with your approved workspace."
+            ),
+            level=1,
+            density="compact",
         ),
     ]
     if success:
@@ -136,17 +178,15 @@ def render_login_page(
                         autocomplete="username",
                     ),
                 ),
-                html.div(
+                Stack(
                     html.label("Password", for_="password"),
-                    html.a("Forgot password?", href=page_href(request, "password/forgot")),
-                    class_="label-row",
+                    password_control,
+                    gap="xs",
                 ),
-                TextInput(
-                    "password",
-                    id="password",
-                    type="password",
-                    required=True,
-                    autocomplete="current-password",
+                ActionGroup(
+                    Link("Forgot password?", href=page_href(request, "password/forgot")),
+                    align="end",
+                    collapse="never",
                 ),
                 submit_button("Sign in securely", width="full"),
                 action=form_action(request, "login"),
@@ -154,25 +194,26 @@ def render_login_page(
             )
         )
         card_children.append(
-            html.p(
-                "Need an account? ",
-                html.a("Request access", href=page_href(request, "register")),
-                ". You must verify your government email and receive administrator "
-                "approval before signing in.",
-                class_="card-footnote",
+            Stack(
+                Divider(),
+                html.p(
+                    "Need an account? ",
+                    Link("Request access", href=page_href(request, "register")),
+                ),
+                Text("Access requires a verified address and administrator approval."),
+                gap="xs",
             )
         )
 
-    layout = SplitView(
-        primary=intro,
-        secondary=surface_card(
-            *card_children,
-            recipe="data-mover-auth-panel",
-            class_="auth-card",
+    layout = surface_card(
+        SplitView(
+            primary=Stack(*card_children, gap="md"),
+            secondary=intro,
+            ratio="1:1",
+            gap="xl",
+            collapse="md",
         ),
-        ratio="3:2",
-        gap="xl",
-        collapse="md",
+        recipe="data-mover-auth-panel",
     )
     page = app_shell(layout, request=request, settings=settings, auth=None, page_title="Sign in")
     response = render_page(page, request=request, status_code=status_code)

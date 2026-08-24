@@ -6,24 +6,28 @@ from typing import Any
 
 from fastapi import Request
 from hedron import (
-    ActionGroup,
+    Avatar,
     Badge,
     DescriptionList,
     Form,
     FormField,
     FormGrid,
     Heading,
+    Inline,
     LinkButton,
     OobUpdate,
     Section,
     SplitView,
+    Stack,
+    Surface,
+    Text,
     TextInput,
     html,
 )
 from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
-from app.ui.design_system import surface_card
+from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, account_summary, alert_box
 from app.ui.urls import form_action, hx_attrs, page_href
@@ -38,35 +42,30 @@ def profile_form(
         Form(
             csrf_hidden(csrf_token),
             FormGrid(
-                html.div(
-                    FormField(
-                        name="email",
-                        label="Government email",
+                FormField(
+                    name="email",
+                    label="Government email",
+                    id="email",
+                    help="Verified addresses can only be changed through an administrator.",
+                    control=TextInput(
+                        "email",
                         id="email",
-                        help="Verified addresses can only be changed through an administrator.",
-                        control=TextInput(
-                            "email",
-                            id="email",
-                            type="email",
-                            value=user.email_original,
-                            disabled=True,
-                        ),
+                        type="email",
+                        value=user.email_original,
+                        disabled=True,
                     ),
-                    class_="field-full",
                 ),
-                html.div(
-                    FormField(
-                        name="full_name",
-                        label="Full name",
+                FormField(
+                    name="full_name",
+                    label="Full name",
+                    id="full_name",
+                    help="Shown in the workspace and administrator records.",
+                    control=TextInput(
+                        "full_name",
                         id="full_name",
-                        control=TextInput(
-                            "full_name",
-                            id="full_name",
-                            value=user.full_name or "",
-                            autocomplete="name",
-                        ),
+                        value=user.full_name or "",
+                        autocomplete="name",
                     ),
-                    class_="field-full",
                 ),
                 FormField(
                     name="organization",
@@ -88,29 +87,22 @@ def profile_form(
                         value=user.job_title or "",
                     ),
                 ),
-                html.div(
-                    FormField(
-                        name="phone",
-                        label="Work phone",
+                FormField(
+                    name="phone",
+                    label="Work phone",
+                    id="phone",
+                    control=TextInput(
+                        "phone",
                         id="phone",
-                        control=TextInput(
-                            "phone",
-                            id="phone",
-                            type="tel",
-                            value=user.phone or "",
-                            autocomplete="tel",
-                        ),
+                        type="tel",
+                        value=user.phone or "",
+                        autocomplete="tel",
                     ),
-                    class_="field-full",
                 ),
                 columns={"base": 1, "md": 2},
                 gap="md",
-                class_="field-grid",
             ),
-            ActionGroup(
-                submit_button("Save changes"),
-                html.span("Saving…", class_="htmx-indicator"),
-            ),
+            submit_button("Save changes"),
             action=form_action(request, "profile"),
             method="post",
             **hx_attrs(
@@ -126,9 +118,9 @@ def profile_form(
 
 
 def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) -> NodeLike:
-    """Identity aside keeps html.* for hx-swap-oob; uses Badge for status."""
+    """Render the profile summary in a native Hedron inset surface."""
     user = auth.user
-    attrs: dict[str, HtmlAttrValue] = {"id": "profile-identity", "class_": "identity-panel"}
+    attrs: dict[str, HtmlAttrValue] = {"id": "profile-identity"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     initial = (user.full_name or user.email_original or "?")[:1].upper()
@@ -136,20 +128,39 @@ def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) 
         user.last_login_at.strftime("%b %d, %Y %H:%M") if user.last_login_at else "First session"
     )
     return html.aside(
-        html.div(initial, class_="identity-avatar"),
-        Heading(user.full_name or "Account holder", level=2),
-        html.p(user.email_original),
-        DescriptionList(
-            ("Account status", Badge(user.status, tone="success")),
-            ("Access level", (", ".join(user.role_names) or "user").title()),
-            ("Created", user.created_at.strftime("%b %d, %Y")),
-            ("Last sign-in", last_login),
-            density="compact",
-        ),
-        LinkButton(
-            "Manage connections",
-            width="full",
-            href=page_href(request, "/security"),
+        DATA_MOVER_DESIGN.apply(
+            "data-mover-inset",
+            Surface(
+                Stack(
+                    Inline(
+                        Avatar(
+                            user.full_name or user.email_original,
+                            mark=initial,
+                            size="lg",
+                            appearance="soft",
+                        ),
+                        Stack(
+                            Heading(user.full_name or "Account holder", level=3),
+                            Text(user.email_original),
+                            gap="xs",
+                        ),
+                        gap="sm",
+                    ),
+                    DescriptionList(
+                        ("Account status", Badge(user.status, tone="success")),
+                        ("Access level", (", ".join(user.role_names) or "user").title()),
+                        ("Created", user.created_at.strftime("%b %d, %Y")),
+                        ("Last sign-in", last_login),
+                        density="compact",
+                    ),
+                    LinkButton(
+                        "Manage connections",
+                        width="full",
+                        href=page_href(request, "/security"),
+                    ),
+                    gap="md",
+                )
+            ),
         ),
         **attrs,
     )

@@ -302,12 +302,12 @@ def test_session_list_and_secret_slot_render_html() -> None:
 
     slot = render_html(ui.secret_slot(_request(), SECRET_PROVIDERS[0], None, csrf_token="sec-csrf"))
     assert 'id="secret-slot-mss"' in slot
-    assert 'class="secret-card-identity"' in slot
+    assert 'class="hedron-avatar"' in slot
     assert "MSS_API_TOKEN" in slot
     assert 'id="mss-endpoint"' in slot
     assert 'id="mss-token"' in slot
     assert "security/secrets/mss" in slot
-    assert 'class="secret-card-actions"' in slot
+    assert 'class="hedron-action-group"' in slot
 
     configured_slot = render_html(
         ui.secret_slot(

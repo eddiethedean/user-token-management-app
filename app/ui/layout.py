@@ -7,22 +7,26 @@ from typing import Any
 from fastapi import Request
 from hedron import (
     AccountSummary,
+    ActionGroup,
     Alert,
     AppFooter,
     AppShell,
     Badge,
     Brand,
     Container,
-    EnvironmentBanner,
     Fragment,
     HtmxLink,
+    Inline,
     Nav,
     NavStatus,
     OobUpdate,
     Page,
     PageHeader,
+    Popover,
     Section,
+    Stack,
     StyleScope,
+    Text,
     ThemePicker,
     html,
 )
@@ -114,14 +118,23 @@ def account_summary(
         user.full_name or user.email_original,
         detail=user.email_original if user.full_name else None,
         mark_text=(user.full_name or user.email_original or "?")[:1].upper(),
-        action=html.div(
-            ThemePicker(
-                themes=THEME_CHOICES,
-                color_modes=COLOR_MODE_CHOICES,
-                selected=preference,
-                action=form_action(request, "/preferences/theme"),
-                csrf_token=csrf_token,
-                compact=True,
+        action=ActionGroup(
+            Popover(
+                Stack(
+                    Text("Personalize this workspace for your environment."),
+                    ThemePicker(
+                        themes=THEME_CHOICES,
+                        color_modes=COLOR_MODE_CHOICES,
+                        selected=preference,
+                        action=form_action(request, "/preferences/theme"),
+                        csrf_token=csrf_token,
+                        compact=True,
+                    ),
+                    gap="sm",
+                ),
+                label="Appearance",
+                placement="block-end",
+                collision="shift",
             ),
             html.form(
                 csrf_hidden(csrf_token),
@@ -129,10 +142,10 @@ def account_summary(
                 action=form_action(request, "logout"),
                 method="post",
             ),
-            class_="account-actions",
+            gap="xs",
+            collapse="never",
         ),
         id="account-summary",
-        class_="account-summary",
         attrs=attrs,
     )
 
@@ -159,19 +172,38 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
             indicator=INDICATOR,
             preload="mouseover",
             active=bool(active),
-            class_="nav-link",
         )
 
-    children: list[NodeLike] = [
-        html.p("Workspace", class_="nav-label"),
+    workspace = [
         link("/pipeline", "01", "Pipeline"),
         link("/security", "02", "Connections"),
         link("/profile", "03", "Account"),
     ]
+    children: list[NodeLike] = [
+        html.div(
+            html.p("Workspace", class_="hedron-nav-group-label"),
+            html.div(*workspace, class_="hedron-nav-group-items"),
+            class_="hedron-nav-group",
+            role="group",
+            aria={"label": "Workspace"},
+            data={"hedron-nav-group": "true"},
+        )
+    ]
     if "administrator" in auth.user.role_names:
-        children.append(html.p("Administration", class_="nav-label nav-label-spaced"))
-        children.append(link("/admin/users", "04", "Team"))
-        children.append(link("/admin/audit", "05", "Activity"))
+        children.append(
+            html.div(
+                html.p("Administration", class_="hedron-nav-group-label"),
+                html.div(
+                    link("/admin/users", "04", "Team"),
+                    link("/admin/audit", "05", "Activity"),
+                    class_="hedron-nav-group-items",
+                ),
+                class_="hedron-nav-group",
+                role="group",
+                aria={"label": "Administration"},
+                data={"hedron-nav-group": "true"},
+            )
+        )
     return children
 
 
@@ -180,7 +212,6 @@ def side_nav(request: Request, auth: AuthContext) -> Nav:
     return Nav(
         *side_nav_children(request, auth),
         id="side-nav",
-        class_="side-nav",
         aria={"label": "Account navigation"},
     )
 
@@ -217,7 +248,7 @@ def toast_host(*, oob: bool = False) -> NodeLike:
 
 
 def dialog_host() -> NodeLike:
-    return html.div(id="dialog-host", class_="dialog-host")
+    return html.div(id="dialog-host")
 
 
 def app_shell(
@@ -235,7 +266,6 @@ def app_shell(
         mark_text="DM",
         subtitle="Secure data movement",
         subtitle_overflow="truncate",
-        class_="brand",
         href=page_href(request, "/"),
         aria={"label": f"{settings.app_name} home"},
     )
@@ -259,10 +289,10 @@ def app_shell(
                 color_mode=(preference.color_mode if preference.color_mode != "system" else None),
             ),
             panel_id="main-content",
-            banner=EnvironmentBanner(
-                "Controlled workspace · Transfers are simulated in demo mode",
-                tone="info",
-                mark="▦",
+            banner=Inline(
+                Badge("Demo workspace", tone="warning"),
+                Text("Transfers are simulated; no remote endpoints are contacted."),
+                gap="sm",
             ),
             brand=brand,
             env_badge=environment_badge,
@@ -275,15 +305,20 @@ def app_shell(
             content_width="wide",
         )
     else:
-        banner = Container(
-            EnvironmentBanner(
-                "Controlled workspace · Transfers are simulated in demo mode",
-                tone="info",
-                mark="▦",
-            ),
-        )
         header = html.header(
-            Container(brand, environment_badge),
+            Container(
+                ActionGroup(
+                    brand,
+                    Inline(
+                        Badge("Demo workspace", tone="warning"),
+                        environment_badge,
+                        gap="sm",
+                    ),
+                    align="between",
+                    gap="sm",
+                    collapse="sm",
+                )
+            ),
         )
         content = StyleScope(
             html.main(
@@ -335,7 +370,6 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> PageH
         eyebrow=eyebrow,
         description=lead,
         actions=extra[0] if len(extra) == 1 else None,
-        class_="page-heading",
     )
 
 
@@ -352,7 +386,6 @@ def main_panel(
                     Section(*body, id="main-panel"),
                     query="inline-size",
                     name="workspace",
-                    class_="main-panel",
                 ),
                 theme=theme,
                 color_mode=color_mode,

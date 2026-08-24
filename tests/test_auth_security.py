@@ -133,6 +133,23 @@ def test_authenticated_home_and_login_redirect(client) -> None:
     assert "/security" in login_page.headers["location"]
 
 
+def test_login_redirect_preserves_local_query_parameters(client) -> None:
+    next_path = "/pipeline?notice=saved&pipeline_id=route-123"
+    preauth = login_csrf_from(client.get(f"/login?next={next_path}").text)
+    response = client.post(
+        "/login",
+        data={
+            "email": ADMIN_EMAIL,
+            "password": ADMIN_PASSWORD,
+            "next": next_path,
+            "preauth_csrf_token": preauth,
+        },
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == next_path
+
+
 def test_logout_clears_session(client) -> None:
     web_login(client)
     profile = client.get("/profile")
