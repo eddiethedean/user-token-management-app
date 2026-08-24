@@ -1,6 +1,5 @@
 # Data Mover
 
-[![CI](https://github.com/eddiethedean/user-token-management-app/actions/workflows/ci.yml/badge.svg)](https://github.com/eddiethedean/user-token-management-app/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -39,6 +38,21 @@ See [SECURITY.md](SECURITY.md).
 - Admin user directory, invitations, approve/deny/disable, audit log
 - Queued email delivery with a supervised worker
 - A separate pipeline worker and janitor for transfers, leases, and retention
+
+## Runtime model
+
+The browser process owns authentication, the UI, persistence, and audit records. Background
+processes handle work that must survive a browser request:
+
+| Process | Responsibility |
+|---|---|
+| Web app (`serve`) | Render the UI, validate requests, enqueue runs, and expose `/health` |
+| Email worker | Deliver verification, invitation, and password-reset messages |
+| Pipeline worker | Claim leases, execute real transfers, and persist progress/events |
+| Pipeline janitor | Retain run history and clean expired events, catalogs, and spool files |
+
+In demo mode, connectors are fake and stay local. In real mode, only the separately supervised
+pipeline worker contacts configured providers.
 
 ## Screenshots
 
@@ -141,7 +155,8 @@ With `EMAIL_BACKEND=console`, verification and reset links print to the worker l
 
 ## Explore the demo
 
-For a one-command local demo with a dedicated account and fake credentials for all four connections:
+For a one-command local demo with a dedicated account and fake credentials for the three provider
+connections:
 
 ```bash
 make demo
@@ -181,6 +196,8 @@ All of these are available as `python -m app …` or `access-registry …`.
 | `send-email` | Deliver one batch of queued email |
 | `email-worker [--once] [--batch-size N] [--poll-seconds N]` | Supervised mail loop |
 | `retry-email [--message-id ID] [--limit N]` | Requeue dead-lettered messages |
+| `pipeline-worker [--once]` | Claim and execute queued pipeline runs |
+| `pipeline-janitor` | Purge expired runs, events, catalog cache, and spool files |
 
 Schema must be current before `create-admin` or `serve` (startup checks).
 
@@ -192,10 +209,14 @@ Schema must be current before `create-admin` or `serve` (startup checks).
 | `make migrate` | `python -m app migrate` |
 | `make schema-status` | Show Alembic revisions |
 | `make serve` | `python -m app serve --reload` |
-| `make demo` | Create/refresh a local demo account, seed four fake connections, and serve on port 8765 |
+| `make demo` | Create/refresh a local demo account, seed three fake provider connections, and serve on port 8765 |
 | `make create-admin` | Uses `ADMIN_EMAIL` (default `admin@example.gov`); set `ADMIN_BOOTSTRAP_PASSWORD` for non-interactive local mode |
 | `make email-worker` | Run the email worker |
+| `make pipeline-worker` | Run the pipeline worker |
+| `make pipeline-janitor` | Run pipeline retention and cleanup |
 | `make check` | ruff + basedpyright + pytest (80% coverage gate) |
+| `make hedron-check` | Validate Hedron routes and interaction contracts |
+| `make hedron-build` | Build the production Hedron asset manifest |
 | `make workbench-up` | Start licensed Posit Workbench + app Docker stack (needs `POSIT_WORKBENCH_KEY`) |
 | `make workbench-test` | Opt-in Workbench Docker integration tests |
 | `make workbench-down` | Graceful stop (important for license-key deactivation) |
