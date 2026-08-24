@@ -1,10 +1,37 @@
 # Data Mover user guide
 
+This guide is for people who use the Data Mover browser application to configure connections,
+inspect source data, save pipelines, and monitor transfers. Maintainers and deployers should use
+the [maintainer guide](maintainer-guide.md), [deployment guide](deploy.md), and
+[pipeline-worker runbook](runbooks/pipeline-worker.md).
+
+## Quick navigation
+
+- [Sign in and understand the workspace](#start-here)
+- [Configure a connection](#connections)
+- [Build and save a pipeline](#build-a-pipeline)
+- [Upload a CSV source](#upload-and-inspect-a-csv)
+- [Run, cancel, or retry a transfer](#run-a-transfer)
+- [Manage your account](#account-and-administrator-pages)
+- [Get help](#more-help)
+
 Data Mover stores each user's connection credentials encrypted, browses provider catalogs, and runs
 durable transfers between MSS, MCS-COP, PostgreSQL, and local CSV files. Demo mode (`DATA_MOVER_MODE=demo`)
 uses fake connectors on this host. Real mode uses the pipeline worker against live systems.
 
 ## Start here
+
+### Before you begin
+
+| You need | Why |
+|---|---|
+| An approved Data Mover account | Access is scoped to the signed-in account. Pending accounts must be approved by an administrator. |
+| A provider credential with the required permissions | Data Mover can only browse or write what the remote credential allows. |
+| A connected source and destination | Pipeline menus intentionally hide saved credentials that have not passed a health check. |
+| A UTF-8 CSV under 5 MB, if using CSV | CSV sources are uploaded, scanned, and owned by your account. |
+
+If you are using a local demonstration, follow [Local seeded demo](#local-seeded-demo) instead of
+entering real credentials.
 
 1. Sign in with an approved Data Mover account.
 2. Open **Connections** and add the systems you want to use.
@@ -17,6 +44,14 @@ uses fake connectors on this host. Real mode uses the pipeline worker against li
 
 In demo mode, connectors never contact the hostnames you type. In real mode, a separate
 `pipeline-worker` process decrypts credentials only for the claimed run.
+
+### What you can see and change
+
+Data Mover scopes connections, CSV uploads, saved pipelines, runs, and account activity to the
+signed-in user. Administrators get additional **Team** and **Activity** navigation, but they still
+cannot reveal another user's saved credentials. A connection's **Connected** badge means the latest
+health check succeeded; it does not grant access to the remote provider beyond the credential's own
+permissions.
 
 ## Connections
 
@@ -48,6 +83,11 @@ Open **Connections → Status** to see every provider in one place.
 
 In demo mode the handshake is local. In real mode it is a live `SELECT 1` or Foundry file list using
 the default dataset RID.
+
+If a status check fails, correct the complete credential bundle and choose **Retest**. Data Mover
+does not reveal which saved value was previously entered. For a production credential rotation,
+replace the bundle in Data Mover and rotate or revoke the old credential at the remote provider
+according to that provider's process.
 
 ## Build a pipeline
 
@@ -116,6 +156,45 @@ facts: status, extracted/loaded counts, and the run event log.
 Cancel requests `cancel_requested_at`; the UI stays on cancelling until the worker records a
 terminal state. Retry creates a new run from the saved definition after revalidation.
 
+### Transfer lifecycle
+
+| Status | Meaning | Your next step |
+|---|---|---|
+| **Queued** | The run is waiting for a worker lease. | Wait, or cancel if it was submitted by mistake. |
+| **Validating** | Credentials, locators, and safety rules are being checked. | Wait; a validation failure includes a message in the run log. |
+| **Extracting** | Rows are being read from the source. | Monitor source counts and the event log. |
+| **Loading** | Batches are being written to the destination. | Avoid changing the destination outside the pipeline while it runs. |
+| **Verifying** | The destination is being checked against the transfer manifest. | Wait for success or inspect the verification event. |
+| **Succeeded** | The run completed and persisted its final counts. | Review the destination and keep the run for audit history. |
+| **Failed** | The run stopped before a successful final state. | Read the error summary; correct the pipeline or connection before retrying. |
+| **Cancelled** | A cancellation request was honored. | Start a new run when the source and destination are ready. |
+| **Failed / reconciliation needed** | A worker lease expired during destination work. | Do not blindly retry; have an operator inspect the destination first. |
+
+Foundry publish timeouts may be marked **publish uncertain** in the event details. Treat the remote
+destination as unknown until an operator confirms whether the file was published.
+
+## Appearance and accessibility
+
+Open the account menu and choose **Appearance** to select the Data Mover or Aurora theme and a
+system, light, or dark color mode. The preference is stored in a host-owned browser cookie. The
+workspace supports keyboard navigation, a skip link, responsive layouts, and forced-colors/high-
+contrast browser modes. If a control is difficult to reach, try keyboard navigation or a wider
+viewport before changing the pipeline; the application keeps the same server-side validation at
+every viewport size.
+
+## If something goes wrong
+
+| Symptom | What to check first |
+|---|---|
+| A provider is missing from Pipeline | Confirm it is saved under **Connections → Credentials** and **Connected** under **Status**. |
+| Save or Run is disabled | Scan the CSV, choose different remote source/destination systems, and resolve every readiness message. |
+| A run stays queued | Ask an operator to confirm `python -m app pipeline-worker` is running in real mode. |
+| A connection says Untested | Select **Test** or **Retest**; saving alone never marks a connection connected. |
+| A saved pipeline says Connection required | The owner deleted or replaced a required connection; restore and retest it, then reload the pipeline. |
+| An email link never arrives | Local deployments print links in the email-worker log; production operators must check the email worker and SMTP queue. |
+
+For mount-path, login, email, CSV, and worker failures, use the detailed [troubleshooting guide](troubleshooting.md).
+
 ## Local seeded demo
 
 Operators can run `make demo` to create the printed demo account, seed fake encrypted bundles for
@@ -131,6 +210,13 @@ conspicuously fake secrets. Demo seeding is blocked when `APP_ENV=production` or
   management.
 - Administrators can use **Activity** to review audited application events, including connection,
   CSV, and pipeline changes.
+
+### Sign out and sessions
+
+Use the account menu in the upper-right corner to sign out or open **Account**. The Account page
+shows active sessions and recent account activity. Revoke an unfamiliar session immediately, then
+change your password or contact the identity-proxy administrator according to your organization's
+incident process.
 
 ## Safety and limitations
 

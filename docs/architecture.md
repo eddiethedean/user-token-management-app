@@ -99,6 +99,7 @@ added to only one surface accidentally.
 ## Related
 
 - [user-guide.md](user-guide.md)
+- [maintainer-guide.md](maintainer-guide.md)
 - [auth-modes.md](auth-modes.md)
 - [deploy.md](deploy.md)
 - [troubleshooting.md](troubleshooting.md)

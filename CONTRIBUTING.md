@@ -43,6 +43,9 @@ CI runs the same on Python 3.11 for pushes and PRs to `main`.
 Keep routes thin: put business logic in `app/services/`. Schema changes need a new Alembic revision
 under `migrations/versions/` (never bootstrap admins in migrations).
 
+The broader developer workflow, service boundaries, provider checklist, worker model, and release
+checklist are documented in the [maintainer guide](docs/maintainer-guide.md).
+
 ## Where to add a page or HTMX fragment
 
 1. Add a SafeUrl helper in [`app/ui/urls.py`](app/ui/urls.py) if needed (pass `request` so
@@ -67,7 +70,8 @@ tests under `tests/` (especially `test_auth_security.py`, `test_secrets.py`, and
 
 Provider and pipeline features span several contracts. When adding or changing a connection type:
 
-1. Define its credential fields and validation in `app/services/secrets.py`.
+1. Define its typed credential fields in `app/services/secrets_types.py`, register the provider in
+   `app/services/secret_catalog.py`, and keep validation policy in `app/services/secret_validation.py`.
 2. Implement the connector protocol in `app/connectors/` and register it (keep a fake adapter until
    the real path's exit gate passes).
 3. Add the provider to the typed form allowlists in `app/ui/params.py` and to pipeline persistence

@@ -40,6 +40,35 @@ See [SECURITY.md](SECURITY.md).
 - Queued email delivery with a supervised worker
 - A separate pipeline worker and janitor for transfers, leases, and retention
 
+## Screenshots
+
+These screenshots were captured from the local `make demo` environment. Demo connectors are
+simulated, remote endpoints are not contacted, and the images contain no real credentials.
+
+### Pipeline workspace
+
+![Data Mover Pipeline workspace showing a succeeded live transfer](docs/screenshots/pipeline-live.jpg)
+
+The Pipeline workspace combines route setup, saved routes, and live transfer monitoring. The live
+view shows the source and destination, transfer progress, stage completion, row/byte counters, and
+the persisted event feed that operators can use to understand what happened during a run.
+
+### Connection status
+
+![Data Mover Connection status screen showing connected MSS, MCS-COP, and PostgreSQL checks](docs/screenshots/connections-status.jpg)
+
+The Connection status screen makes readiness explicit. Each provider shows its latest health-check
+result and offers an on-demand **Test connection** action; only connections that are saved and
+connected are available to Pipeline selectors.
+
+### Audit activity
+
+![Data Mover Audit activity screen showing filtered security events](docs/screenshots/audit-activity.jpg)
+
+The administrator Audit activity screen records security-relevant application events with timestamps,
+event types, outcomes, sources, and redacted details. Filters make it possible to narrow the event
+log during routine review or incident investigation.
+
 ## Non-goals
 
 - Not a public JSON/OpenAPI resource API (cookie-session HTMX UI only)
@@ -62,6 +91,7 @@ See [SECURITY.md](SECURITY.md).
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common failures |
 | [docs/faq.md](docs/faq.md) | Short answers |
 | [docs/architecture.md](docs/architecture.md) | Trust boundaries and layout |
+| [docs/maintainer-guide.md](docs/maintainer-guide.md) | Developer workflow, extension points, testing, and operations |
 | [docs/runbooks/pipeline-worker.md](docs/runbooks/pipeline-worker.md) | Web + worker operations |
 | [docs/providers/mss.md](docs/providers/mss.md) | Frozen Foundry/Postgres protocol notes |
 | [docs/hedron.md](docs/hedron.md) | Hedron integration and feature coverage |
