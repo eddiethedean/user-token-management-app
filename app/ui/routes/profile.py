@@ -28,7 +28,7 @@ from app.ui.regions import (
     SIDE_NAV,
     TOAST_HOST,
 )
-from app.ui.urls import mounted_redirect_path
+from app.ui.urls import mounted_path
 
 
 def register_profile_routes(app: Hedron) -> None:
@@ -91,7 +91,6 @@ def register_profile_routes(app: Hedron) -> None:
         request: Request,
         auth: Auth,
         db: DbSession,
-        settings: SettingsDep,
         _csrf: RequireCsrf,
         full_name: FullNameForm = "",
         organization: OrganizationForm = "",
@@ -111,7 +110,7 @@ def register_profile_routes(app: Hedron) -> None:
         )
         return await mutation_response(
             request,
-            redirect=mounted_redirect_path(request, "/profile?updated=true", settings),
+            redirect=mounted_path(request, "/profile?updated=true"),
             fragment=ok_fragment(
                 form,
                 oob=oob,

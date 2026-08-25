@@ -41,7 +41,7 @@ from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
 from app.ui.routes import register_routes
 from app.ui.security_policy import access_registry_security_policy
-from app.ui.urls import mounted_redirect_path
+from app.ui.urls import mounted_path
 
 configure_logging()
 settings = get_settings()
@@ -193,11 +193,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         if request.url.query:
             next_path += f"?{request.url.query}"
         response = RedirectResponse(
-            mounted_redirect_path(
-                request,
-                f"/login?{urlencode({'next': next_path})}",
-                settings,
-            ),
+            mounted_path(request, f"/login?{urlencode({'next': next_path})}"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         clear_auth_cookies(response, settings, request)

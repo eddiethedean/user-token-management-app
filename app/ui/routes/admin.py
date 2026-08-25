@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, InteractionResult, PageHeader, SplitView, html
 from hedron.htmx import is_htmx_request
+from hedron_posit import HedronPosit
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import Response
@@ -66,7 +69,7 @@ from app.ui.regions import (
     USER_DIRECTORY_BODY,
     USER_MATCH_COUNT,
 )
-from app.ui.urls import mounted_redirect_path
+from app.ui.urls import mounted_path
 
 
 def register_admin_routes(app: Hedron) -> None:
@@ -234,7 +237,7 @@ def register_admin_routes(app: Hedron) -> None:
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         if not is_htmx_request(request) and not error:
             return RedirectResponse(
-                mounted_redirect_path(request, "/admin/users?notice=invitation-queued", settings),
+                mounted_path(request, "/admin/users?notice=invitation-queued"),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         if not is_htmx_request(request):
@@ -473,9 +476,7 @@ def register_admin_routes(app: Hedron) -> None:
         roles = list(db.scalars(select(Role).order_by(Role.name)).all())
         return await mutation_response(
             request,
-            redirect=mounted_redirect_path(
-                request, "/admin/users?notice=invitation-revoked", settings
-            ),
+            redirect=mounted_path(request, "/admin/users?notice=invitation-revoked"),
             fragment=ok_fragment(
                 ui.invitation_panel(
                     request,
@@ -590,7 +591,6 @@ def register_admin_routes(app: Hedron) -> None:
         request: Request,
         auth: AdminAuth,
         db: DbSession,
-        settings: SettingsDep,
         event_type: EventTypeQuery = "",
         outcome: OutcomeQuery = "",
         page: PageQuery = 1,
@@ -598,7 +598,7 @@ def register_admin_routes(app: Hedron) -> None:
         request.state.hedron_authenticated = True
         if not is_htmx_request(request):
             return RedirectResponse(
-                mounted_redirect_path(request, "/admin/audit", settings),
+                cast(HedronPosit, request.app).href("/admin/audit", request=request),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         try:

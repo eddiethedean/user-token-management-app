@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron
+from hedron_posit import HedronPosit
 from starlette.responses import Response
 
 from app.dependencies import DbSession, SettingsDep
@@ -18,7 +21,6 @@ from app.ui.params import (
     OptionalPasswordForm,
 )
 from app.ui.partials.auth import render_invitation_page
-from app.ui.urls import mounted_redirect_path
 
 
 def register_invitation_routes(app: Hedron) -> None:
@@ -69,7 +71,7 @@ def register_invitation_routes(app: Hedron) -> None:
                 request=request,
             )
             return RedirectResponse(
-                mounted_redirect_path(request, "/login", settings),
+                cast(HedronPosit, request.app).href("/login", request=request),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         except (TokenFlowError, PasswordPolicyError, ValueError) as exc:
