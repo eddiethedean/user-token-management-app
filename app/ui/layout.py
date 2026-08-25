@@ -46,6 +46,7 @@ from hedron_core.builtins import (
 
 from app.config import Settings
 from app.dependencies import AuthContext
+from app.ui.design_system import DATA_MOVER_SCOPE_CLASSES
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.urls import asset_href, form_action, page_href
 
@@ -64,7 +65,7 @@ HTMX_CONFIG = (
 
 
 def theme_preference_for_request(request: Request) -> ThemePreference:
-    """Resolve the allowlisted Hedron 0.63 preference from host-owned cookies."""
+    """Resolve the allowlisted Hedron 0.64.1 preference from host-owned cookies."""
 
     return resolve_theme_preference(
         request.cookies.get(THEME_COOKIE),
@@ -89,6 +90,10 @@ def document_head(
         html.meta(name="theme-color", content="#080d1a"),
         html.meta(name="htmx-config", content=HTMX_CONFIG),
         html.title(title),
+        html.link(
+            rel="stylesheet",
+            href=asset_href(request, "/app-assets/hedron-desktop.css?v=2"),
+        ),
     ]
     if custom_theme_enabled:
         nodes.append(
@@ -223,6 +228,7 @@ def side_nav(request: Request, auth: AuthContext) -> Nav:
     return Nav(
         *side_nav_children(request, auth),
         id="side-nav",
+        class_=DATA_MOVER_SCOPE_CLASSES["shell-nav"],
         aria={"label": "Account navigation"},
     )
 
@@ -281,6 +287,7 @@ def app_shell(
         subtitle="Secure transfer operations",
         subtitle_overflow="truncate",
         href=page_href(request, "/"),
+        class_=DATA_MOVER_SCOPE_CLASSES["brand"],
         aria={"label": f"{settings.app_name} home"},
     )
     environment_badge = Badge("Sandbox online", tone="success")
@@ -294,6 +301,7 @@ def app_shell(
     banner: NodeLike | None = EnvironmentBanner(
         "Controlled demo workspace · Transfers are simulated and remote endpoints stay untouched",
         tone="warning",
+        class_=DATA_MOVER_SCOPE_CLASSES["environment-banner"],
     )
     header: NodeLike | None = None
     footer: NodeLike | None = None
@@ -321,6 +329,7 @@ def app_shell(
                     html.span("Demo environment · No remote systems are contacted"),
                 ),
                 content_width="wide",
+                mobile_collapse=False,
             ),
             pattern="mesh",
             tone="accent",
@@ -338,7 +347,7 @@ def app_shell(
                     ),
                     align="between",
                     gap="sm",
-                    collapse="sm",
+                    collapse="never",
                 ),
                 max_width="xl",
             ),
@@ -399,7 +408,8 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> PageH
         eyebrow=eyebrow,
         description=lead,
         meta=extra[0] if len(extra) == 1 else None,
-        density="comfortable",
+        density="spacious",
+        class_=DATA_MOVER_SCOPE_CLASSES["page-header"],
     )
 
 

@@ -199,7 +199,7 @@ def secret_slot(
             (
                 FormGrid(
                     *secondary_fields,
-                    columns={"base": 1, "lg": 2},
+                    columns=2,
                     gap="sm",
                 )
                 if secondary_fields
@@ -210,7 +210,7 @@ def secret_slot(
     else:
         credential_layout = FormGrid(
             *credential_fields,
-            columns={"base": 1, "lg": 2},
+            columns=2,
             gap="sm",
         )
 
@@ -691,7 +691,7 @@ def account_tabs(
                         ),
                         ratio="2:3",
                         gap="xl",
-                        collapse="md",
+                        collapse="never",
                     ),
                 ),
             )

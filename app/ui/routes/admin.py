@@ -184,7 +184,7 @@ def register_admin_routes(app: Hedron) -> None:
                 ),
                 ratio="2:1",
                 gap="lg",
-                collapse="lg",
+                collapse="never",
             ),
         ]
         return await render_authenticated_view(

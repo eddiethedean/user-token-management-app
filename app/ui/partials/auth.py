@@ -135,7 +135,7 @@ def render_login_page(
             ),
             label="Data movement workflow",
             direction="horizontal",
-            collapse="sm",
+            collapse="never",
             density="compact",
         ),
         Alert(
@@ -236,7 +236,7 @@ def render_login_page(
             secondary=intro,
             ratio="1:1",
             gap="xl",
-            collapse="md",
+            collapse="never",
         ),
         recipe="data-mover-auth-panel",
     )

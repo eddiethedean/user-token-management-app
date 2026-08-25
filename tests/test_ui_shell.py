@@ -20,8 +20,13 @@ from hedron_core import RenderMode
 from starlette.requests import Request
 
 from app.ui import partials as ui
-from app.ui.design_system import DATA_MOVER_DESIGN, DATA_MOVER_THEME_EXPORT
+from app.ui.design_system import (
+    DATA_MOVER_DESIGN,
+    DATA_MOVER_PRESENTATION,
+    DATA_MOVER_THEME_EXPORT,
+)
 from app.ui.forms import submit_button
+from app.ui.hedron_styles import desktop_default_styles
 from app.ui.interactions import APP_REGIONS
 from app.ui.layout import alert_box, document_head, page_heading
 from app.ui.urls import hx_attrs
@@ -67,7 +72,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Sign in")
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
-    assert_html_contains(response, 'href="/hedron-static/hedron-default.css"')
+    assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=2"')
     assert_html_contains(response, 'href="/assets/theme.css"')
     assert_html_contains(response, 'href="/app-assets/data-mover-components.css"')
 
@@ -78,7 +83,17 @@ def test_hedron_063_component_bundle_is_served(access_app) -> None:
     assert response.status_code == 200
     assert ".hedron-card--glass" in response.body
     assert "--hedron-color-bg: #080d16" in response.body
+    assert "--hedron-type-display-size" in response.body
+    assert "--hedron-geometry-control-height" in response.body
+    assert "hedron-scope-datamover-environment-banner" in response.body
+    assert "hedron-scope-datamover-process-flow" in response.body
+    assert "--hedron-glass-opacity: 78%" in response.body
+    assert "--hedron-glass-blur: 18px" in response.body
     assert "--hedron-color-surface" in response.body
+    desktop_styles = fixture.get("/app-assets/hedron-desktop.css")
+    assert desktop_styles.status_code == 200
+    assert "@media (max-width" not in desktop_styles.body
+    assert "@media (min-width" in desktop_styles.body
 
 
 def test_document_head_can_disable_custom_theme() -> None:
@@ -113,10 +128,28 @@ def test_hedron_063_design_system_and_action_recipe() -> None:
     assert 'data-hedron-emphasis="primary"' in rendered
 
 
-def test_hedron_063_theme_export_is_conformant() -> None:
+def test_hedron_064_theme_export_is_conformant() -> None:
     exported = DATA_MOVER_THEME_EXPORT.to_dict()
     assert exported["design_tokens"]
     assert exported["conformance"]["ok"] is True
+
+
+def test_hedron_064_presentation_contract_is_available() -> None:
+    contract = DATA_MOVER_PRESENTATION.to_dict()
+
+    assert contract["schema"] == "hedron.presentation-contract/1"
+    assert contract["container_sizes"]
+    assert "checkbox" in contract["native_controls"]
+    assert "table" in contract["data_chrome"]
+
+
+def test_hedron_native_stylesheet_is_desktop_only() -> None:
+    stylesheet = desktop_default_styles()
+
+    assert "@media (max-width" not in stylesheet
+    assert "@media (min-width" in stylesheet
+    assert "@media (hover: none)" not in stylesheet
+    assert "@media (prefers-reduced-motion: reduce)" in stylesheet
 
 
 def test_register_page_document(access_app) -> None:

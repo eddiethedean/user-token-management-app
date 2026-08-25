@@ -188,7 +188,7 @@ def _audit_filter_form(request: Request, event_type_filter: str, outcome_filter:
                     autocomplete="off",
                 ),
             ),
-            columns={"base": 1, "md": 2},
+            columns=2,
             gap="sm",
         ),
         ActionGroup(

@@ -88,7 +88,7 @@ def profile_form(
                         value=user.job_title or "",
                     ),
                 ),
-                columns={"base": 1, "md": 2},
+                columns=2,
                 gap="md",
             ),
             FormField(
@@ -183,7 +183,7 @@ def account_profile_panel(request: Request, auth: AuthContext, *, csrf_token: st
         secondary=profile_identity(request, auth),
         ratio="3:2",
         gap="lg",
-        collapse="md",
+        collapse="never",
     )
 
 

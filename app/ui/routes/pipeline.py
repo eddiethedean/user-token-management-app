@@ -90,7 +90,12 @@ from app.services.pipeline_runs import (
 )
 from app.services.pipelines import list_pipelines, save_pipeline
 from app.services.secrets import list_user_secrets
-from app.ui.design_system import DATA_MOVER_DESIGN, apply_data_recipe, surface_card
+from app.ui.design_system import (
+    DATA_MOVER_DESIGN,
+    DATA_MOVER_SCOPE_CLASSES,
+    apply_data_recipe,
+    surface_card,
+)
 from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
 from app.ui.interactions import interaction_response, ok_fragment
@@ -411,7 +416,7 @@ def _capability_surface(
             Grid(
                 facts(source_catalog),
                 facts(destination_catalog, destination=True),
-                columns={"base": 1, "lg": 2},
+                columns=2,
                 gap="sm",
             ),
             appearance="plain",
@@ -724,7 +729,7 @@ def _schema_preview_surface(
                 "Primary key",
                 ", ".join(str(item) for item in preview.get("primary_key") or []) or "None",
             ),
-            columns={"base": 1, "sm": 3},
+            columns=3,
             gap="sm",
         ),
         StateView(
@@ -779,7 +784,7 @@ def _pipeline_schema_preview_panel(
             Grid(
                 _schema_preview_surface("Source", source),
                 _schema_preview_surface("Destination", destination, destination=True),
-                columns={"base": 1, "lg": 2},
+                columns=2,
                 gap="sm",
             ),
             id="pipeline-schema-preview",
@@ -816,7 +821,7 @@ def _csv_inspection(
                 Metric("Rows", f"{inspection.row_count:,}"),
                 Metric("Columns", f"{len(inspection.columns)}"),
                 Metric("File size", _format_file_size(inspection.size_bytes)),
-                columns={"base": 1, "sm": 3},
+                columns=3,
                 gap="sm",
             ),
             ScrollRegion(
@@ -1437,6 +1442,7 @@ def _pipeline_body(
         direction="horizontal",
         collapse="never",
         density="compact",
+        class_=DATA_MOVER_SCOPE_CLASSES["process-flow"],
     )
     return [
         PageHeader(
@@ -1527,7 +1533,7 @@ def _pipeline_body(
                                     selected=write_mode,
                                 ),
                             ),
-                            columns={"base": 1, "md": 2},
+                            columns=2,
                             gap="md",
                         ),
                         Grid(
@@ -1638,7 +1644,7 @@ def _pipeline_body(
                                                     ),
                                                 ),
                                             ),
-                                            columns={"base": 1, "md": 2},
+                                            columns=2,
                                             gap="sm",
                                         ),
                                         Surface(
@@ -1817,7 +1823,7 @@ def _pipeline_body(
                                                     ),
                                                 ),
                                             ),
-                                            columns={"base": 1, "md": 2},
+                                            columns=2,
                                             gap="sm",
                                         ),
                                         FormField(
@@ -1838,7 +1844,7 @@ def _pipeline_body(
                                     ),
                                 ),
                             ),
-                            columns={"base": 1, "lg": 2},
+                            columns=2,
                             gap="md",
                         ),
                         ConnectorFlow(
@@ -1891,7 +1897,7 @@ def _pipeline_body(
                                 ),
                             ),
                             direction="horizontal",
-                            collapse="md",
+                            collapse="never",
                             appearance="soft",
                             background="dots",
                             overflow="auto",
@@ -2708,7 +2714,7 @@ def _run_schema_surface(title: str, manifest: dict[str, Any], row_value: str):
             Metric("Rows", row_value),
             Metric("Columns", f"{len(columns):,}"),
             Metric("Primary key", ", ".join(str(item) for item in primary_key) or "None"),
-            columns={"base": 1, "sm": 3},
+            columns=3,
             gap="sm",
         ),
         _schema_columns_table(columns, f"Persisted columns in {title}"),
@@ -2746,7 +2752,7 @@ def _run_schema_results(run):
                 Grid(
                     _run_schema_surface("Source", source_manifest, f"{int(source_rows):,}"),
                     _run_schema_surface("Destination", destination_manifest, destination_rows),
-                    columns={"base": 1, "lg": 2},
+                    columns=2,
                     gap="sm",
                 ),
                 open=False,
@@ -3107,7 +3113,7 @@ def _run_status_fragment(
                 runtime=_run_locator_label(snapshot.destination),
             ),
             direction="horizontal",
-            collapse="md",
+            collapse="never",
             appearance="soft",
             density="compact",
             background="dots",
@@ -3120,6 +3126,7 @@ def _run_status_fragment(
             direction="horizontal",
             collapse="never",
             density="compact",
+            class_=DATA_MOVER_SCOPE_CLASSES["process-flow"],
         ),
         Alert(
             stage_description,
@@ -3146,7 +3153,7 @@ def _run_status_fragment(
                 stage_label,
                 delta=f"Attempt {run.attempt}",
             ),
-            columns={"base": 1, "sm": 4},
+            columns=4,
             gap="sm",
         ),
         _run_schema_results(run)

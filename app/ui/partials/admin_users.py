@@ -250,7 +250,7 @@ def user_directory(
                         value=status_filter or None,
                     ),
                 ),
-                columns={"base": 1, "md": 2},
+                columns=2,
                 gap="sm",
             ),
             ActionGroup(submit_button("Filter", variant="secondary", size="sm"), align="end"),

@@ -127,7 +127,7 @@ def test_history_restore_returns_full_document(htmx) -> None:
     assert 'id="main-panel"' in response.text
     assert 'id="side-nav"' in response.text
     assert "hedron-app-shell-header" in response.text
-    assert 'class="hedron-app-shell-nav"' in response.text
+    assert "hedron-app-shell-nav" in response.text
 
 
 def test_toast_oob_appends_for_queueing() -> None:

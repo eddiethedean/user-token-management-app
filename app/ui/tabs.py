@@ -9,7 +9,7 @@ from hedron_core import NodeLike
 
 
 class NavigationTabs(Tabs):
-    """Use Hedron 0.63's first-class underline, density, and overflow styling."""
+    """Use Hedron 0.64.1's first-class underline and density styling."""
 
     def __init__(
         self,
@@ -18,7 +18,6 @@ class NavigationTabs(Tabs):
     ) -> None:
         kwargs.setdefault("appearance", "underline")
         kwargs.setdefault("density", "compact")
-        kwargs.setdefault("responsive", "scroll")
         super().__init__(*items, **kwargs)
 
 
