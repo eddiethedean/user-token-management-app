@@ -7,7 +7,7 @@ from typing import Any
 
 from app.config import get_settings
 
-_STATIC_PREFIXES = ("/assets/", "/hedron-static/", "/hedron-assets/", "/favicon")
+_STATIC_PREFIXES = ("/assets/", "/app-assets/", "/hedron-static/", "/hedron-assets/", "/favicon")
 
 
 def is_dev_trace_enabled() -> bool:

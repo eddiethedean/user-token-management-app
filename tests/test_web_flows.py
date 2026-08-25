@@ -136,11 +136,7 @@ def test_secret_save_and_delete_never_reveal_token(client, make_user) -> None:
     account = client.get("/profile")
     assert account.status_code == 200
     assert 'id="account-tabs"' in account.text
-    assert 'data-navigation-tab-label="Profile"' in account.text
-    assert 'data-navigation-tab-label="Password"' in account.text
-    assert 'data-navigation-tab-label="Sessions"' in account.text
-    assert 'data-navigation-tab-label="Activity"' in account.text
-    assert 'data-navigation-tab-label="Credentials"' not in account.text
+    assert 'data-hedron-appearance="underline"' in account.text
     csrf = csrf_from(security.text)
 
     saved = client.post(

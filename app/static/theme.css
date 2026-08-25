@@ -1,6 +1,366 @@
-/*
- * Data Mover has no application-authored CSS rules in Hedron 0.60.
+/* Data Mover visual layer.
  *
- * The file remains as a compatibility asset for existing deployments and the
- * CUSTOM_THEME_ENABLED experiment. Hedron owns the complete visual contract.
+ * Hedron owns the component structure and interaction states. This file is
+ * deliberately limited to product-level art direction: color, typography,
+ * spacing, surfaces, and responsive composition.
  */
+
+:root {
+  --dm-bg: var(--hedron-color-bg);
+  --dm-bg-raised: var(--hedron-color-surface-muted);
+  --dm-surface: var(--hedron-color-surface);
+  --dm-surface-raised: var(--hedron-color-surface-muted);
+  --dm-surface-soft: var(--hedron-color-surface-muted);
+  --dm-border: var(--hedron-color-border);
+  --dm-border-strong: color-mix(in srgb, var(--hedron-color-border) 78%, white);
+  --dm-text: var(--hedron-color-fg);
+  --dm-text-muted: var(--hedron-color-muted);
+  --dm-text-subtle: color-mix(in srgb, var(--hedron-color-muted) 72%, transparent);
+  --dm-accent: var(--hedron-color-accent);
+  --dm-accent-strong: var(--hedron-color-accent-hover);
+  --dm-mint: var(--hedron-color-success);
+  --dm-gold: var(--hedron-color-warning);
+  --dm-danger: var(--hedron-color-danger);
+  --dm-radius: var(--hedron-shape-radius-lg);
+  --dm-radius-sm: var(--hedron-shape-radius);
+  --dm-shadow: var(--hedron-elevation-raised);
+}
+
+body {
+  min-width: 320px;
+}
+
+/* Shared shell */
+
+.hedron-app-shell-banner,
+.hedron-environment-banner {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: 1360px;
+  border: 1px solid rgba(240, 199, 106, 0.22);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: linear-gradient(90deg, rgba(240, 199, 106, 0.13), rgba(240, 199, 106, 0.045));
+  color: #dfc77f;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.hedron-app-shell-header,
+body > header {
+  position: relative;
+  z-index: 2;
+  border-bottom: 1px solid rgba(145, 166, 204, 0.14);
+  background: rgba(7, 12, 21, 0.72);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.hedron-app-shell-header .hedron-container,
+body > header .hedron-container {
+  min-height: 92px;
+}
+
+.hedron-brand {
+  gap: 0.8rem;
+  color: var(--dm-text);
+}
+
+.hedron-brand-mark {
+  border: 1px solid rgba(141, 156, 255, 0.5);
+  border-radius: 12px;
+  background: linear-gradient(145deg, #35426e, #111b34);
+  box-shadow: 0 8px 24px rgba(76, 80, 190, 0.22), inset 0 1px rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+}
+
+.hedron-brand-name {
+  font-size: 1rem;
+  letter-spacing: -0.02em;
+}
+
+.hedron-brand-subtitle {
+  color: var(--dm-text-subtle);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.hedron-app-shell-nav {
+  margin: 2.4rem 0 2.4rem 2.5rem;
+  border: 1px solid var(--dm-border);
+  border-radius: var(--dm-radius);
+  background: linear-gradient(180deg, rgba(18, 28, 47, 0.92), rgba(11, 18, 31, 0.92));
+  box-shadow: var(--dm-shadow), inset 0 1px rgba(255, 255, 255, 0.045);
+}
+
+.hedron-nav-group-label {
+  color: #74839c;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.hedron-nav-group + .hedron-nav-group {
+  margin-top: 1.55rem;
+}
+
+.hedron-nav-group-items {
+  gap: 0.3rem;
+}
+
+.hedron-app-shell-nav a {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: #aab6ca;
+  font-size: 0.86rem;
+  font-weight: 650;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.hedron-app-shell-nav a:hover {
+  border-color: rgba(141, 156, 255, 0.22);
+  background: rgba(141, 156, 255, 0.08);
+  color: #eef1ff;
+  transform: translateX(2px);
+}
+
+.hedron-app-shell-nav a[aria-current="page"],
+.hedron-app-shell-nav a[data-active="true"] {
+  border-color: rgba(141, 156, 255, 0.42);
+  background: linear-gradient(90deg, rgba(111, 112, 255, 0.29), rgba(82, 102, 202, 0.12));
+  box-shadow: inset 3px 0 var(--dm-accent), 0 8px 20px rgba(31, 34, 91, 0.2);
+  color: #fff;
+}
+
+.hedron-app-shell-nav .hedron-nav-status {
+  border-top-color: rgba(145, 166, 204, 0.16);
+  color: var(--dm-text-muted);
+}
+
+.hedron-main-panel {
+  min-width: 0;
+}
+
+.hedron-main-panel > .hedron-busy-region,
+.hedron-main-panel > .hedron-swap-reveal {
+  min-width: 0;
+}
+
+#main-panel {
+  min-width: 0;
+  padding-top: 2.4rem;
+}
+
+#main-panel > * {
+  min-width: 0;
+}
+
+.hedron-page-header {
+  margin-bottom: 1.35rem;
+}
+
+.hedron-page-header-eyebrow,
+.hedron-type-eyebrow {
+  color: var(--dm-mint);
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.hedron-page-header-title {
+  color: var(--dm-text);
+  font-size: clamp(2.25rem, 4vw, 4rem);
+  font-weight: 790;
+  letter-spacing: -0.065em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+
+.hedron-page-header-description {
+  max-width: 58rem;
+  color: var(--dm-text-muted);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.hedron-card .hedron-card {
+  color: var(--dm-text-muted);
+}
+
+.hedron-card h2,
+.hedron-card h3 {
+  color: var(--dm-text);
+  letter-spacing: -0.035em;
+}
+
+.hedron-card p,
+.hedron-card dd {
+  color: var(--dm-text-muted);
+}
+
+/* Controls and status language */
+
+.hedron-text-input,
+.hedron-select,
+select,
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+  min-height: 2.9rem;
+  border: 1px solid rgba(145, 166, 204, 0.24);
+  border-radius: 10px;
+  background: rgba(5, 11, 21, 0.62);
+  color: var(--dm-text);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.035);
+}
+
+.hedron-text-input:focus,
+select:focus,
+input:focus {
+  border-color: var(--dm-accent);
+  box-shadow: 0 0 0 3px rgba(141, 156, 255, 0.15), inset 0 1px rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
+/* Workflow surfaces */
+
+.hedron-process-flow {
+  border: 1px solid rgba(145, 166, 204, 0.16);
+  border-radius: 14px;
+  background: rgba(7, 14, 26, 0.44);
+}
+
+.hedron-process-flow-step[data-hedron-flow-status="current"] {
+  background: rgba(111, 112, 255, 0.16);
+}
+
+.hedron-process-flow-step[data-hedron-flow-status="complete"] {
+  color: var(--dm-mint);
+}
+
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid rgba(145, 166, 204, 0.16);
+  border-radius: 12px;
+}
+
+th {
+  background: rgba(111, 132, 181, 0.1);
+  color: #8796ae;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+td,
+th {
+  border-bottom-color: rgba(145, 166, 204, 0.12);
+}
+
+.hedron-app-shell-footer,
+.hedron-app-footer {
+  border-top-color: rgba(145, 166, 204, 0.14);
+  color: var(--dm-text-subtle);
+}
+
+/* Auth is intentionally lighter and more editorial than the workspace. */
+
+body:not(:has(.hedron-app-shell)) .hedron-split-primary {
+  padding-right: 1.5rem;
+}
+
+body:not(:has(.hedron-app-shell)) .hedron-split-secondary {
+  border-left: 1px solid rgba(145, 166, 204, 0.14);
+  padding-left: 2.5rem;
+}
+
+body:not(:has(.hedron-app-shell)) .hedron-page-header-title {
+  font-size: clamp(2.6rem, 5vw, 4.6rem);
+}
+
+body:not(:has(.hedron-app-shell)) .hedron-page-header-description {
+  font-size: 1.05rem;
+}
+
+/* Respect the dense data views without letting them overflow the viewport. */
+
+.hedron-scroll-region,
+.hedron-table-region {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+@media (max-width: 960px) {
+  .hedron-app-shell-nav {
+    margin: 1.25rem 1.25rem 0;
+  }
+
+  #main-panel {
+    padding-top: 1.6rem;
+  }
+
+  body:not(:has(.hedron-app-shell)) .hedron-split-secondary {
+    border-left: 0;
+    border-top: 1px solid rgba(145, 166, 204, 0.14);
+    padding-left: 0;
+    padding-top: 1.8rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .hedron-app-shell-banner,
+  .hedron-environment-banner {
+    border-radius: 0;
+    font-size: 0.58rem;
+    letter-spacing: 0.08em;
+  }
+
+  .hedron-app-shell-header .hedron-container,
+  body > header .hedron-container {
+    min-height: 76px;
+  }
+
+  .hedron-brand-subtitle {
+    display: none;
+  }
+
+  .hedron-page-header-title {
+    font-size: 2.35rem;
+  }
+
+  .hedron-card {
+    border-radius: 14px;
+  }
+
+  .hedron-app-shell-nav {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hedron-app-shell-nav .hedron-nav-group,
+  .hedron-app-shell-nav .hedron-app-shell-nav-footer {
+    width: auto;
+  }
+
+  .hedron-app-shell-nav .hedron-app-shell-nav-footer {
+    grid-column: 1;
+  }
+
+  body:not(:has(.hedron-app-shell)) .hedron-split-primary {
+    padding-right: 0;
+  }
+
+  body:not(:has(.hedron-app-shell)) .hedron-page-header-title {
+    font-size: 2.8rem;
+  }
+}

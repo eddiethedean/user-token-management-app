@@ -9,6 +9,7 @@ from hedron import (
     AccountSummary,
     ActionGroup,
     Alert,
+    AmbientBackdrop,
     AppFooter,
     AppShell,
     Badge,
@@ -63,7 +64,7 @@ HTMX_CONFIG = (
 
 
 def theme_preference_for_request(request: Request) -> ThemePreference:
-    """Resolve the allowlisted Hedron 0.60 preference from host-owned cookies."""
+    """Resolve the allowlisted Hedron 0.63 preference from host-owned cookies."""
 
     return resolve_theme_preference(
         request.cookies.get(THEME_COOKIE),
@@ -96,6 +97,12 @@ def document_head(
                 href=asset_href(request, "/assets/theme.css"),
             )
         )
+        nodes.append(
+            html.link(
+                rel="stylesheet",
+                href=asset_href(request, "/app-assets/data-mover-components.css"),
+            )
+        )
     return Fragment(*nodes)
 
 
@@ -119,6 +126,9 @@ def account_summary(
         user.full_name or user.email_original,
         detail=user.email_original if user.full_name else None,
         mark_text=(user.full_name or user.email_original or "?")[:1].upper(),
+        mark_size="md",
+        mark_shape="rounded",
+        mark_tone="accent",
         action=ActionGroup(
             Popover(
                 Stack(
@@ -265,6 +275,9 @@ def app_shell(
     brand = Brand(
         settings.app_name,
         mark_text="DM",
+        mark_size="md",
+        mark_shape="rounded",
+        mark_tone="accent",
         subtitle="Secure transfer operations",
         subtitle_overflow="truncate",
         href=page_href(request, "/"),
@@ -285,24 +298,33 @@ def app_shell(
     header: NodeLike | None = None
     footer: NodeLike | None = None
     if auth:
-        content = AppShell(
-            nav=side_nav(request, auth),
-            body=main_panel(
-                *body,
-                theme=preference.theme,
-                color_mode=(preference.color_mode if preference.color_mode != "system" else None),
+        content = AmbientBackdrop(
+            AppShell(
+                nav=side_nav(request, auth),
+                body=main_panel(
+                    *body,
+                    theme=preference.theme,
+                    color_mode=(
+                        preference.color_mode if preference.color_mode != "system" else None
+                    ),
+                ),
+                panel_id="main-content",
+                banner=banner,
+                brand=brand,
+                env_badge=environment_badge,
+                account=(
+                    account_summary(request, auth, csrf_token=csrf_token) if csrf_token else None
+                ),
+                nav_footer=shell_nav_footer(),
+                app_footer=AppFooter(
+                    settings.app_name,
+                    html.span("Demo environment · No remote systems are contacted"),
+                ),
+                content_width="wide",
             ),
-            panel_id="main-content",
-            banner=banner,
-            brand=brand,
-            env_badge=environment_badge,
-            account=(account_summary(request, auth, csrf_token=csrf_token) if csrf_token else None),
-            nav_footer=shell_nav_footer(),
-            app_footer=AppFooter(
-                settings.app_name,
-                html.span("Demo environment · No remote systems are contacted"),
-            ),
-            content_width="wide",
+            pattern="mesh",
+            tone="accent",
+            intensity="soft",
         )
     else:
         header = html.header(
@@ -317,27 +339,34 @@ def app_shell(
                     align="between",
                     gap="sm",
                     collapse="sm",
-                )
+                ),
+                max_width="xl",
             ),
         )
-        content = StyleScope(
-            html.main(
-                Container(
-                    *body,
-                    query="inline-size",
-                    name="auth",
+        content = AmbientBackdrop(
+            StyleScope(
+                html.main(
+                    Container(
+                        *body,
+                        query="inline-size",
+                        name="auth",
+                        max_width="xl",
+                    ),
+                    id="main-content",
+                    tabindex="-1",
                 ),
-                id="main-content",
-                tabindex="-1",
+                theme=preference.theme,
+                color_mode=preference.color_mode if preference.color_mode != "system" else None,
+                variant="auth",
+                design="data-mover",
+                recipe_defaults={
+                    "surface": "data-mover-auth-panel",
+                    "content": "data-mover-supporting-copy",
+                },
             ),
-            theme=preference.theme,
-            color_mode=preference.color_mode if preference.color_mode != "system" else None,
-            variant="auth",
-            design="data-mover",
-            recipe_defaults={
-                "surface": "data-mover-auth-panel",
-                "content": "data-mover-supporting-copy",
-            },
+            pattern="radial",
+            tone="accent",
+            intensity="soft",
         )
         footer = AppFooter(
             settings.app_name,
@@ -387,6 +416,7 @@ def main_panel(
                     Section(*body, id="main-panel"),
                     query="inline-size",
                     name="workspace",
+                    max_width="full",
                 ),
                 theme=theme,
                 color_mode=color_mode,

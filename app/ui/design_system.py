@@ -1,4 +1,4 @@
-"""Data Mover's explicit Hedron 0.60 presentation contract."""
+"""Data Mover's explicit Hedron 0.63 presentation contract."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from hedron import (
     RecipeFamily,
     StyleRecipe,
     ThemeBuilder,
+    export_theme,
     register_recipe_family,
     validate_theme_spec,
 )
@@ -21,7 +22,7 @@ from hedron_core.theme import Theme, aurora_theme
 _ComponentT = TypeVar("_ComponentT", bound=Component)
 
 
-# Build a first-party Data Mover brand from Hedron's 0.60 typed design system.
+# Build a first-party Data Mover brand from Hedron's 0.63 typed design system.
 # Aurora remains the accessibility-tested base; the brand compiler owns the
 # palette, geometry, typography, motion, and navigation groups.
 _BRAND_DESIGN = DesignSystem.brand(
@@ -36,7 +37,7 @@ _BRAND_DESIGN = DesignSystem.brand(
     navigation="wide",
 )
 
-# 0.60's extensible recipe-family contract lets the flow canvas declare its
+# 0.63's extensible recipe-family contract lets the flow canvas declare its
 # presentation vocabulary without private CSS or behavior-shaped props.
 DATA_MOVER_FLOW_FAMILY = RecipeFamily(
     name="flow",
@@ -50,7 +51,7 @@ DATA_MOVER_FLOW_FAMILY = RecipeFamily(
 )
 register_recipe_family(DATA_MOVER_FLOW_FAMILY)
 
-# ThemeBuilder is the canonical 0.60 authoring layer. The legacy Theme bridge
+# ThemeBuilder is the canonical authoring layer. The legacy Theme bridge
 # remains deliberate because Hedron's application shell consumes its resolved
 # CSS contract while keeping the legacy Theme bridge compatible.
 DATA_MOVER_THEME_SPEC = (
@@ -80,21 +81,63 @@ DATA_MOVER_THEME_SPEC = (
         "more-contrast",
         **{"color.accent": "#a8aaff", "color.focus": "#ffffff"},
     )
-    .metadata(product="data-mover", release="0.60")
+    .metadata(product="data-mover", release="0.63")
     .profile("workflow")
     .build()
 )
 _THEME_REPORT = validate_theme_spec(DATA_MOVER_THEME_SPEC, profile="workflow")
 if not _THEME_REPORT.ok:
-    raise ValueError(f"Data Mover theme failed Hedron 0.60 validation: {_THEME_REPORT.to_dict()}")
+    raise ValueError(f"Data Mover theme failed Hedron 0.63 validation: {_THEME_REPORT.to_dict()}")
 _RESOLVED_THEME = DATA_MOVER_THEME_SPEC.to_theme()
 
 # Variants are additive presentation contexts. They do not encode application
 # state or behavior; the server and HTMX remain authoritative for that.
+_DATA_MOVER_THEME_TOKENS = {
+    **_RESOLVED_THEME.tokens,
+    # Let Hedron's native component bundle own the semantic visual language.
+    # Product CSS consumes these variables for the remaining art direction.
+    "color.bg": "#080d16",
+    "color.canvas": "#080d16",
+    "color.surface": "#111a2a",
+    "color.surface-muted": "#0e1828",
+    "color.fg": "#f2f5fb",
+    "color.muted": "#9ba9bf",
+    "color.border": "rgb(145 166 204 / 19%)",
+    "color.accent": "#8d9cff",
+    "color.focus": "#8d9cff",
+    "color.danger": "#ff8ca6",
+    "color.success": "#63e0c6",
+    "color.success-soft": "rgb(99 224 198 / 12%)",
+    "color.warning": "#f0c76a",
+    "color.warning-soft": "rgb(240 199 106 / 13%)",
+    "color.info-soft": "rgb(141 156 255 / 12%)",
+    "shape.radius": "0.6875rem",
+    "shape.radius-lg": "1.125rem",
+}
+
+_DATA_MOVER_DARK_MODE = {
+    **_RESOLVED_THEME.modes.get("dark", {}),
+    "color.bg": "#080d16",
+    "color.canvas": "#080d16",
+    "color.surface": "#111a2a",
+    "color.surface-muted": "#0e1828",
+    "color.fg": "#f2f5fb",
+    "color.muted": "#9ba9bf",
+    "color.border": "rgb(145 166 204 / 19%)",
+    "color.accent": "#8d9cff",
+    "color.focus": "#8d9cff",
+    "color.danger": "#ff8ca6",
+    "color.success": "#63e0c6",
+    "color.success-soft": "rgb(99 224 198 / 12%)",
+    "color.warning": "#f0c76a",
+    "color.warning-soft": "rgb(240 199 106 / 13%)",
+    "color.info-soft": "rgb(141 156 255 / 12%)",
+}
+
 DATA_MOVER_THEME: Theme = replace(
     _BRAND_DESIGN.to_theme(),
-    tokens=_RESOLVED_THEME.tokens,
-    modes=_RESOLVED_THEME.modes,
+    tokens=_DATA_MOVER_THEME_TOKENS,
+    modes={**_RESOLVED_THEME.modes, "dark": _DATA_MOVER_DARK_MODE},
     accessibility_modes=_RESOLVED_THEME.accessibility_modes,
     variants={
         "workspace": {
@@ -106,7 +149,13 @@ DATA_MOVER_THEME: Theme = replace(
             "color.surface-muted": "#1a2850",
         },
     },
+    elevation={"raised": "0 24px 64px rgb(0 0 0 / 28%)"},
 )
+
+# 0.63 emits a matching CSS and design-token export, including the compatibility
+# bridge consumed by Hedron's default stylesheet. Fail fast if the application
+# theme ever drifts outside the published contract.
+DATA_MOVER_THEME_EXPORT = export_theme(DATA_MOVER_THEME, profile="workflow")
 
 
 # Recipes provide semantic defaults; explicit component props remain authoritative.
@@ -169,7 +218,7 @@ DATA_MOVER_DESIGN = DesignSystem.from_theme(DATA_MOVER_THEME).with_recipes(
 
 
 def apply_action_recipe(button: _ComponentT, *, variant: str) -> _ComponentT:
-    """Apply a named 0.60 control recipe without overriding explicit props."""
+    """Apply a named 0.63 control recipe without overriding explicit props."""
 
     recipe = {
         "primary": "data-mover-primary-action",
@@ -187,9 +236,10 @@ def surface_card(
 ) -> Card:
     """Build a Card with a named Data Mover surface recipe."""
 
+    class_name = class_ or "hedron-card--glass"
     return DATA_MOVER_DESIGN.apply(
         recipe,
-        Card(*nodes, class_=class_, **kwargs),
+        Card(*nodes, class_=class_name, **kwargs),
     )
 
 
@@ -208,6 +258,7 @@ __all__ = [
     "DATA_MOVER_THEME",
     "DATA_MOVER_THEME_SPEC",
     "DATA_MOVER_FLOW_FAMILY",
+    "DATA_MOVER_THEME_EXPORT",
     "apply_data_recipe",
     "apply_action_recipe",
     "surface_card",

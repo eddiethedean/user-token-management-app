@@ -1,21 +1,3 @@
-function syncNavigationTabs(root = document) {
-  root.querySelectorAll("[data-hedron-navigation-tabs] [role='tab']").forEach((tab) => {
-    const selected = tab.getAttribute("aria-selected") === "true";
-    const label = tab.dataset.navigationTabLabel || tab.textContent.trim();
-    const labelNode = selected ? document.createElement("u") : document.createTextNode(label);
-
-    if (selected) {
-      const strong = document.createElement("strong");
-      strong.textContent = label;
-      labelNode.append(strong);
-    }
-
-    tab.dataset.hedronAppearance = "plain";
-    tab.dataset.hedronEmphasis = selected ? "primary" : "neutral";
-    tab.replaceChildren(labelNode);
-  });
-}
-
 document.addEventListener("htmx:afterRequest", (event) => {
   const elt = event.detail.elt;
   if (event.detail.successful) {
@@ -30,7 +12,6 @@ document.addEventListener("htmx:afterRequest", (event) => {
 });
 
 document.addEventListener("DOMContentLoaded", () => {
-  syncNavigationTabs();
   const nav = document.getElementById("side-nav");
   const active = nav?.querySelector(".hedron-nav-link.active");
   if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return;
@@ -41,11 +22,6 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 document.addEventListener("click", (event) => {
-  const tab = event.target.closest("[data-hedron-navigation-tabs] [role='tab']");
-  if (tab) {
-    queueMicrotask(() => syncNavigationTabs(tab.closest("[data-hedron-navigation-tabs]")));
-  }
-
   const toggle = event.target.closest("[data-compact-password-toggle]");
   if (!toggle) return;
   queueMicrotask(() => {

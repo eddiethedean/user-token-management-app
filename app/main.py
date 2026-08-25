@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from hedron import Heading, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
-from hedron_core import RenderMode
+from hedron_core import RenderMode, compile_style_bundle
 from hedron_core.request_budget import RequestBudget, reset_request_budget, set_request_budget
 from hedron_posit import ConnectConfig, HedronPosit, PositConfig
 from pydantic import BaseModel
@@ -97,7 +97,25 @@ app = HedronPosit(
 )
 
 static_directory = Path(__file__).resolve().parent / "static"
+
+
+@app.get("/app-assets/data-mover-components.css", include_in_schema=False)
+def data_mover_component_styles() -> Response:
+    """Serve the Hedron 0.63 scoped bundle used by product surface classes."""
+
+    bundle = compile_style_bundle(
+        theme=DATA_MOVER_DESIGN.to_theme(),
+        components=("app-shell", "button", "card", "form", "popover", "surface"),
+    )
+    return Response(
+        bundle.css,
+        media_type="text/css",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 app.mount("/assets", StaticFiles(directory=static_directory), name="assets")
+
 
 register_routes(app)
 
@@ -144,7 +162,7 @@ async def security_and_session_middleware(request: Request, call_next):
         "form-action 'self'"
     )
     if not get_route_path(request.scope).startswith(
-        ("/assets/", "/hedron-static/", "/hedron-assets/")
+        ("/assets/", "/app-assets/", "/hedron-static/", "/hedron-assets/")
     ):
         response.headers["Cache-Control"] = "no-store"
     if settings.is_production:

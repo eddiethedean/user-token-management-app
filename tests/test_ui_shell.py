@@ -20,7 +20,7 @@ from hedron_core import RenderMode
 from starlette.requests import Request
 
 from app.ui import partials as ui
-from app.ui.design_system import DATA_MOVER_DESIGN
+from app.ui.design_system import DATA_MOVER_DESIGN, DATA_MOVER_THEME_EXPORT
 from app.ui.forms import submit_button
 from app.ui.interactions import APP_REGIONS
 from app.ui.layout import alert_box, document_head, page_heading
@@ -69,6 +69,16 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/hedron-static/hedron-default.css"')
     assert_html_contains(response, 'href="/assets/theme.css"')
+    assert_html_contains(response, 'href="/app-assets/data-mover-components.css"')
+
+
+def test_hedron_063_component_bundle_is_served(access_app) -> None:
+    fixture = fastapi_fixture(access_app)
+    response = fixture.get("/app-assets/data-mover-components.css")
+    assert response.status_code == 200
+    assert ".hedron-card--glass" in response.body
+    assert "--hedron-color-bg: #080d16" in response.body
+    assert "--hedron-color-surface" in response.body
 
 
 def test_document_head_can_disable_custom_theme() -> None:
@@ -83,7 +93,7 @@ def test_document_head_can_disable_custom_theme() -> None:
     assert "/assets/theme.css" not in rendered
 
 
-def test_hedron_059_design_system_and_action_recipe() -> None:
+def test_hedron_063_design_system_and_action_recipe() -> None:
     plan = DATA_MOVER_DESIGN.explain()
     assert plan.schema == "hedron.design-system-plan/1"
     assert plan.logical_id == "design:data-mover"
@@ -101,6 +111,12 @@ def test_hedron_059_design_system_and_action_recipe() -> None:
     rendered = render_html(submit_button("Run transfer"))
     assert 'data-hedron-appearance="solid"' in rendered
     assert 'data-hedron-emphasis="primary"' in rendered
+
+
+def test_hedron_063_theme_export_is_conformant() -> None:
+    exported = DATA_MOVER_THEME_EXPORT.to_dict()
+    assert exported["design_tokens"]
+    assert exported["conformance"]["ok"] is True
 
 
 def test_register_page_document(access_app) -> None:
