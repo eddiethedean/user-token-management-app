@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from fastapi import Request
 from hedron_core.security import SafeUrl, UrlPurpose
 from hedron_posit import browser_mount_from_request, local_href
+
+from app.config import Settings
 
 
 def _abs_path(path: str) -> str:
@@ -40,6 +43,39 @@ def mounted_path(request: Request, path: str) -> str:
     # root app URL is the one exception: without a mount it must remain "/".
     normalized = mounted.rstrip("/") or "/"
     return normalized
+
+
+def mounted_redirect_path(request: Request, path: str, settings: Settings) -> str:
+    """Build a redirect that survives Workbench's path-absolute Location rewrite.
+
+    Workbench deployments expose ``RS_SERVER_URL`` and can rewrite a path-absolute
+    ``Location`` header by adding their proxy prefix.  Keep ordinary local and
+    native Connect redirects relative, but make Workbench redirects absolute using
+    the configured public origin and mount.
+    """
+    target = mounted_path(request, path)
+    if not os.environ.get("RS_SERVER_URL", "").strip():
+        return target
+
+    base = urlsplit(settings.public_base_url)
+    if not base.scheme or not base.netloc:
+        return target
+
+    target_parts = urlsplit(target)
+    target_path = target_parts.path or "/"
+    base_path = base.path.rstrip("/")
+    mount = _browser_mount(request).rstrip("/")
+
+    if base_path and (target_path == base_path or target_path.startswith(f"{base_path}/")):
+        external_path = target_path
+    elif base_path and mount and (target_path == mount or target_path.startswith(f"{mount}/")):
+        external_path = f"{base_path}{target_path[len(mount):]}"
+    else:
+        external_path = f"{base_path}{target_path}"
+
+    return urlunsplit(
+        (base.scheme, base.netloc, external_path or "/", target_parts.query, target_parts.fragment)
+    )
 
 
 def page_href(request: Request, path: str) -> SafeUrl:

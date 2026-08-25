@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 from fastapi import Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron
-from hedron_posit import HedronPosit
 
 from app.dependencies import Auth, OptionalAuth, RequireCsrf, SettingsDep
 from app.ui.layout import (
@@ -21,13 +18,14 @@ from app.ui.routes.auth import register_auth_routes
 from app.ui.routes.pipeline import register_pipeline_routes
 from app.ui.routes.profile import register_profile_routes
 from app.ui.routes.security import register_security_routes
+from app.ui.urls import mounted_redirect_path
 
 
 def register_routes(app: Hedron) -> None:
     @app.page("/", include_in_schema=False)
-    def home(request: Request, auth: OptionalAuth):
+    def home(request: Request, auth: OptionalAuth, settings: SettingsDep):
         return RedirectResponse(
-            cast(HedronPosit, request.app).href("/pipeline" if auth else "/login", request=request),
+            mounted_redirect_path(request, "/pipeline" if auth else "/login", settings),
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -56,7 +54,7 @@ def register_routes(app: Hedron) -> None:
             "max_age": 31536000,
         }
         response = RedirectResponse(
-            cast(HedronPosit, request.app).href("/pipeline", request=request),
+            mounted_redirect_path(request, "/pipeline", settings),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         response.set_cookie(THEME_COOKIE, preference.theme, **common)

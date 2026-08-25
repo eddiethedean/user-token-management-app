@@ -122,7 +122,7 @@ from app.ui.regions import (
     TOAST_HOST,
 )
 from app.ui.tabs import NavigationTabs
-from app.ui.urls import form_action, hx_attrs, mounted_path
+from app.ui.urls import form_action, hx_attrs, mounted_redirect_path
 
 
 def _provider_label(provider: str) -> str:
@@ -2235,6 +2235,7 @@ def register_pipeline_routes(app: Hedron) -> None:
         request: Request,
         auth: Auth,
         db: DbSession,
+        settings: SettingsDep,
         _csrf: RequireCsrf,
         pipeline_name: PipelineNameForm,
         source_provider: PipelineSourceProviderForm,
@@ -2276,9 +2277,8 @@ def register_pipeline_routes(app: Hedron) -> None:
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc
         return RedirectResponse(
-            mounted_path(
-                request,
-                f"/pipeline?notice=saved&pipeline_id={saved_pipeline.id}",
+            mounted_redirect_path(
+                request, f"/pipeline?notice=saved&pipeline_id={saved_pipeline.id}", settings
             ),
             status_code=status.HTTP_303_SEE_OTHER,
         )
@@ -2329,7 +2329,7 @@ def register_pipeline_routes(app: Hedron) -> None:
                 response.background = BackgroundTask(_process_demo_run)
             return response
         response = RedirectResponse(
-            mounted_path(request, f"/pipeline?notice=queued&run_id={run.id}"),
+            mounted_redirect_path(request, f"/pipeline?notice=queued&run_id={run.id}", settings),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         if settings.is_demo_mode and settings.app_env != "test":

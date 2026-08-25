@@ -41,7 +41,7 @@ from app.ui.params import (
     PreauthCsrfForm,
 )
 from app.ui.partials.auth import render_login_page
-from app.ui.urls import mounted_path
+from app.ui.urls import mounted_redirect_path
 
 _BOOTSTRAP_HINT = (
     "No accounts exist yet. An operator must create the first administrator, for example: "
@@ -68,7 +68,7 @@ def register_login_routes(app: Hedron) -> None:
     ) -> Response:
         if auth:
             return RedirectResponse(
-                mounted_path(request, safe_next(next)),
+                mounted_redirect_path(request, safe_next(next), settings),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         return render_login_page(
@@ -121,7 +121,7 @@ def register_login_routes(app: Hedron) -> None:
         dev_trace("auth.password.accepted")
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
-            mounted_path(request, safe_next(next)),
+            mounted_redirect_path(request, safe_next(next), settings),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         set_auth_cookies(response, tokens, settings, request)
@@ -150,7 +150,7 @@ def register_login_routes(app: Hedron) -> None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
-            mounted_path(request, safe_next(next)),
+            mounted_redirect_path(request, safe_next(next), settings),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         set_auth_cookies(response, tokens, settings, request)
@@ -167,7 +167,7 @@ def register_login_routes(app: Hedron) -> None:
     ) -> Response:
         revoke_session(db, auth.session, actor=auth.user, request=request)
         response = RedirectResponse(
-            mounted_path(request, "/login"),
+            mounted_redirect_path(request, "/login", settings),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         clear_auth_cookies(response, settings, request)
