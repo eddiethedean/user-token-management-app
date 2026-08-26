@@ -76,7 +76,9 @@ The administrator command prompts for a 15–128 character password. Open the Wo
 printed by `serve`. The app automatically obtains the `/s/.../p/...` session mount; do not replace
 that URL with a `/proxy/8000/` URL. When Workbench supplies `UVICORN_ROOT_PATH` as a full URL, the
 launcher also retains its trusted HTTPS origin so Hedron can safely normalize Workbench's encoded
-absolute request targets.
+absolute request targets. Before the reload subprocess starts, the launcher removes the full URL
+from Uvicorn's CLI environment and passes the validated `/s/.../p/...` mount directly to Hedron.
+This lets Hedron decode the proxy target before setting the request's local ASGI root path.
 
 If your Workbench release supplies only a path and requests fail with `FWB-0006`, set the externally
 visible origin in the terminal environment before starting the app (this launcher setting must be

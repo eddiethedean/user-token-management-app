@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import os
+
+import pytest
+from hedron_core.diagnostics import HedronError
 from hedron_posit.middleware import WorkbenchPathMiddleware
 from hedron_posit.resolve import resolve_deployment
+from starlette._utils import get_route_path
 
-from app.server import _workbench_public_base_from_environment, run_server
+from app.server import (
+    _prepare_workbench_environment,
+    _workbench_public_base_from_environment,
+    run_server,
+)
 
 _WORKBENCH_URL = "https://workbench.example.mil/s/session-token/p/proxy-token/"
 
@@ -50,6 +59,7 @@ def test_run_server_preserves_full_workbench_root_path_origin(monkeypatch) -> No
 
     def fake_run_target(target, *, config) -> None:
         captured["config"] = config
+        captured["uvicorn_root_path"] = os.environ.get("UVICORN_ROOT_PATH")
 
     monkeypatch.setattr("app.server.run_target", fake_run_target)
 
@@ -57,6 +67,8 @@ def test_run_server_preserves_full_workbench_root_path_origin(monkeypatch) -> No
 
     config = captured["config"]
     assert config.public_base_url == _WORKBENCH_URL
+    assert config.mount == "/s/session-token/p/proxy-token"
+    assert captured["uvicorn_root_path"] is None
     resolved = resolve_deployment(
         config,
         environ={
@@ -88,6 +100,7 @@ def test_run_server_preserves_full_workbench_root_path_origin(monkeypatch) -> No
     )
     assert normalized["path"] == "/s/session-token/p/proxy-token/"
     assert normalized["root_path"] == "/s/session-token/p/proxy-token"
+    assert get_route_path(normalized) == "/"
 
 
 def test_workbench_root_path_promotion_requires_runtime_and_full_url(monkeypatch) -> None:
@@ -111,3 +124,15 @@ def test_explicit_workbench_public_base_takes_precedence(monkeypatch) -> None:
     )
 
     assert _workbench_public_base_from_environment() is None
+
+
+def test_workbench_root_path_is_validated_before_uvicorn_handoff() -> None:
+    environ = {
+        "RS_SERVER_URL": "http://127.0.0.1:8787/",
+        "UVICORN_ROOT_PATH": f"{_WORKBENCH_URL}?unexpected=query",
+    }
+
+    with pytest.raises(HedronError, match="Unsafe Workbench public base URL"):
+        _prepare_workbench_environment(environ)
+
+    assert environ["UVICORN_ROOT_PATH"].endswith("?unexpected=query")

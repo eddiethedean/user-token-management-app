@@ -829,9 +829,11 @@ malformed values are ignored.
 Workbench FastAPI applications run behind a dynamic ASGI root path. Runtime resolution allows one
 codebase without unsafe cross-origin redirects. When an interactive Workbench runtime supplies a
 full HTTP(S) `UVICORN_ROOT_PATH`, the launcher treats that runtime-provided URL as the public base so
-Hedron can compare encoded absolute request targets with the expected origin. Path-only values are
-not promoted, explicit operator configuration takes precedence, and unexpected origins continue to
-fail closed with `FWB-0006`.
+Hedron can compare encoded absolute request targets with the expected origin. After Hedron validates
+the URL, the launcher removes the origin-bearing variable from Uvicorn's reload environment and
+passes the normalized mount directly to Hedron. Hedron can then decode the absolute proxy target
+before establishing the local ASGI `root_path`. Path-only values are not promoted, explicit operator
+configuration takes precedence, and unexpected origins continue to fail closed with `FWB-0006`.
 
 **Deployment control:** clients must not reach the app server directly. The final trusted proxy must
 remove inbound client-supplied `RStudio-Connect-App-Base-URL`, `Forwarded`, and `X-Forwarded-*`
