@@ -24,8 +24,11 @@ from starlette.requests import Request
 from app.ui import partials as ui
 from app.ui.design_system import (
     DATA_MOVER_DESIGN,
+    DATA_MOVER_MOTION_RECIPES,
     DATA_MOVER_PRESENTATION,
+    DATA_MOVER_SCOPED_STYLES,
     DATA_MOVER_THEME_EXPORT,
+    PROCESS_FLOW_STEP_STYLE_CLASS,
 )
 from app.ui.forms import submit_button
 from app.ui.hedron_styles import desktop_default_styles
@@ -138,10 +141,47 @@ def test_hedron_063_design_system_and_action_recipe() -> None:
         "data-mover-compact-data",
         "data-mover-operational-status",
         "data-mover-supporting-copy",
+        "data-mover-page-title",
+        "data-mover-page-copy",
+        "data-mover-auth-title",
+        "data-mover-auth-copy",
     }
     rendered = render_html(submit_button("Run transfer"))
     assert 'data-hedron-appearance="solid"' in rendered
     assert 'data-hedron-emphasis="primary"' in rendered
+
+
+def test_hedron_065_scoped_motion_and_application_style_contract(access_app) -> None:
+    from hedron_core.registry import get_registry
+
+    assert set(DATA_MOVER_MOTION_RECIPES) == {
+        "instant",
+        "standard",
+        "emphasized",
+        "reveal",
+        "elevate",
+        "crossfade",
+    }
+    assert PROCESS_FLOW_STEP_STYLE_CLASS in DATA_MOVER_SCOPED_STYLES.css
+    assert "@media (min-width: 56rem) and (max-width: 90rem)" in DATA_MOVER_SCOPED_STYLES.css
+    assert "prefers-reduced-motion" not in DATA_MOVER_SCOPED_STYLES.css
+    styles = get_registry().application_styles()
+    assert [style.name for style in styles] == ["data-mover-art-direction"]
+    assert styles[0].layer == "application"
+    assert styles[0].global_ is True
+
+
+def test_hedron_066_typography_and_context_contract(access_app) -> None:
+    rendered = render_html(page_heading("Workspace", "Pipeline", "Move approved data safely."))
+    assert 'data-hedron-type-measure="narrow"' in rendered
+    assert 'data-hedron-type-effect="display"' in rendered
+    assert 'data-hedron-type-measure="default"' in rendered
+    assert 'data-hedron-type-effect="subtle"' in rendered
+
+    fixture = fastapi_fixture(access_app)
+    login = fixture.get("/login")
+    assert 'data-hedron-presentation="PageHeader.description=data-mover-auth-copy;' in login.body
+    assert "data-mover-auth-title" in login.body
 
 
 def test_hedron_064_theme_export_is_conformant() -> None:

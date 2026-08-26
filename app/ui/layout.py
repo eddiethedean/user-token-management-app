@@ -67,7 +67,7 @@ HTMX_CONFIG = (
 
 
 def theme_preference_for_request(request: Request) -> ThemePreference:
-    """Resolve the allowlisted Hedron 0.65.0 preference from host-owned cookies."""
+    """Resolve the allowlisted Hedron 0.66.1 preference from host-owned cookies."""
 
     return resolve_theme_preference(
         request.cookies.get(THEME_COOKIE),
@@ -139,7 +139,11 @@ def account_summary(
         action=ActionGroup(
             Popover(
                 Stack(
-                    Text("Personalize this workspace for your environment."),
+                    Text(
+                        "Personalize this workspace for your environment.",
+                        measure="wide",
+                        effect="subtle",
+                    ),
                     ThemePicker(
                         themes=THEME_CHOICES,
                         color_modes=COLOR_MODE_CHOICES,
@@ -375,6 +379,11 @@ def app_shell(
                     "surface": "data-mover-auth-panel",
                     "content": "data-mover-supporting-copy",
                 },
+                presentation={
+                    "PageHeader.title": "data-mover-auth-title",
+                    "PageHeader.description": "data-mover-auth-copy",
+                    "Text": "data-mover-auth-copy",
+                },
             ),
             layers=(
                 AmbientLayer(pattern="radial", tone="accent", intensity="soft", order=0),
@@ -420,6 +429,10 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> PageH
         description=lead,
         meta=extra[0] if len(extra) == 1 else None,
         density="spacious",
+        title_measure="narrow",
+        description_measure="default",
+        title_effect="display",
+        description_effect="subtle",
     )
 
 
@@ -449,6 +462,11 @@ def main_panel(
                     "surface": "data-mover-panel",
                     "data": "data-mover-compact-data",
                     "flow": "data-mover-flow",
+                },
+                presentation={
+                    "PageHeader.title": "data-mover-page-title",
+                    "PageHeader.description": "data-mover-page-copy",
+                    "Text": "data-mover-page-copy",
                 },
             )
         ),

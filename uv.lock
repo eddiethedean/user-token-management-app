@@ -48,8 +48,8 @@ requires-dist = [
     { name = "cryptography", specifier = ">=42.0.8" },
     { name = "email-validator", specifier = ">=2.2" },
     { name = "fastapi", specifier = ">=0.141.1" },
-    { name = "hedron", specifier = ">=0.65.0,<0.66" },
-    { name = "hedron-posit", specifier = ">=0.65.0,<0.66" },
+    { name = "hedron", specifier = ">=0.66.1,<0.67" },
+    { name = "hedron-posit", specifier = ">=0.66.1,<0.67" },
     { name = "httpx2", specifier = ">=2.9.1" },
     { name = "polars", specifier = ">=1.21" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1.18" },
@@ -611,7 +611,7 @@ wheels = [
 
 [[package]]
 name = "hedron"
-version = "0.65.0"
+version = "0.66.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi" },
@@ -621,36 +621,36 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-multipart" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/59/6999dd65caeb950188ce98d982dfd67e383a5267d2aa048a0e16edfb934f/hedron-0.65.0.tar.gz", hash = "sha256:302ed4931da3e1809d2647f8d707c4d648fc349e8ffb2fa8fd90d1caddc21817", size = 296603, upload-time = "2026-08-25T19:32:39.396Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/85/954b388f6f88c98784d1169fc8737a39e85a3539528121870716658f5eb6/hedron-0.66.1.tar.gz", hash = "sha256:0d846e5f0a23bf008eb1b901547c4be220e7a938f3cfaabb510d3bb3a98f8650", size = 297905, upload-time = "2026-08-26T01:17:39.227Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/15/94/29e0b226df0fd1f069950ecbffe2cdd2e85b2b90c97a1131509a06d808d3/hedron-0.65.0-py3-none-any.whl", hash = "sha256:8c08e2b5689dba9d05a034b8cfbbc21e873563d2377dc5b61b645924e8187886", size = 362910, upload-time = "2026-08-25T19:32:37.913Z" },
+    { url = "https://files.pythonhosted.org/packages/43/21/946bd1421333a301915970df2fc8d0113f5db2faf56005cb07c0c4829221/hedron-0.66.1-py3-none-any.whl", hash = "sha256:d0deec686857c460ceee6565398d45eef7dfd47c1b31d71b52eab57b6049fa60", size = 364124, upload-time = "2026-08-26T01:17:37.919Z" },
 ]
 
 [[package]]
 name = "hedron-core"
-version = "0.65.0"
+version = "0.66.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d4/7d/9780a99d87041923cd3dfbb4e4679360fe567d6eac77e65d5a30c48d2bb0/hedron_core-0.65.0.tar.gz", hash = "sha256:bcb2253feb26a6a8a61f7a2ae105da3953322ff18d7de55cb71722c960b0cfb5", size = 440865, upload-time = "2026-08-25T19:32:18.991Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/8d/6a94315efc5b73889ff1fe5f955a0d89f3105a7dffeb4461e8e346b7fd45/hedron_core-0.66.1.tar.gz", hash = "sha256:9c60c0526794702745f51365aaa8da8330fe712839cda736a5186d9b49fa28c2", size = 443396, upload-time = "2026-08-26T01:17:20.4Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/09/ce/40ce2ee7b0cce8cd802c2bc8adf915b4a2e9090b0b0b0ef3f61c6c0cd52d/hedron_core-0.65.0-py3-none-any.whl", hash = "sha256:5a09cd008855c5d2e2c6e1de3b0dcf90e6722f3c34203f813afc8db5c4c9dbef", size = 544086, upload-time = "2026-08-25T19:32:17.255Z" },
+    { url = "https://files.pythonhosted.org/packages/30/69/c84013db9fc699f59fa8b2947f52c983bdb4f615ae0d906b6fd8425f3666/hedron_core-0.66.1-py3-none-any.whl", hash = "sha256:2ebacc68e379e11cdce5f821ab998594746d94c7c5474640d4bbe21bb9934b47", size = 546552, upload-time = "2026-08-26T01:17:18.989Z" },
 ]
 
 [[package]]
 name = "hedron-posit"
-version = "0.65.0"
+version = "0.66.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hedron" },
     { name = "starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9b/40/1dc334104a541d952fd96fcdc9b345959fed8b8151087b0f71c8a9c6ec39/hedron_posit-0.65.0.tar.gz", hash = "sha256:53aee55c4eff514d31d07a3748699db52f484448e9a0ca6066d439b4becba73e", size = 46855, upload-time = "2026-08-25T19:32:35.067Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/3d/cb06597947be3abe5af31823d0997ea5a851001cb0917413f5d5055275d3/hedron_posit-0.66.1.tar.gz", hash = "sha256:5fea8059811b1885ca4ca562d7678dac5969b3c072d66efee107dd820c29d310", size = 46887, upload-time = "2026-08-26T01:17:35.6Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/88/83/1e5367f6468209d1b828e688421f278e2172444bff824d21c34e89b43eb5/hedron_posit-0.65.0-py3-none-any.whl", hash = "sha256:c03e5d7208b0766a368783b048325b00cbd5a7f1d3e56f2c2cf441531d323af8", size = 58551, upload-time = "2026-08-25T19:32:33.898Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/3c/1b0820e03df34f4aca9589a642610eb2ce971bb5e50844bbc4cc0b3f7971/hedron_posit-0.66.1-py3-none-any.whl", hash = "sha256:f1df6142eb8d1d9cd118932fc2f33159d15145faf5cf0f4faf38294dd0e83c19", size = 58553, upload-time = "2026-08-26T01:17:34.657Z" },
 ]
 
 [[package]]

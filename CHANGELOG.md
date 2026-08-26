@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased / Hedron 0.66.1] — 2026-08-26
+
+- Upgraded the runtime and Posit integration to the compatible Hedron 0.66.1 train.
+- Added bounded 0.65 scoped motion/style registration and 0.66 typography presentation profiles.
+
 ## [Unreleased / Hedron 0.60.0] — 2026-08-23
 
 - Upgraded the runtime and Posit integration to Hedron 0.60.0.

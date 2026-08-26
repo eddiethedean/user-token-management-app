@@ -9,7 +9,7 @@ from hedron_core import NodeLike
 
 
 class NavigationTabs(Tabs):
-    """Use Hedron 0.65.0's first-class underline and density styling."""
+    """Use Hedron 0.66.1's first-class underline and density styling."""
 
     def __init__(
         self,

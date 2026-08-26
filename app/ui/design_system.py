@@ -1,4 +1,4 @@
-"""Data Mover's explicit Hedron 0.65.0 presentation contract."""
+"""Data Mover's explicit Hedron 0.66.1 presentation contract."""
 
 from __future__ import annotations
 
@@ -16,13 +16,20 @@ from hedron import (
     register_recipe_family,
     validate_theme_spec,
 )
-from hedron_core import Component, presentation_contract
+from hedron_core import (
+    Component,
+    ResponsiveCondition,
+    ScopedStyleRecipe,
+    compile_scoped_styles,
+    motion_recipes,
+    presentation_contract,
+)
 from hedron_core.theme import Theme, aurora_theme
 
 _ComponentT = TypeVar("_ComponentT", bound=Component)
 
 
-# Build a first-party Data Mover brand from Hedron's 0.65.0 typed design system.
+# Build a first-party Data Mover brand from Hedron's 0.66.1 typed design system.
 # Aurora remains the accessibility-tested base; the brand compiler owns the
 # palette, geometry, typography, motion, and navigation groups.
 _BRAND_DESIGN = DesignSystem.brand(
@@ -37,7 +44,7 @@ _BRAND_DESIGN = DesignSystem.brand(
     navigation="wide",
 )
 
-# 0.65.0's extensible recipe-family contract lets the flow canvas declare its
+# 0.66.1's extensible recipe-family contract lets the flow canvas declare its
 # presentation vocabulary without private CSS or behavior-shaped props.
 DATA_MOVER_FLOW_FAMILY = RecipeFamily(
     name="flow",
@@ -50,6 +57,25 @@ DATA_MOVER_FLOW_FAMILY = RecipeFamily(
     components=("ConnectorFlow", "ProcessFlow"),
 )
 register_recipe_family(DATA_MOVER_FLOW_FAMILY)
+
+# Hedron 0.65's named motion catalog and scoped public hooks keep the one
+# product-specific interaction treatment reviewable, bounded, and accessible.
+DATA_MOVER_MOTION_RECIPES = motion_recipes()
+DATA_MOVER_SCOPED_STYLE_RECIPES = (
+    ScopedStyleRecipe(
+        component="ProcessFlow",
+        part="step",
+        states=("current",),
+        conditions=(ResponsiveCondition.viewport_range("md", "xl"),),
+        declarations={
+            "background-color": "var(--hedron-color-surface)",
+            "box-shadow": "var(--hedron-elevation-raised)",
+        },
+        motion="elevate",
+    ),
+)
+DATA_MOVER_SCOPED_STYLES = compile_scoped_styles(DATA_MOVER_SCOPED_STYLE_RECIPES)
+PROCESS_FLOW_STEP_STYLE_CLASS = DATA_MOVER_SCOPED_STYLE_RECIPES[0].class_name
 
 # ThemeBuilder is the canonical authoring layer. The legacy Theme bridge
 # remains deliberate because Hedron's application shell consumes its resolved
@@ -151,13 +177,13 @@ DATA_MOVER_THEME_SPEC = (
             "control.indeterminate": "var(--hedron-color-accent)",
         }
     )
-    .metadata(product="data-mover", release="0.65.0")
+    .metadata(product="data-mover", release="0.66.1")
     .profile("workflow")
     .build()
 )
 _THEME_REPORT = validate_theme_spec(DATA_MOVER_THEME_SPEC, profile="workflow")
 if not _THEME_REPORT.ok:
-    raise ValueError(f"Data Mover theme failed Hedron 0.65.0 validation: {_THEME_REPORT.to_dict()}")
+    raise ValueError(f"Data Mover theme failed Hedron 0.66.1 validation: {_THEME_REPORT.to_dict()}")
 _RESOLVED_THEME = DATA_MOVER_THEME_SPEC.to_theme()
 
 # Variants are additive presentation contexts. They do not encode application
@@ -222,7 +248,7 @@ DATA_MOVER_THEME: Theme = replace(
     elevation={"raised": "0 24px 64px rgb(0 0 0 / 28%)"},
 )
 
-# 0.65.0 emits a matching CSS and design-token export, including the compatibility
+# 0.66.1 emits a matching CSS and design-token export, including the compatibility
 # bridge consumed by Hedron's default stylesheet. Fail fast if the application
 # theme ever drifts outside the published contract.
 DATA_MOVER_THEME_EXPORT = export_theme(DATA_MOVER_THEME, profile="workflow")
@@ -282,12 +308,38 @@ DATA_MOVER_DESIGN = DesignSystem.from_theme(DATA_MOVER_THEME).with_recipes(
         "data-mover-supporting-copy",
         role="body",
         overflow="wrap",
+        measure="default",
+        effect="subtle",
+    ),
+    StyleRecipe.content(
+        "data-mover-page-title",
+        role="title",
+        measure="narrow",
+        effect="display",
+    ),
+    StyleRecipe.content(
+        "data-mover-page-copy",
+        role="body",
+        measure="default",
+        effect="subtle",
+    ),
+    StyleRecipe.content(
+        "data-mover-auth-title",
+        role="title",
+        measure="narrow",
+        effect="subtle",
+    ),
+    StyleRecipe.content(
+        "data-mover-auth-copy",
+        role="body",
+        measure="default",
+        effect="subtle",
     ),
 )
 
 
 def apply_action_recipe(button: _ComponentT, *, variant: str) -> _ComponentT:
-    """Apply a named 0.65.0 control recipe without overriding explicit props."""
+    """Apply a named 0.66.1 control recipe without overriding explicit props."""
 
     recipe = {
         "primary": "data-mover-primary-action",
@@ -327,6 +379,10 @@ __all__ = [
     "DATA_MOVER_THEME",
     "DATA_MOVER_THEME_SPEC",
     "DATA_MOVER_FLOW_FAMILY",
+    "DATA_MOVER_MOTION_RECIPES",
+    "DATA_MOVER_SCOPED_STYLE_RECIPES",
+    "DATA_MOVER_SCOPED_STYLES",
+    "PROCESS_FLOW_STEP_STYLE_CLASS",
     "DATA_MOVER_THEME_EXPORT",
     "DATA_MOVER_PRESENTATION",
     "apply_data_recipe",

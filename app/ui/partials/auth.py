@@ -28,7 +28,7 @@ from starlette.responses import Response
 from app.config import Settings
 from app.models import Invitation, RegistrationVerification
 from app.security.csrf import issue_preauth_csrf, set_preauth_csrf_cookie
-from app.ui.design_system import surface_card
+from app.ui.design_system import PROCESS_FLOW_STEP_STYLE_CLASS, surface_card
 from app.ui.forms import compact_password_input, hidden_field, submit_button
 from app.ui.http import auth_card, render_page
 from app.ui.layout import alert_box, app_shell
@@ -44,6 +44,10 @@ def _auth_heading(eyebrow: str, title: str, description: str) -> PageHeader:
         description=description,
         level=1,
         density="compact",
+        title_measure="narrow",
+        description_measure="default",
+        title_effect="subtle",
+        description_effect="subtle",
     )
 
 
@@ -113,10 +117,15 @@ def render_login_page(
             ),
             level=2,
             density="compact",
+            title_measure="narrow",
+            description_measure="default",
+            title_effect="display",
+            description_effect="subtle",
         ),
         ProcessFlow(
             FlowStep(
                 "Connect",
+                class_=PROCESS_FLOW_STEP_STYLE_CLASS,
                 status="complete",
                 status_text="Protected",
                 description="Use approved sources and destinations.",
@@ -159,6 +168,10 @@ def render_login_page(
             ),
             level=1,
             density="compact",
+            title_measure="narrow",
+            description_measure="default",
+            title_effect="subtle",
+            description_effect="subtle",
         ),
     ]
     if success:

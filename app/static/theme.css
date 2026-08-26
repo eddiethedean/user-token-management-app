@@ -1,3 +1,4 @@
+@layer application {
 /* Data Mover art direction.
  *
  * Hedron 0.65 owns the component structure, tokens, surfaces, controls,
@@ -18,4 +19,5 @@
 body:not(:has(.hedron-app-shell)) .hedron-page-header-title {
   max-inline-size: 12ch;
   text-shadow: 0 18px 44px rgb(0 0 0 / 28%);
+}
 }

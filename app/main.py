@@ -24,6 +24,7 @@ from hedron import Heading, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
 from hedron_core import RenderMode, compile_style_bundle
+from hedron_core.registry import register_application_style
 from hedron_core.request_budget import RequestBudget, reset_request_budget, set_request_budget
 from hedron_posit import ConnectConfig, HedronPosit, PositConfig
 from pydantic import BaseModel
@@ -36,7 +37,7 @@ from app.logging_config import bind_request_id, clear_request_id, configure_logg
 from app.schema import assert_schema_current
 from app.security.cookies import APPLICATION_COOKIE_NAMES
 from app.services.auth import ensure_default_roles
-from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
+from app.ui.design_system import DATA_MOVER_DESIGN, DATA_MOVER_SCOPED_STYLES, surface_card
 from app.ui.hedron_styles import desktop_default_styles
 from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
@@ -99,6 +100,17 @@ app = HedronPosit(
 
 static_directory = Path(__file__).resolve().parent / "static"
 
+# Register product CSS with Hedron's 0.65 application-style catalog so future
+# Registry inspection sees its provenance without exposing a host path.
+register_application_style(
+    name="data-mover-art-direction",
+    source=static_directory / "theme.css",
+    global_=True,
+    layer="application",
+    provenance="Data Mover product art direction; Hedron application CSS contract.",
+    allowed_roots=(static_directory.parent.parent,),
+)
+
 
 @app.get("/app-assets/hedron-desktop.css", include_in_schema=False)
 def hedron_desktop_styles() -> Response:
@@ -113,14 +125,14 @@ def hedron_desktop_styles() -> Response:
 
 @app.get("/app-assets/data-mover-components.css", include_in_schema=False)
 def data_mover_component_styles() -> Response:
-    """Serve the Hedron 0.65.0 component bundle used by product surface classes."""
+    """Serve the Hedron 0.66.1 component bundle used by product surface classes."""
 
     bundle = compile_style_bundle(
         theme=DATA_MOVER_DESIGN.to_theme(),
         components=("app-shell", "button", "card", "form", "popover", "surface"),
     )
     return Response(
-        bundle.css,
+        bundle.css + DATA_MOVER_SCOPED_STYLES.css,
         media_type="text/css",
         headers={"Cache-Control": "public, max-age=3600"},
     )
