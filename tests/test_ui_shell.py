@@ -344,6 +344,15 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
     assert 'hx-swap="none"' in signed_in.text
     assert 'class="hedron-account-summary data-mover-account-summary"' in signed_in.text
     assert 'class="hedron-account-copy"' in signed_in.text
+    assert re.search(
+        r'<a[^>]*href="/profile"[^>]*data-hedron-account-summary="true"',
+        signed_in.text,
+    )
+    assert re.search(
+        r'<a[^>]*href="/profile"[^>]*data-hedron-brand="true"',
+        signed_in.text,
+    )
+    assert "data-mover-sign-out" in signed_in.text
     assert 'data-hedron-mark-size="lg"' in signed_in.text
     assert 'data-hedron-mark-shape="circle"' in signed_in.text
     initial_switch = signed_in.text.split('name="dark_mode"', 1)[1].split(">", 1)[0]

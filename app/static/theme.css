@@ -89,7 +89,7 @@ body {
   white-space: nowrap;
 }
 
-.data-mover-account-summary > form {
+.data-mover-sign-out {
   margin-inline-start: var(--hedron-space-1, 0.25rem);
 }
 

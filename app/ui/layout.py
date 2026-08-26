@@ -201,10 +201,8 @@ def color_mode_toggle(request: Request, *, csrf_token: str) -> NodeLike:
     )
 
 
-def account_summary(
-    request: Request, auth: AuthContext, *, csrf_token: str, oob: bool = False
-) -> NodeLike:
-    """Typed account chrome with a real action slot for HTMX OOB updates."""
+def account_summary(request: Request, auth: AuthContext, *, oob: bool = False) -> NodeLike:
+    """Typed account identity link with a real target for HTMX OOB updates."""
     user = auth.user
     attrs: dict[str, HtmlAttrValue] = {}
     if oob:
@@ -212,23 +210,29 @@ def account_summary(
     return AccountSummary(
         user.full_name or user.email_original,
         detail=user.email_original if user.full_name else None,
+        href=page_href(request, "/profile"),
         mark_text=(user.full_name or user.email_original or "?")[:1].upper(),
         mark_size="lg",
         mark_shape="circle",
         mark_tone="accent",
-        action=ActionGroup(
-            html.form(
-                csrf_hidden(csrf_token),
-                submit_button("Sign out", quiet=True, size="sm"),
-                action=form_action(request, "logout"),
-                method="post",
-            ),
-            gap="xs",
-            collapse="never",
-        ),
         id="account-summary",
         class_="data-mover-account-summary",
         attrs=attrs,
+    )
+
+
+def sign_out_action(request: Request, *, csrf_token: str) -> ActionGroup:
+    """Keep sign-out separate from the account link so interactive elements are not nested."""
+    return ActionGroup(
+        html.form(
+            csrf_hidden(csrf_token),
+            submit_button("Sign out", quiet=True, size="sm"),
+            action=form_action(request, "logout"),
+            method="post",
+            class_="data-mover-sign-out",
+        ),
+        gap="xs",
+        collapse="never",
     )
 
 
@@ -378,8 +382,8 @@ def app_shell(
         mark_tone="neutral",
         subtitle="Secure transfer operations",
         subtitle_overflow="truncate",
-        href=page_href(request, "/"),
-        aria={"label": f"{settings.app_name} home"},
+        href=page_href(request, "/profile"),
+        aria={"label": f"{settings.app_name} account"},
         class_="data-mover-brand",
     )
     cdao_identity = Inline(
@@ -427,7 +431,8 @@ def app_shell(
                         Inline(
                             environment_badge,
                             color_mode_toggle(request, csrf_token=csrf_token),
-                            account_summary(request, auth, csrf_token=csrf_token),
+                            account_summary(request, auth),
+                            sign_out_action(request, csrf_token=csrf_token),
                             gap="sm",
                         )
                         if csrf_token

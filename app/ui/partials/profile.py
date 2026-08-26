@@ -193,7 +193,7 @@ def profile_response(
     form = profile_form(request, auth, csrf_token=csrf_token, success=success)
     oob = (
         OobUpdate(
-            content=account_summary(request, auth, csrf_token=csrf_token, oob=False),
+            content=account_summary(request, auth, oob=False),
             element_id="account-summary",
             swap="outerHTML",
         ),
