@@ -9,13 +9,14 @@ from fastapi.responses import RedirectResponse
 from hedron import Hedron
 from hedron_posit import HedronPosit
 
-from app.dependencies import Auth, OptionalAuth, RequireCsrf, SettingsDep
+from app.dependencies import Auth, DbSession, OptionalAuth, RequireCsrf, SettingsDep
 from app.ui.layout import (
-    COLOR_MODE_COOKIE,
     THEME_CHOICES,
     THEME_COOKIE,
+    UI_PREFERENCE_MAX_AGE,
+    set_color_mode_cookie,
 )
-from app.ui.params import ColorModeForm, ThemeNameForm
+from app.ui.params import DarkModeForm, NextForm, ThemeNameForm
 from app.ui.routes.admin import register_admin_routes
 from app.ui.routes.auth import register_auth_routes
 from app.ui.routes.pipeline import register_pipeline_routes
@@ -35,32 +36,43 @@ def register_routes(app: Hedron) -> None:
     def theme_preferences(
         request: Request,
         auth: Auth,
+        db: DbSession,
         settings: SettingsDep,
         _csrf: RequireCsrf,
         theme: ThemeNameForm = "",
-        color_mode: ColorModeForm = "system",
+        dark_mode: DarkModeForm = False,
+        next: NextForm = "/pipeline",
     ):
         from hedron_core.builtins import resolve_theme_preference
 
+        from app.ui.http import safe_next
+
         preference = resolve_theme_preference(
             theme,
-            color_mode,
+            "dark" if dark_mode else "light",
             allowed_themes=THEME_CHOICES,
         )
+        auth.user.preferred_color_mode = preference.color_mode
+        db.commit()
         path = "/" if settings.cookie_path == "auto" else settings.cookie_path
         common = {
             "secure": settings.cookie_secure,
             "httponly": True,
             "samesite": "lax",
             "path": path,
-            "max_age": 31536000,
+            "max_age": UI_PREFERENCE_MAX_AGE,
         }
         response = RedirectResponse(
-            cast(HedronPosit, request.app).href("/pipeline", request=request),
+            cast(HedronPosit, request.app).href(safe_next(next), request=request),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         response.set_cookie(THEME_COOKIE, preference.theme, **common)
-        response.set_cookie(COLOR_MODE_COOKIE, preference.color_mode, **common)
+        set_color_mode_cookie(
+            response,
+            request=request,
+            settings=settings,
+            color_mode=preference.color_mode,
+        )
         return response
 
     register_auth_routes(app)

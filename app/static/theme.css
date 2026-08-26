@@ -19,6 +19,34 @@ body {
   text-wrap: pretty;
 }
 
+/* Hedron owns the switch geometry and interaction. The product layer only
+ * replaces the visible text with familiar light/dark state icons. */
+[data-hedron-mark="color-mode-toggle"] label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+
+[data-hedron-mark="color-mode-toggle"] input::before {
+  background-color: var(--hedron-color-surface, #fff);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='3.5' fill='%23b66a00'/%3E%3Cpath d='M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.41M17.66 6.34l1.41-1.41' fill='none' stroke='%23b66a00' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 0.85rem;
+  content: "";
+}
+
+[data-hedron-mark="color-mode-toggle"] input:checked::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M19 15.5A8 8 0 0 1 8.5 5 8 8 0 1 0 19 15.5Z' fill='%237c86ff'/%3E%3C/svg%3E");
+}
+
 /* Preserve the official gold artwork while keeping its fine lines legible on
  * the light shell. Dark mode uses the source colors without alteration. */
 .data-mover-cdao-mark {

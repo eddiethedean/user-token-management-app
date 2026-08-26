@@ -28,3 +28,10 @@ document.addEventListener("click", (event) => {
     toggle.textContent = toggle.getAttribute("aria-pressed") === "true" ? "Hide" : "Show";
   });
 });
+
+document.addEventListener("change", (event) => {
+  const modeToggle = event.target.closest(
+    '[data-hedron-mark="color-mode-toggle"] input[type="checkbox"]',
+  );
+  modeToggle?.form?.requestSubmit();
+});

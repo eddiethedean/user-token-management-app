@@ -32,6 +32,7 @@ from app.services.auth import (
 )
 from app.services.rate_limit import check_rate_limit
 from app.ui.http import safe_next
+from app.ui.layout import set_color_mode_cookie
 from app.ui.params import (
     LoginEmailForm,
     NextForm,
@@ -125,6 +126,12 @@ def register_login_routes(app: Hedron) -> None:
             status_code=status.HTTP_303_SEE_OTHER,
         )
         set_auth_cookies(response, tokens, settings, request)
+        set_color_mode_cookie(
+            response,
+            request=request,
+            settings=settings,
+            color_mode=user.preferred_color_mode,
+        )
         clear_preauth_csrf_cookie(response, request, settings)
         return response
 
@@ -154,6 +161,12 @@ def register_login_routes(app: Hedron) -> None:
             status_code=status.HTTP_303_SEE_OTHER,
         )
         set_auth_cookies(response, tokens, settings, request)
+        set_color_mode_cookie(
+            response,
+            request=request,
+            settings=settings,
+            color_mode=user.preferred_color_mode,
+        )
         clear_preauth_csrf_cookie(response, request, settings)
         return response
 

@@ -377,9 +377,31 @@ def _capability_surface(
     source_catalog: ProviderCatalog, destination_catalog: ProviderCatalog | None
 ):
     def facts(catalog: ProviderCatalog | None, *, destination: bool = False):
+        route_label = "Destination route" if destination else "Source route"
+        route_description = (
+            "Write options and post-transfer verification."
+            if destination
+            else "Pre-transfer inspection and extraction visibility."
+        )
         if catalog is None:
-            return DescriptionList(
-                ("Status", Badge("Select a destination", tone="warning")), density="compact"
+            return Surface(
+                Stack(
+                    PageHeader(
+                        "Not selected",
+                        eyebrow=route_label,
+                        description=route_description,
+                        level=4,
+                        density="compact",
+                    ),
+                    DescriptionList(
+                        ("Status", Badge("Select a destination", tone="warning")),
+                        density="compact",
+                    ),
+                    gap="sm",
+                ),
+                appearance="raised",
+                padding="sm",
+                elevation="sm",
             )
         count_label = (
             "Exact counts"
@@ -391,16 +413,42 @@ def _capability_surface(
         schema_label = (
             "Schema preview" if catalog.schema_inspection else "Schema captured during run"
         )
-        return DescriptionList(
-            ("Provider", catalog.label),
-            (
-                "Schema",
-                Badge(schema_label, tone="success" if catalog.schema_inspection else "info"),
+        return Surface(
+            Stack(
+                PageHeader(
+                    catalog.label,
+                    eyebrow=route_label,
+                    description=route_description,
+                    level=4,
+                    density="compact",
+                ),
+                DescriptionList(
+                    (
+                        "Schema",
+                        Badge(
+                            schema_label,
+                            tone="success" if catalog.schema_inspection else "info",
+                        ),
+                    ),
+                    (
+                        "Rows",
+                        Badge(
+                            count_label,
+                            tone="success" if catalog.exact_row_counts else "warning",
+                        ),
+                    ),
+                    ("Verification", catalog.verification_level.replace("_", " ").title()),
+                    (
+                        "Write modes",
+                        ", ".join(catalog.write_modes) if destination else "Source only",
+                    ),
+                    density="compact",
+                ),
+                gap="sm",
             ),
-            ("Rows", Badge(count_label, tone="success" if catalog.exact_row_counts else "warning")),
-            ("Verification", catalog.verification_level.replace("_", " ").title()),
-            ("Write modes", ", ".join(catalog.write_modes) if destination else "Source only"),
-            density="compact",
+            appearance="raised",
+            padding="sm",
+            elevation="sm",
         )
 
     return DATA_MOVER_DESIGN.apply(
@@ -417,7 +465,7 @@ def _capability_surface(
                 facts(source_catalog),
                 facts(destination_catalog, destination=True),
                 columns=2,
-                gap="sm",
+                gap="md",
             ),
             appearance="plain",
             padding="sm",

@@ -81,14 +81,13 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=2"')
-    assert_html_contains(response, 'href="/assets/theme.css"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=2"')
     assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=6"')
     assert_html_contains(
         response,
         'type="image/png" href="/assets/brand/data-mover-mark.png" rel="icon"',
     )
     assert_html_contains(response, 'src="/assets/brand/data-mover-mark-light.png"')
-    assert_html_contains(response, 'srcset="/assets/brand/data-mover-mark-dark.png"')
     assert_html_contains(response, 'src="/assets/brand/cdao-mark.png"')
     assert_html_contains(response, "Chief Digital and Artificial Intelligence Office")
     assert_html_contains(response, 'data-hedron-max-width="lg"')
@@ -130,6 +129,9 @@ def test_hedron_component_bundles_are_served(access_app) -> None:
     assert ".hedron-text-input" not in theme.body
     assert ".hedron-app-shell-nav" not in theme.body
     assert ".hedron-card::before" not in theme.body
+    assert '[data-hedron-mark="color-mode-toggle"] input::before' in theme.body
+    assert "stroke='%23b66a00'" in theme.body
+    assert "fill='%237c86ff'" in theme.body
     desktop_styles = fixture.get("/app-assets/hedron-desktop.css")
     assert desktop_styles.status_code == 200
     assert desktop_styles.headers["content-type"].startswith("text/css")
@@ -302,6 +304,74 @@ def test_login_then_profile_via_fastapi_fixture(access_app) -> None:
     assert_page_document(profile)
     assert_html_contains(profile, "Account settings")
     assert_html_contains(profile, "admin@example.gov")
+
+
+def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app) -> None:
+    client = fragment_client(access_app)
+    login_page = client.get("/login")
+    signed_in = client.post(
+        "/login",
+        data={
+            "email": "admin@example.gov",
+            "password": "Tr0pic-Maple!River92",
+            "preauth_csrf_token": _preauth_token(login_page.text),
+            "next": "/profile",
+        },
+        follow_redirects=True,
+    )
+    csrf = _session_csrf(signed_in.text)
+
+    assert 'role="switch"' in signed_in.text
+    assert ">Dark mode</label>" in signed_in.text
+    assert ">Appearance<" not in signed_in.text
+    assert 'type="checkbox" name="dark_mode"' in signed_in.text
+    assert (
+        'name="dark_mode"' in signed_in.text
+        and " checked" not in signed_in.text.split('name="dark_mode"', 1)[1].split(">", 1)[0]
+    )
+    assert 'type="hidden" name="next" value="/profile"' in signed_in.text
+
+    switched = client.post(
+        "/preferences/theme",
+        data={
+            "csrf_token": csrf,
+            "theme": "data-mover",
+            "dark_mode": "on",
+            "next": "/profile",
+        },
+        follow_redirects=False,
+    )
+
+    assert switched.status_code == 303
+    assert_redirect_path(switched, "/profile")
+    dark_profile = client.get("/profile")
+    assert 'data-theme="dark"' in dark_profile.text
+    dark_switch = dark_profile.text.split('name="dark_mode"', 1)[1].split(">", 1)[0]
+    assert " checked" in dark_switch
+    assert 'aria-checked="true"' in dark_profile.text
+
+    logged_out = client.post(
+        "/logout",
+        data={"csrf_token": _session_csrf(dark_profile.text)},
+        follow_redirects=False,
+    )
+    assert logged_out.status_code == 303
+
+    fresh_browser = fragment_client(access_app)
+    fresh_login = fresh_browser.get("/login")
+    restored = fresh_browser.post(
+        "/login",
+        data={
+            "email": "admin@example.gov",
+            "password": "Tr0pic-Maple!River92",
+            "preauth_csrf_token": _preauth_token(fresh_login.text),
+            "next": "/profile",
+        },
+        follow_redirects=True,
+    )
+    restored_switch = restored.text.split('name="dark_mode"', 1)[1].split(">", 1)[0]
+    assert 'data-theme="dark"' in restored.text
+    assert " checked" in restored_switch
 
 
 def test_htmx_profile_update_returns_fragment(access_app) -> None:
@@ -579,6 +649,9 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, 'hx-target="#main-panel"')
     assert_html_contains(profile, 'hx-select="#main-panel"')
     assert_html_contains(profile, 'hx-push-url="true"')
+    assert_html_contains(profile, 'type="checkbox" name="dark_mode"')
+    assert_html_contains(profile, ">Dark mode</label>")
+    assert ">Appearance<" not in profile.body
     assert 'data-hx-push-url="true"' not in profile.body
     assert 'hx-select-oob="#side-nav"' not in profile.body
     assert_html_contains(profile, "historyCacheSize")

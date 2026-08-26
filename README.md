@@ -76,7 +76,7 @@ connected are available to Pipeline selectors.
 
 ### Audit activity
 
-![Full-page Data Mover Audit activity screen showing filters, security events, pagination, and redacted details](docs/screenshots/audit-activity.jpg)
+![Full-page Data Mover Audit activity screen showing filtered pipeline events, outcomes, sources, and redacted details](docs/screenshots/audit-activity.jpg)
 
 The administrator Audit activity screen records security-relevant application events with timestamps,
 event types, outcomes, sources, and redacted details. Filters make it possible to narrow the event

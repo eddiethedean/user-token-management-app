@@ -8,6 +8,7 @@
   light or dark color mode.
 - Refined the desktop art direction with native AmbientCanvas layers, Container width, typography
   tokens, glass surfaces, typed elevation, and bounded active navigation/workflow treatments.
+- Persisted each user's light or dark preference and restore it on password and federated sign-in.
 
 ## [Unreleased / Hedron 0.60.0] — 2026-08-23
 

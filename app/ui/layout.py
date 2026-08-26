@@ -28,13 +28,12 @@ from hedron import (
     NavStatus,
     OobUpdate,
     Page,
-    Popover,
     Section,
     Stack,
     StyleScope,
     Surface,
     Text,
-    ThemePicker,
+    ToggleSwitch,
     html,
 )
 from hedron_core import Component, HtmlAttrValue, NodeLike
@@ -48,6 +47,8 @@ from hedron_core.builtins import (
     resolve_theme_preference,
     theme_markers,
 )
+from starlette._utils import get_route_path
+from starlette.responses import Response
 
 from app.config import Settings
 from app.dependencies import AuthContext
@@ -60,7 +61,7 @@ INDICATOR = "#global-request-indicator"
 THEME_COOKIE = "data_mover_theme"
 COLOR_MODE_COOKIE = "data_mover_color_mode"
 THEME_CHOICES = ("data-mover", "aurora")
-COLOR_MODE_CHOICES = ("system", "light", "dark")
+UI_PREFERENCE_MAX_AGE = 31536000
 
 HTMX_CONFIG = (
     '{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,'
@@ -71,12 +72,49 @@ HTMX_CONFIG = (
 
 
 def theme_preference_for_request(request: Request) -> ThemePreference:
-    """Resolve the allowlisted Hedron 0.66.1 preference from host-owned cookies."""
+    """Resolve the allowlisted Hedron 0.66.1 light/dark preference."""
+
+    color_mode = request.cookies.get(COLOR_MODE_COOKIE)
+    if color_mode not in {"light", "dark"}:
+        color_mode = "light"
 
     return resolve_theme_preference(
         request.cookies.get(THEME_COOKIE),
-        request.cookies.get(COLOR_MODE_COOKIE),
+        color_mode,
         allowed_themes=THEME_CHOICES,
+    )
+
+
+def set_color_mode_cookie(
+    response: Response,
+    *,
+    request: Request,
+    settings: Settings,
+    color_mode: str,
+) -> None:
+    """Persist a validated account color mode in the current browser."""
+
+    mode = color_mode if color_mode in {"light", "dark"} else "light"
+    path = "/" if settings.cookie_path == "auto" else settings.cookie_path
+    common = {
+        "secure": settings.cookie_secure,
+        "httponly": True,
+        "samesite": "lax",
+        "path": path,
+    }
+    if path not in {None, "/"}:
+        response.delete_cookie(
+            COLOR_MODE_COOKIE,
+            secure=settings.cookie_secure,
+            httponly=True,
+            samesite="lax",
+            path="/",
+        )
+    response.set_cookie(
+        COLOR_MODE_COOKIE,
+        mode,
+        max_age=UI_PREFERENCE_MAX_AGE,
+        **common,
     )
 
 
@@ -90,10 +128,11 @@ def document_head(
 ) -> Fragment:
     preference = preference or ThemePreference()
     title = f"{page_title} · {app_name}" if page_title else app_name
-    color_scheme = "light dark" if preference.color_mode == "system" else preference.color_mode
+    color_scheme = preference.color_mode
+    theme_color = "#080d1a" if preference.color_mode == "dark" else "#f6f6fb"
     nodes: list[NodeLike] = [
         html.meta(name="color-scheme", content=color_scheme),
-        html.meta(name="theme-color", content="#080d1a"),
+        html.meta(name="theme-color", content=theme_color),
         html.meta(name="htmx-config", content=HTMX_CONFIG),
         html.title(title),
         html.link(
@@ -110,7 +149,7 @@ def document_head(
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css"),
+                href=asset_href(request, "/assets/theme.css?v=2"),
             )
         )
         nodes.append(
@@ -129,12 +168,31 @@ def alert_box(message: str, *, kind: str = "error") -> Alert | Fragment:
     return Alert(message, tone=tone)
 
 
+def color_mode_toggle(request: Request, *, csrf_token: str) -> NodeLike:
+    """Render the native light/dark switch as a standalone shell utility."""
+
+    preference = theme_preference_for_request(request)
+    return html.form(
+        csrf_hidden(csrf_token),
+        html.input(type="hidden", name="theme", value=preference.theme),
+        html.input(type="hidden", name="next", value=get_route_path(request.scope)),
+        ToggleSwitch(
+            "dark_mode",
+            "Dark mode",
+            checked=preference.color_mode == "dark",
+            mark="color-mode-toggle",
+        ),
+        html.noscript(submit_button("Apply mode", quiet=True, size="sm")),
+        action=form_action(request, "/preferences/theme"),
+        method="post",
+    )
+
+
 def account_summary(
     request: Request, auth: AuthContext, *, csrf_token: str, oob: bool = False
 ) -> NodeLike:
     """Typed account chrome with a real action slot for HTMX OOB updates."""
     user = auth.user
-    preference = theme_preference_for_request(request)
     attrs: dict[str, HtmlAttrValue] = {}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
@@ -146,27 +204,6 @@ def account_summary(
         mark_shape="rounded",
         mark_tone="accent",
         action=ActionGroup(
-            Popover(
-                Stack(
-                    Text(
-                        "Personalize this workspace for your environment.",
-                        measure="wide",
-                        effect="subtle",
-                    ),
-                    ThemePicker(
-                        themes=THEME_CHOICES,
-                        color_modes=COLOR_MODE_CHOICES,
-                        selected=preference,
-                        action=form_action(request, "/preferences/theme"),
-                        csrf_token=csrf_token,
-                        compact=True,
-                    ),
-                    gap="sm",
-                ),
-                label="Appearance",
-                placement="block-end",
-                collision="shift",
-            ),
             html.form(
                 csrf_hidden(csrf_token),
                 submit_button("Sign out", quiet=True, size="sm"),
@@ -182,8 +219,6 @@ def account_summary(
 
 
 def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
-    from starlette._utils import get_route_path
-
     path = get_route_path(request.scope)
     normalized = path.rstrip("/") or "/"
 
@@ -351,6 +386,7 @@ def app_shell(
                     account=(
                         Inline(
                             environment_badge,
+                            color_mode_toggle(request, csrf_token=csrf_token),
                             account_summary(request, auth, csrf_token=csrf_token),
                             gap="sm",
                         )
