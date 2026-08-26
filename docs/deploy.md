@@ -74,7 +74,20 @@ python -m app serve --reload
 
 The administrator command prompts for a 15–128 character password. Open the Workbench session URL
 printed by `serve`. The app automatically obtains the `/s/.../p/...` session mount; do not replace
-that URL with a `/proxy/8000/` URL.
+that URL with a `/proxy/8000/` URL. When Workbench supplies `UVICORN_ROOT_PATH` as a full URL, the
+launcher also retains its trusted HTTPS origin so Hedron can safely normalize Workbench's encoded
+absolute request targets.
+
+If your Workbench release supplies only a path and requests fail with `FWB-0006`, set the externally
+visible origin in the terminal environment before starting the app (this launcher setting must be
+available before the application imports its `.env` file):
+
+```bash
+export HEDRON_WORKBENCH_PUBLIC_BASE_URL='https://your-workbench-host'
+python -m app serve --reload
+```
+
+Use only the approved Workbench origin. Do not disable Hedron's absolute-target origin check.
 
 `seed-demo-connections` adds encrypted, deliberately fake bundles for MSS, MCS-COP, and
 PostgreSQL under reserved `.demo.invalid` hosts. It leaves an existing provider bundle unchanged; use

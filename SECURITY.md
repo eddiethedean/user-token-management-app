@@ -5,9 +5,11 @@ make them, and the controls that must be supplied by the deployment environment.
 support design review and preparation of an organization-specific system security plan (SSP).
 
 It is **not** an authorization to operate, a claim of FedRAMP or DoD compliance, or a substitute for
-the system owner's risk assessment. Sources were opened and their relevant guidance was last verified
-on 2026-08-03. Standards use their own normative terms (`SHALL`, `SHOULD`, and so on); an application
-decision citing a standard does not by itself establish conformance with the whole standard.
+the system owner's risk assessment. Repository implementation facts and deployment instructions were
+last reviewed on 2026-08-26; the linked standards and guidance remain reference material and must be
+rechecked when a release or authorization baseline changes. Standards use their own normative terms
+(`SHALL`, `SHOULD`, and so on); an application decision citing a standard does not by itself establish
+conformance with the whole standard.
 [NIST SP 800-53 Rev. 5](https://doi.org/10.6028/NIST.SP.800-53r5) states that its guidelines do not
 apply to national security systems without the express approval of the responsible policy officials.
 The SIPR authorizing organization must select the applicable CNSS/DoD requirements and overlays;
@@ -17,10 +19,12 @@ boundary.
 **Operator surface:** Data Mover is a **browser HTMX UI** with cookie sessions — not a public
 REST/OpenAPI resource API. MSS, MCS-COP, and PostgreSQL credential bundles are stored
 encrypted for authorized users; they are not how the application authenticates HTTP callers.
-Demo mode uses fake connectors. Real mode decrypts credentials only inside a claimed pipeline-worker
-run, allowlists Foundry HTTPS hosts, and records persisted run facts. CSV uploads and saved pipeline
-definitions are real owner-scoped database content. Day-to-day setup lives in the [README](README.md)
-and [docs/](docs/); use this file for the decision register and production gate.
+Demo mode uses fake connectors. In real mode, an explicit **Test connection** action decrypts the
+current user's selected bundle in the web process, while transfer execution decrypts only the
+bundles required by a claimed `pipeline-worker` run. Foundry outbound hosts are allowlisted, source
+and staging data are bounded, and persisted run facts are redaction-filtered. CSV uploads and saved
+pipeline definitions are real owner-scoped database content. Day-to-day setup lives in the
+[README](README.md) and [docs/](docs/); use this file for the decision register and production gate.
 
 ## Reporting a vulnerability
 
@@ -61,14 +65,18 @@ authorization evidence.
       legacy configuration name) are injected separately from JWT/session secrets; old
       referenced key versions remain available, protected backups and recovery are tested, and the
       exact cryptographic module and operational environment have the required validation evidence.
-- [ ] Before user connection credentials reach real run code, the run supervisor uses an explicit minimal environment
-      that cannot inherit the master-key ring, grants only selected provider slots, isolates users and
-      runs, redacts logs/artifacts, and records each use. Arbitrary granted code is treated as capable
-      of exfiltrating its token.
-- [ ] For local Posit Connect execution, `Applications.InheritSystemEnvVars=false` is set and verified;
-      separately, the application run supervisor passes an explicit child environment containing no
-      parent secrets except the selected provider token. Secret values never enter command arguments,
-      URLs, logs, artifacts, exception reports, or crash dumps.
+- [ ] The separately supervised pipeline worker is isolated from the web and email workers with a
+      least-privilege service account, protected spool directory, network egress policy, and resource
+      limits. The current worker executes trusted built-in connector code in-process; it is not a
+      sandbox for arbitrary user-supplied code.
+- [ ] If arbitrary or separately packaged run code is introduced, the run supervisor uses an explicit
+      minimal child environment that cannot inherit the master-key ring, grants only the selected
+      provider slots, isolates users and runs, redacts logs/artifacts, and records each use. Arbitrary
+      granted code is treated as capable of exfiltrating its token.
+- [ ] For local Posit Connect execution, `Applications.InheritSystemEnvVars=false` is set and verified.
+      This prevents ambient Connect variables from entering content processes; it does not replace the
+      current worker's in-process trust boundary or sanitize subprocesses. Secret values never enter
+      command arguments, URLs, logs, artifacts, exception reports, or crash dumps.
 - [ ] The atomic credential-encryption key-usage counter is monitored, its per-key ceiling is approved well below
       the applicable SP 800-38D bound, rotation occurs early, and an approved rewrap procedure is
       tested before retiring old keys.
@@ -100,6 +108,10 @@ authorization evidence.
       production PostgreSQL version and topology.
 - [ ] `Cache-Control: no-store` behavior is verified through the production proxy for authenticated
       and token-bearing responses.
+- [ ] Real transfer limits, lease expiry, cancellation, Foundry redirect rejection, HTTPS host
+      allowlists, CA verification, source/spool quotas, staging cleanup, and PostgreSQL TLS mode are
+      tested with production-equivalent configuration. The production allowlist must not include a
+      loopback host, because loopback HTTP is reserved for local development.
 - [ ] The dedicated email worker is supervised; SMTP transport is approved; batch metrics, retry
       backlog, and dead letters are monitored; the operator requeue procedure is tested.
 - [ ] Sent outbox bodies are redacted; pending/dead-letter retention is approved; proxy,
@@ -815,7 +827,11 @@ malformed values are ignored.
 
 **Rationale:** Connect applications do not know their external base URL ahead of time, while
 Workbench FastAPI applications run behind a dynamic ASGI root path. Runtime resolution allows one
-codebase without unsafe cross-origin redirects.
+codebase without unsafe cross-origin redirects. When an interactive Workbench runtime supplies a
+full HTTP(S) `UVICORN_ROOT_PATH`, the launcher treats that runtime-provided URL as the public base so
+Hedron can compare encoded absolute request targets with the expected origin. Path-only values are
+not promoted, explicit operator configuration takes precedence, and unexpected origins continue to
+fail closed with `FWB-0006`.
 
 **Deployment control:** clients must not reach the app server directly. The final trusted proxy must
 remove inbound client-supplied `RStudio-Connect-App-Base-URL`, `Forwarded`, and `X-Forwarded-*`
@@ -841,14 +857,16 @@ eavesdropping, injection, and replay.
 
 **Status:** Versioned schema control implemented; production operation is a deployment control.
 
-**Decision:** Six ordered Alembic revisions create the baseline, self-registration, shared
-rate-limit, user API-secret, atomic-token/email-worker, and encryption-key-usage schemas. Application startup verifies the
-current revision and refuses to serve a stale or unversioned schema; `python -m app migrate` is an
-explicit release action. Legacy `create_all()` databases require the explicit `--adopt-existing`
-path, which verifies known table/column shapes before stamping and upgrading. Administrator
-bootstrap is a separate `create-admin` command and is never migration data. The production core
-dependency set includes the `psycopg` PostgreSQL driver; deployment still requires an approved managed or operated database, backup,
-migration, encryption, access-control, monitoring, and recovery process.
+**Decision:** Eleven ordered Alembic revisions create the baseline, self-registration, shared
+rate-limit, user credential, atomic-token/email-worker, encryption-key-usage, saved-pipeline,
+catalog/connection-health, CSV-source, real-transfer-run, and user-color-mode schemas. Application
+startup verifies the current revision and refuses to serve a stale or unversioned schema;
+`python -m app migrate` is an explicit release action. Legacy `create_all()` databases require the
+explicit `--adopt-existing` path, which verifies known table/column shapes before stamping and
+upgrading. Administrator bootstrap is a separate `create-admin` command and is never migration
+data. The production core dependency set includes the `psycopg` PostgreSQL driver; deployment still
+requires an approved managed or operated database, backup, migration, encryption, access-control,
+monitoring, and recovery process.
 
 **Rationale:** Credential, session, outbox, profile, role, and audit data require concurrent access,
 durability, backup, operational monitoring, and controlled schema change beyond the local developer
@@ -952,8 +970,8 @@ suites as penetration testing.
 
 ### SD-24 — Encrypt user-owned connection credentials and restrict provider slots
 
-**Status:** Storage and owner-management implemented; run-process isolation is a deployment and
-integration gap.
+**Status:** Storage, owner-management, and durable worker execution are implemented; arbitrary-run
+isolation remains intentionally unsupported and is a deployment/integration gap if introduced later.
 
 **Decision:** Authenticated users may store at most one credential bundle for each explicitly
 supported provider: MSS, MCS-COP, and PostgreSQL. Provider names and target
@@ -965,13 +983,37 @@ fields, surrounding whitespace, bounded lengths, ports, URLs, and displayed tran
 Storage and connector health checks do not prove that a credential is minimally scoped,
 unexpired, or unrevoked at its provider.
 
-Pipeline catalogs expose only the current user's stored bundles whose validation status
-is `connected`. Pipeline persistence repeats that provider-availability check on the server, so
-hidden or stale browser options cannot be submitted directly. Real transfers run in
-`pipeline-worker`, which decrypts two bundles only after claiming a lease and discards them when
-the run ends. Foundry HTTPS hosts must be allowlisted. The local `seed-demo-connections` helper
-uses reserved `.demo.invalid` hosts and explicit fake values, does not overwrite by default, and
-refuses to run when `APP_ENV=production` or `DATA_MOVER_MODE=real`.
+Pipeline catalogs expose only the current user's stored bundles whose validation status is `connected`.
+Pipeline persistence repeats that provider-availability check on the server, so hidden or stale
+browser options cannot be submitted directly. The explicit **Test connection** action decrypts only
+the selected owner's bundle in the web process and closes the provider client after the health check.
+Real transfers are enqueued by the web process and run in `pipeline-worker`; after claiming a lease,
+the worker decrypts only the credential bundles required by the saved snapshot (none for a CSV source,
+one for a CSV-to-provider run, or two for a provider-to-provider run). Built-in connectors receive
+those values as in-process mappings; the worker is a separate supervised process, not an arbitrary-code
+sandbox. Foundry hosts must be on the operator allowlist and real-mode writers must be explicitly
+enabled. The local `seed-demo-connections` helper uses reserved `.demo.invalid` hosts and explicit
+fake values, does not overwrite by default, and refuses to run when `APP_ENV=production` or
+`DATA_MOVER_MODE=real`.
+
+Real transfer execution also uses server-reloaded, owner-scoped pipeline snapshots, an idempotency
+token when supplied by the browser, a single lease token for worker ownership, heartbeats, cooperative
+cancellation, bounded batches, maximum source/run/spool sizes, and redaction before run events and
+verification facts are persisted. These controls limit accidental duplication, concurrent ownership,
+resource exhaustion, and secret leakage; they do not make a provider credential least-privileged or
+revoke it at the provider.
+
+Foundry requests use bounded connect/read/write timeouts, certificate verification through the system
+trust store or an explicitly configured CA bundle, no automatic redirects, encoded dataset/file path
+segments, and a host allowlist. Non-loopback HTTP endpoints are normalized to HTTPS; loopback HTTP is
+retained only for local development and must not be placed in a production allowlist. Foundry source
+files are streamed into a run-scoped temporary directory, limited by `PIPELINE_MAX_SOURCE_BYTES`, and
+only CSV/Parquet suffixes are accepted. Foundry destinations stage Snappy Parquet data under the
+protected spool root, use per-run names and bounded chunk files, enforce
+`PIPELINE_MAX_SPOOL_BYTES`, and remove the final and chunk staging artifacts on completion or abort;
+the janitor removes stale files and chunk directories. PostgreSQL identifiers are validated or passed
+through `psycopg.sql.Identifier`, provider values use parameterized queries/COPY, and the configured
+`sslmode` plus connection/statement/idle timeouts apply to each connection.
 
 Each credential bundle is encrypted with a random 256-bit data-encryption key using AES-256-GCM and fresh nonces.
 The data key is independently wrapped with the active key from `API_TOKEN_ENCRYPTION_KEYS`. Additional
@@ -991,31 +1033,36 @@ operators must configure a fresh active key after upgrade.
 | Design choice | Security justification | Residual boundary |
 | --- | --- | --- |
 | Treat saved values as high-value capabilities | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-5) explains that any party possessing a bearer token can use it and identifies disclosure and replay as threats. This directly applies to Advana/MSS tokens and supports the same conservative handling for database passwords: TLS, encrypted storage, non-reveal responses, and never placing values in URLs. | These controls do not narrow the privileges encoded by a token or database account. Users must issue the least-privileged credential at the provider. |
-| Exactly four provider slots, fixed environment-variable names, and owner-scoped queries | [OWASP Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#enforce-least-privileges) recommends least privilege, deny-by-default behavior, and permission checks on every request. An allowlist prevents users from inventing environment-variable names that could alter runner behavior; owner predicates prevent cross-user object access. | A compromised owner account can replace or delete that owner's credentials. The current AAL1-style authentication boundary may be insufficient for high-value credentials. |
+| Three encrypted credential slots, fixed environment-variable names, and owner-scoped queries | [OWASP Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#enforce-least-privileges) recommends least privilege, deny-by-default behavior, and permission checks on every request. An allowlist prevents users from inventing environment-variable names that could alter runner behavior; owner predicates prevent cross-user object access. CSV is a separate local source type and is not an encrypted provider credential slot. | A compromised owner account can replace or delete that owner's credentials. The current AAL1-style authentication boundary may be insufficient for high-value credentials. |
 | Per-record AES-256-GCM with fresh 96-bit nonces and context-bound AAD | [NIST SP 800-38D](https://doi.org/10.6028/NIST.SP.800-38D) specifies GCM as authenticated encryption with associated data, and the [`cryptography` AES-GCM API](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM) requires a nonce never be reused with a key. Random per-record data keys and fresh nonces protect confidentiality and detect modification; AAD causes decryption to fail if ciphertext is moved to a different owner, record, provider, or purpose. | Randomness depends on the operating-system CSPRNG. An atomic aggregate counter fails closed at a conservative configured wrap limit, but the organization must approve that ceiling, monitor it, and rotate early. The deployed module and environment still need required FIPS evidence. |
 | Envelope encryption and a versioned key ring separate from the database and auth keys | [NIST SP 800-57 Part 1 Rev. 5](https://doi.org/10.6028/NIST.SP.800-57pt1r5) covers protection, lifecycle, cryptoperiods, backup, and recovery of keying material. [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-management) recommends storing keys separately from encrypted data and designing for rotation. The active key protects new data while retained key identifiers permit controlled migration and recovery. | The key ring is available to the FastAPI process. Database-only theft does not disclose plaintext, but application-host or key-ring compromise can. Loss of an old referenced key permanently loses the associated tokens. |
 | No plaintext read endpoint or UI reveal | GitHub's [Actions secrets REST API](https://docs.github.com/en/rest/actions/secrets) lists secret metadata without returning encrypted values. Following that pattern reduces routine exposure in browsers, support workflows, and admin tooling. | This is product-level non-disclosure, not end-to-end encryption. Privileged host operators and trusted application code remain in the security boundary. |
 | Metadata-only audit events and no-store responses | [OWASP Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#23-logging) says secrets must not be logged and recommends auditing who requested or used them. GitHub warns that [automatic redaction is not guaranteed](https://docs.github.com/en/actions/reference/security/secure-use#using-secrets), so correctness cannot depend on a masking heuristic. | Application, proxy, runner, artifact, exception, and crash-dump paths all require deployment testing. `no-store` controls caching; it cannot prevent a compromised browser or endpoint from reading a token while it is entered. |
-| Explicit delivery only at an authorized run boundary | OWASP describes controlled [secret consumption](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#25-secret-consumption) and warns that environment variables may leak through logs or dumps. Posit documents that local content processes [inherit Connect server environment variables by default](https://docs.posit.co/connect/admin/appendix/configuration/#inherit-system-env-vars). Therefore Connect should disable that inheritance, and the application runner must separately construct a minimal child environment that excludes the app's master-key ring and grants only selected provider values. | `Applications.InheritSystemEnvVars=false` does not sanitize subprocesses created by the application. Code intentionally granted a bearer token can copy or transmit it. GitHub documents the analogous boundary: users able to modify workflow code can [extract configured secrets](https://docs.github.com/en/actions/reference/security/secure-use#considering-cross-repository-access). Isolation reduces opportunities but cannot make an available bearer value unknowable to that code. |
+| Explicit delivery only at an authorized action or run boundary | OWASP describes controlled [secret consumption](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#25-secret-consumption) and warns that environment variables may leak through logs or dumps. The web process decrypts only for the user's explicit connection test; the worker decrypts only after it claims the corresponding run lease. Posit documents that local content processes [inherit Connect server environment variables by default](https://docs.posit.co/connect/admin/appendix/configuration/#inherit-system-env-vars). | The worker and web process are trusted application-code boundaries and both receive the master-key ring. `Applications.InheritSystemEnvVars=false` does not sanitize subprocesses created by the application. If arbitrary code is ever granted a bearer value, it can copy or transmit it; an explicit child environment and process/filesystem/network isolation must then be added. |
 | Prefer short-lived credentials when providers support them | OWASP recommends limiting secret lifetime and automating rotation. GitHub's [OIDC guidance](https://docs.github.com/en/actions/concepts/security/openid-connect) uses short-lived, job-specific credentials instead of stored long-lived secrets; Posit similarly documents [process-lifetime API keys](https://docs.posit.co/connect/admin/content-management/api-keys/#automatic-provisioning). | Data Mover currently accepts static user-supplied connection bundles. Provider-side OAuth, federation, scope, expiration, and revocation remain future integration work. |
 
-**Limitations and deployment controls:** The FastAPI process receives the master-key ring and can
-therefore decrypt all stored credential bundles; encryption primarily separates a database-only
-compromise from the key material. The current Pipeline run is a browser-side simulation that does
-not decrypt credentials or contact remote endpoints. The repository supplies an internal
-`decrypt_user_secret_for_run()` hook but does not yet contain an isolated real run supervisor. Before
-connecting it to arbitrary run code,
-launch each run with an explicit minimal environment that excludes the master-key ring, inject only
-the selected user's selected provider values, prohibit secrets in command arguments and logs, and
-define process, filesystem, network, artifact, and crash-dump isolation. Code intentionally granted a
-credential can still exfiltrate it, so authorization and approval must happen before each grant. Protect,
-back up, rotate, and test recovery of every production key separately from the database. Losing all
-copies of a referenced key makes its tokens unrecoverable; compromising the application host and key
-ring defeats database encryption. The all-zero development key is rejected in production. The exact
-deployed cryptographic module still requires organization-specific FIPS and authorization evidence.
-Deleting the local record does not revoke the credential at its provider; suspected disclosure requires
-provider-side revocation or rotation. The JSON key-ring variable is itself a structured high-value
-secret and must never be logged; masking or redaction is not a substitute for preventing disclosure.
+**Limitations and deployment controls:** The FastAPI and pipeline-worker processes receive the
+master-key ring and can therefore decrypt all stored credential bundles; encryption primarily
+separates a database-only compromise from the key material. The current production path is a real
+transfer path, not a browser simulation: the web process enqueues, and a separately supervised worker
+contacts the built-in Foundry/PostgreSQL connectors. The worker passes credentials in memory to trusted
+connector methods and does not launch arbitrary user code or provide a child-process sandbox. Credential
+references are released at the end of the action/run, but the application does not promise secure
+memory wiping. The explicit connection-test action is an additional, intentional web-process
+decryption boundary.
+
+Before connecting arbitrary run code, launch each run with an explicit minimal environment that
+excludes the master-key ring, inject only the selected user's selected provider values, prohibit
+secrets in command arguments and logs, and define process, filesystem, network, artifact, and
+crash-dump isolation. Code intentionally granted a credential can still exfiltrate it, so authorization
+and approval must happen before each grant. Protect, back up, rotate, and test recovery of every
+production key separately from the database. Losing all copies of a referenced key makes its tokens
+unrecoverable; compromising the application host or key ring defeats database encryption. The
+all-zero development key is rejected in production. The exact deployed cryptographic module still
+requires organization-specific FIPS and authorization evidence. Deleting the local record does not
+revoke the credential at its provider; suspected disclosure requires provider-side revocation or
+rotation. The JSON key-ring variable is itself a structured high-value secret and must never be logged;
+masking or redaction is not a substitute for preventing disclosure.
 [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-storage)
 warns that process environment variables may be exposed. Posit encrypts configured content variables
 at rest and in memory before process startup as documented in its
@@ -1060,9 +1107,10 @@ backup encryption, access controls, retention/deletion procedures, malware or co
 required by policy, and limits/monitoring appropriate to expected aggregate upload volume.
 
 CSV inspection does not establish that a file is safe, authoritative, correctly classified, or
-semantically suitable for a destination schema. The current transfer simulator does not export
-values to spreadsheets or remote systems; any future exporter must separately address formula
-injection, destination type conversion, transactional failure, and partial-write recovery.
+semantically suitable for a destination schema. In real mode, CSV bytes can be loaded into an enabled
+destination by the trusted pipeline worker; they are not exported to spreadsheets. Any future
+spreadsheet exporter must separately address formula injection, and every destination path must
+address type conversion, transactional failure, and partial-write recovery.
 
 **Evidence:** Owner predicates, bounded parsing, escaped output, no-store authenticated responses,
 and metadata-only audit events follow the authorization, input-handling, and logging principles
