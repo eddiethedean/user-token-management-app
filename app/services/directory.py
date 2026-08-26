@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import ssl
 from dataclasses import dataclass
@@ -56,6 +57,11 @@ def _first_string(value: JsonValue | None) -> str:
 
 
 def _parse_record(data: JsonValue, query_email: str, settings: Settings) -> DirectoryRecord:
+    if isinstance(data, str):
+        try:
+            data = cast(JsonValue, json.loads(data))
+        except (TypeError, ValueError) as exc:
+            raise DirectoryUnavailableError("Directory returned an unexpected response.") from exc
     if not isinstance(data, dict):
         raise DirectoryUnavailableError("Directory returned an unexpected response.")
     attributes_raw = data.get("attributes")
@@ -72,8 +78,14 @@ def _parse_record(data: JsonValue, query_email: str, settings: Settings) -> Dire
     canonical_returned, _ = normalize_email(returned_email, settings)
     if canonical_returned != canonical_query:
         raise DirectoryEligibilityError("The government directory did not confirm that address.")
-    display_name = _first_string(data.get("display_name")) or _first_string(
-        attributes.get("displayName")
+    given_name = _first_string(attributes.get("givenName")).strip()
+    surname = _first_string(attributes.get("sn")).strip()
+    directory_name = " ".join(value for value in (given_name, surname) if value)
+    display_name = (
+        _first_string(data.get("display_name"))
+        or directory_name
+        or _first_string(attributes.get("displayName"))
+        or _first_string(attributes.get("cn"))
     )
     return DirectoryRecord(email=canonical_returned, display_name=display_name.strip()[:160])
 
@@ -117,7 +129,12 @@ async def validate_directory_email(
         return None
 
     if response.status_code == 404:
-        raise DirectoryEligibilityError("That address was not found in the government directory.")
+        if settings.directory_lookup_required:
+            raise DirectoryEligibilityError(
+                "That address was not found in the government directory."
+            )
+        log.info("Directory did not contain the address; continuing because fail-closed is off")
+        return None
     if not 200 <= response.status_code < 300:
         if settings.directory_lookup_required:
             raise DirectoryUnavailableError("The government directory is unavailable.")
@@ -129,7 +146,10 @@ async def validate_directory_email(
     try:
         return _parse_record(cast(JsonValue, response.json()), canonical_email, settings)
     except DirectoryEligibilityError:
-        raise
+        if settings.directory_lookup_required:
+            raise
+        log.warning("Directory returned a different address; continuing because fail-closed is off")
+        return None
     except (ValueError, TypeError, DirectoryUnavailableError) as exc:
         if settings.directory_lookup_required:
             raise DirectoryUnavailableError(

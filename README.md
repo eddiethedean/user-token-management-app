@@ -253,8 +253,9 @@ SMTP, rate limits, and more). Checklist: [SECURITY.md — Production security ga
 For a disposable evaluation of the full app, use the dedicated
 [Connect SQLite demo guide](docs/connect-sqlite-demo.md). The full
 [step-by-step Posit guide](docs/deploy.md) covers Python 3.11 setup, installation, configuration,
-migrations, administrator bootstrap, the Workbench session URL, production secrets, PostgreSQL,
-SMTP, Hedron assets, Connect publishing, the email worker, and verification. Connect 2025.06.0
+migrations, administrator bootstrap, the Workbench session URL, production secrets, PostgreSQL
+provisioning from `DB_*` credentials, SMTP invitations, directory email checks, Hedron assets,
+Connect publishing, background workers, and verification. Connect 2025.06.0
 and 2026.07 have both passed licensed, proxy-free application-cookie acceptance tests. Access
 Data Mover keeps its own users and sessions rather than treating Connect identity as application
 identity.

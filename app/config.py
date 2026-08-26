@@ -9,7 +9,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from email_validator import EmailNotValidError, validate_email
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -67,8 +67,18 @@ class Settings(BaseSettings):
     rate_limit_reset_per_account: int = Field(default=3, ge=1, le=1000)
 
     directory_lookup_url: str = ""
-    directory_lookup_timeout_seconds: float = Field(default=5.0, ge=0.5, le=30)
-    directory_lookup_verify_tls: bool = True
+    directory_lookup_timeout_seconds: float = Field(
+        default=5.0,
+        ge=0.5,
+        le=30,
+        validation_alias=AliasChoices(
+            "DIRECTORY_LOOKUP_TIMEOUT_SECONDS", "DIRECTORY_LOOKUP_TIMEOUT_S"
+        ),
+    )
+    directory_lookup_verify_tls: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("DIRECTORY_LOOKUP_VERIFY_TLS", "DIRECTORY_LOOKUP_VERIFY_SSL"),
+    )
     directory_lookup_ca_bundle: str = ""
     directory_lookup_required: bool = False
     directory_lookup_bearer_token: str = ""
@@ -81,11 +91,18 @@ class Settings(BaseSettings):
     email_retry_max_seconds: int = Field(default=3600, ge=1, le=86400)
     email_claim_timeout_seconds: int = Field(default=300, ge=30, le=3600)
     email_from: str = Field(
-        default="Data Mover <no-reply@example.gov>", min_length=3, max_length=320
+        default="Data Mover <no-reply@example.gov>",
+        min_length=3,
+        max_length=320,
+        validation_alias=AliasChoices("EMAIL_FROM", "SMTP_FROM_EMAIL"),
     )
     smtp_host: str = ""
     smtp_port: int = Field(default=25, ge=1, le=65535)
-    smtp_starttls: bool = True
+    smtp_starttls: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SMTP_STARTTLS", "SMTP_USE_TLS"),
+    )
+    smtp_allow_legacy_port25_fallback: bool = False
     smtp_ca_bundle: str = ""
     smtp_username: str = ""
     smtp_password: str = ""

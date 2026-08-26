@@ -291,8 +291,9 @@ sessions. A newer invitation revokes older outstanding invitations for the same 
 When `DIRECTORY_LOOKUP_URL` is configured, both enrollment paths also query a bounded-time,
 non-redirecting HTTPS directory endpoint and require the returned record's normalized email to match
 exactly. A private CA bundle and bearer credential are supported. `DIRECTORY_LOOKUP_REQUIRED`
-selects fail-closed or fail-open behavior for service failure; explicit not-found and email mismatch
-always reject enrollment. Outbound directory requests use the actively maintained HTTPX2 client and
+selects fail-closed or fail-open behavior; explicit not-found and email mismatch reject enrollment
+when fail-closed mode is enabled and remain advisory otherwise. Outbound directory requests use the
+actively maintained HTTPX2 client and
 the operating-system trust store by default; a configured private CA bundle produces an explicit
 certificate-verifying `SSLContext` instead.
 

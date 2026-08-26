@@ -121,7 +121,9 @@ in the UI; check audit / server logs for detail.
 
 When `DIRECTORY_LOOKUP_REQUIRED=true`, enrollment fails closed if the directory URL is missing,
 errors, or does not return the exact email. Directory is eligibility only — not CAC proofing. Verify
-TLS, CA bundle, and bearer token handling.
+TLS, CA bundle, and bearer token handling. With `DIRECTORY_LOOKUP_REQUIRED=false`, a configured
+lookup is advisory: not-found, mismatched, malformed, and unavailable responses are logged but do
+not block enrollment.
 
 ## Rate limits
 

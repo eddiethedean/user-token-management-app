@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import re
 import smtplib
 import ssl
 from dataclasses import dataclass
 from datetime import timedelta
 from email.message import EmailMessage
+from html import escape
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -14,6 +16,7 @@ from app.config import Settings
 from app.models import EmailDeliveryState, EmailOutbox, new_id, utcnow
 
 log = logging.getLogger(__name__)
+_URL_PATTERN = re.compile(r"https?://[^\s<>]+")
 
 
 @dataclass(frozen=True)
@@ -210,10 +213,68 @@ def _send_smtp(message: EmailOutbox, settings: Settings) -> None:
     email["To"] = message.recipient
     email["Subject"] = message.subject
     email.set_content(message.body_text)
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as client:
-        if settings.smtp_starttls:
+    email.add_alternative(_html_body(message, settings), subtype="html")
+    client, use_starttls = _connect_smtp(settings)
+    with client:
+        if use_starttls:
             tls_context = ssl.create_default_context(cafile=settings.smtp_ca_bundle or None)
             client.starttls(context=tls_context)
         if settings.smtp_username:
             client.login(settings.smtp_username, settings.smtp_password)
         client.send_message(email)
+
+
+def _connect_smtp(settings: Settings) -> tuple[smtplib.SMTP, bool]:
+    try:
+        return (
+            smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20),
+            settings.smtp_starttls,
+        )
+    except (ConnectionRefusedError, smtplib.SMTPConnectError):
+        if (
+            not settings.smtp_allow_legacy_port25_fallback
+            or settings.smtp_username
+            or (settings.smtp_port == 25 and not settings.smtp_starttls)
+        ):
+            raise
+        log.warning(
+            "Primary SMTP connection failed; using configured unauthenticated port 25 fallback",
+            extra={"smtp_host": settings.smtp_host},
+        )
+        return smtplib.SMTP(settings.smtp_host, 25, timeout=20), False
+
+
+def _html_body(message: EmailOutbox, settings: Settings) -> str:
+    """Build the broadly compatible text+HTML shape used by the reference app."""
+    brand = escape(settings.app_name)
+    title = escape(message.subject)
+    body = escape(message.body_text).replace("\n", "<br>\n")
+    match = _URL_PATTERN.search(message.body_text)
+    action = ""
+    if match:
+        raw_url = match.group(0).rstrip(".,;)")
+        url = escape(raw_url, quote=True)
+        action = (
+            '<p style="margin:20px 0">'
+            f'<a href="{url}" style="display:inline-block;padding:11px 16px;'
+            "background:#6579dd;color:#fff;text-decoration:none;border-radius:8px;"
+            'font-weight:700">Continue to Data Mover</a></p>'
+        )
+    return f"""<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{title}</title></head>
+  <body style="margin:0;padding:0;background:#eef1f6;color:#172033;font-family:Arial,Helvetica,sans-serif">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="padding:28px 12px;background:#eef1f6">
+      <tr><td align="center">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="560" style="width:560px;max-width:100%;background:#fff;border:1px solid #d8deea;border-radius:12px">
+          <tr><td style="padding:18px 22px;border-bottom:1px solid #e5e9f1;font-weight:700;color:#25334d">{brand}</td></tr>
+          <tr><td style="padding:22px;font-size:14px;line-height:1.55">
+            <h1 style="margin:0 0 14px;font-size:20px;line-height:1.3;color:#172033">{title}</h1>
+            <div>{body}</div>{action}
+          </td></tr>
+          <tr><td style="padding:14px 22px;border-top:1px solid #e5e9f1;font-size:12px;line-height:1.5;color:#667085">If you did not request this message, contact the service desk.</td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>"""

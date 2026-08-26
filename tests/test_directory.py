@@ -65,7 +65,17 @@ def test_success_returns_record(settings):
     assert record.display_name == "User Example"
 
 
-def test_not_found_raises_eligibility(settings):
+def test_not_found_is_advisory_when_lookup_is_optional(settings):
+    transport = _json_transport(status_code=404, payload={})
+    assert (
+        _run(validate_directory_email("missing@example.gov", settings, transport=transport)) is None
+    )
+
+
+def test_not_found_raises_eligibility_when_lookup_is_required(settings, monkeypatch):
+    monkeypatch.setenv("DIRECTORY_LOOKUP_REQUIRED", "true")
+    get_settings.cache_clear()
+    settings = get_settings()
     transport = _json_transport(status_code=404, payload={})
     with pytest.raises(DirectoryEligibilityError):
         _run(validate_directory_email("missing@example.gov", settings, transport=transport))
@@ -103,10 +113,39 @@ def test_fail_closed_on_http_error(settings, monkeypatch):
         )
 
 
-def test_email_mismatch_raises_eligibility(settings):
+def test_email_mismatch_is_advisory_when_lookup_is_optional(settings):
+    transport = _json_transport(payload={"email": "other@example.gov"})
+    assert _run(validate_directory_email("user@example.gov", settings, transport=transport)) is None
+
+
+def test_email_mismatch_raises_eligibility_when_lookup_is_required(settings, monkeypatch):
+    monkeypatch.setenv("DIRECTORY_LOOKUP_REQUIRED", "true")
+    get_settings.cache_clear()
+    settings = get_settings()
     transport = _json_transport(payload={"email": "other@example.gov"})
     with pytest.raises(DirectoryEligibilityError):
         _run(validate_directory_email("user@example.gov", settings, transport=transport))
+
+
+def test_nested_json_and_extended_name_are_supported(settings):
+    payload = json.dumps(
+        {
+            "attributes": {
+                "mail": ["user@example.gov"],
+                "givenName": ["Casey"],
+                "sn": ["Mover"],
+            }
+        }
+    )
+    record = _run(
+        validate_directory_email(
+            "user@example.gov",
+            settings,
+            transport=_json_transport(payload=payload),
+        )
+    )
+    assert record is not None
+    assert record.display_name == "Casey Mover"
 
 
 def test_invalid_json_fail_closed(settings, monkeypatch):

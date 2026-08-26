@@ -54,9 +54,13 @@ def register_registration_routes(app: Hedron) -> None:
             account_key=email,
         )
         try:
-            await validate_directory_email(email, settings)
+            directory_record = await validate_directory_email(email, settings)
             request_self_registration(
-                db, settings, email=email, full_name=full_name, request=request
+                db,
+                settings,
+                email=email,
+                full_name=full_name or (directory_record.display_name if directory_record else ""),
+                request=request,
             )
         except (ValueError, DirectoryUnavailableError) as exc:
             return render_register_page(
