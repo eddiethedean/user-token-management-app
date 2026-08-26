@@ -59,6 +59,14 @@ workflow captures are full-page; the collapsed-navigation view uses a fixed desk
 the rail behavior easy to compare. Together they show the shell, navigation, primary content,
 controls, status details, and footer.
 
+### Sign in
+
+![Full-page Data Mover sign-in screen showing the dark desktop theme, Data Mover and CDAO branding, workspace protections, and account access form](docs/screenshots/login.jpg)
+
+The sign-in screen introduces the secure transfer workspace before requesting credentials. It keeps
+the Data Mover and CDAO identities visible, explains the protections applied to transfers, and
+clearly identifies the local environment as a controlled demo.
+
 ### Pipeline workspace
 
 ![Full-page Data Mover Pipeline workspace showing a succeeded live transfer, stage cards, metrics, event feed, and Run again action](docs/screenshots/pipeline-live.jpg)

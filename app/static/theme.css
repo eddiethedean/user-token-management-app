@@ -165,7 +165,9 @@ body {
   white-space: nowrap;
 }
 
-.hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav > :last-child {
+.hedron-app-shell[data-nav-collapsed="true"]
+  .data-mover-side-nav
+  > .data-mover-nav-footer {
   display: none;
 }
 
@@ -238,7 +240,9 @@ body {
     display: none;
   }
 
-  .hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav > :last-child {
+  .hedron-app-shell[data-nav-collapsed="true"]
+    .data-mover-side-nav
+    > .data-mover-nav-footer {
     display: initial;
   }
 

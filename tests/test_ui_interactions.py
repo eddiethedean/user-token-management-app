@@ -109,6 +109,10 @@ def test_main_panel_nav_swaps_all_authenticated_routes(htmx) -> None:
         assert_no_document_shell(adapter)
         assert_hx_push_url(adapter)
         assert "hx-swap-oob" in response.text  # side-nav active state
+        assert "data-mover-nav-footer" in response.text
+        assert "Sandbox healthy" in response.text
+        assert 'data-hedron-icon="data-mover-team"' in response.text
+        assert 'data-hedron-icon="data-mover-activity"' in response.text
         assert_budget(response.text, max_bytes=200_000)
 
 

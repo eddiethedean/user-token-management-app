@@ -155,7 +155,7 @@ def document_head(
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=7"),
+                href=asset_href(request, "/assets/theme.css?v=8"),
             )
         )
         nodes.append(
@@ -307,13 +307,14 @@ def shell_nav_footer() -> NavStatus:
         "Sandbox healthy · Credentials encrypted",
         tone="success",
         mark="●",
+        class_="data-mover-nav-footer",
     )
 
 
 def side_nav_oob(request: Request, auth: AuthContext) -> OobUpdate:
     """Replace side-nav contents after in-shell navigation (preserves outer nav element)."""
     return OobUpdate(
-        content=Fragment(*side_nav_children(request, auth)),
+        content=Fragment(*side_nav_children(request, auth), shell_nav_footer()),
         element_id="side-nav",
         swap="innerHTML",
     )

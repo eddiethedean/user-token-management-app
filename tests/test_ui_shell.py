@@ -81,7 +81,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=2"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=7"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=8"')
     assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=6"')
     assert_html_contains(response, 'src="/assets/app.js?v=5"')
     assert_html_contains(
@@ -142,6 +142,8 @@ def test_hedron_component_bundles_are_served(access_app) -> None:
     assert "contain: inline-size" in theme.body
     assert "border-block-start: 1px solid" in theme.body
     assert "color: transparent" in theme.body
+    assert "> .data-mover-nav-footer" in theme.body
+    assert ".data-mover-side-nav > :last-child" not in theme.body
     assert "stroke='%23b66a00'" in theme.body
     assert "fill='%237c86ff'" in theme.body
     desktop_styles = fixture.get("/app-assets/hedron-desktop.css")
@@ -738,6 +740,10 @@ def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:
     assert_html_contains(adapter, "security-tabs")
     assert_html_contains(adapter, "hx-swap-oob")
     assert_html_contains(adapter, 'id="side-nav-toggle"')
+    assert_html_contains(adapter, "data-mover-nav-footer")
+    assert_html_contains(adapter, "Sandbox healthy")
+    assert_html_contains(adapter, 'data-hedron-icon="data-mover-team"')
+    assert_html_contains(adapter, 'data-hedron-icon="data-mover-activity"')
     assert "<!doctype" not in security.text.lower()
     assert security.headers.get("HX-Push-Url")
 
