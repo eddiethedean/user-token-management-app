@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import timedelta
 from pathlib import Path
 
@@ -443,11 +444,14 @@ def janitor(db: Session, settings) -> dict[str, int]:
     spool_root = Path(settings.pipeline_spool_root) if settings.pipeline_spool_root else None
     if spool_root and spool_root.is_dir():
         for path in spool_root.iterdir():
-            if not path.is_file():
+            if not path.is_file() and not (path.is_dir() and path.name.endswith(".chunks")):
                 continue
             age_days = (now.timestamp() - path.stat().st_mtime) / 86400
             if age_days >= settings.pipeline_event_retention_days:
-                path.unlink(missing_ok=True)
+                if path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    path.unlink(missing_ok=True)
                 spool_deleted += 1
     return {
         "events": events_deleted,

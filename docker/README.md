@@ -24,7 +24,7 @@ make workbench-logs
 make workbench-down    # graceful stop (license key deactivation)
 ```
 
-After `make workbench-up`, seed all four fake Data Mover connections into the default Docker demo
+After `make workbench-up`, seed all three fake Data Mover connections into the default Docker demo
 account with:
 
 ```bash

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -233,6 +234,11 @@ def test_janitor_purges_expired_events_and_terminal_runs(access_app, tmp_path) -
     settings.pipeline_run_retention_days = 1
     settings.pipeline_spool_root = str(tmp_path)
     stale = utcnow() - timedelta(days=40)
+    stale_chunks = tmp_path / "stale-run.chunks"
+    stale_chunks.mkdir()
+    (stale_chunks / "00000001.parquet").write_bytes(b"stale")
+    old_timestamp = stale.timestamp()
+    os.utime(stale_chunks, (old_timestamp, old_timestamp))
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.email == "admin@example.gov"))
         assert user is not None
@@ -259,6 +265,8 @@ def test_janitor_purges_expired_events_and_terminal_runs(access_app, tmp_path) -
         counts = janitor(db, settings)
         assert counts["events"] >= 1
         assert counts["runs"] >= 1
+        assert counts["spool_files"] == 1
+        assert not stale_chunks.exists()
         assert db.get(PipelineRun, run_id) is None
     settings.pipeline_event_retention_days = original_events
     settings.pipeline_run_retention_days = original_runs

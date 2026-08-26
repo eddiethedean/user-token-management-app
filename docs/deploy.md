@@ -119,7 +119,8 @@ You need:
 - an SMTP relay with STARTTLS;
 - an approved password blocklist file;
 - a Connect publishing API key; and
-- a separately supervised host for the email worker.
+- separately supervised services for the email worker, pipeline worker, and janitor; and
+- a protected, writable pipeline spool directory.
 
 For `AUTHENTICATION_MODE=trusted_header`, you also need an approved identity-aware proxy and the
 exact IP addresses of the immediate proxies that connect to the application. You do not need
@@ -152,6 +153,11 @@ chmod 600 .env
 mkdir -p deployment
 cp /path/to/approved/password-blocklist.txt deployment/password-blocklist.txt
 ```
+
+Before validation, provision the `PIPELINE_SPOOL_ROOT` directory with platform-appropriate
+ownership and mode (for example, a dedicated `data-mover` service account with mode `0700`). The
+directory must exist in the Connect runtime and on the supervised pipeline-worker host; use
+different local paths when those environments do not share a filesystem.
 
 Generate three independent application secrets:
 
@@ -198,6 +204,13 @@ SMTP_USERNAME=''
 SMTP_PASSWORD=''
 
 PASSWORD_BLOCKLIST_PATH='deployment/password-blocklist.txt'
+
+DATA_MOVER_MODE=real
+PIPELINE_SPOOL_ROOT='/var/lib/data-mover/spool'
+PIPELINE_ALLOWED_HTTPS_HOSTS='mss.example.gov,mcscop.example.gov'
+PIPELINE_ENABLE_POSTGRES_WRITER=true
+PIPELINE_ENABLE_MSS_WRITER=false
+PIPELINE_ENABLE_MCSCOP_WRITER=false
 ```
 
 URL-encode special characters in the PostgreSQL username and password. `PUBLIC_BASE_URL` must be
@@ -205,6 +218,14 @@ the exact external HTTPS URL users open, without a query or fragment.
 
 If this is the first deployment and Connect has not assigned a content URL yet, keep the valid
 placeholder shown above for the initial publish. Step 6 explains how to replace it immediately.
+
+`PIPELINE_SPOOL_ROOT` must already exist and be writable wherever the application starts. The
+pipeline worker uses it for bounded source and destination staging; it is worker-local and does not
+need to be a shared filesystem with the Connect web process. If the Connect runtime and worker use
+different filesystems, set the same variable name to an equivalent writable path in each process's
+environment. `PIPELINE_ALLOWED_HTTPS_HOSTS` is a comma-separated allowlist of operator-approved
+Foundry hosts. Foundry destination writes remain disabled until their corresponding writer flags
+are intentionally enabled.
 
 Choose one authentication mode and append its values to `.env`.
 
@@ -315,6 +336,12 @@ rsconnect deploy fastapi \
   --environment SMTP_USERNAME \
   --environment SMTP_PASSWORD \
   --environment PASSWORD_BLOCKLIST_PATH \
+  --environment DATA_MOVER_MODE \
+  --environment PIPELINE_SPOOL_ROOT \
+  --environment PIPELINE_ALLOWED_HTTPS_HOSTS \
+  --environment PIPELINE_ENABLE_POSTGRES_WRITER \
+  --environment PIPELINE_ENABLE_MSS_WRITER \
+  --environment PIPELINE_ENABLE_MCSCOP_WRITER \
   --exclude '.env' \
   --exclude '.venv' \
   --exclude '**/__pycache__/*' \
@@ -350,7 +377,31 @@ direct `/content/<id>` URL.
 No Nginx rule or application-cookie proxy is needed. With `COOKIE_PATH=auto`, the app emits
 `Path=/` to Connect; Connect adds `/content/<id>` to the browser-facing cookies exactly once.
 
-### 7. Start the email worker
+### 7. Start the background workers
+
+The Connect web process queues pipeline runs but does not execute them. Start the pipeline worker
+on a separately supervised host or service with the same application code, production database
+access, provider network access, and real-mode pipeline settings:
+
+```bash
+cd /path/to/user-token-management-app
+source .venv/bin/activate
+set -a
+. ./.env
+set +a
+python -m app pipeline-worker
+```
+
+Schedule the janitor once per day under the same environment:
+
+```bash
+python -m app pipeline-janitor
+```
+
+Only one janitor should run against a given spool directory at a time. The worker host's
+`PIPELINE_SPOOL_ROOT` must be a protected writable directory. It may be a different local path from
+the Connect web process because spools are worker-local; both processes still validate that their
+configured path exists at startup.
 
 The Connect web process queues email but does not send it. On a separately supervised host, use the
 same checkout, production `.env`, database access, and SMTP access:
@@ -381,8 +432,8 @@ Open `PUBLIC_BASE_URL` and verify:
 8. Each connection type renders its expected fields. Test a connection without revealing secrets.
 9. A pipeline can select catalog objects, save/load its definition, enqueue a run, and
    scan a non-sensitive UTF-8 CSV source. Confirm that providers without a saved, Connected bundle
-   are absent from its pickers and cannot be submitted directly. Run `python -m app pipeline-worker`
-   beside the web process in real mode.
+   are absent from its pickers and cannot be submitted directly. Confirm the supervised pipeline
+   worker claims the run and completes it in real mode.
 
 These checks validate Data Mover's application workflow. Real Foundry and PostgreSQL transfers also
 require allowlisted hosts, a spool directory, and an operator-approved network path. See

@@ -1,13 +1,27 @@
 # Pipeline worker runbook
 
-Run the web process and the pipeline worker as separate processes. The browser never decrypts
-provider credentials or executes transfers.
+Run the web process and the pipeline worker as separate supervised processes. The browser never
+decrypts provider credentials or executes transfers. In a Connect deployment, the web process runs
+as Connect content while the worker and janitor run on the operator-managed worker host.
 
 ## Start
 
+On the web host (or in the Connect content), start the application:
+
 ```bash
 python -m app serve
+```
+
+On the separately supervised worker host, load the same production environment and start the
+worker:
+
+```bash
 python -m app pipeline-worker
+```
+
+Schedule the janitor as a separate daily job:
+
+```bash
 python -m app pipeline-janitor   # retention; schedule daily
 ```
 
@@ -22,6 +36,11 @@ Makefile targets: `make serve`, `make pipeline-worker`, `make pipeline-janitor`.
 - Foundry writers remain off until `PIPELINE_ENABLE_MSS_WRITER` / `PIPELINE_ENABLE_MCSCOP_WRITER`
 
 Production refuses `DATA_MOVER_MODE=demo`.
+
+The spool directory must exist before startup and be writable by the process account. It may be a
+different local path for the web process and worker; it is not a shared data store. Use the same
+PostgreSQL database and application encryption key ring in every process, and schedule exactly one
+janitor per spool directory.
 
 ## Crash and lease recovery
 

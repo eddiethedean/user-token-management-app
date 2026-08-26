@@ -81,8 +81,9 @@ make serve
 Open `http://127.0.0.1:8000`. For a disposable local workflow with fake, already-validated
 connections, use `make demo`; it serves on port 8765 and refuses to seed production environments.
 Never put real credentials in `.env.example`, fixtures, demo seeds, or screenshots.
-Keep the virtual environment activated in this shell while running the commands below; the Make
-targets intentionally call `python` from the active environment.
+Keep the virtual environment activated in this shell while running the commands below. Make targets
+prefer `.venv/bin/python` when that repository virtual environment exists, and otherwise use the
+`python` available on `PATH`; set `PYTHON=/path/to/python` to override that selection explicitly.
 
 ### Configuration ownership
 

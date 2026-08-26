@@ -272,10 +272,11 @@ make workbench-down
 Details: [docker/README.md](docker/README.md).
 
 The SQLite Connect path is a single-process, disposable demo whose data resets on redeployment. Do
-not promote that configuration to production. The production path requires PostgreSQL, SMTP,
-strong secrets, secure cookies, a password blocklist, migrations before startup, a Hedron build,
-and a separately supervised email worker. Follow every production Connect step in the deployment
-guide before publishing `app.main:app` for operational use.
+not promote that configuration to production. The production path requires PostgreSQL, SMTP, strong
+secrets, secure cookies, a password blocklist, migrations before startup, a Hedron build, a
+protected pipeline spool directory, and separately supervised email, pipeline-worker, and janitor
+services. Follow every production Connect step in the deployment guide before publishing
+`app.main:app` for operational use.
 
 ## Contributing
 
