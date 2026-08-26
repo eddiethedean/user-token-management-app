@@ -50,7 +50,7 @@ function applyColorMode(mode) {
   const colorScheme = document.querySelector('meta[name="color-scheme"]');
   const themeColor = document.querySelector('meta[name="theme-color"]');
   if (colorScheme) colorScheme.content = normalized;
-  if (themeColor) themeColor.content = normalized === "dark" ? "#080d1a" : "#f6f6fb";
+  if (themeColor) themeColor.content = normalized === "dark" ? "#080d1a" : "#f4f6fb";
 
   document.querySelectorAll('img[src*="/data-mover-mark-"]').forEach((image) => {
     image.src = image.src.replace(

@@ -166,8 +166,7 @@ body {
 }
 
 .hedron-app-shell[data-nav-collapsed="true"]
-  .data-mover-side-nav
-  > .data-mover-nav-footer {
+  .data-mover-nav-footer {
   display: none;
 }
 
@@ -241,8 +240,7 @@ body {
   }
 
   .hedron-app-shell[data-nav-collapsed="true"]
-    .data-mover-side-nav
-    > .data-mover-nav-footer {
+    .data-mover-nav-footer {
     display: initial;
   }
 

@@ -81,9 +81,9 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=2"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=8"')
-    assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=6"')
-    assert_html_contains(response, 'src="/assets/app.js?v=5"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=9"')
+    assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=8"')
+    assert_html_contains(response, 'src="/assets/app.js?v=6"')
     assert_html_contains(
         response,
         'type="image/png" href="/assets/brand/data-mover-mark.png" rel="icon"',
@@ -113,7 +113,11 @@ def test_hedron_component_bundles_are_served(access_app) -> None:
     response = fixture.get("/app-assets/data-mover-components.css")
     assert response.status_code == 200
     assert ".hedron-card--glass" in response.body
-    assert "--hedron-color-bg: #f6f6fb" in response.body
+    assert "--hedron-color-bg: #f4f6fb" in response.body
+    assert "--hedron-color-fg: #17213d" in response.body
+    assert "--hedron-color-accent: #4053d6" in response.body
+    assert "--hedron-color-link: #aab6ff" in response.body
+    assert "--hedron-color-selection-bg: #5969d8" in response.body
     assert "--hedron-color-bg: #080d16" in response.body
     assert "--hedron-type-display-size" in response.body
     assert "--hedron-geometry-control-height" in response.body
@@ -142,7 +146,8 @@ def test_hedron_component_bundles_are_served(access_app) -> None:
     assert "contain: inline-size" in theme.body
     assert "border-block-start: 1px solid" in theme.body
     assert "color: transparent" in theme.body
-    assert "> .data-mover-nav-footer" in theme.body
+    assert ".data-mover-nav-footer" in theme.body
+    assert "> .data-mover-nav-footer" not in theme.body
     assert ".data-mover-side-nav > :last-child" not in theme.body
     assert "stroke='%23b66a00'" in theme.body
     assert "fill='%237c86ff'" in theme.body
@@ -675,6 +680,7 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, 'id="hedron-toast"')
     assert_html_contains(profile, 'id="side-nav"')
     assert_html_contains(profile, 'class="hedron-app-shell-nav data-mover-side-nav"')
+    assert profile.body.count('data-hedron-variant="workspace"') >= 2
     assert_html_contains(profile, 'id="side-nav-toggle"')
     assert_html_contains(profile, 'aria-label="Collapse navigation"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-pipeline"')

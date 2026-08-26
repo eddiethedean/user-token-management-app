@@ -135,7 +135,7 @@ def document_head(
     preference = preference or ThemePreference()
     title = f"{page_title} · {app_name}" if page_title else app_name
     color_scheme = preference.color_mode
-    theme_color = "#080d1a" if preference.color_mode == "dark" else "#f6f6fb"
+    theme_color = "#080d1a" if preference.color_mode == "dark" else "#f4f6fb"
     nodes: list[NodeLike] = [
         html.meta(name="color-scheme", content=color_scheme),
         html.meta(name="theme-color", content=theme_color),
@@ -155,13 +155,13 @@ def document_head(
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=8"),
+                href=asset_href(request, "/assets/theme.css?v=9"),
             )
         )
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/app-assets/data-mover-components.css?v=6"),
+                href=asset_href(request, "/app-assets/data-mover-components.css?v=8"),
             )
         )
     return Fragment(*nodes)
@@ -413,67 +413,74 @@ def app_shell(
     )
     if auth:
         content = Container(
-            AmbientCanvas(
-                AppShell(
-                    nav=side_nav(request, auth),
-                    body=main_panel(
-                        *body,
-                        theme=preference.theme,
-                        color_mode=(
-                            preference.color_mode if preference.color_mode != "system" else None
+            StyleScope(
+                AmbientCanvas(
+                    AppShell(
+                        nav=side_nav(request, auth),
+                        body=main_panel(
+                            *body,
+                            theme=preference.theme,
+                            color_mode=(
+                                preference.color_mode if preference.color_mode != "system" else None
+                            ),
+                        ),
+                        panel_id="main-content",
+                        banner=banner,
+                        brand=brand,
+                        env_badge=cdao_identity,
+                        account=(
+                            Inline(
+                                environment_badge,
+                                color_mode_toggle(request, csrf_token=csrf_token),
+                                account_summary(request, auth),
+                                sign_out_action(request, csrf_token=csrf_token),
+                                gap="sm",
+                            )
+                            if csrf_token
+                            else None
+                        ),
+                        nav_footer=shell_nav_footer(),
+                        chrome=AppShellChrome(
+                            preset="editorial",
+                            header_behavior="sticky",
+                            nav_behavior="sticky",
+                            nav_offset="header",
+                            shell_gap="standard",
+                            content_inset="wide",
+                            banner_spacing="standard",
+                            header_density="standard",
+                            footer_density="compact",
+                        ),
+                        app_footer=AppFooter(
+                            settings.app_name,
+                            html.span("Demo environment · No remote systems are contacted"),
+                        ),
+                        content_width="wide",
+                        mobile_collapse=False,
+                    ),
+                    layers=(
+                        AmbientLayer(
+                            pattern="mesh",
+                            tone="accent",
+                            intensity="soft",
+                            scale="lg",
+                            order=0,
+                        ),
+                        AmbientLayer(
+                            pattern="grid",
+                            tone="muted",
+                            intensity="subtle",
+                            placement="fixed-canvas",
+                            scale="lg",
+                            order=1,
                         ),
                     ),
-                    panel_id="main-content",
-                    banner=banner,
-                    brand=brand,
-                    env_badge=cdao_identity,
-                    account=(
-                        Inline(
-                            environment_badge,
-                            color_mode_toggle(request, csrf_token=csrf_token),
-                            account_summary(request, auth),
-                            sign_out_action(request, csrf_token=csrf_token),
-                            gap="sm",
-                        )
-                        if csrf_token
-                        else None
-                    ),
-                    nav_footer=shell_nav_footer(),
-                    chrome=AppShellChrome(
-                        preset="editorial",
-                        header_behavior="sticky",
-                        nav_behavior="sticky",
-                        nav_offset="header",
-                        shell_gap="standard",
-                        content_inset="wide",
-                        banner_spacing="standard",
-                        header_density="standard",
-                        footer_density="compact",
-                    ),
-                    app_footer=AppFooter(
-                        settings.app_name,
-                        html.span("Demo environment · No remote systems are contacted"),
-                    ),
-                    content_width="wide",
-                    mobile_collapse=False,
                 ),
-                layers=(
-                    AmbientLayer(
-                        pattern="mesh",
-                        tone="accent",
-                        intensity="soft",
-                        scale="lg",
-                        order=0,
-                    ),
-                    AmbientLayer(
-                        pattern="grid",
-                        tone="muted",
-                        intensity="subtle",
-                        placement="fixed-canvas",
-                        scale="lg",
-                        order=1,
-                    ),
-                ),
+                theme=preference.theme,
+                color_mode=(preference.color_mode if preference.color_mode != "system" else None),
+                density="comfortable",
+                variant="workspace",
+                design="data-mover",
             ),
             max_width="xl",
         )
