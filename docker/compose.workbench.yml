@@ -20,7 +20,8 @@ services:
       PWB_LICENSE: ${POSIT_WORKBENCH_KEY:?Set POSIT_WORKBENCH_KEY in .env}
       PWB_TESTUSER: ${PWB_TESTUSER:-posit}
       # Must be ≥8 chars and must not contain the username (PAM policy in the image).
-      PWB_TESTUSER_PASSWD: ${PWB_TESTUSER_PASSWD:-Xk9#mQ2$vL8!nR4p}
+      # Compose requires $$ to preserve the literal $ in the default password.
+      PWB_TESTUSER_PASSWD: ${PWB_TESTUSER_PASSWD:-Xk9#mQ2$$vL8!nR4p}
       # Reduce launcher flakiness in local smoke tests.
       PWB_LAUNCHER: ${PWB_LAUNCHER:-false}
     volumes:

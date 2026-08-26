@@ -44,3 +44,9 @@ def test_project_requirements_do_not_set_upper_version_caps() -> None:
             assert "<" in requirement
             continue
         assert "<" not in requirement
+
+
+def test_workbench_compose_preserves_default_password_literal() -> None:
+    compose = (PROJECT_ROOT / "docker/compose.workbench.yml").read_text()
+
+    assert "PWB_TESTUSER_PASSWD: ${PWB_TESTUSER_PASSWD:-Xk9#mQ2$$vL8!nR4p}" in compose

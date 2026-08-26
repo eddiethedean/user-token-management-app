@@ -46,15 +46,9 @@ def _matching_brace(stylesheet: str, opening: int) -> int:
     raise ValueError("Unbalanced CSS block in Hedron's default stylesheet")
 
 
-@lru_cache(maxsize=1)
-def desktop_default_styles() -> str:
-    """Return Hedron's default styles without mobile viewport media rules."""
+def _without_viewport_media(stylesheet: str) -> str:
+    """Remove mobile viewport and touch media blocks while preserving other CSS."""
 
-    stylesheet = (
-        resources.files("hedron_core")
-        .joinpath("static/hedron-default.css")
-        .read_text(encoding="utf-8")
-    )
     output: list[str] = []
     cursor = 0
     while match := _MEDIA_RULE.search(stylesheet, cursor):
@@ -67,6 +61,18 @@ def desktop_default_styles() -> str:
         cursor = closing + 1
     output.append(stylesheet[cursor:])
     return "".join(output)
+
+
+@lru_cache(maxsize=1)
+def desktop_default_styles() -> str:
+    """Return Hedron's default styles without mobile viewport media rules."""
+
+    stylesheet = (
+        resources.files("hedron_core")
+        .joinpath("static/hedron-default.css")
+        .read_text(encoding="utf-8")
+    )
+    return _without_viewport_media(stylesheet)
 
 
 __all__ = ["desktop_default_styles"]

@@ -55,6 +55,16 @@ def as_adapter(response) -> AdapterResponse:
     )
 
 
+def assert_redirect_path(response, path: str, *, query: dict[str, list[str]] | None = None) -> None:
+    """Assert a redirect's parsed destination instead of matching a URL substring."""
+    location = response.headers.get("location")
+    assert location, f"expected redirect location, got headers={dict(response.headers)}"
+    parsed = urlparse(location)
+    assert parsed.path == path, f"expected redirect path {path!r}, got {location!r}"
+    if query is not None:
+        assert parse_qs(parsed.query, keep_blank_values=True) == query
+
+
 def copy_cookies(source, target) -> None:
     """Copy auth cookies from one TestClient jar onto another."""
     for key, value in source.cookies.items():
@@ -79,7 +89,12 @@ def web_login(
         },
     )
     assert response.status_code == 303, response.text
-    assert next_path in response.headers["location"]
+    parsed_next = urlparse(next_path)
+    assert_redirect_path(
+        response,
+        parsed_next.path,
+        query=parse_qs(parsed_next.query, keep_blank_values=True),
+    )
 
 
 def htmx_login(

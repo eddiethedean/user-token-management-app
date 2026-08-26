@@ -1,4 +1,4 @@
-"""Data Mover's explicit Hedron 0.64.1 presentation contract."""
+"""Data Mover's explicit Hedron 0.65.0 presentation contract."""
 
 from __future__ import annotations
 
@@ -16,18 +16,13 @@ from hedron import (
     register_recipe_family,
     validate_theme_spec,
 )
-from hedron_core import (
-    Component,
-    ScopedStyleRecipe,
-    compile_scoped_styles,
-    presentation_contract,
-)
+from hedron_core import Component, presentation_contract
 from hedron_core.theme import Theme, aurora_theme
 
 _ComponentT = TypeVar("_ComponentT", bound=Component)
 
 
-# Build a first-party Data Mover brand from Hedron's 0.64.1 typed design system.
+# Build a first-party Data Mover brand from Hedron's 0.65.0 typed design system.
 # Aurora remains the accessibility-tested base; the brand compiler owns the
 # palette, geometry, typography, motion, and navigation groups.
 _BRAND_DESIGN = DesignSystem.brand(
@@ -42,7 +37,7 @@ _BRAND_DESIGN = DesignSystem.brand(
     navigation="wide",
 )
 
-# 0.64.1's extensible recipe-family contract lets the flow canvas declare its
+# 0.65.0's extensible recipe-family contract lets the flow canvas declare its
 # presentation vocabulary without private CSS or behavior-shaped props.
 DATA_MOVER_FLOW_FAMILY = RecipeFamily(
     name="flow",
@@ -108,30 +103,61 @@ DATA_MOVER_THEME_SPEC = (
             "geometry.radius-md": "0.875rem",
             "geometry.radius-lg": "1.125rem",
             "geometry.separator": "1px",
+            "motion.instant": "0ms",
             "motion.standard": "160ms",
+            "motion.emphasized": "300ms",
             "motion.reveal": "220ms",
+            "motion.elevate": "180ms",
+            "motion.crossfade": "200ms",
+            "motion.easing.standard": "cubic-bezier(0.2, 0, 0, 1)",
             "data.row.hover": "rgba(141, 156, 255, 0.08)",
             "data.row.selected": "rgba(111, 112, 255, 0.16)",
             "control.appearance": "auto",
             "control.accent": "var(--hedron-color-accent)",
-            # Native Hedron surface bundles consume these short aliases for
-            # glass/translucent treatments. Keeping them in the theme lets the
-            # component bundle own the effect instead of product CSS.
+            # Hedron 0.65's native surface, table, control, and motion bundles
+            # consume these semantic tokens directly; product CSS does not
+            # need to restyle those component states.
+            "surface.translucent.opacity": "78%",
+            "surface.translucent.blur": "12px",
+            "surface.glass.opacity": "78%",
+            "surface.glass.blur": "18px",
+            "surface.glass.border": "rgb(145 166 204 / 24%)",
+            "surface.glass.shadow": "0 18px 54px rgb(0 0 0 / 16%), inset 0 1px rgb(255 255 255 / 4%)",
+            # The component-scoped bundle uses the shorter aliases while the
+            # complete Hedron stylesheet uses the surface.* names above.
             "glass.opacity": "78%",
             "glass.blur": "18px",
             "glass.border": "rgb(145 166 204 / 24%)",
             "glass.shadow": "0 18px 54px rgb(0 0 0 / 16%), inset 0 1px rgb(255 255 255 / 4%)",
-            "surface.opacity": "78%",
-            "surface.blur": "12px",
+            "data.table.border": "var(--hedron-color-border)",
+            "data.table.radius": "var(--hedron-geometry-radius-md)",
+            "data.table.header.background": "var(--hedron-color-surface-muted)",
+            "data.table.header.foreground": "var(--hedron-color-fg)",
+            "data.table.header.weight": "700",
+            "data.table.header.tracking": "0.04em",
+            "data.table.row.separator": "var(--hedron-color-border)",
+            "data.table.numeric": "tabular-nums",
+            "data.table.code": "ui-monospace, SFMono-Regular, Menlo, monospace",
+            "data.table.sticky.surface": "var(--hedron-color-surface)",
+            "data.table.sticky.elevation": "var(--hedron-elevation-raised)",
+            "data.table.density": "0.9",
+            "control.focus": "var(--hedron-color-focus)",
+            "control.invalid": "var(--hedron-color-danger)",
+            "control.busy": "var(--hedron-color-muted)",
+            "control.disabled": "var(--hedron-color-muted)",
+            "control.read-only": "var(--hedron-color-muted)",
+            "control.checked": "var(--hedron-color-accent)",
+            "control.selected": "var(--hedron-color-accent)",
+            "control.indeterminate": "var(--hedron-color-accent)",
         }
     )
-    .metadata(product="data-mover", release="0.64.1")
+    .metadata(product="data-mover", release="0.65.0")
     .profile("workflow")
     .build()
 )
 _THEME_REPORT = validate_theme_spec(DATA_MOVER_THEME_SPEC, profile="workflow")
 if not _THEME_REPORT.ok:
-    raise ValueError(f"Data Mover theme failed Hedron 0.64.1 validation: {_THEME_REPORT.to_dict()}")
+    raise ValueError(f"Data Mover theme failed Hedron 0.65.0 validation: {_THEME_REPORT.to_dict()}")
 _RESOLVED_THEME = DATA_MOVER_THEME_SPEC.to_theme()
 
 # Variants are additive presentation contexts. They do not encode application
@@ -196,75 +222,11 @@ DATA_MOVER_THEME: Theme = replace(
     elevation={"raised": "0 24px 64px rgb(0 0 0 / 28%)"},
 )
 
-# 0.64.1 emits a matching CSS and design-token export, including the compatibility
+# 0.65.0 emits a matching CSS and design-token export, including the compatibility
 # bridge consumed by Hedron's default stylesheet. Fail fast if the application
 # theme ever drifts outside the published contract.
 DATA_MOVER_THEME_EXPORT = export_theme(DATA_MOVER_THEME, profile="workflow")
 DATA_MOVER_PRESENTATION = presentation_contract(DATA_MOVER_THEME)
-
-# 0.64.1's scoped-style contract owns the bounded, application-defined chrome
-# that can be expressed without private selectors or arbitrary at-rules.
-_DATA_MOVER_SCOPED_RECIPES = (
-    ScopedStyleRecipe(
-        "DataMover",
-        "environment-banner",
-        {
-            "background": "linear-gradient(90deg, rgba(240, 199, 106, 0.13), rgba(240, 199, 106, 0.045))",
-            "border": "1px solid rgba(240, 199, 106, 0.22)",
-            "border-radius": "0 0 12px 12px",
-            "color": "#dfc77f",
-            "font-size": "var(--hedron-type-metadata-size)",
-            "font-weight": "700",
-            "letter-spacing": "0.12em",
-            "line-height": "1.4",
-            "margin-inline": "auto",
-            "max-inline-size": "1360px",
-            "padding-block": "0.65rem",
-            "padding-inline": "0.95rem",
-            "box-shadow": "0 14px 42px rgb(240 199 106 / 8%)",
-        },
-    ),
-    ScopedStyleRecipe(
-        "DataMover",
-        "shell-nav",
-        {
-            "background": "linear-gradient(180deg, rgba(18, 28, 47, 0.92), rgba(11, 18, 31, 0.92))",
-            "border": "1px solid rgba(145, 166, 204, 0.19)",
-            "border-radius": "var(--hedron-geometry-radius-lg)",
-            "box-shadow": "0 24px 64px rgb(0 0 0 / 28%), inset 0 1px rgba(255, 255, 255, 0.045)",
-            "margin-block": "2.4rem",
-            "margin-inline": "2.5rem 0",
-        },
-    ),
-    ScopedStyleRecipe(
-        "DataMover",
-        "brand",
-        {
-            "column-gap": "0.8rem",
-            "color": "var(--hedron-color-fg)",
-        },
-    ),
-    ScopedStyleRecipe(
-        "DataMover",
-        "page-header",
-        {"margin-block": "0 1.85rem"},
-    ),
-    ScopedStyleRecipe(
-        "DataMover",
-        "process-flow",
-        {
-            "background": "linear-gradient(135deg, rgba(13, 21, 38, 0.88), rgba(8, 14, 25, 0.72))",
-            "border": "1px solid rgba(145, 166, 204, 0.24)",
-            "border-radius": "var(--hedron-geometry-radius-md)",
-            "box-shadow": "0 18px 48px rgb(0 0 0 / 12%), inset 0 1px rgb(255 255 255 / 4%)",
-            "padding-block": "0.35rem",
-            "padding-inline": "0.35rem",
-        },
-    ),
-)
-DATA_MOVER_SCOPED_STYLES = compile_scoped_styles(_DATA_MOVER_SCOPED_RECIPES)
-DATA_MOVER_SCOPE_CLASSES = {recipe.part: recipe.class_name for recipe in _DATA_MOVER_SCOPED_RECIPES}
-
 
 # Recipes provide semantic defaults; explicit component props remain authoritative.
 DATA_MOVER_DESIGN = DesignSystem.from_theme(DATA_MOVER_THEME).with_recipes(
@@ -325,7 +287,7 @@ DATA_MOVER_DESIGN = DesignSystem.from_theme(DATA_MOVER_THEME).with_recipes(
 
 
 def apply_action_recipe(button: _ComponentT, *, variant: str) -> _ComponentT:
-    """Apply a named 0.64.1 control recipe without overriding explicit props."""
+    """Apply a named 0.65.0 control recipe without overriding explicit props."""
 
     recipe = {
         "primary": "data-mover-primary-action",
@@ -367,8 +329,6 @@ __all__ = [
     "DATA_MOVER_FLOW_FAMILY",
     "DATA_MOVER_THEME_EXPORT",
     "DATA_MOVER_PRESENTATION",
-    "DATA_MOVER_SCOPED_STYLES",
-    "DATA_MOVER_SCOPE_CLASSES",
     "apply_data_recipe",
     "apply_action_recipe",
     "surface_card",

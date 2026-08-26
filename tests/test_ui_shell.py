@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from types import SimpleNamespace
 
+import pytest
 from hedron.testing import (
     AdapterResponse,
     assert_fragment_body,
@@ -30,6 +32,7 @@ from app.ui.hedron_styles import desktop_default_styles
 from app.ui.interactions import APP_REGIONS
 from app.ui.layout import alert_box, document_head, page_heading
 from app.ui.urls import hx_attrs
+from tests.helpers import assert_redirect_path
 
 
 def _request(root_path: str = "") -> Request:
@@ -77,7 +80,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'href="/app-assets/data-mover-components.css"')
 
 
-def test_hedron_063_component_bundle_is_served(access_app) -> None:
+def test_hedron_component_bundles_are_served(access_app) -> None:
     fixture = fastapi_fixture(access_app)
     response = fixture.get("/app-assets/data-mover-components.css")
     assert response.status_code == 200
@@ -85,15 +88,28 @@ def test_hedron_063_component_bundle_is_served(access_app) -> None:
     assert "--hedron-color-bg: #080d16" in response.body
     assert "--hedron-type-display-size" in response.body
     assert "--hedron-geometry-control-height" in response.body
-    assert "hedron-scope-datamover-environment-banner" in response.body
-    assert "hedron-scope-datamover-process-flow" in response.body
     assert "--hedron-glass-opacity: 78%" in response.body
     assert "--hedron-glass-blur: 18px" in response.body
+    assert "--hedron-surface-glass-opacity: 78%" in response.body
+    assert "--hedron-data-table-header-background" in response.body
+    assert "--hedron-motion-elevate: 180ms" in response.body
     assert "--hedron-color-surface" in response.body
+    login_page = fixture.get("/login")
+    assert 'data-hedron-environment-banner="true"' in login_page.body
+    theme = fixture.get("/assets/theme.css")
+    assert theme.status_code == 200
+    assert ".hedron-text-input" not in theme.body
+    assert ".hedron-app-shell-nav" not in theme.body
+    assert ".hedron-card::before" not in theme.body
     desktop_styles = fixture.get("/app-assets/hedron-desktop.css")
     assert desktop_styles.status_code == 200
-    assert "@media (max-width" not in desktop_styles.body
-    assert "@media (min-width" in desktop_styles.body
+    assert desktop_styles.headers["content-type"].startswith("text/css")
+    assert desktop_styles.headers["cache-control"] == "public, max-age=3600"
+    assert not re.search(r"@media\s*\([^)]*max-width\s*:", desktop_styles.body, re.IGNORECASE)
+    assert not re.search(r"@media\s*\([^)]*hover\s*:\s*none", desktop_styles.body, re.IGNORECASE)
+    assert re.search(r"@media\s*\([^)]*min-width\s*:", desktop_styles.body, re.IGNORECASE)
+    assert "@media (prefers-reduced-motion: reduce)" in desktop_styles.body
+    assert 'href="/hedron-static/hedron-default.css"' not in fixture.get("/login").body
 
 
 def test_document_head_can_disable_custom_theme() -> None:
@@ -150,6 +166,38 @@ def test_hedron_native_stylesheet_is_desktop_only() -> None:
     assert "@media (min-width" in stylesheet
     assert "@media (hover: none)" not in stylesheet
     assert "@media (prefers-reduced-motion: reduce)" in stylesheet
+
+
+def test_hedron_media_filter_handles_nested_css_and_preserves_non_mobile_rules() -> None:
+    from app.ui.hedron_styles import _without_viewport_media
+
+    stylesheet = """
+    .base { content: "literal { brace }"; }
+    @media (max-width: 40rem) {
+        .mobile { content: "removed"; }
+        @supports (display: grid) { .nested { display: grid; } }
+    }
+    @media (hover: none) { .touch { content: "removed"; } }
+    @media (min-width: 40rem) { .desktop { display: grid; } }
+    @media print { .print { color: black; } }
+    /* a comment with a closing brace: } */
+    """
+
+    filtered = _without_viewport_media(stylesheet)
+
+    assert 'content: "literal { brace }"' in filtered
+    assert 'content: "removed"' not in filtered
+    assert ".nested" not in filtered
+    assert ".touch" not in filtered
+    assert ".desktop" in filtered
+    assert ".print" in filtered
+
+
+def test_hedron_media_filter_rejects_unbalanced_css() -> None:
+    from app.ui.hedron_styles import _without_viewport_media
+
+    with pytest.raises(ValueError, match="Unbalanced CSS block"):
+        _without_viewport_media("@media (max-width: 40rem) { .mobile { display: none; }")
 
 
 def test_register_page_document(access_app) -> None:
@@ -223,9 +271,9 @@ def test_htmx_admin_users_requires_auth(access_app) -> None:
         headers={"HX-Target": "#user-directory", "Accept": "text/html"},
         follow_redirects=False,
     )
-    assert response.status_code in {303, 401, 302}
-    if response.status_code in {302, 303}:
-        assert "/login" in response.headers.get("location", "")
+    assert response.status_code == 303
+    assert_redirect_path(response, "/login", query={"next": ["/admin/users"]})
+    assert response.headers["hx-redirect"] == response.headers["location"]
 
 
 def test_alert_and_heading_render_helpers() -> None:

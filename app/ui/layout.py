@@ -10,8 +10,10 @@ from hedron import (
     ActionGroup,
     Alert,
     AmbientBackdrop,
+    AmbientLayer,
     AppFooter,
     AppShell,
+    AppShellChrome,
     Badge,
     Brand,
     Container,
@@ -20,6 +22,7 @@ from hedron import (
     HtmxLink,
     Inline,
     Nav,
+    NavGroup,
     NavStatus,
     OobUpdate,
     Page,
@@ -46,7 +49,6 @@ from hedron_core.builtins import (
 
 from app.config import Settings
 from app.dependencies import AuthContext
-from app.ui.design_system import DATA_MOVER_SCOPE_CLASSES
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.urls import asset_href, form_action, page_href
 
@@ -65,7 +67,7 @@ HTMX_CONFIG = (
 
 
 def theme_preference_for_request(request: Request) -> ThemePreference:
-    """Resolve the allowlisted Hedron 0.64.1 preference from host-owned cookies."""
+    """Resolve the allowlisted Hedron 0.65.0 preference from host-owned cookies."""
 
     return resolve_theme_preference(
         request.cookies.get(THEME_COOKIE),
@@ -195,29 +197,13 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
         link("/security", "02", "Connections"),
         link("/profile", "03", "Account"),
     ]
-    children: list[NodeLike] = [
-        html.div(
-            html.p("Workspace", class_="hedron-nav-group-label"),
-            html.div(*workspace, class_="hedron-nav-group-items"),
-            class_="hedron-nav-group",
-            role="group",
-            aria={"label": "Workspace"},
-            data={"hedron-nav-group": "true"},
-        )
-    ]
+    children: list[NodeLike] = [NavGroup("Workspace", *workspace)]
     if "administrator" in auth.user.role_names:
         children.append(
-            html.div(
-                html.p("Administration", class_="hedron-nav-group-label"),
-                html.div(
-                    link("/admin/users", "04", "Team"),
-                    link("/admin/audit", "05", "Activity"),
-                    class_="hedron-nav-group-items",
-                ),
-                class_="hedron-nav-group",
-                role="group",
-                aria={"label": "Administration"},
-                data={"hedron-nav-group": "true"},
+            NavGroup(
+                "Administration",
+                link("/admin/users", "04", "Team"),
+                link("/admin/audit", "05", "Activity"),
             )
         )
     return children
@@ -228,7 +214,6 @@ def side_nav(request: Request, auth: AuthContext) -> Nav:
     return Nav(
         *side_nav_children(request, auth),
         id="side-nav",
-        class_=DATA_MOVER_SCOPE_CLASSES["shell-nav"],
         aria={"label": "Account navigation"},
     )
 
@@ -287,7 +272,6 @@ def app_shell(
         subtitle="Secure transfer operations",
         subtitle_overflow="truncate",
         href=page_href(request, "/"),
-        class_=DATA_MOVER_SCOPE_CLASSES["brand"],
         aria={"label": f"{settings.app_name} home"},
     )
     environment_badge = Badge("Sandbox online", tone="success")
@@ -301,7 +285,6 @@ def app_shell(
     banner: NodeLike | None = EnvironmentBanner(
         "Controlled demo workspace · Transfers are simulated and remote endpoints stay untouched",
         tone="warning",
-        class_=DATA_MOVER_SCOPE_CLASSES["environment-banner"],
     )
     header: NodeLike | None = None
     footer: NodeLike | None = None
@@ -324,6 +307,17 @@ def app_shell(
                     account_summary(request, auth, csrf_token=csrf_token) if csrf_token else None
                 ),
                 nav_footer=shell_nav_footer(),
+                chrome=AppShellChrome(
+                    preset="editorial",
+                    header_behavior="sticky",
+                    nav_behavior="sticky",
+                    nav_offset="header",
+                    shell_gap="editorial",
+                    content_inset="wide",
+                    banner_spacing="standard",
+                    header_density="spacious",
+                    footer_density="compact",
+                ),
                 app_footer=AppFooter(
                     settings.app_name,
                     html.span("Demo environment · No remote systems are contacted"),
@@ -331,9 +325,17 @@ def app_shell(
                 content_width="wide",
                 mobile_collapse=False,
             ),
-            pattern="mesh",
-            tone="accent",
-            intensity="soft",
+            layers=(
+                AmbientLayer(pattern="mesh", tone="accent", intensity="soft", scale="lg", order=0),
+                AmbientLayer(
+                    pattern="grid",
+                    tone="muted",
+                    intensity="subtle",
+                    placement="fixed-canvas",
+                    scale="lg",
+                    order=1,
+                ),
+            ),
         )
     else:
         header = html.header(
@@ -360,6 +362,7 @@ def app_shell(
                         query="inline-size",
                         name="auth",
                         max_width="xl",
+                        padding="lg",
                     ),
                     id="main-content",
                     tabindex="-1",
@@ -373,9 +376,17 @@ def app_shell(
                     "content": "data-mover-supporting-copy",
                 },
             ),
-            pattern="radial",
-            tone="accent",
-            intensity="soft",
+            layers=(
+                AmbientLayer(pattern="radial", tone="accent", intensity="soft", order=0),
+                AmbientLayer(
+                    pattern="grid",
+                    tone="muted",
+                    intensity="subtle",
+                    placement="fixed-canvas",
+                    scale="lg",
+                    order=1,
+                ),
+            ),
         )
         footer = AppFooter(
             settings.app_name,
@@ -409,7 +420,6 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> PageH
         description=lead,
         meta=extra[0] if len(extra) == 1 else None,
         density="spacious",
-        class_=DATA_MOVER_SCOPE_CLASSES["page-header"],
     )
 
 
@@ -427,6 +437,7 @@ def main_panel(
                     query="inline-size",
                     name="workspace",
                     max_width="full",
+                    padding="lg",
                 ),
                 theme=theme,
                 color_mode=color_mode,

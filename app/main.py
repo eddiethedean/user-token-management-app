@@ -36,7 +36,7 @@ from app.logging_config import bind_request_id, clear_request_id, configure_logg
 from app.schema import assert_schema_current
 from app.security.cookies import APPLICATION_COOKIE_NAMES
 from app.services.auth import ensure_default_roles
-from app.ui.design_system import DATA_MOVER_DESIGN, DATA_MOVER_SCOPED_STYLES, surface_card
+from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
 from app.ui.hedron_styles import desktop_default_styles
 from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
@@ -113,14 +113,14 @@ def hedron_desktop_styles() -> Response:
 
 @app.get("/app-assets/data-mover-components.css", include_in_schema=False)
 def data_mover_component_styles() -> Response:
-    """Serve the Hedron 0.64.1 scoped bundle used by product surface classes."""
+    """Serve the Hedron 0.65.0 component bundle used by product surface classes."""
 
     bundle = compile_style_bundle(
         theme=DATA_MOVER_DESIGN.to_theme(),
         components=("app-shell", "button", "card", "form", "popover", "surface"),
     )
     return Response(
-        bundle.css + DATA_MOVER_SCOPED_STYLES.css,
+        bundle.css,
         media_type="text/css",
         headers={"Cache-Control": "public, max-age=3600"},
     )

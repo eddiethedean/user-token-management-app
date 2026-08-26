@@ -92,7 +92,6 @@ from app.services.pipelines import list_pipelines, save_pipeline
 from app.services.secrets import list_user_secrets
 from app.ui.design_system import (
     DATA_MOVER_DESIGN,
-    DATA_MOVER_SCOPE_CLASSES,
     apply_data_recipe,
     surface_card,
 )
@@ -1442,7 +1441,6 @@ def _pipeline_body(
         direction="horizontal",
         collapse="never",
         density="compact",
-        class_=DATA_MOVER_SCOPE_CLASSES["process-flow"],
     )
     return [
         PageHeader(
@@ -3126,7 +3124,6 @@ def _run_status_fragment(
             direction="horizontal",
             collapse="never",
             density="compact",
-            class_=DATA_MOVER_SCOPE_CLASSES["process-flow"],
         ),
         Alert(
             stage_description,

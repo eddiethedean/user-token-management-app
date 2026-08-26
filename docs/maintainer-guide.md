@@ -150,10 +150,10 @@ Keep routes thin and make domain rules testable without a browser or database wh
 
 ### UI visual changes
 
-Use Hedron 0.63 primitives, recipes, scoped style bundles, and named spacing tokens for new
+Use current Hedron primitives, recipes, component bundles, and named spacing tokens for new
 presentation. Keep only product-level art direction in `app/static/theme.css`; component behavior
-and interaction states remain owned by Hedron. For a visual change, inspect at a narrow mobile viewport and a wide
-desktop viewport, exercise light/dark/system modes, and check keyboard focus and console output.
+and interaction states remain owned by Hedron. For a visual change, inspect wide desktop and medium
+desktop widths, exercise light/dark/system modes, and check keyboard focus and console output.
 Run `make hedron-check` and `make hedron-build` after changing routes, components, or theme metadata.
 
 ## Adding or changing a provider
