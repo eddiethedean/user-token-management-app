@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import ssl
 import tempfile
 from collections.abc import Iterator, Mapping
@@ -396,12 +397,17 @@ class FoundryConnector:
         run_id: str,
     ) -> LoadSession:
         self._load_credentials = dict(credentials)
-        spool = Path(self.settings.pipeline_spool_root or "/tmp") / f"{run_id}.snappy.parquet"
+        spool_root = Path(self.settings.pipeline_spool_root or "/tmp")
+        spool_root.mkdir(parents=True, exist_ok=True)
+        spool = spool_root / f"{run_id}.snappy.parquet"
+        chunk_root = spool_root / f"{run_id}.chunks"
+        chunk_root.mkdir(exist_ok=True)
         return LoadSession(
             locator=locator,
             write_policy=write_policy,
             staging_name=str(spool),
             columns=tuple(column.name for column in schema.columns),
+            metadata={"chunk_root": str(chunk_root)},
         )
 
     def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
@@ -416,8 +422,29 @@ class FoundryConnector:
                     retryable=False,
                 )
             frame = pl.concat([existing, frame.select(existing.columns)], how="vertical_relaxed")
-        load_session.metadata.setdefault("columns", json.dumps(frame.columns))
-        frame.write_parquet(path, compression="snappy")
+            frame.write_parquet(path, compression="snappy")
+            if path.stat().st_size > self.settings.pipeline_max_spool_bytes:
+                raise ConnectorError(
+                    TransferErrorCode.SPOOL_LIMIT_EXCEEDED,
+                    "The destination staging data exceeds the configured spool size limit.",
+                    retryable=False,
+                )
+        else:
+            chunk_root = Path(load_session.metadata["chunk_root"])
+            chunk_root.mkdir(parents=True, exist_ok=True)
+            load_session.metadata.setdefault("columns", json.dumps(frame.columns))
+            chunk_path = chunk_root / f"{batch.sequence:08d}.parquet"
+            frame.write_parquet(chunk_path, compression="snappy")
+            spool_bytes = int(load_session.metadata.get("spool_bytes", "0"))
+            spool_bytes += chunk_path.stat().st_size
+            load_session.metadata["spool_bytes"] = str(spool_bytes)
+            if spool_bytes > self.settings.pipeline_max_spool_bytes:
+                chunk_path.unlink(missing_ok=True)
+                raise ConnectorError(
+                    TransferErrorCode.SPOOL_LIMIT_EXCEEDED,
+                    "The destination staging data exceeds the configured spool size limit.",
+                    retryable=False,
+                )
         load_session.metadata["rows"] = str(
             int(load_session.metadata.get("rows", "0")) + batch.row_count
         )
@@ -427,15 +454,33 @@ class FoundryConnector:
 
     def finalize(self, load_session: LoadSession) -> DestinationManifest:
         path = Path(load_session.staging_name)
-        if not path.exists():
-            raise ConnectorError(TransferErrorCode.PARTIAL_WRITE, "No Parquet spool was produced.")
-        locator = load_session.locator
-        if not isinstance(locator, FoundryUploadLocator):
-            raise ConnectorError(
-                TransferErrorCode.DESTINATION_NOT_FOUND, "Foundry destination locator is invalid."
-            )
-        client = FoundryClient(getattr(self, "_load_credentials", {}), self.settings)
+        chunk_root_value = load_session.metadata.get("chunk_root")
+        chunk_root = Path(chunk_root_value) if chunk_root_value else None
+        client = None
         try:
+            if not path.exists() and chunk_root is not None and chunk_root.is_dir():
+                chunks = sorted(chunk_root.glob("*.parquet"))
+                if chunks:
+                    pl.concat(
+                        [pl.scan_parquet(chunk) for chunk in chunks], how="vertical_relaxed"
+                    ).sink_parquet(path, compression="snappy")
+            if not path.exists():
+                raise ConnectorError(
+                    TransferErrorCode.PARTIAL_WRITE, "No Parquet spool was produced."
+                )
+            if path.stat().st_size > self.settings.pipeline_max_spool_bytes:
+                raise ConnectorError(
+                    TransferErrorCode.SPOOL_LIMIT_EXCEEDED,
+                    "The destination staging data exceeds the configured spool size limit.",
+                    retryable=False,
+                )
+            locator = load_session.locator
+            if not isinstance(locator, FoundryUploadLocator):
+                raise ConnectorError(
+                    TransferErrorCode.DESTINATION_NOT_FOUND,
+                    "Foundry destination locator is invalid.",
+                )
+            client = FoundryClient(getattr(self, "_load_credentials", {}), self.settings)
             payload = client.upload_file(locator.dataset_rid, locator.file_name, path)
             size = int(payload.get("sizeBytes") or path.stat().st_size)
             return DestinationManifest(
@@ -458,16 +503,21 @@ class FoundryConnector:
                 ) from exc
             raise
         finally:
-            client.close()
+            if client is not None:
+                client.close()
             self._load_credentials = {}
-            try:
-                path.unlink(missing_ok=True)
-            except OSError:
-                pass
+            self._cleanup_staging(path, chunk_root)
 
     def abort(self, load_session: LoadSession) -> None:
         path = Path(load_session.staging_name)
+        chunk_root_value = load_session.metadata.get("chunk_root")
+        self._cleanup_staging(path, Path(chunk_root_value) if chunk_root_value else None)
+
+    @staticmethod
+    def _cleanup_staging(path: Path, chunk_root: Path | None) -> None:
         try:
             path.unlink(missing_ok=True)
         except OSError:
             pass
+        if chunk_root is not None:
+            shutil.rmtree(chunk_root, ignore_errors=True)
