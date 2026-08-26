@@ -9,6 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -118,8 +119,13 @@ def _credentials_for(db, settings, *, user, provider, snapshot) -> dict[str, str
 
 
 def _cancel_flag(db: Session, run_id: str) -> bool:
-    fresh = db.get(PipelineRun, run_id)
-    return fresh is not None and fresh.cancel_requested_at is not None
+    # ``db.get`` may return the worker's already-loaded PipelineRun from the
+    # identity map. Cancellation is requested by a different transaction, so
+    # read this one scalar directly from the database on every check.
+    return (
+        db.scalar(select(PipelineRun.cancel_requested_at).where(PipelineRun.id == run_id))
+        is not None
+    )
 
 
 def run_worker(*, once: bool = False, poll_seconds: float = 2.0) -> None:

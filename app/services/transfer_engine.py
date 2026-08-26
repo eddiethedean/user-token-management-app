@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from itertools import chain
 
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.connectors.base import ObjectSchema, TransferBatch
+from app.connectors.base import ColumnSchema, ObjectSchema, TransferBatch
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import DefinitionSnapshot
 from app.connectors.registry import connector_for, writer_enabled
@@ -108,85 +109,102 @@ def execute_transfer(
     )
     _demo_stage_pause(settings)
 
-    batches: list[TransferBatch] = []
     extracted_rows = 0
     extracted_bytes = 0
     started = utcnow()
-    for batch in source.extract(
-        source_credentials,
-        snapshot.source,
-        batch_rows=settings.pipeline_batch_rows,
-        batch_bytes=settings.pipeline_batch_target_bytes,
-    ):
-        if cancel_requested():
-            pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
-            return
-        if (utcnow() - started).total_seconds() > settings.pipeline_max_run_seconds:
-            raise ConnectorError(TransferErrorCode.RUN_TIMEOUT, "The run exceeded its time limit.")
-        extracted_rows += batch.row_count
-        extracted_bytes += batch.byte_count
-        if extracted_bytes > settings.pipeline_max_source_bytes:
-            raise ConnectorError(
-                TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
-                "The source exceeded the configured size limit.",
-            )
-        batches.append(batch)
-        pipeline_runs.add_counters(
-            db,
-            run,
-            lease_token=lease_token,
-            source_rows=batch.row_count,
-            source_bytes=batch.byte_count,
+    source_iterator = iter(
+        source.extract(
+            source_credentials,
+            snapshot.source,
+            batch_rows=settings.pipeline_batch_rows,
+            batch_bytes=settings.pipeline_batch_target_bytes,
         )
-        pipeline_runs.append_event(
-            db,
-            run,
-            f"Extracted batch {batch.sequence}: {batch.row_count} rows.",
-            stage="inspect",
-        )
-        db.commit()
-        _demo_stage_pause(settings)
-
+    )
     schema = source_schema
-    if batches:
-        frame = batches[0].frame
-        from app.connectors.base import ColumnSchema
-
-        schema = ObjectSchema(
-            locator=snapshot.source,
-            columns=tuple(
-                ColumnSchema(name=name, data_type=str(dtype), nullable=True)
-                for name, dtype in frame.schema.items()
-            ),
-            primary_key=source_schema.primary_key,
-            unique_constraints=source_schema.unique_constraints,
-        )
-
-    pipeline_runs.transition(
-        db,
-        run,
-        "loading",
-        lease_token=lease_token,
-        message="Starting destination load.",
-    )
-    _demo_stage_pause(settings)
-    session = destination.prepare_destination(
-        destination_credentials,
-        snapshot.destination,
-        schema,
-        snapshot.write_policy,
-        run_id=run.id,
-    )
+    session = None
     try:
-        loaded_rows = 0
+        # Fetch only the first batch before preparing the destination so a
+        # source without portable schema metadata can still define its table.
+        # The remaining batches stay in the iterator and are loaded as they
+        # arrive; retaining the complete source in memory made large runs
+        # exceed the application's bounded-batch contract.
+        first_batch = next(source_iterator, None)
+        if first_batch is not None:
+            if cancel_requested():
+                pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
+                return
+            frame = first_batch.frame
+            schema = ObjectSchema(
+                locator=snapshot.source,
+                columns=tuple(
+                    ColumnSchema(name=name, data_type=str(dtype), nullable=True)
+                    for name, dtype in frame.schema.items()
+                ),
+                primary_key=source_schema.primary_key,
+                unique_constraints=source_schema.unique_constraints,
+            )
+
+        pipeline_runs.transition(
+            db,
+            run,
+            "loading",
+            lease_token=lease_token,
+            message="Starting destination load.",
+        )
+        _demo_stage_pause(settings)
+        session = destination.prepare_destination(
+            destination_credentials,
+            snapshot.destination,
+            schema,
+            snapshot.write_policy,
+            run_id=run.id,
+        )
         loaded_bytes = 0
-        for batch in batches:
+        for batch in chain((first_batch,) if first_batch is not None else (), source_iterator):
             if cancel_requested():
                 destination.abort(session)
                 pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
                 return
+            if (utcnow() - started).total_seconds() > settings.pipeline_max_run_seconds:
+                raise ConnectorError(
+                    TransferErrorCode.RUN_TIMEOUT, "The run exceeded its time limit."
+                )
+            extracted_rows += batch.row_count
+            extracted_bytes += batch.byte_count
+            if extracted_bytes > settings.pipeline_max_source_bytes:
+                raise ConnectorError(
+                    TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
+                    "The source exceeded the configured size limit.",
+                )
+            expected_columns = tuple(column.name for column in schema.columns)
+            actual_columns = tuple(str(name) for name in batch.frame.columns)
+            if set(actual_columns) != set(expected_columns):
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "The source schema changed during extraction.",
+                    retryable=False,
+                )
+            if actual_columns != expected_columns:
+                batch = TransferBatch(
+                    frame=batch.frame.select(list(expected_columns)),
+                    row_count=batch.row_count,
+                    byte_count=batch.byte_count,
+                    sequence=batch.sequence,
+                )
+            pipeline_runs.add_counters(
+                db,
+                run,
+                lease_token=lease_token,
+                source_rows=batch.row_count,
+                source_bytes=batch.byte_count,
+            )
+            pipeline_runs.append_event(
+                db,
+                run,
+                f"Extracted batch {batch.sequence}: {batch.row_count} rows.",
+                stage="inspect",
+            )
             result = destination.write_batch(session, batch)
-            loaded_rows += result.rows_acknowledged
             loaded_bytes += result.bytes_acknowledged
             pipeline_runs.add_counters(
                 db,
@@ -220,7 +238,7 @@ def execute_transfer(
         )
         verification = {
             "source_rows": extracted_rows,
-            "loaded_rows": manifest.rows or loaded_rows,
+            "loaded_rows": manifest.rows,
             "source_bytes": extracted_bytes,
             "loaded_bytes": manifest.bytes or loaded_bytes,
             "destination_rows_before": destination_rows_before,
@@ -272,5 +290,10 @@ def execute_transfer(
             verification=verification,
         )
     except Exception:
-        destination.abort(session)
+        if session is not None:
+            destination.abort(session)
         raise
+    finally:
+        close = getattr(source_iterator, "close", None)
+        if close is not None:
+            close()

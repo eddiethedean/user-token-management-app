@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
 import ssl
+import tempfile
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from urllib.parse import quote, urlsplit
@@ -40,12 +42,31 @@ DEFAULT_BRANCHES = ("master", "main")
 
 def normalize_foundry_base(endpoint: str) -> str:
     raw = endpoint.strip()
-    if raw.startswith("http://"):
-        parsed = urlsplit(raw)
-        host = (parsed.hostname or "").casefold()
-        if host in {"127.0.0.1", "localhost", "::1"}:
-            return f"http://{parsed.netloc}".rstrip("/")
-    raw = raw.replace("https://", "").replace("http://", "").strip("/")
+    parsed = urlsplit(raw)
+    if parsed.scheme.casefold() in {"http", "https"}:
+        try:
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError("Foundry endpoint contains an invalid port.") from exc
+        if (
+            not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or any(character.isspace() for character in raw)
+            or "\\" in raw
+        ):
+            raise ValueError("Foundry endpoint must be a clean HTTP(S) URL.")
+        scheme = parsed.scheme.casefold()
+        host = parsed.hostname.casefold()
+        if scheme == "http" and host not in {"127.0.0.1", "localhost", "::1"}:
+            scheme = "https"
+        path = parsed.path.rstrip("/")
+        return f"{scheme}://{parsed.netloc}{path}"
+    if "://" in raw:
+        raise ValueError("Foundry endpoint must use HTTP or HTTPS.")
+    raw = re.sub(r"^https?://", "", raw, flags=re.IGNORECASE).strip("/")
     return f"https://{raw}"
 
 
@@ -74,7 +95,12 @@ class FoundryClient:
             raise ConnectorError(
                 TransferErrorCode.CREDENTIALS_MISSING, "Foundry endpoint is required."
             )
-        self.base_url = normalize_foundry_base(endpoint)
+        try:
+            self.base_url = normalize_foundry_base(endpoint)
+        except ValueError as exc:
+            raise ConnectorError(
+                TransferErrorCode.CREDENTIALS_MISSING, "The Foundry endpoint is invalid."
+            ) from exc
         assert_host_allowed(host_from_endpoint(endpoint), self.settings)
         token = credentials.get("token", "")
         if not token:
@@ -124,7 +150,7 @@ class FoundryClient:
                 else TransferErrorCode.PROVIDER_UNAVAILABLE
             )
             raise ConnectorError(code, "The Foundry endpoint could not be reached.") from exc
-        if response.status_code >= 400:
+        if not 200 <= response.status_code < 300:
             code = map_http_status(response.status_code, for_destination="/upload" in url)
             raise ConnectorError(code, f"Foundry returned HTTP {response.status_code}.")
         return response
@@ -157,26 +183,39 @@ class FoundryClient:
     def download_file(self, dataset_rid: str, branch: str, path: str, dest: Path) -> int:
         encoded = quote(path, safe="")
         url = f"{self.base_url}/api/v1/datasets/{dataset_rid}/files/{encoded}/content"
-        with self._client.stream(
-            "GET", url, params={"branchName": branch}, headers=self.headers
-        ) as response:
-            if response.status_code >= 400:
-                raise ConnectorError(
-                    map_http_status(response.status_code),
-                    f"Foundry returned HTTP {response.status_code}.",
-                )
-            written = 0
-            max_bytes = self.settings.pipeline_max_source_bytes
-            with dest.open("wb") as handle:
-                for chunk in response.iter_bytes():
-                    written += len(chunk)
-                    if written > max_bytes:
-                        raise ConnectorError(
-                            TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
-                            "The dataset file exceeds the configured source size limit.",
-                        )
-                    handle.write(chunk)
-            return written
+        try:
+            with self._client.stream(
+                "GET", url, params={"branchName": branch}, headers=self.headers
+            ) as response:
+                if not 200 <= response.status_code < 300:
+                    raise ConnectorError(
+                        map_http_status(response.status_code),
+                        f"Foundry returned HTTP {response.status_code}.",
+                    )
+                written = 0
+                max_bytes = self.settings.pipeline_max_source_bytes
+                with dest.open("wb") as handle:
+                    for chunk in response.iter_bytes():
+                        written += len(chunk)
+                        if written > max_bytes:
+                            raise ConnectorError(
+                                TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
+                                "The dataset file exceeds the configured source size limit.",
+                            )
+                        handle.write(chunk)
+                return written
+        except httpx2.TimeoutException as exc:
+            raise ConnectorError(
+                TransferErrorCode.CONNECTION_TIMEOUT, "The Foundry request timed out."
+            ) from exc
+        except httpx2.TransportError as exc:
+            summary = redact_text(str(exc))
+            code = (
+                TransferErrorCode.TLS_FAILED
+                if "ssl" in summary.casefold() or "certificate" in summary.casefold()
+                else TransferErrorCode.PROVIDER_UNAVAILABLE
+            )
+            raise ConnectorError(code, "The Foundry endpoint could not be reached.") from exc
 
     def upload_file(self, dataset_rid: str, file_name: str, path: Path) -> dict:
         url = (
@@ -277,7 +316,7 @@ class FoundryConnector:
                         locator=locator,
                         size_bytes=int(entry.get("sizeBytes") or 0) or None,
                         updated_at=str(entry.get("updatedTime") or ""),
-                        format="parquet" if path.endswith(".parquet") else "csv",
+                        format="parquet" if path.casefold().endswith(".parquet") else "csv",
                     )
                 )
             return CatalogPage(items=tuple(items), cursor=payload.get("nextPageToken"))
@@ -317,26 +356,29 @@ class FoundryConnector:
                     )
             sequence = 1
             yielded = False
-            for path in paths:
-                dest = spool_root / path.replace("/", "_")
-                client.download_file(locator.dataset_rid, branch, path, dest)
-                frame = (
-                    pl.scan_parquet(dest).collect()
-                    if path.endswith(".parquet")
-                    else pl.scan_csv(dest).collect()
-                )
-                start = 0
-                while start < frame.height:
-                    slc = frame.slice(start, batch_rows)
-                    yielded = True
-                    yield TransferBatch(
-                        frame=slc,
-                        row_count=slc.height,
-                        byte_count=int(slc.estimated_size()),
-                        sequence=sequence,
+            with tempfile.TemporaryDirectory(prefix="foundry-extract-", dir=spool_root) as temp_dir:
+                extract_root = Path(temp_dir)
+                for path in paths:
+                    dest = extract_root / path.replace("/", "_")
+                    client.download_file(locator.dataset_rid, branch, path, dest)
+                    scan = (
+                        pl.scan_parquet(dest)
+                        if path.casefold().endswith(".parquet")
+                        else pl.scan_csv(dest)
                     )
-                    start += batch_rows
-                    sequence += 1
+                    for frame in scan.collect_batches(
+                        chunk_size=max(1, batch_rows), maintain_order=True
+                    ):
+                        if frame.height == 0:
+                            continue
+                        yielded = True
+                        yield TransferBatch(
+                            frame=frame,
+                            row_count=frame.height,
+                            byte_count=int(frame.estimated_size()),
+                            sequence=sequence,
+                        )
+                        sequence += 1
             if not yielded:
                 raise ConnectorError(
                     TransferErrorCode.SOURCE_NOT_FOUND, "The dataset has no CSV or Parquet files."
@@ -367,8 +409,18 @@ class FoundryConnector:
         frame: pl.DataFrame = batch.frame
         if path.exists():
             existing = pl.read_parquet(path)
-            frame = pl.concat([existing, frame], how="diagonal_relaxed")
+            if set(existing.columns) != set(frame.columns):
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "The source schema changed during extraction.",
+                    retryable=False,
+                )
+            frame = pl.concat([existing, frame.select(existing.columns)], how="vertical_relaxed")
+        load_session.metadata.setdefault("columns", json.dumps(frame.columns))
         frame.write_parquet(path, compression="snappy")
+        load_session.metadata["rows"] = str(
+            int(load_session.metadata.get("rows", "0")) + batch.row_count
+        )
         return BatchWriteResult(
             rows_acknowledged=batch.row_count, bytes_acknowledged=batch.byte_count
         )
@@ -388,7 +440,8 @@ class FoundryConnector:
             size = int(payload.get("sizeBytes") or path.stat().st_size)
             return DestinationManifest(
                 locator=locator,
-                rows=int(pl.read_parquet(path).height),
+                rows=int(load_session.metadata.get("rows", "0"))
+                or int(pl.read_parquet(path).height),
                 bytes=size,
                 remote_id=str(payload.get("filePath") or locator.file_name),
                 details={"publication": locator.publication},

@@ -13,7 +13,12 @@ import pytest
 from app.config import Settings
 from app.connectors.base import ObjectSchema, TransferBatch
 from app.connectors.errors import TransferErrorCode
-from app.connectors.foundry import FoundryClient, FoundryConnector, supported_files
+from app.connectors.foundry import (
+    FoundryClient,
+    FoundryConnector,
+    normalize_foundry_base,
+    supported_files,
+)
 from app.connectors.locators import FoundryReplaceFilePolicy, FoundryUploadLocator
 from app.connectors.mss import MssConnector
 from app.connectors.registry import load_builtin_connectors, writer_enabled
@@ -39,6 +44,13 @@ def test_supported_files_keep_csv_and_parquet_only() -> None:
     payload = json.loads((FIXTURES / "foundry_list_files.json").read_text(encoding="utf-8"))
     kept = [item["path"] for item in supported_files(payload["data"])]
     assert kept == ["readiness.parquet", "notes.csv"]
+
+
+def test_foundry_endpoint_normalization_handles_case_and_local_http() -> None:
+    assert normalize_foundry_base("HTTPS://foundry.example/base/") == (
+        "https://foundry.example/base"
+    )
+    assert normalize_foundry_base("HTTP://localhost:8765/") == "http://localhost:8765"
 
 
 def test_semblance_list_files_matches_sanitized_fixture() -> None:
@@ -191,13 +203,14 @@ def test_foundry_health_without_rid_is_untested(foundry_sim, tmp_path) -> None:
 
 def test_foundry_health_and_extract_with_default_rid(foundry_sim, tmp_path) -> None:
     parquet = tmp_path / "readiness.parquet"
+    spool = tmp_path / "spool"
     pl.DataFrame({"event_id": [1, 2], "unit_name": ["A", "B"]}).write_parquet(parquet)
     foundry_sim.files = {
         "readiness.parquet": parquet.read_bytes(),
         "notes.csv": b"event_id,unit_name\n1,Alpha\n",
     }
     connector = MssConnector()
-    connector.settings = _settings(tmp_path)
+    connector.settings = _settings(spool)
     credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
     health = connector.test_connection(credentials)
     assert health.status == "connected"
@@ -212,6 +225,7 @@ def test_foundry_health_and_extract_with_default_rid(foundry_sim, tmp_path) -> N
     )
     batches = list(connector.extract(credentials, locator, batch_rows=25, batch_bytes=1024))
     assert batches and batches[0].row_count >= 1
+    assert list(spool.iterdir()) == []
     connector.abort(
         connector.prepare_destination(
             credentials,

@@ -25,7 +25,7 @@ from app.services.pipeline_runs import (
     request_cancel,
     snapshot_from_definition,
 )
-from app.worker import process_one
+from app.worker import _cancel_flag, process_one
 from tests.helpers import csrf_from, web_login
 
 
@@ -137,6 +137,30 @@ def test_cancel_before_claim_marks_run_cancelled(client, demo_connections) -> No
         run = enqueue_run(db, user=user, pipeline=pipeline, snapshot=snapshot)
         cancelled = request_cancel(db, user=user, run_id=run.id)
         assert cancelled.status == PipelineRunStatus.CANCELLED.value
+
+
+def test_worker_cancellation_check_reads_changes_from_another_session(access_app) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        run = PipelineRun(
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            status=PipelineRunStatus.EXTRACTING.value,
+            stage="inspect",
+        )
+        db.add(run)
+        db.commit()
+        run_id = run.id
+
+    with SessionLocal() as worker_db:
+        # Load the run first to reproduce the worker identity-map state.
+        assert worker_db.get(PipelineRun, run_id) is not None
+        with SessionLocal() as request_db:
+            request_user = request_db.get(User, user.id)
+            assert request_user is not None
+            request_cancel(request_db, user=request_user, run_id=run_id)
+        assert _cancel_flag(worker_db, run_id)
 
 
 def test_active_run_monitor_exposes_cancel_control(client, demo_connections) -> None:

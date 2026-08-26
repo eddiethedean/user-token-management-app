@@ -418,16 +418,28 @@ class PostgresConnector:
                         ).format(dest, columns, columns, stage, conflict)
                     )
                 else:
-                    assignments = sql.SQL(", ").join(
-                        sql.SQL("{0} = EXCLUDED.{0}").format(sql.Identifier(name))
-                        for name in load_session.columns
-                        if name not in policy.conflict_columns
-                    )
-                    cursor.execute(
-                        sql.SQL(
-                            "INSERT INTO {} ({}) SELECT {} FROM {} ON CONFLICT ({}) DO UPDATE SET {}"
-                        ).format(dest, columns, columns, stage, conflict, assignments)
-                    )
+                    update_columns = [
+                        name for name in load_session.columns if name not in policy.conflict_columns
+                    ]
+                    if update_columns:
+                        assignments = sql.SQL(", ").join(
+                            sql.SQL("{0} = EXCLUDED.{0}").format(sql.Identifier(name))
+                            for name in update_columns
+                        )
+                        cursor.execute(
+                            sql.SQL(
+                                "INSERT INTO {} ({}) SELECT {} FROM {} ON CONFLICT ({}) DO UPDATE SET {}"
+                            ).format(dest, columns, columns, stage, conflict, assignments)
+                        )
+                    else:
+                        # An upsert whose conflict key contains every column
+                        # has nothing to update. PostgreSQL rejects an empty
+                        # SET clause, so treat it as an idempotent no-op.
+                        cursor.execute(
+                            sql.SQL(
+                                "INSERT INTO {} ({}) SELECT {} FROM {} ON CONFLICT ({}) DO NOTHING"
+                            ).format(dest, columns, columns, stage, conflict)
+                        )
                 loaded = cursor.rowcount
             else:
                 cursor.execute(sql.SQL("DELETE FROM {}").format(dest))

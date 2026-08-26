@@ -59,8 +59,24 @@ class CredentialValidator:
         endpoint = credentials.get("endpoint", "")
         if endpoint:
             parsed = urlsplit(endpoint)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise ValueError("API endpoint must be a complete HTTP or HTTPS URL.")
+            try:
+                port = parsed.port
+            except ValueError as exc:
+                raise ValueError("API endpoint contains an invalid port.") from exc
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+                or "\\" in endpoint
+                or any(character.isspace() for character in endpoint)
+                or (port is not None and not 1 <= port <= 65535)
+            ):
+                raise ValueError(
+                    "API endpoint must be a complete HTTP or HTTPS URL without credentials, query, or fragment."
+                )
 
     @staticmethod
     def _validate_host(credentials: Mapping[str, str]) -> None:

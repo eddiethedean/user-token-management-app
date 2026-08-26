@@ -37,6 +37,18 @@ def test_credential_validator_normalizes_non_secret_fields() -> None:
     [
         ({"endpoint": "ftp://mss.example", "token": "secure-token-42"}, "HTTP or HTTPS"),
         ({"endpoint": "https://mss.example", "token": "short"}, "at least 8"),
+        (
+            {"endpoint": "https://user:password@mss.example", "token": "secure-token-42"},
+            "without credentials",
+        ),
+        (
+            {"endpoint": "https://mss.example?tenant=secret", "token": "secure-token-42"},
+            "without credentials",
+        ),
+        (
+            {"endpoint": "https://mss.example:99999", "token": "secure-token-42"},
+            "invalid port",
+        ),
     ],
 )
 def test_credential_validator_rejects_invalid_values(

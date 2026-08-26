@@ -5,7 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${PROJECT_ROOT}"
 
-PYTHON_BIN="${PYTHON_BIN:-python}"
+if [[ -n "${PYTHON_BIN:-}" ]]; then
+  : "${PYTHON_BIN}"
+elif [[ -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
+  PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python"
+else
+  PYTHON_BIN="python"
+fi
 DEMO_HOST="${DEMO_HOST:-127.0.0.1}"
 DEMO_PORT="${DEMO_PORT:-8765}"
 DEMO_PUBLIC_URL="${DEMO_PUBLIC_URL:-http://127.0.0.1:${DEMO_PORT}}"
