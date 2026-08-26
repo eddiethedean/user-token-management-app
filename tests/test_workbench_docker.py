@@ -282,7 +282,7 @@ def test_app_login_page_under_session_mount(workbench_stack) -> None:
     )
     assert response.status_code == 200
     assert "Sign in" in response.text
-    assert 'href="/s/docker-session/p/8000/assets/theme.css?v=2"' in response.text
+    assert 'href="/s/docker-session/p/8000/assets/theme.css?v=5"' in response.text
     assert "/s/docker-session/p/8000/hedron-static/" in response.text
     cookie = response.headers.get("set-cookie", "")
     assert "Path=/s/docker-session/p/8000" in cookie

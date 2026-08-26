@@ -11,6 +11,11 @@ body {
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
+.data-mover-brand .hedron-brand-mark {
+  inline-size: 3rem;
+  block-size: 3rem;
+}
+
 .hedron-page-header-title {
   letter-spacing: -0.045em;
 }
@@ -45,6 +50,184 @@ body {
 
 [data-hedron-mark="color-mode-toggle"] input:checked::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M19 15.5A8 8 0 0 1 8.5 5 8 8 0 1 0 19 15.5Z' fill='%237c86ff'/%3E%3C/svg%3E");
+}
+
+/* AccountSummary provides the semantic identity structure. Keep its avatar,
+ * two-line identity, and action visually distinct in the desktop header. */
+.data-mover-account-summary {
+  gap: var(--hedron-space-3, 0.75rem);
+  padding-inline-start: var(--hedron-space-3, 0.75rem);
+  border-inline-start: 1px solid var(--hedron-color-border, var(--hedron-default-border));
+}
+
+.data-mover-account-summary .hedron-account-mark {
+  flex: 0 0 auto;
+}
+
+.data-mover-account-summary .hedron-account-copy {
+  display: grid;
+  min-inline-size: 0;
+  max-inline-size: 15rem;
+  gap: var(--hedron-space-1, 0.25rem);
+  line-height: 1.15;
+}
+
+.data-mover-account-summary .hedron-account-name {
+  display: block;
+  font-size: var(--hedron-type-supporting-size, 0.875rem);
+  font-weight: 700;
+}
+
+.data-mover-account-summary .hedron-account-detail {
+  display: block;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--hedron-color-muted, var(--hedron-default-muted, GrayText));
+  font-size: var(--hedron-type-metadata-size, 0.75rem);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-mover-account-summary > form {
+  margin-inline-start: var(--hedron-space-1, 0.25rem);
+}
+
+/* Hedron publishes AppShell's collapsed state as part of its presentation
+ * vocabulary. This desktop rail keeps the native navigation structure and
+ * reduces each route to its existing numeric marker. */
+.hedron-app-shell {
+  transition: grid-template-columns var(--hedron-motion-emphasized, 300ms);
+}
+
+.data-mover-nav-toggle-row {
+  position: absolute;
+  z-index: 1;
+  inset-block-start: var(--hedron-space-2, 0.5rem);
+  inset-inline-end: var(--hedron-space-2, 0.5rem);
+  display: flex;
+}
+
+.data-mover-nav-toggle-row + .hedron-nav-group > .hedron-nav-group-label {
+  padding-inline-end: 2.75rem;
+}
+
+.data-mover-nav-toggle {
+  inline-size: 2rem;
+  min-block-size: 2rem;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--hedron-color-muted, var(--hedron-default-muted));
+  font-size: 1.25rem;
+  box-shadow: none;
+}
+
+.data-mover-nav-toggle > span {
+  display: block;
+  color: inherit;
+  font-size: 1.4rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.data-mover-nav-toggle:hover {
+  border-color: transparent;
+  background: var(--hedron-color-surface-muted, var(--hedron-default-surface-muted));
+  color: var(--hedron-color-fg, var(--hedron-default-fg));
+  transform: none;
+}
+
+.data-mover-side-nav .hedron-icon {
+  display: none;
+}
+
+.hedron-app-shell[data-nav-collapsed="true"] {
+  grid-template-columns: 4rem minmax(0, 1fr);
+  column-gap: var(--hedron-space-4, 1rem);
+}
+
+.hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav {
+  padding-inline: var(--hedron-space-2, 0.5rem);
+}
+
+.hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-toggle-row {
+  inset-inline-start: 50%;
+  inset-inline-end: auto;
+  transform: translateX(-50%);
+}
+
+.hedron-app-shell[data-nav-collapsed="true"]
+  .data-mover-nav-toggle-row
+  + .hedron-nav-group {
+  padding-block-start: 2.25rem;
+}
+
+.hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-group-label,
+.hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav > :last-child {
+  display: none;
+}
+
+.hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-item {
+  position: relative;
+}
+
+.hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-item .hedron-nav-link {
+  justify-content: center;
+  padding-inline: var(--hedron-space-1, 0.25rem);
+}
+
+.hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav .hedron-icon {
+  display: inline-flex;
+}
+
+.hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-link-label {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hedron-app-shell {
+    transition: none;
+  }
+}
+
+@media print {
+  .data-mover-nav-toggle-row {
+    display: none;
+  }
+
+  .hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-group-label,
+  .hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav > :last-child {
+    display: initial;
+  }
+
+  .hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-item .hedron-nav-link {
+    justify-content: flex-start;
+    font-size: inherit;
+  }
+
+  .hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav .hedron-icon {
+    display: none;
+  }
+
+  .hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-link-label {
+    position: static;
+    inline-size: auto;
+    block-size: auto;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    clip-path: none;
+    white-space: normal;
+  }
 }
 
 /* Preserve the official gold artwork while keeping its fine lines legible on

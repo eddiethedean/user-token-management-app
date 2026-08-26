@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import cast
 
 from fastapi import Request, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from hedron import Hedron
+from hedron.htmx import is_htmx_request
 from hedron_posit import HedronPosit
 
 from app.dependencies import Auth, DbSession, OptionalAuth, RequireCsrf, SettingsDep
@@ -62,9 +63,13 @@ def register_routes(app: Hedron) -> None:
             "path": path,
             "max_age": UI_PREFERENCE_MAX_AGE,
         }
-        response = RedirectResponse(
-            cast(HedronPosit, request.app).href(safe_next(next), request=request),
-            status_code=status.HTTP_303_SEE_OTHER,
+        response = (
+            Response(status_code=status.HTTP_204_NO_CONTENT)
+            if is_htmx_request(request)
+            else RedirectResponse(
+                cast(HedronPosit, request.app).href(safe_next(next), request=request),
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
         )
         response.set_cookie(THEME_COOKIE, preference.theme, **common)
         set_color_mode_cookie(

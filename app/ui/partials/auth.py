@@ -258,7 +258,14 @@ def render_login_page(
         ),
         max_width="lg",
     )
-    page = app_shell(layout, request=request, settings=settings, auth=None, page_title="Sign in")
+    page = app_shell(
+        layout,
+        request=request,
+        settings=settings,
+        auth=None,
+        page_title="Sign in",
+        default_color_mode="dark",
+    )
     response = render_page(page, request=request, status_code=status_code)
     set_preauth_csrf_cookie(response, request, preauth, settings)
     return response

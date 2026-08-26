@@ -81,13 +81,18 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=2"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=2"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=5"')
     assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=6"')
+    assert_html_contains(response, 'src="/assets/app.js?v=5"')
     assert_html_contains(
         response,
         'type="image/png" href="/assets/brand/data-mover-mark.png" rel="icon"',
     )
-    assert_html_contains(response, 'src="/assets/brand/data-mover-mark-light.png"')
+    assert_html_contains(response, 'data-theme="dark"')
+    assert_html_contains(response, 'name="color-scheme" content="dark"')
+    assert_html_contains(response, 'src="/assets/brand/data-mover-mark-dark.png"')
+    assert_html_contains(response, 'class="hedron-brand data-mover-brand"')
+    assert_html_contains(response, 'width="48"')
     assert_html_contains(response, 'src="/assets/brand/cdao-mark.png"')
     assert_html_contains(response, "Chief Digital and Artificial Intelligence Office")
     assert_html_contains(response, 'data-hedron-max-width="lg"')
@@ -97,6 +102,10 @@ def test_login_page_document(access_app) -> None:
 
     dark = fixture.get("/login", cookies={"data_mover_color_mode": "dark"})
     assert_html_contains(dark, 'src="/assets/brand/data-mover-mark-dark.png"')
+
+    light = fixture.get("/login", cookies={"data_mover_color_mode": "light"})
+    assert_html_contains(light, 'data-theme="light"')
+    assert_html_contains(light, 'src="/assets/brand/data-mover-mark-light.png"')
 
 
 def test_hedron_component_bundles_are_served(access_app) -> None:
@@ -325,10 +334,16 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
     assert ">Dark mode</label>" in signed_in.text
     assert ">Appearance<" not in signed_in.text
     assert 'type="checkbox" name="dark_mode"' in signed_in.text
-    assert (
-        'name="dark_mode"' in signed_in.text
-        and " checked" not in signed_in.text.split('name="dark_mode"', 1)[1].split(">", 1)[0]
-    )
+    assert 'data-color-mode-form="true"' in signed_in.text
+    assert 'hx-post="/preferences/theme"' in signed_in.text
+    assert 'hx-swap="none"' in signed_in.text
+    assert 'class="hedron-account-summary data-mover-account-summary"' in signed_in.text
+    assert 'class="hedron-account-copy"' in signed_in.text
+    assert 'data-hedron-mark-size="lg"' in signed_in.text
+    assert 'data-hedron-mark-shape="circle"' in signed_in.text
+    initial_switch = signed_in.text.split('name="dark_mode"', 1)[1].split(">", 1)[0]
+    assert 'data-theme="dark"' in signed_in.text
+    assert " checked" in initial_switch
     assert 'type="hidden" name="next" value="/profile"' in signed_in.text
 
     switched = client.post(
@@ -336,23 +351,22 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
         data={
             "csrf_token": csrf,
             "theme": "data-mover",
-            "dark_mode": "on",
             "next": "/profile",
         },
+        headers={"HX-Request": "true"},
         follow_redirects=False,
     )
 
-    assert switched.status_code == 303
-    assert_redirect_path(switched, "/profile")
-    dark_profile = client.get("/profile")
-    assert 'data-theme="dark"' in dark_profile.text
-    dark_switch = dark_profile.text.split('name="dark_mode"', 1)[1].split(">", 1)[0]
-    assert " checked" in dark_switch
-    assert 'aria-checked="true"' in dark_profile.text
+    assert switched.status_code == 204
+    light_profile = client.get("/profile")
+    assert 'data-theme="light"' in light_profile.text
+    light_switch = light_profile.text.split('name="dark_mode"', 1)[1].split(">", 1)[0]
+    assert " checked" not in light_switch
+    assert 'aria-checked="false"' in light_profile.text
 
     logged_out = client.post(
         "/logout",
-        data={"csrf_token": _session_csrf(dark_profile.text)},
+        data={"csrf_token": _session_csrf(light_profile.text)},
         follow_redirects=False,
     )
     assert logged_out.status_code == 303
@@ -370,8 +384,8 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
         follow_redirects=True,
     )
     restored_switch = restored.text.split('name="dark_mode"', 1)[1].split(">", 1)[0]
-    assert 'data-theme="dark"' in restored.text
-    assert " checked" in restored_switch
+    assert 'data-theme="light"' in restored.text
+    assert " checked" not in restored_switch
 
 
 def test_htmx_profile_update_returns_fragment(access_app) -> None:
@@ -646,6 +660,14 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, 'id="main-panel"')
     assert_html_contains(profile, 'id="hedron-toast"')
     assert_html_contains(profile, 'id="side-nav"')
+    assert_html_contains(profile, 'class="hedron-app-shell-nav data-mover-side-nav"')
+    assert_html_contains(profile, 'id="side-nav-toggle"')
+    assert_html_contains(profile, 'aria-label="Collapse navigation"')
+    assert_html_contains(profile, 'data-hedron-icon="data-mover-pipeline"')
+    assert_html_contains(profile, 'data-hedron-icon="data-mover-connections"')
+    assert_html_contains(profile, 'data-hedron-icon="data-mover-account"')
+    assert_html_contains(profile, 'data-hedron-icon="data-mover-team"')
+    assert_html_contains(profile, 'data-hedron-icon="data-mover-activity"')
     assert_html_contains(profile, 'hx-target="#main-panel"')
     assert_html_contains(profile, 'hx-select="#main-panel"')
     assert_html_contains(profile, 'hx-push-url="true"')
@@ -707,6 +729,7 @@ def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:
     assert_fragment_body(adapter, contains="main-panel")
     assert_html_contains(adapter, "security-tabs")
     assert_html_contains(adapter, "hx-swap-oob")
+    assert_html_contains(adapter, 'id="side-nav-toggle"')
     assert "<!doctype" not in security.text.lower()
     assert security.headers.get("HX-Push-Url")
 

@@ -21,6 +21,7 @@ from hedron import (
     Fragment,
     Header,
     HtmxLink,
+    IconButton,
     Image,
     Inline,
     Nav,
@@ -55,7 +56,8 @@ from app.dependencies import AuthContext
 from app.ui.design_system import APP_SHELL_NAV_STYLE_CLASS
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import csrf_hidden, submit_button
-from app.ui.urls import asset_href, asset_src, form_action, page_href
+from app.ui.icons import NAV_ICONS
+from app.ui.urls import asset_href, asset_src, form_action, hx_attrs, page_href
 
 INDICATOR = "#global-request-indicator"
 THEME_COOKIE = "data_mover_theme"
@@ -71,12 +73,16 @@ HTMX_CONFIG = (
 )
 
 
-def theme_preference_for_request(request: Request) -> ThemePreference:
+def theme_preference_for_request(
+    request: Request,
+    *,
+    default_color_mode: str = "light",
+) -> ThemePreference:
     """Resolve the allowlisted Hedron 0.66.1 light/dark preference."""
 
     color_mode = request.cookies.get(COLOR_MODE_COOKIE)
     if color_mode not in {"light", "dark"}:
-        color_mode = "light"
+        color_mode = default_color_mode if default_color_mode in {"light", "dark"} else "light"
 
     return resolve_theme_preference(
         request.cookies.get(THEME_COOKIE),
@@ -149,7 +155,7 @@ def document_head(
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=2"),
+                href=asset_href(request, "/assets/theme.css?v=5"),
             )
         )
         nodes.append(
@@ -185,6 +191,13 @@ def color_mode_toggle(request: Request, *, csrf_token: str) -> NodeLike:
         html.noscript(submit_button("Apply mode", quiet=True, size="sm")),
         action=form_action(request, "/preferences/theme"),
         method="post",
+        data={"color-mode-form": "true"},
+        **hx_attrs(
+            request,
+            method="post",
+            path="/preferences/theme",
+            swap="none",
+        ),
     )
 
 
@@ -200,8 +213,8 @@ def account_summary(
         user.full_name or user.email_original,
         detail=user.email_original if user.full_name else None,
         mark_text=(user.full_name or user.email_original or "?")[:1].upper(),
-        mark_size="md",
-        mark_shape="rounded",
+        mark_size="lg",
+        mark_shape="circle",
         mark_tone="accent",
         action=ActionGroup(
             html.form(
@@ -214,6 +227,7 @@ def account_summary(
             collapse="never",
         ),
         id="account-summary",
+        class_="data-mover-account-summary",
         attrs=attrs,
     )
 
@@ -222,37 +236,56 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
     path = get_route_path(request.scope)
     normalized = path.rstrip("/") or "/"
 
-    def link(href: str, number: str, label: str) -> NodeLike:
+    def link(href: str, number: str, label: str, *, icon: str) -> NodeLike:
         href_norm = href.rstrip("/") or "/"
         active = (
             "active" if normalized == href_norm or normalized.startswith(f"{href_norm}/") else ""
         )
-        return HtmxLink(
-            f"{number} · {label}",
-            page_href(request, href),
-            target="#main-panel",
-            swap="outerHTML",
-            push_url=True,
-            select="#main-panel",
-            disabled_elt="#side-nav",
-            indicator=INDICATOR,
-            preload="mouseover",
-            active=bool(active),
-            class_=APP_SHELL_NAV_STYLE_CLASS,
+        return html.div(
+            HtmxLink(
+                f"{number} · {label}",
+                page_href(request, href),
+                target="#main-panel",
+                swap="outerHTML",
+                push_url=True,
+                select="#main-panel",
+                disabled_elt="#side-nav",
+                indicator=INDICATOR,
+                preload="mouseover",
+                active=bool(active),
+                class_=APP_SHELL_NAV_STYLE_CLASS,
+                leading_icon=NAV_ICONS[icon],
+            ),
+            class_="data-mover-nav-item",
+            title=label,
         )
 
     workspace = [
-        link("/pipeline", "01", "Pipeline"),
-        link("/security", "02", "Connections"),
-        link("/profile", "03", "Account"),
+        link("/pipeline", "01", "Pipeline", icon="pipeline"),
+        link("/security", "02", "Connections", icon="connections"),
+        link("/profile", "03", "Account", icon="account"),
     ]
-    children: list[NodeLike] = [NavGroup("Workspace", *workspace)]
+    children: list[NodeLike] = [
+        html.div(
+            IconButton(
+                "Collapse navigation",
+                icon="‹",
+                size="sm",
+                appearance="ghost",
+                emphasis="neutral",
+                id="side-nav-toggle",
+                class_="data-mover-nav-toggle",
+            ),
+            class_="data-mover-nav-toggle-row",
+        ),
+        NavGroup("Workspace", *workspace),
+    ]
     if "administrator" in auth.user.role_names:
         children.append(
             NavGroup(
                 "Administration",
-                link("/admin/users", "04", "Team"),
-                link("/admin/audit", "05", "Activity"),
+                link("/admin/users", "04", "Team", icon="team"),
+                link("/admin/audit", "05", "Activity", icon="activity"),
             )
         )
     return children
@@ -263,6 +296,7 @@ def side_nav(request: Request, auth: AuthContext) -> Nav:
     return Nav(
         *side_nav_children(request, auth),
         id="side-nav",
+        class_="data-mover-side-nav",
         aria={"label": "Account navigation"},
     )
 
@@ -308,16 +342,16 @@ def data_mover_mark(request: Request, preference: ThemePreference) -> NodeLike:
     light_src = asset_src(request, "/assets/brand/data-mover-mark-light.png")
     dark_src = asset_src(request, "/assets/brand/data-mover-mark-dark.png")
     if preference.color_mode == "dark":
-        return Image(dark_src, alt="", width=36)
+        return Image(dark_src, alt="", width=48)
     if preference.color_mode == "light":
-        return Image(light_src, alt="", width=36)
+        return Image(light_src, alt="", width=48)
     return html.picture(
         html.source(
             srcset=dark_src,
             media="(prefers-color-scheme: dark)",
             type="image/png",
         ),
-        Image(light_src, alt="", width=36),
+        Image(light_src, alt="", width=48),
     )
 
 
@@ -328,8 +362,12 @@ def app_shell(
     auth: AuthContext | None,
     page_title: str,
     csrf_token: str = "",
+    default_color_mode: str = "light",
 ) -> Page:
-    preference = theme_preference_for_request(request)
+    preference = theme_preference_for_request(
+        request,
+        default_color_mode=default_color_mode,
+    )
     markers = theme_markers(preference)
     brand = Brand(
         settings.app_name,
@@ -341,6 +379,7 @@ def app_shell(
         subtitle_overflow="truncate",
         href=page_href(request, "/"),
         aria={"label": f"{settings.app_name} home"},
+        class_="data-mover-brand",
     )
     cdao_identity = Inline(
         html.span(

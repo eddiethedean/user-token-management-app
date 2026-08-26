@@ -56,7 +56,11 @@ class User(Base):
     organization: Mapped[str] = mapped_column(String(160), default="")
     job_title: Mapped[str] = mapped_column(String(160), default="")
     phone: Mapped[str] = mapped_column(String(40), default="")
-    preferred_color_mode: Mapped[str] = mapped_column(String(10), default="light")
+    preferred_color_mode: Mapped[str] = mapped_column(
+        String(10),
+        default="dark",
+        server_default="dark",
+    )
     status: Mapped[str] = mapped_column(String(20), default=UserStatus.PENDING.value, index=True)
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

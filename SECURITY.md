@@ -859,10 +859,10 @@ eavesdropping, injection, and replay.
 
 **Status:** Versioned schema control implemented; production operation is a deployment control.
 
-**Decision:** Eleven ordered Alembic revisions create the baseline, self-registration, shared
+**Decision:** Twelve ordered Alembic revisions create the baseline, self-registration, shared
 rate-limit, user credential, atomic-token/email-worker, encryption-key-usage, saved-pipeline,
-catalog/connection-health, CSV-source, real-transfer-run, and user-color-mode schemas. Application
-startup verifies the current revision and refuses to serve a stale or unversioned schema;
+catalog/connection-health, CSV-source, real-transfer-run, user-color-mode, and dark-mode-default
+schemas. Application startup verifies the current revision and refuses to serve a stale or unversioned schema;
 `python -m app migrate` is an explicit release action. Legacy `create_all()` databases require the
 explicit `--adopt-existing` path, which verifies known table/column shapes before stamping and
 upgrading. Administrator bootstrap is a separate `create-admin` command and is never migration

@@ -110,6 +110,7 @@ def test_registration_verify_approve_and_sign_in(client) -> None:
         user = db.scalar(select(User).where(User.email == REGISTRATION_EMAIL))
         assert user is not None
         assert user.status == UserStatus.PENDING.value
+        assert user.preferred_color_mode == "dark"
         user_id = user.id
 
     web_login(client, next_path="/admin/users")
