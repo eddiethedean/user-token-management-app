@@ -155,7 +155,7 @@ def document_head(
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=5"),
+                href=asset_href(request, "/assets/theme.css?v=6"),
             )
         )
         nodes.append(
@@ -236,14 +236,14 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
     path = get_route_path(request.scope)
     normalized = path.rstrip("/") or "/"
 
-    def link(href: str, number: str, label: str, *, icon: str) -> NodeLike:
+    def link(href: str, label: str, *, icon: str) -> NodeLike:
         href_norm = href.rstrip("/") or "/"
         active = (
             "active" if normalized == href_norm or normalized.startswith(f"{href_norm}/") else ""
         )
         return html.div(
             HtmxLink(
-                f"{number} · {label}",
+                label,
                 page_href(request, href),
                 target="#main-panel",
                 swap="outerHTML",
@@ -261,9 +261,9 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
         )
 
     workspace = [
-        link("/pipeline", "01", "Pipeline", icon="pipeline"),
-        link("/security", "02", "Connections", icon="connections"),
-        link("/profile", "03", "Account", icon="account"),
+        link("/pipeline", "Pipeline", icon="pipeline"),
+        link("/security", "Connections", icon="connections"),
+        link("/profile", "Account", icon="account"),
     ]
     children: list[NodeLike] = [
         html.div(
@@ -284,8 +284,8 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
         children.append(
             NavGroup(
                 "Administration",
-                link("/admin/users", "04", "Team", icon="team"),
-                link("/admin/audit", "05", "Activity", icon="activity"),
+                link("/admin/users", "Team", icon="team"),
+                link("/admin/audit", "Activity", icon="activity"),
             )
         )
     return children

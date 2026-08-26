@@ -81,7 +81,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=2"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=5"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=6"')
     assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=6"')
     assert_html_contains(response, 'src="/assets/app.js?v=5"')
     assert_html_contains(
@@ -668,6 +668,11 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, 'data-hedron-icon="data-mover-account"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-team"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-activity"')
+    assert "01 · Pipeline" not in profile.body
+    assert "02 · Connections" not in profile.body
+    assert "03 · Account" not in profile.body
+    assert "04 · Team" not in profile.body
+    assert "05 · Activity" not in profile.body
     assert_html_contains(profile, 'hx-target="#main-panel"')
     assert_html_contains(profile, 'hx-select="#main-panel"')
     assert_html_contains(profile, 'hx-push-url="true"')

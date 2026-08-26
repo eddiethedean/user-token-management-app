@@ -53,10 +53,11 @@ pipeline worker contacts configured providers.
 
 ## Screenshots
 
-These full-page desktop screenshots were captured from the local `make demo` environment. Demo
-connectors are simulated, remote endpoints are not contacted, and the images contain no real
-credentials. Each capture includes the shell, navigation, primary content, controls, status details,
-and footer so the complete workflow is visible without relying on a cropped viewport.
+These desktop screenshots were captured from the local `make demo` environment. Demo connectors
+are simulated, remote endpoints are not contacted, and the images contain no real credentials. The
+workflow captures are full-page; the collapsed-navigation view uses a fixed desktop viewport to make
+the rail behavior easy to compare. Together they show the shell, navigation, primary content,
+controls, status details, and footer.
 
 ### Pipeline workspace
 
@@ -65,6 +66,15 @@ and footer so the complete workflow is visible without relying on a cropped view
 The Pipeline workspace combines route setup, saved routes, and live transfer monitoring. The live
 view shows the source and destination, transfer progress, stage completion, row/byte counters, and
 the persisted event feed that operators can use to understand what happened during a run.
+
+### Collapsed navigation
+
+![Data Mover Pipeline workspace with the desktop navigation collapsed to stable icon links for Pipeline, Connections, Account, Team, and Activity](docs/screenshots/navigation-collapsed.jpg)
+
+The desktop rail collapses to the same five route icons used in the expanded navigation. Their
+position and active-state treatment remain fixed while only the visible text labels are removed;
+accessible link names remain available to assistive technology, and the browser remembers the rail
+preference between visits.
 
 ### Connection status
 

@@ -94,8 +94,8 @@ body {
 }
 
 /* Hedron publishes AppShell's collapsed state as part of its presentation
- * vocabulary. This desktop rail keeps the native navigation structure and
- * reduces each route to its existing numeric marker. */
+ * vocabulary. Each route keeps the same icon and horizontal anchor in both
+ * states; collapsing only hides the text label. */
 .hedron-app-shell {
   transition: grid-template-columns var(--hedron-motion-emphasized, 300ms);
 }
@@ -139,16 +139,13 @@ body {
 }
 
 .data-mover-side-nav .hedron-icon {
-  display: none;
+  display: inline-flex;
+  flex: 0 0 auto;
 }
 
 .hedron-app-shell[data-nav-collapsed="true"] {
   grid-template-columns: 4rem minmax(0, 1fr);
   column-gap: var(--hedron-space-4, 1rem);
-}
-
-.hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav {
-  padding-inline: var(--hedron-space-2, 0.5rem);
 }
 
 .hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-toggle-row {
@@ -173,12 +170,11 @@ body {
 }
 
 .hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-item .hedron-nav-link {
-  justify-content: center;
-  padding-inline: var(--hedron-space-1, 0.25rem);
+  justify-content: flex-start;
 }
 
 .hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav .hedron-icon {
-  display: inline-flex;
+  margin-inline-end: 0;
 }
 
 .hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-link-label {
@@ -212,10 +208,6 @@ body {
   .hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-item .hedron-nav-link {
     justify-content: flex-start;
     font-size: inherit;
-  }
-
-  .hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav .hedron-icon {
-    display: none;
   }
 
   .hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-link-label {
