@@ -155,7 +155,7 @@ def document_head(
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=6"),
+                href=asset_href(request, "/assets/theme.css?v=7"),
             )
         )
         nodes.append(

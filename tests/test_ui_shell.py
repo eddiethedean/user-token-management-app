@@ -81,7 +81,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=2"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=6"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=7"')
     assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=6"')
     assert_html_contains(response, 'src="/assets/app.js?v=5"')
     assert_html_contains(
@@ -139,6 +139,9 @@ def test_hedron_component_bundles_are_served(access_app) -> None:
     assert ".hedron-app-shell-nav" not in theme.body
     assert ".hedron-card::before" not in theme.body
     assert '[data-hedron-mark="color-mode-toggle"] input::before' in theme.body
+    assert "contain: inline-size" in theme.body
+    assert "border-block-start: 1px solid" in theme.body
+    assert "color: transparent" in theme.body
     assert "stroke='%23b66a00'" in theme.body
     assert "fill='%237c86ff'" in theme.body
     desktop_styles = fixture.get("/app-assets/hedron-desktop.css")

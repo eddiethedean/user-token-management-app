@@ -154,15 +154,48 @@ body {
   transform: translateX(-50%);
 }
 
-.hedron-app-shell[data-nav-collapsed="true"]
-  .data-mover-nav-toggle-row
-  + .hedron-nav-group {
-  padding-block-start: 2.25rem;
+.hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav > .hedron-nav-group {
+  min-inline-size: 0;
 }
 
-.hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-group-label,
+.hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-group-label {
+  contain: inline-size;
+  min-inline-size: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
 .hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav > :last-child {
   display: none;
+}
+
+.hedron-app-shell[data-nav-collapsed="true"]
+  .data-mover-nav-toggle-row
+  + .hedron-nav-group
+  > .hedron-nav-group-label {
+  visibility: hidden;
+}
+
+.hedron-app-shell[data-nav-collapsed="true"]
+  .data-mover-side-nav
+  > .hedron-nav-group
+  + .hedron-nav-group
+  > .hedron-nav-group-label {
+  position: relative;
+  color: transparent;
+  user-select: none;
+}
+
+.hedron-app-shell[data-nav-collapsed="true"]
+  .data-mover-side-nav
+  > .hedron-nav-group
+  + .hedron-nav-group
+  > .hedron-nav-group-label::after {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline: var(--hedron-space-1, 0.25rem);
+  border-block-start: 1px solid var(--hedron-color-border, var(--hedron-default-border));
+  content: "";
 }
 
 .hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-item {
@@ -170,6 +203,11 @@ body {
 }
 
 .hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-item .hedron-nav-link {
+  box-sizing: border-box;
+  inline-size: calc(
+    4rem - 2px - var(--hedron-space-3, 0.75rem) - var(--hedron-space-3, 0.75rem)
+  );
+  min-inline-size: 0;
   justify-content: flex-start;
 }
 
@@ -200,12 +238,29 @@ body {
     display: none;
   }
 
-  .hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-group-label,
   .hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav > :last-child {
     display: initial;
   }
 
+  .hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-group-label {
+    contain: none;
+    overflow: visible;
+    visibility: visible;
+    color: inherit;
+    user-select: auto;
+    white-space: normal;
+  }
+
+  .hedron-app-shell[data-nav-collapsed="true"]
+    .data-mover-side-nav
+    > .hedron-nav-group
+    + .hedron-nav-group
+    > .hedron-nav-group-label::after {
+    display: none;
+  }
+
   .hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-item .hedron-nav-link {
+    inline-size: auto;
     justify-content: flex-start;
     font-size: inherit;
   }
