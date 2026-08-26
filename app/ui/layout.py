@@ -9,7 +9,7 @@ from hedron import (
     AccountSummary,
     ActionGroup,
     Alert,
-    AmbientBackdrop,
+    AmbientCanvas,
     AmbientLayer,
     AppFooter,
     AppShell,
@@ -19,18 +19,20 @@ from hedron import (
     Container,
     EnvironmentBanner,
     Fragment,
+    Header,
     HtmxLink,
+    Image,
     Inline,
     Nav,
     NavGroup,
     NavStatus,
     OobUpdate,
     Page,
-    PageHeader,
     Popover,
     Section,
     Stack,
     StyleScope,
+    Surface,
     Text,
     ThemePicker,
     html,
@@ -49,8 +51,10 @@ from hedron_core.builtins import (
 
 from app.config import Settings
 from app.dependencies import AuthContext
+from app.ui.design_system import APP_SHELL_NAV_STYLE_CLASS
+from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import csrf_hidden, submit_button
-from app.ui.urls import asset_href, form_action, page_href
+from app.ui.urls import asset_href, asset_src, form_action, page_href
 
 INDICATOR = "#global-request-indicator"
 THEME_COOKIE = "data_mover_theme"
@@ -93,6 +97,11 @@ def document_head(
         html.meta(name="htmx-config", content=HTMX_CONFIG),
         html.title(title),
         html.link(
+            rel="icon",
+            type="image/png",
+            href=asset_href(request, "/assets/brand/data-mover-mark.png"),
+        ),
+        html.link(
             rel="stylesheet",
             href=asset_href(request, "/app-assets/hedron-desktop.css?v=2"),
         ),
@@ -107,7 +116,7 @@ def document_head(
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/app-assets/data-mover-components.css"),
+                href=asset_href(request, "/app-assets/data-mover-components.css?v=6"),
             )
         )
     return Fragment(*nodes)
@@ -194,6 +203,7 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
             indicator=INDICATOR,
             preload="mouseover",
             active=bool(active),
+            class_=APP_SHELL_NAV_STYLE_CLASS,
         )
 
     workspace = [
@@ -257,6 +267,25 @@ def dialog_host() -> NodeLike:
     return html.div(id="dialog-host")
 
 
+def data_mover_mark(request: Request, preference: ThemePreference) -> NodeLike:
+    """Render the theme-matched product mark, including system-mode selection."""
+
+    light_src = asset_src(request, "/assets/brand/data-mover-mark-light.png")
+    dark_src = asset_src(request, "/assets/brand/data-mover-mark-dark.png")
+    if preference.color_mode == "dark":
+        return Image(dark_src, alt="", width=36)
+    if preference.color_mode == "light":
+        return Image(light_src, alt="", width=36)
+    return html.picture(
+        html.source(
+            srcset=dark_src,
+            media="(prefers-color-scheme: dark)",
+            type="image/png",
+        ),
+        Image(light_src, alt="", width=36),
+    )
+
+
 def app_shell(
     *body: NodeLike,
     request: Request,
@@ -269,14 +298,27 @@ def app_shell(
     markers = theme_markers(preference)
     brand = Brand(
         settings.app_name,
-        mark_text="DM",
-        mark_size="md",
+        mark_content=data_mover_mark(request, preference),
+        mark_size="lg",
         mark_shape="rounded",
-        mark_tone="accent",
+        mark_tone="neutral",
         subtitle="Secure transfer operations",
         subtitle_overflow="truncate",
         href=page_href(request, "/"),
         aria={"label": f"{settings.app_name} home"},
+    )
+    cdao_identity = Inline(
+        html.span(
+            Image(
+                asset_src(request, "/assets/brand/cdao-mark.png"),
+                alt="Chief Digital and Artificial Intelligence Office",
+                width=18,
+                height=26,
+            ),
+            class_="data-mover-cdao-mark",
+        ),
+        Text("CDAO", as_="strong", role="caption", effect="subtle"),
+        gap="xs",
     )
     environment_badge = Badge("Sandbox online", tone="success")
     indicator = RequestIndicator(
@@ -290,86 +332,129 @@ def app_shell(
         "Controlled demo workspace · Transfers are simulated and remote endpoints stay untouched",
         tone="warning",
     )
-    header: NodeLike | None = None
-    footer: NodeLike | None = None
     if auth:
-        content = AmbientBackdrop(
-            AppShell(
-                nav=side_nav(request, auth),
-                body=main_panel(
-                    *body,
-                    theme=preference.theme,
-                    color_mode=(
-                        preference.color_mode if preference.color_mode != "system" else None
+        content = Container(
+            AmbientCanvas(
+                AppShell(
+                    nav=side_nav(request, auth),
+                    body=main_panel(
+                        *body,
+                        theme=preference.theme,
+                        color_mode=(
+                            preference.color_mode if preference.color_mode != "system" else None
+                        ),
+                    ),
+                    panel_id="main-content",
+                    banner=banner,
+                    brand=brand,
+                    env_badge=cdao_identity,
+                    account=(
+                        Inline(
+                            environment_badge,
+                            account_summary(request, auth, csrf_token=csrf_token),
+                            gap="sm",
+                        )
+                        if csrf_token
+                        else None
+                    ),
+                    nav_footer=shell_nav_footer(),
+                    chrome=AppShellChrome(
+                        preset="editorial",
+                        header_behavior="sticky",
+                        nav_behavior="sticky",
+                        nav_offset="header",
+                        shell_gap="standard",
+                        content_inset="wide",
+                        banner_spacing="standard",
+                        header_density="standard",
+                        footer_density="compact",
+                    ),
+                    app_footer=AppFooter(
+                        settings.app_name,
+                        html.span("Demo environment · No remote systems are contacted"),
+                    ),
+                    content_width="wide",
+                    mobile_collapse=False,
+                ),
+                layers=(
+                    AmbientLayer(
+                        pattern="mesh",
+                        tone="accent",
+                        intensity="soft",
+                        scale="lg",
+                        order=0,
+                    ),
+                    AmbientLayer(
+                        pattern="grid",
+                        tone="muted",
+                        intensity="subtle",
+                        placement="fixed-canvas",
+                        scale="lg",
+                        order=1,
                     ),
                 ),
-                panel_id="main-content",
-                banner=banner,
-                brand=brand,
-                env_badge=environment_badge,
-                account=(
-                    account_summary(request, auth, csrf_token=csrf_token) if csrf_token else None
-                ),
-                nav_footer=shell_nav_footer(),
-                chrome=AppShellChrome(
-                    preset="editorial",
-                    header_behavior="sticky",
-                    nav_behavior="sticky",
-                    nav_offset="header",
-                    shell_gap="editorial",
-                    content_inset="wide",
-                    banner_spacing="standard",
-                    header_density="spacious",
-                    footer_density="compact",
-                ),
-                app_footer=AppFooter(
-                    settings.app_name,
-                    html.span("Demo environment · No remote systems are contacted"),
-                ),
-                content_width="wide",
-                mobile_collapse=False,
             ),
-            layers=(
-                AmbientLayer(pattern="mesh", tone="accent", intensity="soft", scale="lg", order=0),
-                AmbientLayer(
-                    pattern="grid",
-                    tone="muted",
-                    intensity="subtle",
-                    placement="fixed-canvas",
-                    scale="lg",
-                    order=1,
-                ),
-            ),
+            max_width="xl",
         )
     else:
-        header = html.header(
+        header = Header(
             Container(
-                ActionGroup(
-                    brand,
-                    Inline(
-                        Badge("Demo workspace", tone="warning"),
-                        environment_badge,
+                Surface(
+                    ActionGroup(
+                        brand,
+                        Inline(
+                            cdao_identity,
+                            Badge("Demo workspace", tone="warning"),
+                            environment_badge,
+                            gap="sm",
+                        ),
+                        align="between",
                         gap="sm",
+                        collapse="never",
                     ),
-                    align="between",
-                    gap="sm",
-                    collapse="never",
+                    appearance="raised",
+                    density="comfortable",
+                    padding="sm",
+                    elevation="sm",
+                    class_="hedron-surface--glass",
                 ),
                 max_width="xl",
             ),
         )
-        content = AmbientBackdrop(
+        content = Container(
             StyleScope(
-                html.main(
-                    Container(
-                        *body,
-                        query="inline-size",
-                        name="auth",
-                        max_width="xl",
-                        padding="lg",
+                AmbientCanvas(
+                    Stack(
+                        banner,
+                        header,
+                        html.main(
+                            Container(
+                                *body,
+                                query="inline-size",
+                                name="auth",
+                                max_width="xl",
+                                padding="lg",
+                            ),
+                            id="main-content",
+                            tabindex="-1",
+                        ),
+                        AppFooter(
+                            settings.app_name,
+                            html.span("Demo environment · No remote systems are contacted"),
+                        ),
+                        gap="md",
                     ),
-                    id="main-content",
-                    tabindex="-1",
+                    layers=(
+                        AmbientLayer(pattern="radial", tone="accent", intensity="soft", order=0),
+                        AmbientLayer(
+                            pattern="grid",
+                            tone="muted",
+                            intensity="subtle",
+                            placement="fixed-canvas",
+                            scale="lg",
+                            order=1,
+                        ),
+                    ),
                 ),
                 theme=preference.theme,
                 color_mode=preference.color_mode if preference.color_mode != "system" else None,
@@ -385,27 +470,10 @@ def app_shell(
                     "Text": "data-mover-auth-copy",
                 },
             ),
-            layers=(
-                AmbientLayer(pattern="radial", tone="accent", intensity="soft", order=0),
-                AmbientLayer(
-                    pattern="grid",
-                    tone="muted",
-                    intensity="subtle",
-                    placement="fixed-canvas",
-                    scale="lg",
-                    order=1,
-                ),
-            ),
-        )
-        footer = AppFooter(
-            settings.app_name,
-            html.span("Demo environment · No remote systems are contacted"),
+            max_width="xl",
         )
     page_nodes: list[NodeLike] = [skip, indicator, toast_host(), dialog_host()]
-    if auth:
-        page_nodes.append(content)
-    else:
-        page_nodes.extend(item for item in (banner, header, content, footer) if item is not None)
+    page_nodes.append(content)
     return Page(
         *page_nodes,
         title=page_title or settings.app_name,

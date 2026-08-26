@@ -23,12 +23,14 @@ from starlette.requests import Request
 
 from app.ui import partials as ui
 from app.ui.design_system import (
+    APP_SHELL_NAV_STYLE_CLASS,
     DATA_MOVER_DESIGN,
     DATA_MOVER_MOTION_RECIPES,
     DATA_MOVER_PRESENTATION,
     DATA_MOVER_SCOPED_STYLES,
     DATA_MOVER_THEME_EXPORT,
     PROCESS_FLOW_STEP_STYLE_CLASS,
+    DataMoverPageHeader,
 )
 from app.ui.forms import submit_button
 from app.ui.hedron_styles import desktop_default_styles
@@ -80,7 +82,22 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=2"')
     assert_html_contains(response, 'href="/assets/theme.css"')
-    assert_html_contains(response, 'href="/app-assets/data-mover-components.css"')
+    assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=6"')
+    assert_html_contains(
+        response,
+        'type="image/png" href="/assets/brand/data-mover-mark.png" rel="icon"',
+    )
+    assert_html_contains(response, 'src="/assets/brand/data-mover-mark-light.png"')
+    assert_html_contains(response, 'srcset="/assets/brand/data-mover-mark-dark.png"')
+    assert_html_contains(response, 'src="/assets/brand/cdao-mark.png"')
+    assert_html_contains(response, "Chief Digital and Artificial Intelligence Office")
+    assert_html_contains(response, 'data-hedron-max-width="lg"')
+    assert_html_contains(response, 'data-hedron-resource-list="true"')
+    assert_html_contains(response, 'aria-label="Workspace protections"')
+    assert_html_contains(response, "Continue to workspace")
+
+    dark = fixture.get("/login", cookies={"data_mover_color_mode": "dark"})
+    assert_html_contains(dark, 'src="/assets/brand/data-mover-mark-dark.png"')
 
 
 def test_hedron_component_bundles_are_served(access_app) -> None:
@@ -88,6 +105,7 @@ def test_hedron_component_bundles_are_served(access_app) -> None:
     response = fixture.get("/app-assets/data-mover-components.css")
     assert response.status_code == 200
     assert ".hedron-card--glass" in response.body
+    assert "--hedron-color-bg: #f6f6fb" in response.body
     assert "--hedron-color-bg: #080d16" in response.body
     assert "--hedron-type-display-size" in response.body
     assert "--hedron-geometry-control-height" in response.body
@@ -96,11 +114,19 @@ def test_hedron_component_bundles_are_served(access_app) -> None:
     assert "--hedron-surface-glass-opacity: 78%" in response.body
     assert "--hedron-data-table-header-background" in response.body
     assert "--hedron-motion-elevate: 180ms" in response.body
+    assert "--hedron-type-measure-narrow: 18ch" in response.body
+    assert "--hedron-type-measure-narrow: 12ch" in response.body
+    assert "--hedron-elevation-focus: 0 12px 32px rgb(2 8 23 / 14%)" in response.body
     assert "--hedron-color-surface" in response.body
     login_page = fixture.get("/login")
     assert 'data-hedron-environment-banner="true"' in login_page.body
+    assert 'data-hedron-max-width="xl"' in login_page.body
+    assert 'data-hedron-ambient-pattern="radial"' in login_page.body
+    assert "hedron-surface--glass" in login_page.body
     theme = fixture.get("/assets/theme.css")
     assert theme.status_code == 200
+    assert "radial-gradient" not in theme.body
+    assert ":has(" not in theme.body
     assert ".hedron-text-input" not in theme.body
     assert ".hedron-app-shell-nav" not in theme.body
     assert ".hedron-card::before" not in theme.body
@@ -163,6 +189,8 @@ def test_hedron_065_scoped_motion_and_application_style_contract(access_app) -> 
         "crossfade",
     }
     assert PROCESS_FLOW_STEP_STYLE_CLASS in DATA_MOVER_SCOPED_STYLES.css
+    assert APP_SHELL_NAV_STYLE_CLASS in DATA_MOVER_SCOPED_STYLES.css
+    assert 'data-hedron-state~="current"' in DATA_MOVER_SCOPED_STYLES.css
     assert "@media (min-width: 56rem) and (max-width: 90rem)" in DATA_MOVER_SCOPED_STYLES.css
     assert "prefers-reduced-motion" not in DATA_MOVER_SCOPED_STYLES.css
     styles = get_registry().application_styles()
@@ -178,10 +206,17 @@ def test_hedron_066_typography_and_context_contract(access_app) -> None:
     assert 'data-hedron-type-measure="default"' in rendered
     assert 'data-hedron-type-effect="subtle"' in rendered
 
+    direct = render_html(
+        DataMoverPageHeader("Native defaults", description="No route-level CSS required.")
+    )
+    assert 'data-hedron-type-measure="narrow"' in direct
+    assert 'data-hedron-type-effect="display"' in direct
+
     fixture = fastapi_fixture(access_app)
     login = fixture.get("/login")
     assert 'data-hedron-presentation="PageHeader.description=data-mover-auth-copy;' in login.body
     assert "data-mover-auth-title" in login.body
+    assert 'data-hedron-type-effect="display"' in login.body
 
 
 def test_hedron_064_theme_export_is_conformant() -> None:

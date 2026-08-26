@@ -6,7 +6,7 @@ from typing import cast
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from hedron import Hedron, InteractionResult, PageHeader, SplitView, html
+from hedron import Hedron, InteractionResult, SplitView, html
 from hedron.htmx import is_htmx_request
 from hedron_posit import HedronPosit
 from sqlalchemy import select
@@ -32,6 +32,7 @@ from app.services.directory import (
     validate_directory_email,
 )
 from app.ui import partials as ui
+from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.design_system import surface_card
 from app.ui.http import hx_target, is_filter_fragment, mutation_response, render_authenticated_view
 from app.ui.interactions import (

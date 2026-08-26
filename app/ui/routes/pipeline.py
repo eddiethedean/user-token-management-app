@@ -33,7 +33,6 @@ from hedron import (
     Metric,
     OobUpdate,
     OperationIdentity,
-    PageHeader,
     ProcessFlow,
     Progress,
     ResourceList,
@@ -96,6 +95,7 @@ from app.ui.design_system import (
     apply_data_recipe,
     surface_card,
 )
+from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
 from app.ui.interactions import interaction_response, ok_fragment

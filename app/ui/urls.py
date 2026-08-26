@@ -61,6 +61,12 @@ def asset_href(request: Request, path: str) -> SafeUrl:
     return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.NAVIGATION)
 
 
+def asset_src(request: Request, path: str) -> SafeUrl:
+    """Return a mount-aware URL approved for image and media source attributes."""
+
+    return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.ASSET)
+
+
 def hx_attrs(
     request: Request,
     *,

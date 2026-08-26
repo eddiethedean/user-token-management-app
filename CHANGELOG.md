@@ -4,6 +4,10 @@
 
 - Upgraded the runtime and Posit integration to the compatible Hedron 0.66.1 train.
 - Added bounded 0.65 scoped motion/style registration and 0.66 typography presentation profiles.
+- Restored the wide desktop canvas and aligned nested auth/workspace surfaces with the selected
+  light or dark color mode.
+- Refined the desktop art direction with native AmbientCanvas layers, Container width, typography
+  tokens, glass surfaces, typed elevation, and bounded active navigation/workflow treatments.
 
 ## [Unreleased / Hedron 0.60.0] — 2026-08-23
 

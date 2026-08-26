@@ -16,7 +16,6 @@ from hedron import (
     Inline,
     LinkButton,
     OobUpdate,
-    PageHeader,
     Section,
     SplitView,
     Stack,
@@ -29,6 +28,7 @@ from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
 from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
+from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, account_summary, alert_box
 from app.ui.urls import form_action, hx_attrs, page_href

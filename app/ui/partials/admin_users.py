@@ -14,7 +14,6 @@ from hedron import (
     Form,
     FormField,
     FormGrid,
-    PageHeader,
     ResourceList,
     ResourceRow,
     Section,
@@ -30,6 +29,7 @@ from hedron import (
 from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.models import Invitation, Role, User, UserStatus
+from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.design_system import apply_data_recipe
 from app.ui.forms import csrf_hidden, hidden_field, submit_button
 from app.ui.layout import INDICATOR, alert_box

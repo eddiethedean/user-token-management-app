@@ -83,20 +83,22 @@ class CompactPasswordInput(Component[CompactPasswordInputProps]):
         }
         return html.span(
             html.input(**input_attrs),
-            Button(
-                "Show",
-                type="button",
+            apply_action_recipe(
+                Button(
+                    "Show",
+                    type="button",
+                    variant="secondary",
+                    size="sm",
+                    id=f"{field_id}-visibility",
+                    attrs={
+                        "data-hedron-password-toggle": field_id,
+                        "data-compact-password-toggle": "true",
+                        "aria-controls": field_id,
+                        "aria-label": "Show password",
+                        "aria-pressed": "false",
+                    },
+                ),
                 variant="secondary",
-                appearance="ghost",
-                size="sm",
-                id=f"{field_id}-visibility",
-                attrs={
-                    "data-hedron-password-toggle": field_id,
-                    "data-compact-password-toggle": "true",
-                    "aria-controls": field_id,
-                    "aria-label": "Show password",
-                    "aria-pressed": "false",
-                },
             ),
             class_="hedron-password-field",
             data={"hedron-password": "true"},

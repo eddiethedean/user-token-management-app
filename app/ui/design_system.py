@@ -9,6 +9,7 @@ from hedron import (
     Card,
     Color,
     DesignSystem,
+    PageHeader,
     RecipeFamily,
     StyleRecipe,
     ThemeBuilder,
@@ -27,6 +28,17 @@ from hedron_core import (
 from hedron_core.theme import Theme, aurora_theme
 
 _ComponentT = TypeVar("_ComponentT", bound=Component)
+
+
+class DataMoverPageHeader(PageHeader):
+    """PageHeader with product typography expressed through native Hedron props."""
+
+    def __init__(self, title: str, **kwargs: Any) -> None:
+        kwargs.setdefault("title_measure", "narrow")
+        kwargs.setdefault("description_measure", "default")
+        kwargs.setdefault("title_effect", "display")
+        kwargs.setdefault("description_effect", "subtle")
+        super().__init__(title, **kwargs)
 
 
 # Build a first-party Data Mover brand from Hedron's 0.66.1 typed design system.
@@ -58,8 +70,8 @@ DATA_MOVER_FLOW_FAMILY = RecipeFamily(
 )
 register_recipe_family(DATA_MOVER_FLOW_FAMILY)
 
-# Hedron 0.65's named motion catalog and scoped public hooks keep the one
-# product-specific interaction treatment reviewable, bounded, and accessible.
+# Hedron 0.65's named motion catalog and scoped public hooks keep product
+# interaction treatments reviewable, bounded, and accessible.
 DATA_MOVER_MOTION_RECIPES = motion_recipes()
 DATA_MOVER_SCOPED_STYLE_RECIPES = (
     ScopedStyleRecipe(
@@ -68,14 +80,37 @@ DATA_MOVER_SCOPED_STYLE_RECIPES = (
         states=("current",),
         conditions=(ResponsiveCondition.viewport_range("md", "xl"),),
         declarations={
-            "background-color": "var(--hedron-color-surface)",
-            "box-shadow": "var(--hedron-elevation-raised)",
+            "background-color": "var(--hedron-color-accent-soft)",
+            "border-color": "var(--hedron-color-accent)",
+            "box-shadow": "var(--hedron-elevation-focus)",
+        },
+        motion="elevate",
+    ),
+    ScopedStyleRecipe(
+        component="AppShell",
+        part="nav.link",
+        states=("current",),
+        declarations={
+            "background-color": "var(--hedron-color-accent-soft)",
+            "box-shadow": "var(--hedron-elevation-focus)",
+            "color": "var(--hedron-color-accent)",
+            "font-weight": "750",
+            "letter-spacing": "0.01em",
         },
         motion="elevate",
     ),
 )
 DATA_MOVER_SCOPED_STYLES = compile_scoped_styles(DATA_MOVER_SCOPED_STYLE_RECIPES)
-PROCESS_FLOW_STEP_STYLE_CLASS = DATA_MOVER_SCOPED_STYLE_RECIPES[0].class_name
+PROCESS_FLOW_STEP_STYLE_CLASS = next(
+    recipe.class_name
+    for recipe in DATA_MOVER_SCOPED_STYLE_RECIPES
+    if recipe.component == "ProcessFlow"
+)
+APP_SHELL_NAV_STYLE_CLASS = next(
+    recipe.class_name
+    for recipe in DATA_MOVER_SCOPED_STYLE_RECIPES
+    if recipe.component == "AppShell"
+)
 
 # ThemeBuilder is the canonical authoring layer. The legacy Theme bridge
 # remains deliberate because Hedron's application shell consumes its resolved
@@ -115,6 +150,8 @@ DATA_MOVER_THEME_SPEC = (
             "type.supporting.size": "0.875rem",
             "type.label.size": "0.75rem",
             "type.metadata.size": "0.6875rem",
+            "type.measure.narrow": "18ch",
+            "type.effect.display": "0 12px 36px rgb(0 0 0 / 24%)",
             "type.body.line-height": "1.55",
             "type.heading.line-height": "0.98",
             "space.1": "0.25rem",
@@ -136,6 +173,8 @@ DATA_MOVER_THEME_SPEC = (
             "motion.elevate": "180ms",
             "motion.crossfade": "200ms",
             "motion.easing.standard": "cubic-bezier(0.2, 0, 0, 1)",
+            "ambient.opacity.soft": "0.88",
+            "ambient.opacity.subtle": "0.42",
             "data.row.hover": "rgba(141, 156, 255, 0.08)",
             "data.row.selected": "rgba(111, 112, 255, 0.16)",
             "control.appearance": "auto",
@@ -148,13 +187,13 @@ DATA_MOVER_THEME_SPEC = (
             "surface.glass.opacity": "78%",
             "surface.glass.blur": "18px",
             "surface.glass.border": "rgb(145 166 204 / 24%)",
-            "surface.glass.shadow": "0 18px 54px rgb(0 0 0 / 16%), inset 0 1px rgb(255 255 255 / 4%)",
+            "surface.glass.shadow": "0 24px 72px rgb(2 8 23 / 18%), inset 0 1px rgb(255 255 255 / 7%)",
             # The component-scoped bundle uses the shorter aliases while the
             # complete Hedron stylesheet uses the surface.* names above.
             "glass.opacity": "78%",
             "glass.blur": "18px",
             "glass.border": "rgb(145 166 204 / 24%)",
-            "glass.shadow": "0 18px 54px rgb(0 0 0 / 16%), inset 0 1px rgb(255 255 255 / 4%)",
+            "glass.shadow": "0 24px 72px rgb(2 8 23 / 18%), inset 0 1px rgb(255 255 255 / 7%)",
             "data.table.border": "var(--hedron-color-border)",
             "data.table.radius": "var(--hedron-geometry-radius-md)",
             "data.table.header.background": "var(--hedron-color-surface-muted)",
@@ -191,22 +230,24 @@ _RESOLVED_THEME = DATA_MOVER_THEME_SPEC.to_theme()
 _DATA_MOVER_THEME_TOKENS = {
     **_RESOLVED_THEME.tokens,
     # Let Hedron's native component bundle own the semantic visual language.
-    # Product CSS consumes these variables for the remaining art direction.
-    "color.bg": "#080d16",
-    "color.canvas": "#080d16",
-    "color.surface": "#111a2a",
-    "color.surface-muted": "#0e1828",
-    "color.fg": "#f2f5fb",
-    "color.muted": "#9ba9bf",
-    "color.border": "rgb(145 166 204 / 19%)",
-    "color.accent": "#8d9cff",
-    "color.focus": "#8d9cff",
-    "color.danger": "#ff8ca6",
-    "color.success": "#63e0c6",
-    "color.success-soft": "rgb(99 224 198 / 12%)",
-    "color.warning": "#f0c76a",
-    "color.warning-soft": "rgb(240 199 106 / 13%)",
-    "color.info-soft": "rgb(141 156 255 / 12%)",
+    # The base palette is the explicit light mode. Hedron's more-specific dark
+    # mode below applies for dark and system-dark rendering, including nested
+    # StyleScope elements.
+    "color.bg": "#f6f6fb",
+    "color.canvas": "#f6f6fb",
+    "color.surface": "#ffffff",
+    "color.surface-muted": "#ebecf7",
+    "color.fg": "#23275c",
+    "color.muted": "#676cad",
+    "color.border": "#cfd1e8",
+    "color.accent": "#1a2aff",
+    "color.focus": "#1a2aff",
+    "color.danger": "#d04348",
+    "color.success": "#18745a",
+    "color.success-soft": "#e7f7f1",
+    "color.warning": "#8a5a00",
+    "color.warning-soft": "#fff3d1",
+    "color.info-soft": "#e8ecff",
     "shape.radius": "0.6875rem",
     "shape.radius-lg": "1.125rem",
 }
@@ -237,15 +278,20 @@ DATA_MOVER_THEME: Theme = replace(
     accessibility_modes=_RESOLVED_THEME.accessibility_modes,
     variants={
         "workspace": {
-            "color.surface": "#101a31",
-            "color.surface-muted": "#16223f",
+            "color.surface": "#ffffff",
+            "color.surface-muted": "#f0f1f9",
         },
         "auth": {
-            "color.surface": "#131e38",
-            "color.surface-muted": "#1a2850",
+            "color.surface": "#ffffff",
+            "color.surface-muted": "#f0f1fb",
+            "type.measure.narrow": "12ch",
+            "type.effect.display": "0 18px 44px rgb(0 0 0 / 28%)",
         },
     },
-    elevation={"raised": "0 24px 64px rgb(0 0 0 / 28%)"},
+    elevation={
+        "focus": "0 12px 32px rgb(2 8 23 / 14%)",
+        "raised": "0 1px 0 rgb(255 255 255 / 6%), 0 28px 84px rgb(2 8 23 / 24%)",
+    },
 )
 
 # 0.66.1 emits a matching CSS and design-token export, including the compatibility
@@ -327,7 +373,7 @@ DATA_MOVER_DESIGN = DesignSystem.from_theme(DATA_MOVER_THEME).with_recipes(
         "data-mover-auth-title",
         role="title",
         measure="narrow",
-        effect="subtle",
+        effect="display",
     ),
     StyleRecipe.content(
         "data-mover-auth-copy",
@@ -376,12 +422,14 @@ def apply_data_recipe(
 
 __all__ = [
     "DATA_MOVER_DESIGN",
+    "DataMoverPageHeader",
     "DATA_MOVER_THEME",
     "DATA_MOVER_THEME_SPEC",
     "DATA_MOVER_FLOW_FAMILY",
     "DATA_MOVER_MOTION_RECIPES",
     "DATA_MOVER_SCOPED_STYLE_RECIPES",
     "DATA_MOVER_SCOPED_STYLES",
+    "APP_SHELL_NAV_STYLE_CLASS",
     "PROCESS_FLOW_STEP_STYLE_CLASS",
     "DATA_MOVER_THEME_EXPORT",
     "DATA_MOVER_PRESENTATION",

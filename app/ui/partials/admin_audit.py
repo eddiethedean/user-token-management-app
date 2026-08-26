@@ -18,7 +18,6 @@ from hedron import (
     Lazy,
     LinkButton,
     Loading,
-    PageHeader,
     Section,
     Stack,
     StateView,
@@ -30,6 +29,7 @@ from hedron import (
 from hedron_core import Component, HtmlAttrValue, NodeLike
 
 from app.models import AuditEvent
+from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.design_system import apply_data_recipe
 from app.ui.forms import submit_button
 from app.ui.layout import INDICATOR

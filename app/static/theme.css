@@ -7,17 +7,31 @@
  * choices that are not component styling features.
  */
 
+body {
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
 .hedron-page-header-title {
-  max-inline-size: 18ch;
-  text-shadow: 0 12px 36px rgb(0 0 0 / 24%);
+  letter-spacing: -0.045em;
 }
 
 .hedron-page-header-description {
-  max-inline-size: 60ch;
+  text-wrap: pretty;
 }
 
-body:not(:has(.hedron-app-shell)) .hedron-page-header-title {
-  max-inline-size: 12ch;
-  text-shadow: 0 18px 44px rgb(0 0 0 / 28%);
+/* Preserve the official gold artwork while keeping its fine lines legible on
+ * the light shell. Dark mode uses the source colors without alteration. */
+.data-mover-cdao-mark {
+  filter: brightness(0.68) saturate(1.35) contrast(1.15);
+}
+
+[data-theme="dark"] .data-mover-cdao-mark {
+  filter: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] .data-mover-cdao-mark {
+    filter: none;
+  }
 }
 }

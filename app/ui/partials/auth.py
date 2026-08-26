@@ -6,13 +6,13 @@ from fastapi import Request
 from hedron import (
     ActionGroup,
     Alert,
+    Container,
     Divider,
-    FlowStep,
     FormField,
     Link,
     LinkButton,
-    PageHeader,
-    ProcessFlow,
+    ResourceList,
+    ResourceRow,
     SplitView,
     Stack,
     Text,
@@ -28,7 +28,10 @@ from starlette.responses import Response
 from app.config import Settings
 from app.models import Invitation, RegistrationVerification
 from app.security.csrf import issue_preauth_csrf, set_preauth_csrf_cookie
-from app.ui.design_system import PROCESS_FLOW_STEP_STYLE_CLASS, surface_card
+from app.ui.design_system import (
+    DataMoverPageHeader as PageHeader,
+)
+from app.ui.design_system import surface_card
 from app.ui.forms import compact_password_input, hidden_field, submit_button
 from app.ui.http import auth_card, render_page
 from app.ui.layout import alert_box, app_shell
@@ -46,7 +49,7 @@ def _auth_heading(eyebrow: str, title: str, description: str) -> PageHeader:
         density="compact",
         title_measure="narrow",
         description_measure="default",
-        title_effect="subtle",
+        title_effect="display",
         description_effect="subtle",
     )
 
@@ -122,29 +125,23 @@ def render_login_page(
             title_effect="display",
             description_effect="subtle",
         ),
-        ProcessFlow(
-            FlowStep(
-                "Connect",
-                class_=PROCESS_FLOW_STEP_STYLE_CLASS,
-                status="complete",
-                status_text="Protected",
-                description="Use approved sources and destinations.",
+        ResourceList(
+            ResourceRow(
+                "Credentials stay protected",
+                description="Secrets remain encrypted and never appear in run logs.",
+                density="compact",
             ),
-            FlowStep(
-                "Shape",
-                status="current",
-                status_text="Preview",
-                description="Inspect schemas and map every field.",
+            ResourceRow(
+                "Every transfer is observable",
+                description="Preview schemas, monitor progress, and retain audit history.",
+                density="compact",
             ),
-            FlowStep(
-                "Move",
-                status="pending",
-                status_text="Observable",
-                description="Run with progress, metrics, and audit history.",
+            ResourceRow(
+                "Approved systems only",
+                description="Routes stay inside your organization's configured connections.",
+                density="compact",
             ),
-            label="Data movement workflow",
-            direction="horizontal",
-            collapse="never",
+            label="Workspace protections",
             density="compact",
         ),
         Alert(
@@ -170,7 +167,7 @@ def render_login_page(
             density="compact",
             title_measure="narrow",
             description_measure="default",
-            title_effect="subtle",
+            title_effect="display",
             description_effect="subtle",
         ),
     ]
@@ -226,7 +223,7 @@ def render_login_page(
                     align="end",
                     collapse="never",
                 ),
-                submit_button("Sign in securely", width="full"),
+                submit_button("Continue to workspace", width="full", size="lg"),
                 action=form_action(request, "login"),
                 method="post",
             )
@@ -238,20 +235,28 @@ def render_login_page(
                     "Need an account? ",
                     Link("Request access", href=page_href(request, "register")),
                 ),
-                Text("Access requires a verified address and administrator approval."),
+                Text(
+                    "Access requires a verified address and administrator approval.",
+                    role="caption",
+                    overflow="wrap",
+                ),
                 gap="xs",
             )
         )
 
-    layout = surface_card(
+    login_card = surface_card(
+        Stack(*card_children, gap="md"),
+        recipe="data-mover-auth-panel",
+    )
+    layout = Container(
         SplitView(
-            primary=Stack(*card_children, gap="md"),
-            secondary=intro,
-            ratio="1:1",
+            primary=intro,
+            secondary=login_card,
+            ratio="3:2",
             gap="xl",
             collapse="never",
         ),
-        recipe="data-mover-auth-panel",
+        max_width="lg",
     )
     page = app_shell(layout, request=request, settings=settings, auth=None, page_title="Sign in")
     response = render_page(page, request=request, status_code=status_code)
