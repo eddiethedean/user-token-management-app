@@ -38,19 +38,15 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Use these development values in `.env`:
+The committed defaults in `app/config.py` cover local product behavior. The production section below
+explains which deployment-specific values must be added to `.env` for a real deployment. See
+[configuration.md](configuration.md) for the purpose of each variable and which settings normally
+do not need to be changed.
 
-```dotenv
-APP_ENV=development
-APP_NAME='Data Mover'
-PUBLIC_BASE_URL='http://127.0.0.1:8000'
-DATABASE_URL='sqlite:///./access-registry.db'
-AUTHENTICATION_MODE=local_password
-COOKIE_SECURE=false
-COOKIE_PATH=auto
-ALLOWED_EMAIL_DOMAINS='example.gov,example.mil,socom.mil'
-EMAIL_BACKEND=console
-```
+The committed defaults in `app/config.py` provide the local app name, SQLite URL, local URL,
+password authentication, insecure development cookies, console email behavior, and demo pipeline
+mode. The copied template supplies the example `ALLOWED_EMAIL_DOMAINS` policy and development-only
+secret placeholders. Change those only when your local test needs a different policy or credentials.
 
 Generate three different values and assign them to `JWT_SECRET`, `SESSION_PEPPER`, and
 `CSRF_SECRET` in `.env`:
@@ -186,6 +182,11 @@ mkdir -p deployment
 cp /path/to/approved/password-blocklist.txt deployment/password-blocklist.txt
 chmod 600 deployment/password-blocklist.txt
 ```
+
+The committed defaults in `app/config.py` cover ordinary behavior. Add only the labeled production
+values and intentional deployment overrides to `.env`; do not copy every default into the file. See
+[configuration.md](configuration.md) for the purpose of each variable and the settings that normally
+can remain omitted.
 
 Copy private CA files into `deployment/` only when they are required, keep them non-secret and
 operator-reviewed, and reference them with bundle-relative paths such as
@@ -411,16 +412,14 @@ Back up an existing database before applying migrations. Then run:
 python -m app migrate
 python -m app schema-status
 python -m app create-admin --email admin@example.gov
-python -m hedron build
-test -f .hedron/build/manifest.json
 ```
 
 `schema-status` must report that `Current` equals `Head`. In local-password mode, `create-admin`
 prompts for the application password. In trusted-header mode, it creates or promotes the account
 without an application password.
 
-Run `hedron build` in the checkout you will publish, and do not delete `.hedron/build` before the
-deployment.
+The deployment wrapper builds Hedron immediately before publishing and verifies the generated
+`.hedron/build/manifest.json`; do not delete that build during the publish.
 
 ### 4. Register the Connect server
 
@@ -439,78 +438,31 @@ If `my-connect` is already registered in this environment, skip this step.
 
 ### 5. Publish the application
 
-Confirm the production variables are still loaded in this shell, then run from the repository root:
+The repository includes an `.env`-driven publishing wrapper. It sources the trusted `.env`, runs
+the production preflight, rebuilds Hedron assets, and forwards the configured application variables
+to `rsconnect` without requiring you to type a long list of
+`--environment` flags or expose secret values in the command line.
+
+Register the Connect profile once in step 4, then run from the repository root:
 
 ```bash
-rsconnect deploy fastapi \
-  --name my-connect \
-  --title 'Data Mover' \
-  --entrypoint app.main:app \
-  --requirements-file requirements.txt \
-  --environment APP_ENV \
-  --environment APP_NAME \
-  --environment PUBLIC_BASE_URL \
-  --environment DATABASE_URL \
-  --environment JWT_SECRET \
-  --environment SESSION_PEPPER \
-  --environment CSRF_SECRET \
-  --environment API_TOKEN_ENCRYPTION_KEYS \
-  --environment API_TOKEN_ACTIVE_KEY_ID \
-  --environment JWT_ISSUER \
-  --environment JWT_AUDIENCE \
-  --environment AUTHENTICATION_MODE \
-  --environment PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED \
-  --environment TRUSTED_IDENTITY_HEADER \
-  --environment TRUSTED_PROXY_IPS \
-  --environment COOKIE_SECURE \
-  --environment COOKIE_PATH \
-  --environment ALLOWED_EMAIL_DOMAINS \
-  --environment RATE_LIMIT_ENABLED \
-  --environment EMAIL_BACKEND \
-  --environment EMAIL_REDACT_SENT_BODIES \
-  --environment EMAIL_FROM \
-  --environment SMTP_HOST \
-  --environment SMTP_PORT \
-  --environment SMTP_STARTTLS \
-  --environment SMTP_ALLOW_LEGACY_PORT25_FALLBACK \
-  --environment SMTP_CA_BUNDLE \
-  --environment SMTP_USERNAME \
-  --environment SMTP_PASSWORD \
-  --environment DIRECTORY_LOOKUP_URL \
-  --environment DIRECTORY_LOOKUP_TIMEOUT_SECONDS \
-  --environment DIRECTORY_LOOKUP_VERIFY_TLS \
-  --environment DIRECTORY_LOOKUP_CA_BUNDLE \
-  --environment DIRECTORY_LOOKUP_REQUIRED \
-  --environment DIRECTORY_LOOKUP_BEARER_TOKEN \
-  --environment PASSWORD_BLOCKLIST_PATH \
-  --environment DATA_MOVER_MODE \
-  --environment PIPELINE_SPOOL_ROOT \
-  --environment PIPELINE_ALLOWED_HTTPS_HOSTS \
-  --environment PIPELINE_CA_BUNDLE \
-  --environment PIPELINE_ENABLE_POSTGRES_WRITER \
-  --environment PIPELINE_ENABLE_MSS_WRITER \
-  --environment PIPELINE_ENABLE_MCSCOP_WRITER \
-  --exclude '.env' \
-  --exclude '.venv' \
-  --exclude '**/__pycache__/*' \
-  --exclude '**/*.db' \
-  --exclude '**/*.sqlite3' \
-  --exclude tests \
-  --exclude demo-app \
-  ./
+CONNECT_NAME=my-connect \
+CONNECT_TITLE='Data Mover' \
+./scripts/deploy-connect.sh
 ```
 
-The command sends each named environment value without placing its value in the command line. It
-publishes application code, migrations, static files, the password blocklist, and the built Hedron
-manifest. It excludes secrets, local databases, tests, and development environments.
+`CONNECT_NAME` is the profile registered in step 4. Optional settings are read directly from
+`.env`; set `DATA_MOVER_ENV_FILE=/path/to/production.env` when the deployment file has a different
+name or location. Use `PYTHON_BIN=/path/to/python` and `CONNECT_REQUIREMENTS_FILE=...` only when
+the standard virtualenv and `requirements.txt` are not being used.
 
-The command above includes the directory and CA settings even when they are empty so a later
-redeploy can intentionally clear them. Add any other non-default setting from `.env.example` with
-another `--environment NAME` argument. Connect retains previously configured environment variables
-that are omitted from an update, and environment changes can take effect even if the new bundle
-fails to deploy; review the content environment after a failed deployment before restoring service.
-Every non-empty bundle-relative CA or blocklist path must be present under `./` when this command
-runs. Never include `.env`, database credentials, bearer tokens, or private keys as bundle files.
+The wrapper forwards explicitly configured values, including empty values, so a value can be cleared
+in Connect by setting it empty in `.env`. It excludes `.env`, local databases, tests, and development
+environments while publishing application code, migrations, static files, approved deployment files,
+and the built Hedron manifest. Never put database credentials, bearer tokens, or private keys in the
+bundle. Connect retains environment variables omitted from a later update, and environment changes
+can take effect even if the new bundle fails to deploy; review the Connect content environment after
+a failed deployment before restoring service.
 
 ### 6. Finish the first deployment in Connect
 
@@ -640,17 +592,13 @@ For a normal code update:
 ```bash
 cd /path/to/user-token-management-app
 source .venv/bin/activate
-set -a
-. ./.env
-set +a
-python -m app migrate
-python -m app schema-status
-python -m hedron build
+CONNECT_NAME=my-connect ./scripts/deploy-connect.sh
 ```
 
-Then rerun the `rsconnect deploy fastapi` command from step 5. Back up PostgreSQL before migrations
-that alter production data. Do not generate new session or encryption secrets for an ordinary
-redeploy; rotate them only through an intentional key/session rotation procedure.
+The wrapper reads the same `.env` and performs the schema check and Hedron build before publishing.
+Back up PostgreSQL before migrations that alter production data. Do not generate new session or
+encryption secrets for an ordinary redeploy; rotate them only through an intentional key/session
+rotation procedure.
 
 ## Connect troubleshooting
 

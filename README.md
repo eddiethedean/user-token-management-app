@@ -243,7 +243,9 @@ Schema must be current before `create-admin` or `serve` (startup checks).
 
 ## Configuration
 
-Copy [.env.example](.env.example). Start with the **local minimum** section; expand for production.
+Copy [.env.example](.env.example) for secrets and deployment-specific overrides. Stable local
+defaults are committed in `app/config.py`; the purpose of every setting is documented in
+[docs/configuration.md](docs/configuration.md).
 Auth modes: [docs/auth-modes.md](docs/auth-modes.md).
 
 Production refuses insecure settings (HTTPS `PUBLIC_BASE_URL`, `COOKIE_SECURE`, Postgres,
@@ -256,7 +258,7 @@ For a disposable evaluation of the full app, use the dedicated
 [step-by-step Posit guide](docs/deploy.md) covers Python 3.11 setup, installation, configuration,
 migrations, administrator bootstrap, the Workbench session URL, production secrets, PostgreSQL
 provisioning from `DB_*` credentials, SMTP invitations, directory email checks, Hedron assets,
-Connect publishing, background workers, and verification. Connect 2025.06.0
+`.env`-driven Connect publishing, background workers, and verification. Connect 2025.06.0
 and 2026.07 have both passed licensed, proxy-free application-cookie acceptance tests. Access
 Data Mover keeps its own users and sessions rather than treating Connect identity as application
 identity.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import re
+from dataclasses import dataclass
 from functools import lru_cache
 from ipaddress import ip_address
 from pathlib import Path
@@ -17,6 +18,86 @@ from sqlalchemy.exc import ArgumentError
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+@dataclass(frozen=True)
+class ConfigDefaults:
+    """Committed, non-sensitive product defaults.
+
+    Deployment-specific values and credentials intentionally remain environment
+    settings. An operator can override any of these defaults with an
+    environment variable when a deployment has a documented requirement.
+    """
+
+    app_env: Literal["development", "test", "production"] = "development"
+    app_name: str = "Data Mover"
+    custom_theme_enabled: bool = True
+    public_base_url: str = "http://127.0.0.1:8000"
+    database_url: str = f"sqlite:///{BASE_DIR / 'access-registry.db'}"
+    api_token_max_wraps_per_key: int = 1_000_000
+    jwt_issuer: str = "urn:access-registry:local"
+    jwt_audience: str = "access-registry-api"
+    authentication_mode: Literal["local_password", "trusted_header"] = "local_password"
+    password_only_production_risk_accepted: bool = False
+    trusted_identity_header: str = "x-access-registry-user"
+    access_token_minutes: int = 10
+    refresh_token_hours: int = 8
+    session_idle_minutes: int = 30
+    cookie_secure: bool = False
+    cookie_path: str = "auto"
+    hsts_include_subdomains: bool = False
+    trusted_proxy_ips: str = ""
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1_800
+    rate_limit_enabled: bool = True
+    rate_limit_window_seconds: int = 60
+    rate_limit_login_per_source: int = 30
+    rate_limit_login_per_account: int = 10
+    rate_limit_registration_per_source: int = 10
+    rate_limit_registration_per_account: int = 3
+    rate_limit_reset_per_source: int = 10
+    rate_limit_reset_per_account: int = 3
+    directory_lookup_timeout_seconds: float = 5.0
+    directory_lookup_verify_tls: bool = True
+    directory_lookup_required: bool = False
+    email_backend: Literal["console", "smtp"] = "console"
+    email_redact_sent_bodies: bool = False
+    email_max_attempts: int = 5
+    email_retry_base_seconds: int = 30
+    email_retry_max_seconds: int = 3_600
+    email_claim_timeout_seconds: int = 300
+    email_from: str = "Data Mover <no-reply@example.gov>"
+    smtp_port: int = 25
+    smtp_starttls: bool = True
+    smtp_allow_legacy_port25_fallback: bool = False
+    password_hash_scheme: Literal["argon2", "pbkdf2_sha256"] = "argon2"
+    pbkdf2_iterations: int = 600_000
+    data_mover_mode: Literal["demo", "real"] = "demo"
+    pipeline_worker_id: str = ""
+    pipeline_worker_concurrency: int = 2
+    pipeline_lease_seconds: int = 120
+    pipeline_batch_rows: int = 25_000
+    pipeline_batch_target_bytes: int = 67_108_864
+    pipeline_max_run_seconds: int = 14_400
+    pipeline_max_source_bytes: int = 1_073_741_824
+    pipeline_max_spool_bytes: int = 2_147_483_648
+    pipeline_http_connect_seconds: float = 10
+    pipeline_http_read_seconds: float = 120
+    pipeline_http_write_seconds: float = 120
+    pipeline_http_retry_attempts: int = 3
+    pipeline_catalog_ttl_seconds: int = 300
+    pipeline_connection_max_age_seconds: int = 900
+    pipeline_run_retention_days: int = 90
+    pipeline_event_retention_days: int = 30
+    pipeline_enable_postgres_writer: bool = True
+    pipeline_enable_mss_writer: bool = False
+    pipeline_enable_mcscop_writer: bool = False
+    pipeline_apply_internal_ca_fix: bool = False
+
+
+CONFIG_DEFAULTS = ConfigDefaults()
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
@@ -25,11 +106,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_env: Literal["development", "test", "production"] = "development"
-    app_name: str = Field(default="Data Mover", min_length=1, max_length=100)
-    custom_theme_enabled: bool = True
-    public_base_url: str = "http://127.0.0.1:8000"
-    database_url: str = f"sqlite:///{BASE_DIR / 'access-registry.db'}"
+    app_env: Literal["development", "test", "production"] = CONFIG_DEFAULTS.app_env
+    app_name: str = Field(default=CONFIG_DEFAULTS.app_name, min_length=1, max_length=100)
+    custom_theme_enabled: bool = CONFIG_DEFAULTS.custom_theme_enabled
+    public_base_url: str = CONFIG_DEFAULTS.public_base_url
+    database_url: str = CONFIG_DEFAULTS.database_url
 
     jwt_secret: str = "development-only-jwt-secret-change-me"
     session_pepper: str = "development-only-session-pepper-change-me"
@@ -38,37 +119,57 @@ class Settings(BaseSettings):
         default_factory=lambda: {"development-v1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}
     )
     api_token_active_key_id: str = "development-v1"
-    api_token_max_wraps_per_key: int = Field(default=1_000_000, ge=1, le=100_000_000)
-    jwt_issuer: str = "urn:access-registry:local"
-    jwt_audience: str = "access-registry-api"
-    authentication_mode: Literal["local_password", "trusted_header"] = "local_password"
-    password_only_production_risk_accepted: bool = False
-    trusted_identity_header: str = "x-access-registry-user"
-    access_token_minutes: int = Field(default=10, ge=1, le=60)
-    refresh_token_hours: int = Field(default=8, ge=1, le=168)
-    session_idle_minutes: int = Field(default=30, ge=5, le=1440)
-    cookie_secure: bool = False
-    cookie_path: str = "auto"
-    hsts_include_subdomains: bool = False
-    trusted_proxy_ips: str = ""
+    api_token_max_wraps_per_key: int = Field(
+        default=CONFIG_DEFAULTS.api_token_max_wraps_per_key, ge=1, le=100_000_000
+    )
+    jwt_issuer: str = CONFIG_DEFAULTS.jwt_issuer
+    jwt_audience: str = CONFIG_DEFAULTS.jwt_audience
+    authentication_mode: Literal["local_password", "trusted_header"] = (
+        CONFIG_DEFAULTS.authentication_mode
+    )
+    password_only_production_risk_accepted: bool = (
+        CONFIG_DEFAULTS.password_only_production_risk_accepted
+    )
+    trusted_identity_header: str = CONFIG_DEFAULTS.trusted_identity_header
+    access_token_minutes: int = Field(default=CONFIG_DEFAULTS.access_token_minutes, ge=1, le=60)
+    refresh_token_hours: int = Field(default=CONFIG_DEFAULTS.refresh_token_hours, ge=1, le=168)
+    session_idle_minutes: int = Field(default=CONFIG_DEFAULTS.session_idle_minutes, ge=5, le=1440)
+    cookie_secure: bool = CONFIG_DEFAULTS.cookie_secure
+    cookie_path: str = CONFIG_DEFAULTS.cookie_path
+    hsts_include_subdomains: bool = CONFIG_DEFAULTS.hsts_include_subdomains
+    trusted_proxy_ips: str = CONFIG_DEFAULTS.trusted_proxy_ips
 
-    db_pool_size: int = Field(default=5, ge=1, le=100)
-    db_max_overflow: int = Field(default=10, ge=0, le=100)
-    db_pool_timeout: int = Field(default=30, ge=1, le=300)
-    db_pool_recycle: int = Field(default=1800, ge=0, le=86400)
+    db_pool_size: int = Field(default=CONFIG_DEFAULTS.db_pool_size, ge=1, le=100)
+    db_max_overflow: int = Field(default=CONFIG_DEFAULTS.db_max_overflow, ge=0, le=100)
+    db_pool_timeout: int = Field(default=CONFIG_DEFAULTS.db_pool_timeout, ge=1, le=300)
+    db_pool_recycle: int = Field(default=CONFIG_DEFAULTS.db_pool_recycle, ge=0, le=86400)
 
-    rate_limit_enabled: bool = True
-    rate_limit_window_seconds: int = Field(default=60, ge=10, le=3600)
-    rate_limit_login_per_source: int = Field(default=30, ge=1, le=1000)
-    rate_limit_login_per_account: int = Field(default=10, ge=1, le=1000)
-    rate_limit_registration_per_source: int = Field(default=10, ge=1, le=1000)
-    rate_limit_registration_per_account: int = Field(default=3, ge=1, le=1000)
-    rate_limit_reset_per_source: int = Field(default=10, ge=1, le=1000)
-    rate_limit_reset_per_account: int = Field(default=3, ge=1, le=1000)
+    rate_limit_enabled: bool = CONFIG_DEFAULTS.rate_limit_enabled
+    rate_limit_window_seconds: int = Field(
+        default=CONFIG_DEFAULTS.rate_limit_window_seconds, ge=10, le=3600
+    )
+    rate_limit_login_per_source: int = Field(
+        default=CONFIG_DEFAULTS.rate_limit_login_per_source, ge=1, le=1000
+    )
+    rate_limit_login_per_account: int = Field(
+        default=CONFIG_DEFAULTS.rate_limit_login_per_account, ge=1, le=1000
+    )
+    rate_limit_registration_per_source: int = Field(
+        default=CONFIG_DEFAULTS.rate_limit_registration_per_source, ge=1, le=1000
+    )
+    rate_limit_registration_per_account: int = Field(
+        default=CONFIG_DEFAULTS.rate_limit_registration_per_account, ge=1, le=1000
+    )
+    rate_limit_reset_per_source: int = Field(
+        default=CONFIG_DEFAULTS.rate_limit_reset_per_source, ge=1, le=1000
+    )
+    rate_limit_reset_per_account: int = Field(
+        default=CONFIG_DEFAULTS.rate_limit_reset_per_account, ge=1, le=1000
+    )
 
     directory_lookup_url: str = ""
     directory_lookup_timeout_seconds: float = Field(
-        default=5.0,
+        default=CONFIG_DEFAULTS.directory_lookup_timeout_seconds,
         ge=0.5,
         le=30,
         validation_alias=AliasChoices(
@@ -76,65 +177,103 @@ class Settings(BaseSettings):
         ),
     )
     directory_lookup_verify_tls: bool = Field(
-        default=True,
+        default=CONFIG_DEFAULTS.directory_lookup_verify_tls,
         validation_alias=AliasChoices("DIRECTORY_LOOKUP_VERIFY_TLS", "DIRECTORY_LOOKUP_VERIFY_SSL"),
     )
     directory_lookup_ca_bundle: str = ""
-    directory_lookup_required: bool = False
+    directory_lookup_required: bool = CONFIG_DEFAULTS.directory_lookup_required
     directory_lookup_bearer_token: str = ""
 
+    # Deployment policy: keep the enrollment allowlist in .env, not in the
+    # committed defaults, because it varies by environment.
     allowed_email_domains: str = ""
-    email_backend: Literal["console", "smtp"] = "console"
-    email_redact_sent_bodies: bool = False
-    email_max_attempts: int = Field(default=5, ge=1, le=20)
-    email_retry_base_seconds: int = Field(default=30, ge=1, le=3600)
-    email_retry_max_seconds: int = Field(default=3600, ge=1, le=86400)
-    email_claim_timeout_seconds: int = Field(default=300, ge=30, le=3600)
+    email_backend: Literal["console", "smtp"] = CONFIG_DEFAULTS.email_backend
+    email_redact_sent_bodies: bool = CONFIG_DEFAULTS.email_redact_sent_bodies
+    email_max_attempts: int = Field(default=CONFIG_DEFAULTS.email_max_attempts, ge=1, le=20)
+    email_retry_base_seconds: int = Field(
+        default=CONFIG_DEFAULTS.email_retry_base_seconds, ge=1, le=3600
+    )
+    email_retry_max_seconds: int = Field(
+        default=CONFIG_DEFAULTS.email_retry_max_seconds, ge=1, le=86400
+    )
+    email_claim_timeout_seconds: int = Field(
+        default=CONFIG_DEFAULTS.email_claim_timeout_seconds, ge=30, le=3600
+    )
     email_from: str = Field(
-        default="Data Mover <no-reply@example.gov>",
+        default=CONFIG_DEFAULTS.email_from,
         min_length=3,
         max_length=320,
         validation_alias=AliasChoices("EMAIL_FROM", "SMTP_FROM_EMAIL"),
     )
     smtp_host: str = ""
-    smtp_port: int = Field(default=25, ge=1, le=65535)
+    smtp_port: int = Field(default=CONFIG_DEFAULTS.smtp_port, ge=1, le=65535)
     smtp_starttls: bool = Field(
-        default=True,
+        default=CONFIG_DEFAULTS.smtp_starttls,
         validation_alias=AliasChoices("SMTP_STARTTLS", "SMTP_USE_TLS"),
     )
-    smtp_allow_legacy_port25_fallback: bool = False
+    smtp_allow_legacy_port25_fallback: bool = CONFIG_DEFAULTS.smtp_allow_legacy_port25_fallback
     smtp_ca_bundle: str = ""
     smtp_username: str = ""
     smtp_password: str = ""
 
-    password_hash_scheme: Literal["argon2", "pbkdf2_sha256"] = "argon2"
-    pbkdf2_iterations: int = Field(default=600_000, ge=100_000)
+    password_hash_scheme: Literal["argon2", "pbkdf2_sha256"] = CONFIG_DEFAULTS.password_hash_scheme
+    pbkdf2_iterations: int = Field(default=CONFIG_DEFAULTS.pbkdf2_iterations, ge=100_000)
     password_blocklist_path: str = ""
 
-    data_mover_mode: Literal["demo", "real"] = "demo"
-    pipeline_worker_id: str = ""
-    pipeline_worker_concurrency: int = Field(default=2, ge=1, le=32)
-    pipeline_lease_seconds: int = Field(default=120, ge=30, le=3600)
-    pipeline_batch_rows: int = Field(default=25_000, ge=1_000, le=250_000)
-    pipeline_batch_target_bytes: int = Field(default=67_108_864, ge=1_048_576, le=536_870_912)
-    pipeline_max_run_seconds: int = Field(default=14_400, ge=60, le=86_400)
-    pipeline_max_source_bytes: int = Field(default=1_073_741_824, ge=1, le=1_099_511_627_776)
-    pipeline_max_spool_bytes: int = Field(default=2_147_483_648, ge=1, le=2_199_023_255_552)
+    data_mover_mode: Literal["demo", "real"] = CONFIG_DEFAULTS.data_mover_mode
+    pipeline_worker_id: str = CONFIG_DEFAULTS.pipeline_worker_id
+    pipeline_worker_concurrency: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_worker_concurrency, ge=1, le=32
+    )
+    pipeline_lease_seconds: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_lease_seconds, ge=30, le=3600
+    )
+    pipeline_batch_rows: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_batch_rows, ge=1_000, le=250_000
+    )
+    pipeline_batch_target_bytes: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_batch_target_bytes, ge=1_048_576, le=536_870_912
+    )
+    pipeline_max_run_seconds: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_max_run_seconds, ge=60, le=86_400
+    )
+    pipeline_max_source_bytes: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_max_source_bytes, ge=1, le=1_099_511_627_776
+    )
+    pipeline_max_spool_bytes: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_max_spool_bytes, ge=1, le=2_199_023_255_552
+    )
     pipeline_spool_root: str = ""
-    pipeline_http_connect_seconds: float = Field(default=10, ge=1, le=60)
-    pipeline_http_read_seconds: float = Field(default=120, ge=5, le=600)
-    pipeline_http_write_seconds: float = Field(default=120, ge=5, le=600)
-    pipeline_http_retry_attempts: int = Field(default=3, ge=0, le=8)
-    pipeline_catalog_ttl_seconds: int = Field(default=300, ge=30, le=3600)
-    pipeline_connection_max_age_seconds: int = Field(default=900, ge=60, le=86_400)
-    pipeline_run_retention_days: int = Field(default=90, ge=1, le=730)
-    pipeline_event_retention_days: int = Field(default=30, ge=1, le=365)
+    pipeline_http_connect_seconds: float = Field(
+        default=CONFIG_DEFAULTS.pipeline_http_connect_seconds, ge=1, le=60
+    )
+    pipeline_http_read_seconds: float = Field(
+        default=CONFIG_DEFAULTS.pipeline_http_read_seconds, ge=5, le=600
+    )
+    pipeline_http_write_seconds: float = Field(
+        default=CONFIG_DEFAULTS.pipeline_http_write_seconds, ge=5, le=600
+    )
+    pipeline_http_retry_attempts: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_http_retry_attempts, ge=0, le=8
+    )
+    pipeline_catalog_ttl_seconds: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_catalog_ttl_seconds, ge=30, le=3600
+    )
+    pipeline_connection_max_age_seconds: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_connection_max_age_seconds, ge=60, le=86_400
+    )
+    pipeline_run_retention_days: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_run_retention_days, ge=1, le=730
+    )
+    pipeline_event_retention_days: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_event_retention_days, ge=1, le=365
+    )
     pipeline_allowed_https_hosts: str = ""
     pipeline_ca_bundle: str = ""
-    pipeline_enable_postgres_writer: bool = True
-    pipeline_enable_mss_writer: bool = False
-    pipeline_enable_mcscop_writer: bool = False
-    pipeline_apply_internal_ca_fix: bool = False
+    pipeline_enable_postgres_writer: bool = CONFIG_DEFAULTS.pipeline_enable_postgres_writer
+    pipeline_enable_mss_writer: bool = CONFIG_DEFAULTS.pipeline_enable_mss_writer
+    pipeline_enable_mcscop_writer: bool = CONFIG_DEFAULTS.pipeline_enable_mcscop_writer
+    pipeline_apply_internal_ca_fix: bool = CONFIG_DEFAULTS.pipeline_apply_internal_ca_fix
 
     @property
     def email_domain_allowlist(self) -> set[str]:

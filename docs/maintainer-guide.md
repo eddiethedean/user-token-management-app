@@ -95,8 +95,10 @@ prefer `.venv/bin/python` when that repository virtual environment exists, and o
 
 ### Configuration ownership
 
-Keep configuration decisions in the typed settings model and document new variables in both
-`.env.example` and the appropriate deployment guide.
+Keep stable, non-sensitive configuration decisions in `ConfigDefaults` in `app/config.py`. Keep
+secrets and deployment-specific values in the protected `.env` file, and document every supported
+override in `docs/configuration.md` plus the appropriate deployment guide. Do not put credentials in
+the committed defaults or `.env.example`.
 
 | Configuration | Owner | Notes |
 |---|---|---|
