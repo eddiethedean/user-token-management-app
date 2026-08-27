@@ -17,7 +17,8 @@ make serve
 ```
 
 Default `make create-admin` uses `ADMIN_EMAIL=admin@example.gov` unless you override it.
-For an explorable local instance with all four fake connections already validated, run `make demo`.
+For an explorable local instance with all three fake provider connections already validated, run
+`make demo`.
 The helper seeds only development environments and does not overwrite existing bundles unless the
 CLI is given `--replace`.
 

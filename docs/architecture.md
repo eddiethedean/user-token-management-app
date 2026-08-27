@@ -62,8 +62,9 @@ credentials only inside a claimed pipeline-worker run.
 
 Saved pipeline definitions are owner-scoped rows in `pipeline_definitions` with versioned locators
 and write policies. The web process enqueues runs; `python -m app pipeline-worker` claims a lease,
-decrypts two credential bundles, streams Polars batches, and persists status and events.
-The browser polls HTMX fragments that render only those persisted facts.
+decrypts only the provider credential bundles required by the route, streams Polars batches, and
+persists status and events. CSV sources do not require a source credential. The browser polls HTMX
+fragments that render only those persisted facts.
 
 ```text
 Browser HTMX
@@ -91,10 +92,12 @@ upload by foreign key so the source remains available when the pipeline is loade
 
 ## Provider catalog
 
-`app/services/catalogs.py` is the single source for provider labels, technologies, synthetic
-regions, schemas/databases, tables/collections, validation latency, and runtime-wake capability.
-Both the Connections status UI and Pipeline workspace consume that catalog so a provider cannot be
-added to only one surface accidentally.
+Connector capability metadata in `app/connectors/registry.py` is the source of truth for provider
+labels, source/destination eligibility, object models, write modes, schema inspection, row-count
+precision, and verification limits. `app/services/catalogs.py` projects that metadata into the UI,
+while each connector owns its namespace and object discovery. Connections status, Pipeline
+selectors, persistence validation, and the transfer engine must all enforce the same registry
+capabilities; hiding an option in the browser is not an authorization boundary.
 
 ## Related
 

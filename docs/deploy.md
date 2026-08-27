@@ -585,10 +585,12 @@ Open `PUBLIC_BASE_URL` and verify:
 1. `/health` returns `{"status":"ok"}`.
 2. `/ready` returns `{"status":"ready"}`.
 3. The initial administrator can authenticate.
-4. Pipeline, Connections, Account, Team, and Activity stay under the Connect content URL.
+4. Pipeline, Connections, Account, Team, and Audit log stay under the Connect content URL.
 5. Refresh works and logout clears the application session.
 6. An invitation reaches an approved test mailbox as multipart text/HTML mail, its link stays under
    `PUBLIC_BASE_URL`, and the worker reports delivery without exposing the token after redaction.
+   Confirm the invitation form defaults to the **User** role; administrator access must be selected
+   explicitly.
 7. `python -m app schema-status` still reports `Current` equal to `Head`.
 8. Each connection type renders its expected fields. Test a connection without revealing secrets.
 9. A pipeline can select catalog objects, save/load its definition, enqueue a run, and

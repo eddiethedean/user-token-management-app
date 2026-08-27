@@ -29,7 +29,7 @@ subsystems.
 | 0.66.1 styling contract | The app validates `DATA_MOVER_THEME` through Hedron's CSS/design-token export and 0.66.1 presentation contract, using typed Brand mark controls, `AmbientBackdrop`, presentation scales, native control/data tokens, the component bundle, canonical selection/link tokens, and compatibility aliases for the default stylesheet. |
 | 0.65 scoped styling | The product stylesheet is registered as an application-owned cascade-layer style; the workflow's current step uses a bounded public `ProcessFlow.step` recipe with the named `elevate` motion fallback. |
 | 0.66 typography | Page headers and auth/workspace scopes use bounded measure/effect props and contextual presentation mappings for readable, accessible title and supporting-copy treatment. |
-| Native styling | `AppShell`, `Container`, `PageHeader`, `SkipLink`, `RequestIndicator`, typed buttons, links, grids, actions, alerts, badges, tabs, tables, dialogs, `Avatar`, `ConnectorFlow`, `ConnectorNode`, `ConnectorTrack`, `ProcessFlow`, `ScrollRegion`, `ThemePicker`, and `Status` own the UI structure and behavior. `app/static/theme.css` adds the product-level Data Mover art direction without owning component behavior. |
+| Native styling | `AppShell`, `Container`, `PageHeader`, `SkipLink`, `RequestIndicator`, typed buttons, links, grids, actions, alerts, badges, tabs, tables, dialogs, `Avatar`, `ConnectorFlow`, `ConnectorNode`, `ConnectorTrack`, `ProcessFlow`, `ScrollRegion`, `ToggleSwitch`, and `Status` own the UI structure and behavior. `app/static/theme.css` adds the product-level Data Mover art direction without owning component behavior. |
 | Testing | Hedron page/fragment fixtures, render assertions, interaction assertions, target/region checks, and route-registry coverage. |
 
 | 0.50/0.50.1 feature baseline | Required Hedron runtime includes action chaining, submit gates, long-running run-state, and lazy/toast/history primitives used by Data Mover. |
@@ -72,9 +72,10 @@ workspace and auth density boundaries and carries explicit recipe defaults.
 The app also uses the named gap vocabulary so strict-CSP rendering fails closed on
 unsupported ad-hoc layout values.
 
-Authenticated pages now expose Hedron's server-first `ThemePicker` for the allowlisted
-`data-mover` and `aurora` themes plus system/light/dark modes. Host-owned cookies persist the
-preference, while the page emits native theme markers before content renders.
+Authenticated pages expose Hedron's native `ToggleSwitch` for the supported light/dark color
+modes. The selected mode is persisted on the user and in host-owned cookies, while the page emits
+native theme markers before content renders. The internal `data-mover`/`aurora` theme allowlist is
+retained for compatibility, but the application does not render a user-facing `ThemePicker`.
 
 The pipeline monitor now projects every persisted run into Hedron's unified server-first action
 lifecycle. A run id is the bounded operation id, its retry attempt is the generation, and the
@@ -233,6 +234,6 @@ HTML.
 3. Run `make check` and `make hedron-build`.
 4. Exercise sign-in, Pipeline, Connections credentials/status, CSV inspection, saved pipelines,
    main-panel navigation, tabs, dialogs, lazy regions, OOB toasts, and browser back/forward behavior
-   in a real browser with no console errors.
+   at wide and medium desktop widths in both light and dark modes, with no console errors.
 5. Verify that `app.js` remains limited to application-owned progressive enhancement (dialog close
    and navigation affordances); Hedron owns HTMX loading, history, and lazy-region behavior.

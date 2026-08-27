@@ -1506,7 +1506,6 @@ def _pipeline_body(
             density="comfortable",
         ),
         setup_flow,
-        _capability_surface(source_catalog, target_catalog),
         alert_box(
             "Pipeline saved. You can load or run it any time." if notice == "saved" else "",
             kind="success",
@@ -1966,6 +1965,7 @@ def _pipeline_body(
                                 loaded_source_inspection if source_provider == "csv" else None
                             ),
                         ),
+                        _capability_surface(source_catalog, target_catalog),
                         html.div(id="pipeline-preview-region", hidden=True),
                         action=form_action(request, "/pipeline/save"),
                         method="post",

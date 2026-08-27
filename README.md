@@ -77,7 +77,7 @@ the persisted event feed that operators can use to understand what happened duri
 
 ### Collapsed navigation
 
-![Data Mover Pipeline workspace with the desktop navigation collapsed to stable icon links for Pipeline, Connections, Account, Team, and Activity](docs/screenshots/navigation-collapsed.jpg)
+![Data Mover Pipeline workspace with the desktop navigation collapsed to stable icon links for Pipeline, Connections, Account, Team, and Audit log](docs/screenshots/navigation-collapsed.jpg)
 
 The desktop rail collapses to the same five route icons used in the expanded navigation. Their
 position and active-state treatment remain fixed while only the visible text labels are removed;
@@ -188,13 +188,14 @@ seeding command refuses to run in production.
 
 After signing in:
 
-1. Open **Connections → Credentials** and add MSS, MCS-COP, or PostgreSQL demo
-   credentials. Every value is encrypted, and the saved plaintext is never displayed again.
-2. Open **Connections → Status** and select **Test** / **Retest**.
-3. Open **Pipeline** and choose existing source and destination objects from the demo catalogs.
-   Only connections you have saved and validated appear. CSV files may also be uploaded, scanned,
-   and used as sources.
-4. Select a write mode, save the route, and run it. The page polls persisted run events.
+1. Open **Connections → Credentials** and review the seeded MSS, MCS-COP, and PostgreSQL
+   connections. Every value is encrypted, and the saved plaintext is never displayed again.
+2. Open **Connections → Status** and select **Test connection**.
+3. Open **Pipeline → Route setup** and choose existing source and destination objects from the
+   demo catalogs. Only connections you have saved and validated appear. CSV files may also be
+   uploaded, scanned, and used as sources.
+4. Select a write mode, save the route, and run it. Use **Live transfer** to follow persisted run
+   events and **Saved routes** to load a reusable pipeline.
 
 Demo mode does not contact remote systems. Use only non-sensitive test values and data. The complete
 workflow is in the [Data Mover user guide](docs/user-guide.md).

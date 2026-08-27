@@ -655,12 +655,13 @@ def test_audit_results_and_invitation_panel_render_html() -> None:
         ui.invitation_panel(
             _request(),
             [],
-            [SimpleNamespace(name="user"), SimpleNamespace(name="administrator")],
+            [SimpleNamespace(name="administrator"), SimpleNamespace(name="user")],
             csrf_token="inv-csrf",
         )
     )
     assert 'id="invitation-panel"' in panel
     assert "admin/invitations" in panel
+    assert re.search(r'<option[^>]+value="user"[^>]+selected', panel)
 
 
 def test_login_via_page_fixture_uses_hedron_asserts(page) -> None:
@@ -693,6 +694,7 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert "03 · Account" not in profile.body
     assert "04 · Team" not in profile.body
     assert "05 · Activity" not in profile.body
+    assert_html_contains(profile, "Audit log")
     assert_html_contains(profile, 'hx-target="#main-panel"')
     assert_html_contains(profile, 'hx-select="#main-panel"')
     assert_html_contains(profile, 'hx-push-url="true"')

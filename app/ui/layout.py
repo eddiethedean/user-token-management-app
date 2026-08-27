@@ -289,7 +289,7 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
             NavGroup(
                 "Administration",
                 link("/admin/users", "Team", icon="team"),
-                link("/admin/audit", "Activity", icon="activity"),
+                link("/admin/audit", "Audit log", icon="activity"),
             )
         )
     return children

@@ -16,7 +16,7 @@
 5. Open **Live transfer** and select **Run again** from the run pane.
 6. Show queued, loading, verifying, and succeeded states.
 7. Show persisted event history and row metrics.
-8. Open **Activity** and show the audit trail.
+8. Open **Audit log** and show the application-wide audit trail.
 
 ## Recovery path
 

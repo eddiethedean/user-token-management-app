@@ -205,7 +205,7 @@ Open the content URL and verify:
 1. `/health` returns `{"status":"ok"}`.
 2. `/ready` returns `{"status":"ready"}`.
 3. The seeded administrator can sign in.
-4. Pipeline, Connections, Account, Team, and Activity remain under the Connect content URL.
+4. Pipeline, Connections, Account, Team, and Audit log remain under the Connect content URL.
 5. MSS, MCS-COP, and PostgreSQL appear as **Connected** on the Status page.
 6. Pipeline reports **3/3 connections ready**, lists only those seeded providers, and can select
    their catalog objects.

@@ -46,7 +46,8 @@ rules. That is the quickest way to introduce authorization drift or an unrecover
 |---|---|
 | `app/main.py` | FastAPI/Hedron application assembly, middleware, startup checks |
 | `app/config.py` | Typed environment settings and production validation |
-| `app/ui/` | Pages, actions, fragments, layout, SafeUrl helpers, forms, and interaction regions |
+| `app/ui/` | Pages, actions, fragments, shell layout, design recipes, SafeUrl helpers, forms, and interaction regions |
+| `app/static/` | Product art direction and narrowly scoped progressive enhancement |
 | `app/services/` | Domain use cases and persistence orchestration |
 | `app/services/secret_*` | Credential types, provider catalog, validation, and encryption policy |
 | `app/services/pipeline_state.py` | Persistence-independent run state transitions and lease rules |
@@ -76,6 +77,13 @@ ADMIN_EMAIL=admin@example.gov \
   ADMIN_BOOTSTRAP_PASSWORD='Your-Long-Password-15+' \
   make create-admin
 make serve
+```
+
+If you use `uv`, synchronize the locked development environment (including test and lint tools)
+with:
+
+```bash
+uv sync --locked --extra dev --python 3.11
 ```
 
 Open `http://127.0.0.1:8000`. For a disposable local workflow with fake, already-validated
@@ -153,9 +161,38 @@ Keep routes thin and make domain rules testable without a browser or database wh
 
 Use current Hedron primitives, recipes, component bundles, and named spacing tokens for new
 presentation. Keep only product-level art direction in `app/static/theme.css`; component behavior
-and interaction states remain owned by Hedron. For a visual change, inspect wide desktop and medium
-desktop widths, exercise light/dark/system modes, and check keyboard focus and console output.
-Run `make hedron-check` and `make hedron-build` after changing routes, components, or theme metadata.
+and interaction states remain owned by Hedron. Data Mover intentionally loads a desktop-only
+derivative of Hedron's native stylesheet, so the supported visual pass is wide desktop and medium
+desktop, including expanded and collapsed navigation. Exercise both light and dark modes, keyboard
+focus, forced-colors behavior, and browser console output. Do not add isolated mobile overrides
+without an explicit product decision to expand the supported layout contract.
+
+Run `make demo` for the browser pass. Use the seeded account and fake providers; never put real
+credentials into a visual test. Reload after server-side changes when the server is not running in
+reload mode. Run `make hedron-check` and `make hedron-build` after changing routes, components, or
+theme metadata.
+
+### Desktop information architecture and safety defaults
+
+Treat these behaviors as product contracts rather than incidental copy or source order:
+
+- The workspace navigation is **Pipeline**, **Connections**, and **Account**. Administrators also
+  receive **Team** and **Audit log**. Keep **Audit log** distinct from the signed-in user's
+  **Account → Activity** tab.
+- On Pipeline, keep the **Route setup**, **Live transfer**, and **Saved routes** tabs and the current
+  route's save/run actions ahead of secondary provider-capability detail. **Route capabilities**
+  belongs inside **Route setup**, after the schema and row-count preview.
+- **Run transfer** remains disabled until a ready route has been saved. Client presentation can
+  explain readiness, but the save and run services must revalidate every rule.
+- New teammate invitations default to the **User** role. Administrator access must require an
+  explicit selection; preserve this least-privilege default when changing role ordering or forms.
+- Header account identity links to **Account**; **Sign out** remains a separate action so interactive
+  controls are never nested.
+
+Cover changes to these contracts in `tests/test_ui_shell.py`, `tests/test_ui_interactions.py`, or
+`tests/test_pipelines.py`, then verify the rendered result in a desktop browser. Prefer semantic
+roles, labels, and stable region IDs in tests over styling-class assertions unless the class itself
+is an intentional integration contract.
 
 ## Adding or changing a provider
 
@@ -261,6 +298,16 @@ It runs Ruff linting, format verification, basedpyright, Hedron route checks, ap
 an 80% coverage floor, and demo-app tests. CI then runs `make hedron-build` to create the production
 manifest.
 
+For a focused UI iteration before the complete gate, run:
+
+```bash
+pytest tests/test_ui_shell.py tests/test_ui_interactions.py tests/test_pipelines.py
+make hedron-check
+git diff --check
+```
+
+The focused command is feedback, not a replacement for `make check` before handoff.
+
 Additional opt-in suites:
 
 ```bash
@@ -303,7 +350,9 @@ Before merging or deploying:
 2. Confirm secrets are not present in Git, logs, fixtures, screenshots, or generated manifests.
 3. Run `make check`, `make hedron-security-check`, and `make hedron-build`.
 4. Exercise sign-in, connection save/test, CSV scan, pipeline save/run/cancel, account sessions, and
-   admin actions in a browser for UI changes.
+   admin actions in a desktop browser for UI changes. Confirm the Pipeline primary actions remain
+   visible before capability detail, the invitation role defaults to **User**, and admin navigation
+   says **Audit log**.
 5. Update the user guide, maintainer/deployment docs, provider notes, and `CHANGELOG.md` when
    behavior or configuration changes.
 6. Inspect `git diff --check` and `git status --short` before committing.
@@ -318,8 +367,9 @@ checked-out Hedron source when a component or styling capability is involved. Th
 2. Run `make hedron-check`, `python -m hedron --app app.main:app routes`, and `make check`.
 3. Run `make hedron-build` and verify the generated manifest is not accidentally committed unless
    the release process requires it.
-4. Perform a browser pass on authentication, navigation, forms, tabs, dialogs, lazy regions,
-   polling, errors, and responsive layouts.
+4. Perform a browser pass on authentication, expanded/collapsed desktop navigation, forms, tabs,
+   dialogs, lazy regions, polling, errors, and both supported color modes at wide and medium desktop
+   widths.
 5. Record missing native capabilities as an upstream Hedron issue instead of reintroducing product
    CSS or a parallel client-side authority.
 

@@ -104,6 +104,7 @@ def test_pipeline_surface_exposes_metadata_capabilities_and_accessible_regions(
     assert "Destination route" in response.text
     assert "Pre-transfer inspection and extraction visibility." in response.text
     assert "Write options and post-transfer verification." in response.text
+    assert response.text.index('role="tablist"') < response.text.index("Route capabilities")
     assert 'aria-label="Workspace"' in response.text
     assert 'aria-label="Account navigation"' in response.text
     assert 'role="tablist"' in response.text

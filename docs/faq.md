@@ -15,7 +15,8 @@ remote system cannot be both ends of one pipeline.
 
 **Why is a connection missing from the Pipeline page?**
 Pipeline only lists remote connections that the signed-in user has saved and whose latest
-validation is **Connected**. Add or retest the connection under **Connections**.
+validation is **Connected**. Add the connection under **Connections → Credentials**, then use
+**Test connection** under **Connections → Status**.
 
 **What credentials does each connection need?**
 MSS and MCS-COP require an HTTPS endpoint and API token, and optionally a default dataset RID,

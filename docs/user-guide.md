@@ -35,12 +35,13 @@ entering real credentials.
 
 1. Sign in with an approved Data Mover account.
 2. Open **Connections** and add the systems you want to use.
-3. Select **Test** on **Connections → Status**. Save stores credentials as untested until that check
-   succeeds.
-4. Open **Pipeline**, choose a source and destination, and select existing objects or create a new
-   destination table or Foundry file name.
-5. Name and save the pipeline if you want to reuse it.
-6. Select **Run transfer** to enqueue a durable run. The page polls persisted status and log events.
+3. Select **Test connection** on **Connections → Status**. Save stores credentials as untested
+   until that check succeeds.
+4. Open **Pipeline → Route setup**, choose a source and destination, and select existing objects or
+   create a new destination table or Foundry file name.
+5. Name and save the pipeline. Saving makes the route reusable and enables **Run transfer**.
+6. Select **Run transfer** to enqueue a durable run, then open **Live transfer** to follow persisted
+   status and worker events.
 
 In demo mode, connectors never contact the hostnames you type. In real mode, a separate
 `pipeline-worker` process decrypts credentials only for the claimed run.
@@ -48,10 +49,11 @@ In demo mode, connectors never contact the hostnames you type. In real mode, a s
 ### What you can see and change
 
 Data Mover scopes connections, CSV uploads, saved pipelines, runs, and account activity to the
-signed-in user. Administrators get additional **Team** and **Activity** navigation, but they still
-cannot reveal another user's saved credentials. A connection's **Connected** badge means the latest
-health check succeeded; it does not grant access to the remote provider beyond the credential's own
-permissions.
+signed-in user. Administrators get additional **Team** and **Audit log** navigation, but they still
+cannot reveal another user's saved credentials. **Audit log** contains application-wide security
+records; **Account → Activity** contains the signed-in user's recent account events. A connection's
+**Connected** badge means the latest health check succeeded; it does not grant access to the remote
+provider beyond the credential's own permissions.
 
 ## Connections
 
@@ -79,20 +81,29 @@ Open **Connections → Status** to see every provider in one place.
 - **Not configured** means no credential bundle is stored for that connection.
 - **Untested** means credentials are stored but have not been checked.
 - **Connected** means the latest connector health check succeeded.
-- **Retest** repeats the health check.
+- **Test connection** runs or repeats the health check.
 
 In demo mode the handshake is local. In real mode it is a live `SELECT 1` or Foundry file list using
 the default dataset RID.
 
-If a status check fails, correct the complete credential bundle and choose **Retest**. Data Mover
-does not reveal which saved value was previously entered. For a production credential rotation,
-replace the bundle in Data Mover and rotate or revoke the old credential at the remote provider
-according to that provider's process.
+If a status check fails, correct the complete credential bundle and choose **Test connection**.
+Data Mover does not reveal which saved value was previously entered. For a production credential
+rotation, replace the bundle in Data Mover and rotate or revoke the old credential at the remote
+provider according to that provider's process.
 
 ## Build a pipeline
 
-The Pipeline page has four parts: route configuration, a source-to-destination preview, live run
-feedback, and saved pipelines.
+The Pipeline page starts with a three-step **Connect → Configure → Run** summary, followed by
+three task tabs:
+
+- **Route setup** contains the route name, write mode, source and destination selectors, schema and
+  row-count preview, save/run actions, and provider capability details.
+- **Live transfer** contains the current or most recent run, stage progress, metrics, schema
+  comparison, and persisted worker events.
+- **Saved routes** contains reusable pipelines that you can load or run again.
+
+The tabs and the route's save/run actions appear before the detailed provider capability panel so
+the next task remains visible in the main desktop workspace.
 
 A remote provider appears in a source or destination menu only after the signed-in user has saved it
 and its validation status is **Connected**. MCS-COP is destination-only. If no remote connection is
@@ -142,10 +153,11 @@ back to `text`, while integers mixed with decimals become `decimal`.
 
 ## Save and reuse pipelines
 
-Give the route a name of at least three characters and select **Save pipeline**. Saved pipelines are
-owned by the current user. Loading restores the route, including its CSV upload reference when
-applicable. If a connection used by a saved pipeline is later deleted, the card reports
-**Connection required**.
+In **Route setup**, give the route a name of at least three characters and select **Save pipeline**.
+**Run transfer** remains disabled until the route has been saved and is ready. Saved pipelines are
+owned by the current user and appear under **Saved routes**. Loading restores the route, including
+its CSV upload reference when applicable. If a connection used by a saved pipeline is later
+deleted, the card reports **Connection required**.
 
 ## Run a transfer
 
@@ -158,9 +170,9 @@ metric includes a signed delta such as `1,000 → 1,250 rows` and `+250 rows`. P
 portable count API are labeled as unavailable rather than showing an estimate. Every preview and
 run fact also identifies whether it is exact, estimated, captured during the run, or unavailable.
 
-The **Route capabilities** panel explains what the selected providers can expose before and after a
-run. For example, a catalog estimate is different from an exact destination count, and Foundry
-file routes may only provide a local manifest after the transfer.
+At the end of **Route setup**, the **Route capabilities** panel explains what the selected providers
+can expose before and after a run. For example, a catalog estimate is different from an exact
+destination count, and Foundry file routes may only provide a local manifest after the transfer.
 
 Use **Cancel run** in the live monitor to request a safe stop. The monitor stays active until the
 worker records a terminal state. Retry is shown only for failures marked safe to retry. If a worker
@@ -191,12 +203,11 @@ destination as unknown until an operator confirms whether the file was published
 
 ## Appearance and accessibility
 
-Open the account menu and choose **Appearance** to select the Data Mover or Aurora theme and a
-system, light, or dark color mode. The preference is stored in a host-owned browser cookie. The
-workspace supports keyboard navigation, a skip link, responsive layouts, and forced-colors/high-
-contrast browser modes. If a control is difficult to reach, try keyboard navigation or a wider
-viewport before changing the pipeline; the application keeps the same server-side validation at
-every viewport size.
+Use the **Dark mode** switch in the application header to move between the light and dark workspace.
+The preference is saved to the signed-in account and a host-owned browser cookie so it can be
+restored at the next sign-in. The desktop workspace supports keyboard navigation, a skip link, and
+forced-colors/high-contrast browser modes. If a control is difficult to reach, try keyboard
+navigation or a wider desktop viewport; server-side validation remains the same.
 
 ## If something goes wrong
 
@@ -205,8 +216,8 @@ every viewport size.
 | A provider is missing from Pipeline | Confirm it is saved under **Connections → Credentials** and **Connected** under **Status**. |
 | Save or Run is disabled | Scan the CSV, choose different remote source/destination systems, and resolve every readiness message. |
 | A run stays queued | Ask an operator to confirm `python -m app pipeline-worker` is running in real mode. |
-| A connection says Untested | Select **Test** or **Retest**; saving alone never marks a connection connected. |
-| A saved pipeline says Connection required | The owner deleted or replaced a required connection; restore and retest it, then reload the pipeline. |
+| A connection says Untested | Select **Test connection**; saving alone never marks a connection connected. |
+| A saved pipeline says Connection required | The owner deleted or replaced a required connection; restore and test it, then reload the pipeline. |
 | An email link never arrives | Local deployments print links in the email-worker log; production operators must check the email worker and SMTP queue. |
 
 For mount-path, login, email, CSV, and worker failures, use the detailed [troubleshooting guide](troubleshooting.md).
@@ -223,16 +234,17 @@ conspicuously fake secrets. Demo seeding is blocked when `APP_ENV=production` or
 - **Account** contains profile, password, active-session, and recent account-activity tabs.
 - **Connections** contains only remote credential and connection-status controls.
 - Administrators can use **Team** for invitations, approvals, enable/disable actions, and account
-  management.
-- Administrators can use **Activity** to review audited application events, including connection,
-  CSV, and pipeline changes.
+  management. New invitations default to the **User** role; choose **Administrator** only when the
+  recipient needs team-management and application-wide audit access.
+- Administrators can use **Audit log** to review application-wide events, including connection,
+  CSV, pipeline, authentication, and account-management changes.
 
 ### Sign out and sessions
 
-Use the account menu in the upper-right corner to sign out or open **Account**. The Account page
-shows active sessions and recent account activity. Revoke an unfamiliar session immediately, then
-change your password or contact the identity-proxy administrator according to your organization's
-incident process.
+Use the account identity link in the upper-right corner to open **Account**, or use the adjacent
+**Sign out** button to end the current session. The Account page shows active sessions and recent
+account activity. Revoke an unfamiliar session immediately, then change your password or contact
+the identity-proxy administrator according to your organization's incident process.
 
 ## Safety and limitations
 

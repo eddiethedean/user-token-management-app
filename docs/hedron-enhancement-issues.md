@@ -48,7 +48,7 @@ Pipeline form still relies on imperative logic for:
 - preview/label fields computed from selection + validation state
 
 ### Historical local workaround
-Functions in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js), especially `syncPipelineObjectPicker`, `syncPipelineTables`, `replaceSelectOptions`, `commitNewTableName`, and `updatePipelinePreview`.
+Functions in [app/static/app.js](../app/static/app.js), especially `syncPipelineObjectPicker`, `syncPipelineTables`, `replaceSelectOptions`, `commitNewTableName`, and `updatePipelinePreview`.
 
 ### Suggested API behavior
 - Provide declarative dependency chains between controls.
@@ -75,7 +75,7 @@ The app still injects a custom fallback for lazy-loaded regions when `load` requ
 - manual `htmx.process` call
 
 ### Historical local workaround
-`lazyLoadFailed(event)` in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js)
+`lazyLoadFailed(event)` in [app/static/app.js](../app/static/app.js)
 
 Implemented via built-in lazy-load behavior in this follow-up pass (manual fallback removed).
 
@@ -104,7 +104,7 @@ Toast behavior is manual:
 - bare toast fallback cleanup
 
 ### Historical local workaround
-`scheduleToastDismiss`, `pruneToastQueue`, and custom host queueing in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js)
+`scheduleToastDismiss`, `pruneToastQueue`, and custom host queueing in [app/static/app.js](../app/static/app.js)
 
 In this pass, server-generated toast payloads were aligned to native `Toast` markup and toast-lifecycle attachment moved to a single host hydration path.
 
@@ -131,7 +131,7 @@ The app still handles `htmx:historyRestore` manually with:
 - explicit select targets for main panel/side nav OOB
 
 ### Historical local workaround
-`htmx:historyRestore` handler in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js)
+`htmx:historyRestore` handler in [app/static/app.js](../app/static/app.js)
 
 Implemented via route-level restore semantics in this follow-up pass (manual event handler removed).
 
@@ -153,7 +153,7 @@ Provide a first-class pattern for long-running monitor fragments
 The pipeline transfer UX still maintains custom run-state transitions around status regions and toasts.
 
 ### Historical local workaround
-Status reconciliation in `runPipelineTransfer()`, polling behavior, and `htmx:afterSwap` logic in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js).
+Status reconciliation in `runPipelineTransfer()`, polling behavior, and `htmx:afterSwap` logic in [app/static/app.js](../app/static/app.js).
 
 ### Suggested API behavior
 - Typed action result for queueing + monitor target that tracks running state.
@@ -202,7 +202,7 @@ depended on manual JS:
 - schedule a delayed click to trigger the run button
 
 ### Historical local workaround
-`loadSavedPipeline(button)` in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js), including the delayed `setTimeout(...click())` path for auto-run.
+`loadSavedPipeline(button)` in [app/static/app.js](../app/static/app.js), including the delayed `setTimeout(...click())` path for auto-run.
 
 ### Suggested API behavior
 - Allow declarative post-load actions with:
@@ -228,7 +228,7 @@ Pipeline save submit currently performs imperative validation and state checks i
 - inline messaging and temporary busy state updates
 
 ### Historical local workaround
-`document.addEventListener("submit", ...)` and helper logic in [app/static/app.js](/Volumes/SAN-DRIVE/coding/user-token-management-app/app/static/app.js).
+`document.addEventListener("submit", ...)` and helper logic in [app/static/app.js](../app/static/app.js).
 
 ### Suggested API behavior
 - Provide declarative pre-submit gate definitions tied to form/inputs.

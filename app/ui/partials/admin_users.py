@@ -397,6 +397,13 @@ def invitation_panel(
                     [(role.name, role.name.title()) for role in roles],
                     id="invite_role",
                     required=True,
+                    value=(
+                        "user"
+                        if any(role.name == "user" for role in roles)
+                        else roles[0].name
+                        if roles
+                        else None
+                    ),
                 ),
             ),
             Button("Send invitation", width="full", type="submit"),
