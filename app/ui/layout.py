@@ -78,7 +78,7 @@ def theme_preference_for_request(
     *,
     default_color_mode: str = "light",
 ) -> ThemePreference:
-    """Resolve the allowlisted Hedron 0.66.1 light/dark preference."""
+    """Resolve the allowlisted Hedron 1.0.0 light/dark preference."""
 
     color_mode = request.cookies.get(COLOR_MODE_COOKIE)
     if color_mode not in {"light", "dark"}:

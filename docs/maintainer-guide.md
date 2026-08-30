@@ -134,7 +134,8 @@ python -m app email-worker
 
 - Register browser GETs with `@app.page`.
 - Register mutations with `@app.action`.
-- Use `@app.fragment` for a single lazy region and `@app.component` for multi-region interactions.
+- Use `@app.view` for composable lazy regions and `HedronRouter.view` for dependency-heavy or
+  multi-region interactions.
 - Define every address with the mount-aware helpers in `app/ui/urls.py`.
 - Declare the smallest valid `fragment_regions` allowlist in interaction routes.
 - Return pages through `render_authenticated_view` or the existing page response helpers.

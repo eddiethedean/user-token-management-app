@@ -24,7 +24,7 @@ def _workbench_public_base_from_environment(
 ) -> str | None:
     """Preserve the trusted origin from Workbench's full root-path URL.
 
-    Hedron 0.66 extracts only the mount from a full ``UVICORN_ROOT_PATH``.
+    Hedron 1.0 extracts only the mount from a full ``UVICORN_ROOT_PATH``.
     That leaves its encoded-absolute-target guard expecting the loopback
     origin. Promote the Workbench runtime value only when it is a full HTTP(S)
     URL and no operator-supplied public base takes precedence. Hedron remains

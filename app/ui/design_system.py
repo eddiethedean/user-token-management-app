@@ -1,4 +1,4 @@
-"""Data Mover's explicit Hedron 0.66.1 presentation contract."""
+"""Data Mover's explicit Hedron 1.0.0 presentation contract."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class DataMoverPageHeader(PageHeader):
         super().__init__(title, **kwargs)
 
 
-# Build a first-party Data Mover brand from Hedron's 0.66.1 typed design system.
+# Build a first-party Data Mover brand from Hedron's 1.0.0 typed design system.
 # Aurora remains the accessibility-tested base; the brand compiler owns the
 # palette, geometry, typography, motion, and navigation groups.
 _BRAND_DESIGN = DesignSystem.brand(
@@ -56,7 +56,7 @@ _BRAND_DESIGN = DesignSystem.brand(
     navigation="wide",
 )
 
-# 0.66.1's extensible recipe-family contract lets the flow canvas declare its
+# 1.0.0's extensible recipe-family contract lets the flow canvas declare its
 # presentation vocabulary without private CSS or behavior-shaped props.
 DATA_MOVER_FLOW_FAMILY = RecipeFamily(
     name="flow",
@@ -216,13 +216,13 @@ DATA_MOVER_THEME_SPEC = (
             "control.indeterminate": "var(--hedron-color-accent)",
         }
     )
-    .metadata(product="data-mover", release="0.66.1")
+    .metadata(product="data-mover", release="1.0.0")
     .profile("workflow")
     .build()
 )
 _THEME_REPORT = validate_theme_spec(DATA_MOVER_THEME_SPEC, profile="workflow")
 if not _THEME_REPORT.ok:
-    raise ValueError(f"Data Mover theme failed Hedron 0.66.1 validation: {_THEME_REPORT.to_dict()}")
+    raise ValueError(f"Data Mover theme failed Hedron 1.0.0 validation: {_THEME_REPORT.to_dict()}")
 _RESOLVED_THEME = DATA_MOVER_THEME_SPEC.to_theme()
 
 # Variants are additive presentation contexts. They do not encode application
@@ -315,7 +315,7 @@ DATA_MOVER_THEME: Theme = replace(
     },
 )
 
-# 0.66.1 emits a matching CSS and design-token export, including the compatibility
+# 1.0.0 emits a matching CSS and design-token export, including the compatibility
 # bridge consumed by Hedron's default stylesheet. Fail fast if the application
 # theme ever drifts outside the published contract.
 DATA_MOVER_THEME_EXPORT = export_theme(DATA_MOVER_THEME, profile="workflow")
@@ -406,7 +406,7 @@ DATA_MOVER_DESIGN = DesignSystem.from_theme(DATA_MOVER_THEME).with_recipes(
 
 
 def apply_action_recipe(button: _ComponentT, *, variant: str) -> _ComponentT:
-    """Apply a named 0.66.1 control recipe without overriding explicit props."""
+    """Apply a named 1.0.0 control recipe without overriding explicit props."""
 
     recipe = {
         "primary": "data-mover-primary-action",

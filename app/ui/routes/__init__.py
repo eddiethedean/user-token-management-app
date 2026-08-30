@@ -6,7 +6,7 @@ from typing import cast
 
 from fastapi import Request, status
 from fastapi.responses import RedirectResponse, Response
-from hedron import Hedron
+from hedron import Hedron, HedronRouter
 from hedron.htmx import is_htmx_request
 from hedron_posit import HedronPosit
 
@@ -26,6 +26,8 @@ from app.ui.routes.security import register_security_routes
 
 
 def register_routes(app: Hedron) -> None:
+    fragment_router = HedronRouter(provenance="access-registry fragment views")
+
     @app.page("/", include_in_schema=False)
     def home(request: Request, auth: OptionalAuth):
         return RedirectResponse(
@@ -83,5 +85,6 @@ def register_routes(app: Hedron) -> None:
     register_auth_routes(app)
     register_pipeline_routes(app)
     register_profile_routes(app)
-    register_security_routes(app)
-    register_admin_routes(app)
+    register_security_routes(app, fragment_router)
+    register_admin_routes(app, fragment_router)
+    app.include_router(fragment_router)

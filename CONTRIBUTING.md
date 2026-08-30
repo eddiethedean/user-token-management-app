@@ -59,7 +59,7 @@ checklist are documented in the [maintainer guide](docs/maintainer-guide.md).
 5. Prefer `render_authenticated_view` for authenticated GETs that support main-panel nav swaps.
 
 Register browser GETs with `@app.page`, mutations with `@app.action`, and addressable lazy
-regions with `@app.fragment`. Declare the smallest applicable `fragment_regions` allowlist so
+ regions with `@app.view` (or `HedronRouter.view` for dependency-heavy routes). Declare the smallest applicable `fragment_regions` allowlist so
 Hedron's route audit remains useful. See [docs/hedron.md](docs/hedron.md) for the integration
 contract and upgrade checklist.
 

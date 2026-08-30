@@ -6,7 +6,7 @@ from typing import cast
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from hedron import Hedron, InteractionResult
+from hedron import Hedron, HedronRouter, InteractionResult
 from hedron.htmx import is_htmx_request
 from hedron_posit import HedronPosit
 from sqlalchemy import select
@@ -65,7 +65,7 @@ from app.ui.regions import (
 from app.ui.urls import mounted_path
 
 
-def register_security_routes(app: Hedron) -> None:
+def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None:
     @app.page(
         "/security",
         fragment_regions=(MAIN_PANEL, SIDE_NAV),
@@ -111,7 +111,7 @@ def register_security_routes(app: Hedron) -> None:
             headers={"Cache-Control": "no-store"},
         )
 
-    @app.component(
+    @fragment_router.view(
         "/profile/activity",
         fragment_regions=(SECURITY_ACTIVITY, SECURITY_ACTIVITY_LAZY_BODY),
         include_in_schema=False,

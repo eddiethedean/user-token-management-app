@@ -9,7 +9,7 @@ subsystems.
 
 | Hedron capability | Data Mover use |
 |---|---|
-| Page/action/component routing | Browser GETs use `@app.page`, mutations use `@app.action`, and multi-region interaction endpoints use `@app.component` with explicit target allowlists. |
+| Page/action/view routing | Browser GETs use `@app.page`, mutations use `@app.action`, and multi-region interaction endpoints use `HedronRouter.view` with explicit target allowlists. |
 | Typed UI primitives | Forms, fields, CSRF fields, inputs, tables, tabs, dialogs, alerts, badges, pagination, loading states, and errors are Hedron components. |
 | HTMX interactions | `InteractionResult`, declared `FragmentRegion` values, target authorization, OOB updates, push URLs, indicators, lazy loading, and refresh controls. |
 | Polling + long-running run UX | Pipeline monitor responses now emit Hedron-safe `hx-` polling hints (`hx-get`/`hx-trigger`) so live updates use declarative HTMX cycles instead of ad-hoc polling clients. |
@@ -20,15 +20,15 @@ subsystems.
 | Diagnostics | `make hedron-check` fails on Hedron warnings or errors, and `python -m hedron --app app.main:app routes` exposes the registered UI contract. |
 | 0.56 security plane | Data Mover publishes the `hedron-security-1` control-plane profile, bounded request budgets, and deny-by-default egress posture while retaining ownership of CSRF and response headers. |
 | Security posture | `make hedron-security-check` produces a strict SARIF posture report for CI/security review. |
-| 0.66.1 presentation contract | The app's `data-mover` brand is authored with Hedron `Color`, `ThemeBuilder`, validated `ThemeSpec`, accessibility modes, theme variants, typed recipe families, named control/surface/data/status/content recipes, and scoped auth/workspace recipe defaults. |
-| 0.66.1 release train | Runtime and Posit integration are pinned to `>=0.66.1,<0.67`; the 0.66.1 pass is verified against route, interaction, security, and deployment boundaries. |
+| 1.0.0 presentation contract | The app's `data-mover` brand is authored with Hedron `Color`, `ThemeBuilder`, validated `ThemeSpec`, accessibility modes, theme variants, typed recipe families, named control/surface/data/status/content recipes, and scoped auth/workspace recipe defaults. |
+| 1.0.0 release train | Runtime and Posit integration are pinned to `>=1.0.0,<1.1`; the 1.0.0 pass is verified against route, interaction, security, and deployment boundaries. |
 | 0.61 action lifecycle | Pipeline start, poll, cancel, retry, and reconciliation responses project Hedron `ActionState`/`ActionTrace` metadata with stable `OperationIdentity` values. |
 | 0.61 async regions | The live pipeline monitor uses the server-authored `AsyncRegion` to expose pending, success, error, cancelled, and conflict phases without application CSS or browser state. |
 | 0.61 busy controls | Pipeline run forms opt into Hedron's region busy lifecycle (`data-hedron-busy="region"`), which coordinates accessibility state and the global request indicator. |
 | 0.61 native navigation tabs | `NavigationTabs` delegates to Hedron `Tabs` with first-class `appearance="underline"` and `density="compact"`; the former tab-label synchronization script is removed. |
-| 0.66.1 styling contract | The app validates `DATA_MOVER_THEME` through Hedron's CSS/design-token export and 0.66.1 presentation contract, using typed Brand mark controls, `AmbientBackdrop`, presentation scales, native control/data tokens, the component bundle, canonical selection/link tokens, and compatibility aliases for the default stylesheet. |
+| 1.0.0 styling contract | The app validates `DATA_MOVER_THEME` through Hedron's CSS/design-token export and 1.0.0 presentation contract, using typed Brand mark controls, `AmbientBackdrop`, presentation scales, native control/data tokens, the component bundle, canonical selection/link tokens, and compatibility aliases for the default stylesheet. |
 | 0.65 scoped styling | The product stylesheet is registered as an application-owned cascade-layer style; the workflow's current step uses a bounded public `ProcessFlow.step` recipe with the named `elevate` motion fallback. |
-| 0.66 typography | Page headers and auth/workspace scopes use bounded measure/effect props and contextual presentation mappings for readable, accessible title and supporting-copy treatment. |
+| 1.0 typography | Page headers and auth/workspace scopes use bounded measure/effect props and contextual presentation mappings for readable, accessible title and supporting-copy treatment. |
 | Native styling | `AppShell`, `Container`, `PageHeader`, `SkipLink`, `RequestIndicator`, typed buttons, links, grids, actions, alerts, badges, tabs, tables, dialogs, `Avatar`, `ConnectorFlow`, `ConnectorNode`, `ConnectorTrack`, `ProcessFlow`, `ScrollRegion`, `ToggleSwitch`, and `Status` own the UI structure and behavior. `app/static/theme.css` adds the product-level Data Mover art direction without owning component behavior. |
 | Testing | Hedron page/fragment fixtures, render assertions, interaction assertions, target/region checks, and route-registry coverage. |
 
@@ -55,16 +55,16 @@ subsystems.
   product requirements. Add one only with a concrete feature need and a security review.
 - `hedron-native` acceleration is optional and unnecessary at the current rendering volume.
 
-## 0.66.1 status update
+## 1.0.0 status update
 
-Data Mover is pinned to Hedron 0.66.1 and the compatible 0.66 train. The app deliberately keeps its existing
+Data Mover is pinned to Hedron 1.0.0 and the compatible 1.0 train. The app deliberately keeps its existing
 application-owned CSRF/session and response-header middleware, but opts into the new shared
 security-plane composition metadata so Hedron diagnostics and future integrations see the same
 control-plane posture. The request budget is intentionally bounded to the app's 5 MiB upload
 limit and current long-running UI responses; connector-specific egress allowlists remain owned by
 the provider credential/configuration layer rather than being guessed globally.
 
-The 0.66.1 presentation layer is active: the Data Mover brand compiler starts from Hedron's bundled
+The 1.0.0 presentation layer is active: the Data Mover brand compiler starts from Hedron's bundled
 Aurora theme with an OKLCH accent, then passes through an immutable `ThemeSpec` with aliases,
 groups, flow recipes, forced-colors/more-contrast modes, metadata, and workflow conformance
 validation before bridging to the runtime `Theme`. `StyleScope` marks the authenticated
@@ -89,9 +89,9 @@ uses its own leased SQL worker and durable run/event tables, so adopting a secon
 would weaken cancellation and reconciliation guarantees. SSE job helpers are similarly deferred;
 the existing mount-aware HTMX polling is sufficient for the current deployment boundaries.
 
-Run `make hedron-security-check` after installing the 0.66.1 environment.
+Run `make hedron-security-check` after installing the 1.0.0 environment.
 
-The 0.66 HDJ parity surface is intentionally excluded. This application is Python-component-first;
+The 1.0 HDJ parity surface is intentionally excluded. This application is Python-component-first;
 no production route enables template execution, dynamic dependencies, foreign namespaces, or
 unregistered live handles.
 
@@ -133,7 +133,7 @@ recipe vocabulary:
 - `data-mover-inset` owns credential-card surface treatment through Hedron `Surface`; and
 - `data-mover-compact-data` owns compact admin/CSV table behavior.
 
-The product stylesheet contains product art direction only. Hedron 0.66.1 now owns canonical theme
+The product stylesheet contains product art direction only. Hedron 1.0.0 now owns canonical theme
 compatibility aliases, selection/link states, typed identity-mark presentation, ambient backdrop
 decoration and component glass-surface rules. Auth composition,
 credentials, cards, controls, shell chrome, fixed desktop layout, accessibility media, print behavior,
@@ -171,11 +171,11 @@ the policy. Data Mover's component gaps are now expressed as `xs`/`sm`/`md`/`lg`
 The 0.60 beginner facades were evaluated against Data Mover's existing authorities:
 
 - `DesignSystem`, `StyleRecipe`, and `StyleScope` fit and are enabled.
-- `screen` and `form_command` are appropriate for future simple pages and commands, but the
+- `page`, `view`, and `action` are the canonical 1.0 route roles; the
   current routes intentionally remain explicit because they return custom responses, use multiple
   application-owned dependencies, or expose closed HTMX target policies.
-- The two multi-region interaction endpoints use `@app.component` rather than the single-region
-  `@app.refreshable` facade: security activity and audit results each authorize multiple regions,
+- The two multi-region interaction endpoints use `HedronRouter.view` rather than the composable
+  `@app.view` facade: security activity and audit results each authorize multiple regions,
   emit OOB updates, and retain application-owned error/redirect handling.
 - `SessionAuthFlow` is not enabled because refresh-session rotation, revocation, pre-auth CSRF,
   and security-version invalidation are application-owned security boundaries.
@@ -229,7 +229,7 @@ HTML.
 
 ## Upgrade checklist
 
-1. Update the bounded Hedron 0.66.1 dependency and rebuild the virtual environment.
+1. Update the bounded Hedron 1.0.0 dependency and rebuild the virtual environment.
 2. Run `make hedron-check` and inspect `python -m hedron --app app.main:app routes`.
 3. Run `make check` and `make hedron-build`.
 4. Exercise sign-in, Pipeline, Connections credentials/status, CSV inspection, saved pipelines,

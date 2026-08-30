@@ -6,7 +6,7 @@ from typing import cast
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from hedron import Hedron, InteractionResult, SplitView, html
+from hedron import Hedron, HedronRouter, InteractionResult, SplitView, html
 from hedron.htmx import is_htmx_request
 from hedron_posit import HedronPosit
 from sqlalchemy import select
@@ -73,7 +73,7 @@ from app.ui.regions import (
 from app.ui.urls import mounted_path
 
 
-def register_admin_routes(app: Hedron) -> None:
+def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
     @app.page(
         "/admin/users",
         fragment_regions=(
@@ -583,7 +583,7 @@ def register_admin_routes(app: Hedron) -> None:
             push_path="/admin/audit",
         )
 
-    @app.component(
+    @fragment_router.view(
         "/admin/audit/results",
         fragment_regions=(AUDIT_RESULTS, AUDIT_RESULTS_LAZY_BODY, AUDIT_MATCH_COUNT),
         include_in_schema=False,
