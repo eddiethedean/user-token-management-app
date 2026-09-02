@@ -307,7 +307,7 @@ def test_app_mounted_assets_are_css_and_js(workbench_stack) -> None:
     ).startswith("text/")
 
 
-def test_app_direct_redirect_is_scheme_absolute(workbench_stack) -> None:
+def test_app_direct_redirect_uses_session_mount(workbench_stack) -> None:
     response = httpx2.get(
         f"{workbench_stack['app']}/",
         follow_redirects=False,
@@ -316,13 +316,13 @@ def test_app_direct_redirect_is_scheme_absolute(workbench_stack) -> None:
     )
     assert response.status_code in {303, 302, 307}
     location = response.headers.get("location", "")
-    assert location == "http://127.0.0.1:8787/s/docker-session/p/8000/login"
+    assert location == "/s/docker-session/p/8000/login"
 
 
-def test_scheme_absolute_redirect_survives_workbench_location_rewrite(
+def test_workbench_location_rewrite_preserves_path_redirect(
     workbench_stack,
 ) -> None:
-    """SOCOM bug: path-absolute Location became /proxy/8000/s/…/login."""
+    """The compatibility proxy may prefix path redirects with its own mount."""
     response = httpx2.get(
         f"{workbench_stack['rewrite']}/",
         follow_redirects=False,
@@ -331,8 +331,7 @@ def test_scheme_absolute_redirect_survives_workbench_location_rewrite(
     )
     assert response.status_code in {303, 302, 307}
     location = response.headers.get("location", "")
-    assert location.startswith("http://127.0.0.1:8787/s/docker-session/p/8000/login")
-    assert "/proxy/8000/s/" not in location
+    assert location == "/proxy/8000/s/docker-session/p/8000/login"
 
 
 def test_rewrite_proxy_prefixes_path_absolute_locations(workbench_stack) -> None:
@@ -360,7 +359,7 @@ def test_app_login_with_real_admin_credentials(workbench_stack) -> None:
     assert response.status_code in {303, 302, 307}, response.text[:500]
     location = response.headers.get("location", "")
     assert location.endswith("/profile") or "/profile" in location
-    assert "/proxy/8000/s/" not in location
+    assert location.endswith("/profile")
     assert location.startswith("http://") or location.startswith(workbench_stack["mount"])
 
 
@@ -430,7 +429,7 @@ def test_app_login_through_location_rewrite_proxy(workbench_stack) -> None:
     assert response.status_code in {303, 302, 307}, response.text[:500]
     location = response.headers.get("location", "")
     assert "/profile" in location
-    assert "/proxy/8000/s/" not in location
+    assert location == "/proxy/8000/s/docker-session/p/8000/profile"
     assert any(name.startswith("access_registry_") for name in http.cookies.keys())
     profile = http.get("/profile", follow_redirects=False)
     assert profile.status_code == 200, profile.text[:300]

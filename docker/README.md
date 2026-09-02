@@ -79,7 +79,7 @@ Data Mover admin seed: `admin@example.gov` / `Tr0pic-Maple!River92`.
 10. Public register / forgot-password pages; forgot-password queues outbox mail
 11. Invite → accept → login; register → verify → approve → login; disable user
 12. Disallowed invitation domain rejected; login through Location-rewrite proxy
-13. Scheme-absolute redirects survive the SOCOM-style Location rewrite simulator
+13. Session-mount redirects remain valid through the Location rewrite simulator
 
 Default password is ``Xk9#mQ2$vL8!nR4p`` (PAM rejects short / dictionary / username-containing
 passwords). Override with ``PWB_TESTUSER_PASSWD`` if needed.
