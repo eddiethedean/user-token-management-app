@@ -9,10 +9,9 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 from urllib.parse import urlencode
 
-import hedron_posit.app as hedron_posit_app
 from fastapi import HTTPException, Request, Response, status
 from fastapi.exception_handlers import (
     http_exception_handler,
@@ -21,7 +20,6 @@ from fastapi.exception_handlers import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi_workbench.middleware import WorkbenchPathMiddleware
 from hedron import Heading, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
@@ -54,35 +52,6 @@ REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}\Z")
 
 # Data Mover owns CSRF; disable Hedron's Starlette-session CSRF.
 AR_SECURITY = access_registry_security_policy()
-
-
-class _HedronPositWorkbenchMiddleware(WorkbenchPathMiddleware):
-    """Bridge Hedron Posit 1.0.0 to fastapi-workbench 1.0.1.
-
-    Hedron Posit 1.0.0 still passes the removed ``absolute_redirects`` and
-    ``absolute_origin`` options to fastapi-workbench. The middleware retains
-    the path, HTMX-header, and cookie adaptation this app needs; response
-    redirects are normalized by ``redirect_path`` for both Workbench entry
-    points.
-    """
-
-    def __init__(
-        self,
-        app: Any,
-        *,
-        absolute_redirects: bool = False,
-        absolute_origin: str | None = None,
-        **kwargs: Any,
-    ) -> None:
-        del absolute_redirects, absolute_origin
-        super().__init__(app, **kwargs)
-
-
-# Keep the application compatible with the coordinated 1.0.0 package set
-# until hedron-posit publishes a release that removes these stale arguments.
-hedron_posit_app.WorkbenchPathMiddleware = (  # type: ignore[reportPrivateImportUsage]
-    _HedronPositWorkbenchMiddleware
-)
 
 
 @asynccontextmanager
