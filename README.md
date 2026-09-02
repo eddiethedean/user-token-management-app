@@ -181,10 +181,12 @@ connections:
 make demo
 ```
 
-Open http://127.0.0.1:8765/login and use the email/password printed by the script. The script
-migrates a local SQLite database, creates the demo administrator, stores encrypted values under
-reserved `.demo.invalid` hosts, and starts Data Mover. These values are intentionally fake and the
-seeding command refuses to run in production.
+Open the URL printed by the script and use its email/password. On a local machine this is
+`http://127.0.0.1:8765/login`; in Workbench the launcher asks `rserver-url` for the exact session URL
+for port 8765 and configures Hedron with the same mount. Do not reuse a session URL created for port
+8000. The script migrates a local SQLite database, creates the demo administrator, stores encrypted
+values under reserved `.demo.invalid` hosts, and starts Data Mover. These values are intentionally
+fake and the seeding command refuses to run in production.
 
 After signing in:
 
