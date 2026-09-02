@@ -144,7 +144,7 @@ def document_head(
         html.link(
             rel="icon",
             type="image/png",
-            href=asset_href(request, "/assets/brand/data-mover-mark.png"),
+            href=asset_href(request, "/assets/brand/data-mover-mark.png?v=1"),
         ),
         html.link(
             rel="stylesheet",
@@ -344,8 +344,8 @@ def dialog_host() -> NodeLike:
 def data_mover_mark(request: Request, preference: ThemePreference) -> NodeLike:
     """Render the theme-matched product mark, including system-mode selection."""
 
-    light_src = asset_src(request, "/assets/brand/data-mover-mark-light.png")
-    dark_src = asset_src(request, "/assets/brand/data-mover-mark-dark.png")
+    light_src = asset_src(request, "/assets/brand/data-mover-mark-light.png?v=1")
+    dark_src = asset_src(request, "/assets/brand/data-mover-mark-dark.png?v=1")
     if preference.color_mode == "dark":
         return Image(dark_src, alt="", width=48)
     if preference.color_mode == "light":
@@ -389,7 +389,7 @@ def app_shell(
     cdao_identity = Inline(
         html.span(
             Image(
-                asset_src(request, "/assets/brand/cdao-mark.png"),
+                asset_src(request, "/assets/brand/cdao-mark.png?v=1"),
                 alt="Chief Digital and Artificial Intelligence Office",
                 width=18,
                 height=26,

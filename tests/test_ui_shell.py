@@ -86,14 +86,14 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'src="/assets/app.js?v=6"')
     assert_html_contains(
         response,
-        'type="image/png" href="/assets/brand/data-mover-mark.png" rel="icon"',
+        'type="image/png" href="/assets/brand/data-mover-mark.png?v=1" rel="icon"',
     )
     assert_html_contains(response, 'data-theme="dark"')
     assert_html_contains(response, 'name="color-scheme" content="dark"')
-    assert_html_contains(response, 'src="/assets/brand/data-mover-mark-dark.png"')
+    assert_html_contains(response, 'src="/assets/brand/data-mover-mark-dark.png?v=1"')
     assert_html_contains(response, 'class="hedron-brand data-mover-brand"')
     assert_html_contains(response, 'width="48"')
-    assert_html_contains(response, 'src="/assets/brand/cdao-mark.png"')
+    assert_html_contains(response, 'src="/assets/brand/cdao-mark.png?v=1"')
     assert_html_contains(response, "Chief Digital and Artificial Intelligence Office")
     assert_html_contains(response, 'data-hedron-max-width="lg"')
     assert_html_contains(response, 'data-hedron-resource-list="true"')
@@ -101,11 +101,24 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Continue to workspace")
 
     dark = fixture.get("/login", cookies={"data_mover_color_mode": "dark"})
-    assert_html_contains(dark, 'src="/assets/brand/data-mover-mark-dark.png"')
+    assert_html_contains(dark, 'src="/assets/brand/data-mover-mark-dark.png?v=1"')
 
     light = fixture.get("/login", cookies={"data_mover_color_mode": "light"})
     assert_html_contains(light, 'data-theme="light"')
-    assert_html_contains(light, 'src="/assets/brand/data-mover-mark-light.png"')
+    assert_html_contains(light, 'src="/assets/brand/data-mover-mark-light.png?v=1"')
+
+
+def test_brand_images_are_valid_png_responses(client) -> None:
+    for asset_path in (
+        "/assets/brand/data-mover-mark.png?v=1",
+        "/assets/brand/data-mover-mark-light.png?v=1",
+        "/assets/brand/data-mover-mark-dark.png?v=1",
+        "/assets/brand/cdao-mark.png?v=1",
+    ):
+        response = client.get(asset_path)
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert response.content.startswith(b"\x89PNG\r\n\x1a\n")
 
 
 def test_hedron_component_bundles_are_served(access_app) -> None:

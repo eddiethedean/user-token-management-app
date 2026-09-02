@@ -283,12 +283,16 @@ def test_app_login_page_under_session_mount(workbench_stack) -> None:
     assert response.status_code == 200
     assert "Sign in" in response.text
     assert 'href="/s/docker-session/p/8000/assets/theme.css?v=9"' in response.text
+    assert (
+        'src="/s/docker-session/p/8000/assets/brand/data-mover-mark-dark.png?v=1"' in response.text
+    )
+    assert 'src="/s/docker-session/p/8000/assets/brand/cdao-mark.png?v=1"' in response.text
     assert "/s/docker-session/p/8000/hedron-static/" in response.text
     cookie = response.headers.get("set-cookie", "")
     assert "Path=/s/docker-session/p/8000" in cookie
 
 
-def test_app_mounted_assets_are_css_and_js(workbench_stack) -> None:
+def test_app_mounted_assets_include_brand_images(workbench_stack) -> None:
     css = httpx2.get(
         f"{workbench_stack['app']}/assets/theme.css",
         timeout=15.0,
@@ -305,6 +309,20 @@ def test_app_mounted_assets_are_css_and_js(workbench_stack) -> None:
     assert "javascript" in js.headers.get("content-type", "") or js.headers.get(
         "content-type", ""
     ).startswith("text/")
+    for asset_name in (
+        "data-mover-mark.png",
+        "data-mover-mark-light.png",
+        "data-mover-mark-dark.png",
+        "cdao-mark.png",
+    ):
+        image = httpx2.get(
+            f"{workbench_stack['app']}/s/docker-session/p/8000/assets/brand/{asset_name}?v=1",
+            timeout=15.0,
+            trust_env=False,
+        )
+        assert image.status_code == 200
+        assert image.headers.get("content-type", "") == "image/png"
+        assert image.content.startswith(b"\x89PNG\r\n\x1a\n")
 
 
 def test_app_direct_redirect_uses_session_mount(workbench_stack) -> None:
