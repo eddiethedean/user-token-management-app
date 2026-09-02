@@ -38,6 +38,70 @@ python -m pip install --upgrade pip setuptools wheel
 python -m pip install -e ".[dev]"
 ```
 
+### Configure `.env` and email
+
+The application reads a `.env` file from the repository root. Create the protected file before
+starting a normal Workbench application:
+
+```bash
+cp .env.example .env
+chmod 600 .env
+```
+
+The app and worker load this file automatically from the repository root; exported shell variables
+take precedence over it. Review the file before use and keep it out of Git.
+
+For a local Workbench setup, keep email in the console and use the safe development database:
+
+```dotenv
+APP_ENV=development
+DATABASE_URL='sqlite:///./access-registry.db'
+ALLOWED_EMAIL_DOMAINS='example.gov,example.mil,socom.mil'
+EMAIL_BACKEND=console
+EMAIL_FROM='Data Mover <no-reply@example.gov>'
+```
+
+Verification, invitation, and password-reset links then appear in the email-worker log. To send
+mail through an approved relay instead, replace the email block with the real, reviewed values
+(never commit this file):
+
+```dotenv
+EMAIL_BACKEND=smtp
+EMAIL_REDACT_SENT_BODIES=true
+EMAIL_FROM='Data Mover <no-reply@example.gov>'
+SMTP_HOST='smtp.example.gov'
+SMTP_PORT=587
+SMTP_STARTTLS=true
+SMTP_USERNAME='service-account'
+SMTP_PASSWORD='REPLACE_WITH_SMTP_PASSWORD'
+# SMTP_CA_BUNDLE='deployment/smtp-ca.pem'  # only for a private CA
+```
+
+The web process and email worker must use the same `.env` and `DATABASE_URL`. For a normal Workbench
+launch (not `make demo`), start the web process in one terminal and the worker in a second terminal,
+both from the repository root:
+
+```bash
+# Terminal 1
+make migrate
+python -m app create-admin --email admin@example.gov
+python -m app serve --reload
+
+# Terminal 2
+make email-worker
+```
+
+Do not put an SMTP password in a command, URL, screenshot, or ticket. For production SMTP,
+PostgreSQL, key management, and worker supervision, follow the
+[production configuration](#3-create-protected-runtime-configuration) below.
+
+`make demo` is intentionally different: it forces `EMAIL_BACKEND=console`, uses a disposable
+SQLite database, and never sends real mail. The `.env` SMTP settings above apply to a normal
+`python -m app serve --reload` Workbench launch, not to that disposable demo.
+Workbench session URLs are ephemeral, so do not use a `/s/<session>/p/<port>/` URL as the durable
+`PUBLIC_BASE_URL` for invitations or password resets. Use console links for session testing, or
+deploy to a stable HTTPS Connect URL before sending real user mail.
+
 ### 2. Start the demo
 
 ```bash
@@ -70,7 +134,7 @@ invitations, or password reset, start the console email worker in a second termi
 ```bash
 cd /path/to/user-token-management-app
 source .venv/bin/activate
-python -m app email-worker
+make email-worker
 ```
 
 If the application does not print a usable Workbench URL or reports `FWB-0006`, see

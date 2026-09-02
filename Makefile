@@ -16,6 +16,9 @@ schema-status:
 serve:
 	$(PYTHON) -m app serve --reload
 
+email-worker:
+	$(PYTHON) -m app email-worker
+
 demo:
 	bash scripts/run-demo.sh
 

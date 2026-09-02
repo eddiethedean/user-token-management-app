@@ -167,8 +167,17 @@ must not contain the email local-part; optional offline blocklist in production.
 Optional: deliver console/SMTP mail in another terminal (use **one** worker with SQLite):
 
 ```bash
-python -m app email-worker
+make email-worker
 ```
+
+The Make target automatically uses `.venv/bin/python` when the project virtual environment
+exists. If you prefer the module command, activate the environment first and run
+`python -m app email-worker`. If Python reports `No module named 'sqlalchemy'`, install the
+project dependencies with `uv sync --locked --extra dev --python 3.11` (or `make install`), then
+retry the worker. Run `make migrate` once before starting it when using an existing local database.
+
+The worker prints a startup line, an idle heartbeat for an empty queue, and per-batch counts such as
+`claimed=1 delivered=1 deferred=0 dead_lettered=0`, so a running worker is visibly active.
 
 With `EMAIL_BACKEND=console`, verification and reset links print to the worker log.
 
@@ -278,6 +287,9 @@ python -m app create-admin --email admin@example.gov
 python -m app seed-demo-connections --email admin@example.gov
 python -m app serve --reload
 ```
+
+Workbench email configuration (the root `.env`, console versus SMTP, and the separate worker
+terminal) is documented in [the deployment guide](docs/deploy.md#configure-env-and-email).
 
 The seed step is development-only, preserves existing connection bundles by default, and makes the
 three demo providers immediately available on Pipeline. The disposable Connect SQLite guide

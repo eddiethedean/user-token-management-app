@@ -72,7 +72,8 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| No verification / reset mail | Worker not running | `python -m app email-worker` (or `send-email` for one batch) |
+| `No module named 'sqlalchemy'` | The command is using a Python interpreter outside the project environment | From the repository root run `uv sync --locked --extra dev --python 3.11` (or `make install`), then use `make email-worker` or activate `.venv` before `python -m app email-worker` |
+| No verification / reset mail | Worker not running | `make email-worker` (or `send-email` for one batch) |
 | Links only in logs | `EMAIL_BACKEND=console` | Expected locally; use SMTP in production |
 | Messages stuck / dead-lettered | SMTP misconfig or attempt budget | Fix SMTP; `python -m app retry-email` |
 | Multiple workers on SQLite | Claim races | Use one worker with SQLite |

@@ -181,6 +181,12 @@ def main() -> None:
         assert_schema_current()
         if args.batch_size < 1 or args.batch_size > 200 or args.poll_seconds < 0.1:
             parser.error("email-worker requires batch-size 1..200 and poll-seconds >= 0.1")
+        mode = "one batch" if args.once else f"every {args.poll_seconds:g}s"
+        print(
+            f"Email worker running; checking for queued messages {mode} "
+            f"(batch size {args.batch_size}).",
+            flush=True,
+        )
         try:
             while True:
                 with SessionLocal() as db:
@@ -189,9 +195,16 @@ def main() -> None:
                     )
                 if metrics.claimed or args.once:
                     print(
-                        "Email batch: "
+                        "Email worker batch: "
                         f"claimed={metrics.claimed} delivered={metrics.delivered} "
-                        f"deferred={metrics.deferred} dead_lettered={metrics.dead_lettered}"
+                        f"deferred={metrics.deferred} dead_lettered={metrics.dead_lettered}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        "Email worker idle; no queued messages "
+                        f"(next check in {args.poll_seconds:g}s).",
+                        flush=True,
                     )
                 if args.once:
                     break
