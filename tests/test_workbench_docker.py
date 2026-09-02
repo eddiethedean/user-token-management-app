@@ -165,7 +165,7 @@ def app_session(workbench_stack):
     )
     assert response.status_code in {303, 302, 307}, response.text[:500]
     location = response.headers.get("location", "")
-    assert "/profile" in location, location
+    assert location.rstrip("/").endswith("profile"), location
     yield http
     http.close()
 
@@ -316,7 +316,7 @@ def test_app_direct_redirect_uses_session_mount(workbench_stack) -> None:
     )
     assert response.status_code in {303, 302, 307}
     location = response.headers.get("location", "")
-    assert location == "/s/docker-session/p/8000/login"
+    assert location == "login"
 
 
 def test_workbench_location_rewrite_preserves_path_redirect(
@@ -331,7 +331,7 @@ def test_workbench_location_rewrite_preserves_path_redirect(
     )
     assert response.status_code in {303, 302, 307}
     location = response.headers.get("location", "")
-    assert location == "/proxy/8000/s/docker-session/p/8000/login"
+    assert location == "login"
 
 
 def test_rewrite_proxy_prefixes_path_absolute_locations(workbench_stack) -> None:
@@ -358,9 +358,7 @@ def test_app_login_with_real_admin_credentials(workbench_stack) -> None:
     )
     assert response.status_code in {303, 302, 307}, response.text[:500]
     location = response.headers.get("location", "")
-    assert location.endswith("/profile") or "/profile" in location
-    assert location.endswith("/profile")
-    assert location.startswith("http://") or location.startswith(workbench_stack["mount"])
+    assert location == "profile"
 
 
 def test_app_login_rejects_wrong_password(workbench_stack) -> None:
@@ -428,8 +426,7 @@ def test_app_login_through_location_rewrite_proxy(workbench_stack) -> None:
     )
     assert response.status_code in {303, 302, 307}, response.text[:500]
     location = response.headers.get("location", "")
-    assert "/profile" in location
-    assert location == "/proxy/8000/s/docker-session/p/8000/profile"
+    assert location == "profile"
     assert any(name.startswith("access_registry_") for name in http.cookies.keys())
     profile = http.get("/profile", follow_redirects=False)
     assert profile.status_code == 200, profile.text[:300]
@@ -553,7 +550,7 @@ def test_app_invite_accept_and_login(app_session, workbench_stack) -> None:
 
     signed_in = app_login(guest, email=email, password=DEFAULT_USER_PASSWORD)
     assert signed_in.status_code in {303, 302, 307}, signed_in.text[:400]
-    assert "/profile" in signed_in.headers.get("location", "")
+    assert signed_in.headers.get("location", "").rstrip("/").endswith("profile")
     profile = guest.get("/profile", follow_redirects=False)
     assert profile.status_code == 200
     assert email.casefold() in profile.text.casefold()

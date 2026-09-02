@@ -26,7 +26,7 @@ from app.ui.params import (
     PreauthCsrfForm,
 )
 from app.ui.partials.auth import render_forgot_page, render_reset_page
-from app.ui.urls import mounted_path
+from app.ui.urls import redirect_path
 
 
 def register_password_routes(app: Hedron) -> None:
@@ -103,7 +103,7 @@ def register_password_routes(app: Hedron) -> None:
                 db, settings, raw_token=token, password=password, request=request
             )
             return RedirectResponse(
-                mounted_path(request, "/login?password=changed"),
+                redirect_path(request, "/login?password=changed"),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         except PasswordPolicyError as exc:

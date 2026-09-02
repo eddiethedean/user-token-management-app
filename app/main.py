@@ -45,7 +45,7 @@ from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
 from app.ui.routes import register_routes
 from app.ui.security_policy import access_registry_security_policy
-from app.ui.urls import mounted_path
+from app.ui.urls import redirect_path
 
 configure_logging()
 settings = get_settings()
@@ -60,10 +60,10 @@ class _HedronPositWorkbenchMiddleware(WorkbenchPathMiddleware):
     """Bridge Hedron Posit 1.0.0 to fastapi-workbench 1.0.1.
 
     Hedron Posit 1.0.0 still passes the removed ``absolute_redirects`` and
-    ``absolute_origin`` options to fastapi-workbench. Absolute redirects are
-    already built by ``HedronPosit.redirect(..., absolute=True)``; the 1.0
-    middleware retains the path, HTMX-header, and cookie adaptation this app
-    needs.
+    ``absolute_origin`` options to fastapi-workbench. The middleware retains
+    the path, HTMX-header, and cookie adaptation this app needs; response
+    redirects are normalized by ``redirect_path`` for both Workbench entry
+    points.
     """
 
     def __init__(
@@ -248,7 +248,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         if request.url.query:
             next_path += f"?{request.url.query}"
         response = RedirectResponse(
-            mounted_path(request, f"/login?{urlencode({'next': next_path})}"),
+            redirect_path(request, f"/login?{urlencode({'next': next_path})}"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
         clear_auth_cookies(response, settings, request)

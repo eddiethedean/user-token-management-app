@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import posixpath
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
@@ -40,6 +42,39 @@ def mounted_path(request: Request, path: str) -> str:
     # root app URL is the one exception: without a mount it must remain "/".
     normalized = mounted.rstrip("/") or "/"
     return normalized
+
+
+def redirect_path(request: Request, path: str) -> str:
+    """Build a redirect target that works from both Workbench entry points.
+
+    Workbench's session URL already contains ``/s/.../p/...``. Its legacy
+    ``/proxy/<port>/`` entry point rewrites path-absolute ``Location`` headers
+    by adding that prefix, so a mounted absolute redirect would become
+    ``/proxy/<port>/s/...`` and 404. Relative targets avoid that rewrite while
+    still resolving to the same app-local destination from either entry point.
+    """
+    state = getattr(getattr(request, "app", None), "state", None)
+    workbench_active = bool(getattr(state, "hedron_workbench_active", False))
+    if not workbench_active:
+        workbench_active = bool(
+            os.environ.get("RS_SERVER_URL", "").strip()
+            or os.environ.get("UVICORN_ROOT_PATH", "").strip()
+        )
+    if not workbench_active:
+        return mounted_path(request, path)
+
+    parsed = urlsplit(path)
+    target = _abs_path(parsed.path)
+    current = str(request.scope.get("path") or "/").split("?", 1)[0]
+    current = current.rstrip("/") or "/"
+    start = posixpath.dirname(current.lstrip("/")) or "."
+    relative = posixpath.relpath(target.lstrip("/") or ".", start=start)
+    if relative == "." and target == "/":
+        relative = "."
+    suffix = f"?{parsed.query}" if parsed.query else ""
+    if parsed.fragment:
+        suffix += f"#{parsed.fragment}"
+    return f"{relative}{suffix}"
 
 
 def page_href(request: Request, path: str) -> SafeUrl:

@@ -623,3 +623,34 @@ def test_login_mount_prefixes_forms_and_assets(client) -> None:
     assert mounted_path(mounted, "/") == "/content/abc"
     assert str(form_action(mounted, "login")).endswith("/content/abc/login")
     assert str(page_href(mounted, "/assets/theme.css")).endswith("/content/abc/assets/theme.css")
+
+
+def test_workbench_redirects_are_relative_for_both_entry_points() -> None:
+    from types import SimpleNamespace
+
+    from starlette.requests import Request
+
+    from app.ui.urls import redirect_path
+
+    app = SimpleNamespace(state=SimpleNamespace(hedron_workbench_active=True))
+    login = Request(
+        {
+            "type": "http",
+            "path": "/login",
+            "root_path": "/s/session/p/port",
+            "headers": [],
+            "app": app,
+        }
+    )
+    assert redirect_path(login, "/profile") == "profile"
+
+    admin = Request(
+        {
+            "type": "http",
+            "path": "/admin/users",
+            "root_path": "/s/session/p/port",
+            "headers": [],
+            "app": app,
+        }
+    )
+    assert redirect_path(admin, "/admin/users?notice=queued") == "users?notice=queued"

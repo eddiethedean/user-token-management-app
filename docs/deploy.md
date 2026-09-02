@@ -44,8 +44,10 @@ python -m pip install -e ".[dev]"
 make demo
 ```
 
-Open the Workbench URL printed by the command. Hedron detects the Workbench session mount; do not
-manually rewrite the printed address as `/proxy/8000/`.
+Open the Workbench session URL for the port (for example, the URL returned by
+`rserver-url -l 8765`). The legacy **Proxied Servers** address
+`https://workbench.example.gov/proxy/8765/` also works. Do not combine `/proxy/8765/` with a
+`/s/<session>/p/<port>/` mount; Workbench supplies one entry point or the other.
 
 The command prints the local demo account, creates or updates a disposable SQLite database, seeds
 simulated MSS, MCS-COP, and PostgreSQL connections, and starts the web application. Stop it with

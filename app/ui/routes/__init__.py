@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 from fastapi import Request, status
 from fastapi.responses import RedirectResponse, Response
 from hedron import Hedron, HedronRouter
 from hedron.htmx import is_htmx_request
-from hedron_posit import HedronPosit
 
 from app.dependencies import Auth, DbSession, OptionalAuth, RequireCsrf, SettingsDep
 from app.ui.layout import (
@@ -23,6 +20,7 @@ from app.ui.routes.auth import register_auth_routes
 from app.ui.routes.pipeline import register_pipeline_routes
 from app.ui.routes.profile import register_profile_routes
 from app.ui.routes.security import register_security_routes
+from app.ui.urls import redirect_path
 
 
 def register_routes(app: Hedron) -> None:
@@ -31,7 +29,7 @@ def register_routes(app: Hedron) -> None:
     @app.page("/", include_in_schema=False)
     def home(request: Request, auth: OptionalAuth):
         return RedirectResponse(
-            cast(HedronPosit, request.app).href("/pipeline" if auth else "/login", request=request),
+            redirect_path(request, "/pipeline" if auth else "/login"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -69,7 +67,7 @@ def register_routes(app: Hedron) -> None:
             Response(status_code=status.HTTP_204_NO_CONTENT)
             if is_htmx_request(request)
             else RedirectResponse(
-                cast(HedronPosit, request.app).href(safe_next(next), request=request),
+                redirect_path(request, safe_next(next)),
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         )

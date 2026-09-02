@@ -1,8 +1,9 @@
 # Posit Workbench Docker integration
 
 Local stack that boots a licensed [Posit Workbench](https://hub.docker.com/r/posit/workbench)
-image beside Data Mover, plus a small proxy that reproduces the SOCOM
-`Location: /s/…` → `/proxy/8000/s/…` rewrite.
+image beside Data Mover, plus a small proxy that reproduces the SOCOM rewrite of
+path-absolute `Location: /s/…` responses. Data Mover emits relative redirects so both Workbench
+entry points remain valid.
 
 ## Prerequisites
 
