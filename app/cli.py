@@ -149,6 +149,11 @@ def main() -> None:
     serve_parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
     serve_parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
     serve_parser.add_argument("--reload", action="store_true")
+    serve_parser.add_argument(
+        "--discover",
+        action="store_true",
+        help="Request bind-then-discover from supported hedron-posit releases",
+    )
     args = parser.parse_args()
 
     if args.command == "create-admin":
@@ -216,7 +221,7 @@ def main() -> None:
             requeued = retry_failed(db, message_id=args.message_id, limit=args.limit)
         print(f"Requeued {requeued} message(s).")
     if args.command == "serve":
-        run_server(host=args.host, port=args.port, reload=args.reload)
+        run_server(host=args.host, port=args.port, reload=args.reload, discover=args.discover)
 
 
 if __name__ == "__main__":

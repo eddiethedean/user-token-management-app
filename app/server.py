@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import inspect
 import os
 from collections.abc import Mapping, MutableMapping
+from typing import Any
 from urllib.parse import urlsplit
 
 from hedron_posit import WorkbenchConfig
@@ -16,6 +18,20 @@ _PUBLIC_BASE_ENV_NAMES = (
     "HEDRON_WORKBENCH_RESOLVED_PUBLIC_BASE",
     "FASTAPI_WORKBENCH_RESOLVED_PUBLIC_BASE",
     "PUBLIC_BASE_URL",
+)
+
+_WORKBENCH_HANDOFF_ENV_NAMES = (
+    "HEDRON_WORKBENCH_PUBLIC_BASE_URL",
+    "FASTAPI_WORKBENCH_PUBLIC_BASE_URL",
+    "HEDRON_WORKBENCH_RESOLVED_PUBLIC_BASE",
+    "FASTAPI_WORKBENCH_RESOLVED_PUBLIC_BASE",
+    "HEDRON_WORKBENCH_MOUNT",
+    "FASTAPI_WORKBENCH_MOUNT",
+    "HEDRON_WORKBENCH_RESOLVED_MOUNT",
+    "FASTAPI_WORKBENCH_RESOLVED_MOUNT",
+    "HEDRON_ROOT_PATH",
+    "FASTAPI_WORKBENCH_ROOT_PATH",
+    "UVICORN_ROOT_PATH",
 )
 
 
@@ -67,19 +83,38 @@ def _prepare_workbench_environment(
     return resolved.browser_mount or "/"
 
 
-def run_server(*, host: str, port: int, reload: bool = False) -> None:
+def _has_workbench_handoff(environ: Mapping[str, str] | None = None) -> bool:
+    env = os.environ if environ is None else environ
+    return bool(
+        str(env.get("RS_SERVER_URL") or "").strip()
+        or any(str(env.get(name) or "").strip() for name in _WORKBENCH_HANDOFF_ENV_NAMES)
+    )
+
+
+def run_server(*, host: str, port: int, reload: bool = False, discover: bool = False) -> None:
     """Discover the Posit deployment before importing and serving the app."""
     public_base_url = _workbench_public_base_from_environment()
     workbench_mount = _prepare_workbench_environment()
-    run_target(
+    config = WorkbenchConfig(
+        host=host,
+        port=port,
+        reload=reload,
+        allow_external_bind=host not in {"127.0.0.1", "::1", "localhost"},
+        app_target="app.main:app",
+        mount=workbench_mount,
+        public_base_url=public_base_url,
+    )
+    runner: Any = run_target
+    supports_explicit_discovery = "discover" in inspect.signature(runner).parameters
+    if discover and supports_explicit_discovery:
+        runner("app.main:app", config=config, discover=True)
+        return
+    if discover and not _has_workbench_handoff():
+        raise RuntimeError(
+            "Explicit Workbench discovery requires a hedron-posit release with "
+            "run_target(..., discover=True), or a validated Workbench public-base handoff."
+        )
+    runner(
         "app.main:app",
-        config=WorkbenchConfig(
-            host=host,
-            port=port,
-            reload=reload,
-            allow_external_bind=host not in {"127.0.0.1", "::1", "localhost"},
-            app_target="app.main:app",
-            mount=workbench_mount,
-            public_base_url=public_base_url,
-        ),
+        config=config,
     )

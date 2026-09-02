@@ -15,7 +15,11 @@ fi
 DEMO_HOST="${DEMO_HOST:-127.0.0.1}"
 DEMO_PORT="${DEMO_PORT:-8765}"
 DEMO_PUBLIC_URL="${DEMO_PUBLIC_URL:-}"
-DEMO_WORKBENCH_URL="${HEDRON_WORKBENCH_PUBLIC_BASE_URL:-}"
+# Prefer any public base already supplied by current or future Hedron launchers.
+# The app-side discovery below is only a fallback for Workbench releases that
+# omit the runtime indicator tracked in Hedron #881.
+DEMO_WORKBENCH_URL="${HEDRON_WORKBENCH_PUBLIC_BASE_URL:-${FASTAPI_WORKBENCH_PUBLIC_BASE_URL:-${HEDRON_WORKBENCH_RESOLVED_PUBLIC_BASE:-${FASTAPI_WORKBENCH_RESOLVED_PUBLIC_BASE:-}}}}"
+DEMO_REQUEST_DISCOVERY="false"
 DEMO_ADMIN_EMAIL="${DEMO_ADMIN_EMAIL:-demo@example.gov}"
 DEMO_ADMIN_PASSWORD="${DEMO_ADMIN_PASSWORD:-Orbit-Copper!Trail-47}"
 
@@ -24,6 +28,7 @@ DEMO_ADMIN_PASSWORD="${DEMO_ADMIN_PASSWORD:-Orbit-Copper!Trail-47}"
 # same /s/.../p/... mount instead of falling through to a stale /proxy/8000/.
 if [[ -z "${DEMO_PUBLIC_URL}" && -z "${DEMO_WORKBENCH_URL}" ]] && \
   command -v rserver-url >/dev/null 2>&1; then
+  DEMO_REQUEST_DISCOVERY="true"
   DISCOVERED_WORKBENCH_URL="$(rserver-url -l "${DEMO_PORT}" 2>/dev/null || true)"
   case "${DISCOVERED_WORKBENCH_URL}" in
     http://* | https://*)
@@ -73,4 +78,8 @@ fi
 printf 'Email: %s\n' "${DEMO_ADMIN_EMAIL}"
 printf 'Password: %s\n\n' "${DEMO_ADMIN_PASSWORD}"
 
-exec "${PYTHON_BIN}" -m app serve --host "${DEMO_HOST}" --port "${DEMO_PORT}"
+SERVE_ARGS=(-m app serve --host "${DEMO_HOST}" --port "${DEMO_PORT}")
+if [[ "${DEMO_REQUEST_DISCOVERY}" == "true" ]]; then
+  SERVE_ARGS+=(--discover)
+fi
+exec "${PYTHON_BIN}" "${SERVE_ARGS[@]}"
