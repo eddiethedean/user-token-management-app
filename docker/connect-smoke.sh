@@ -333,7 +333,6 @@ log "deploying the main app as FastAPI content"
         --entrypoint app.main:app \
         --no-verify \
         --requirements-file requirements.txt \
-        --override-python-version 3.11.7 \
         --environment APP_ENV \
         --environment APP_NAME \
         --environment PUBLIC_BASE_URL \

@@ -1,110 +1,67 @@
-# Deploy Data Mover on Posit Workbench and Connect
+# Deploy Data Mover
 
-Data Mover is a FastAPI application with the entrypoint `app.main:app`. Workbench and Connect
-are separate deployment paths in this guide:
+This guide covers two supported uses of Data Mover:
 
-- [Run it in Workbench](#run-the-app-in-posit-workbench) for local development with SQLite.
-- [Deploy it to Connect](#deploy-the-app-to-posit-connect) for a persistent production deployment
-  with PostgreSQL and SMTP.
-- [Deploy the SQLite demo](connect-sqlite-demo.md) for a disposable, single-process Connect
-  evaluation. Do not use the SQLite demo configuration for production.
+1. a local demonstration in Posit Workbench; and
+2. a persistent production deployment with the web application on Posit Connect and background
+   services on operator-managed infrastructure.
 
-The repository acceptance test is pinned to Connect 2025.06.0 and Python 3.11.7. The application
-supports Python 3.11 or newer, but this runbook standardizes production on Python 3.11 so the
-publishing and server interpreters match the tested baseline. Application cookies work through
-Connect natively; do not install an application-cookie proxy.
+If you only want a disposable Connect evaluation, use the
+[SQLite Connect demo](connect-sqlite-demo.md). Do not promote that configuration to production.
 
-## Run the app in Posit Workbench
+## Choose a deployment path
 
-### 1. Create a Python 3.11 environment
+| Goal | Runtime | Data and connectors | Start here |
+|---|---|---|---|
+| Explore Data Mover in Workbench | Workbench session | Disposable SQLite and simulated connectors | [Local Workbench demo](#local-workbench-demo) |
+| Evaluate the full app on Connect | Connect content | Disposable SQLite and simulated connectors | [SQLite Connect demo](connect-sqlite-demo.md) |
+| Run operational transfers | Connect plus supervised workers | PostgreSQL, SMTP, and approved live connectors | [Production deployment](#production-deployment) |
+
+Use an organization-supported Connect release and a configured Python 3.11 runtime. The version
+used by the repository's optional regression harness is test evidence, not the production
+compatibility floor.
+
+## Local Workbench demo
+
+This path is for evaluation and development. It uses fake credentials under `.demo.invalid`, never
+contacts provider endpoints, and must not contain sensitive data.
+
+### 1. Install the application
 
 Open a Workbench terminal in the repository checkout:
 
 ```bash
 cd /path/to/user-token-management-app
-python3.11 --version
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -e ".[dev]"
 ```
 
-The version command must report Python 3.11.
-
-### 2. Create the local configuration
+### 2. Start the demo
 
 ```bash
-cp .env.example .env
-chmod 600 .env
+make demo
 ```
 
-The committed defaults in `app/config.py` cover local product behavior. The production section below
-explains which deployment-specific values must be added to `.env` for a real deployment. See
-[configuration.md](configuration.md) for the purpose of each variable and which settings normally
-do not need to be changed.
+Open the Workbench URL printed by the command. Hedron detects the Workbench session mount; do not
+manually rewrite the printed address as `/proxy/8000/`.
 
-The committed defaults in `app/config.py` provide the local app name, SQLite URL, local URL,
-password authentication, insecure development cookies, console email behavior, and demo pipeline
-mode. The copied template supplies the example `ALLOWED_EMAIL_DOMAINS` policy and development-only
-secret placeholders. Change those only when your local test needs a different policy or credentials.
+The command prints the local demo account, creates or updates a disposable SQLite database, seeds
+simulated MSS, MCS-COP, and PostgreSQL connections, and starts the web application. Stop it with
+`Ctrl+C`.
 
-Generate three different values and assign them to `JWT_SECRET`, `SESSION_PEPPER`, and
-`CSRF_SECRET` in `.env`:
+### 3. Verify the demo
 
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
+After signing in:
 
-The development connection-credential encryption key from `.env.example` is suitable only for this
-disposable local database. Its `API_TOKEN_*` environment-variable name is retained for compatibility.
+1. Open **Connections → Status** and confirm all three simulated providers are connected.
+2. Open **Pipeline → Route setup**, save a route, and run it.
+3. Open **Pipeline → Live transfer** and confirm the run reaches a terminal state.
+4. Open **Audit log** and confirm the application recorded the activity.
 
-### 3. Initialize and start the app
-
-Use an administrator address on an allowed domain:
-
-```bash
-python -m app migrate
-python -m app schema-status
-python -m app create-admin --email you@socom.mil
-python -m app seed-demo-connections --email you@socom.mil
-python -m app serve --reload
-```
-
-The administrator command prompts for a 15–128 character password. Open the Workbench session URL
-printed by `serve`. The app automatically obtains the `/s/.../p/...` session mount; do not replace
-that URL with a `/proxy/8000/` URL. When Workbench supplies `UVICORN_ROOT_PATH` as a full URL, the
-launcher also retains its trusted HTTPS origin so Hedron can safely normalize Workbench's encoded
-absolute request targets. Before the reload subprocess starts, the launcher removes the full URL
-from Uvicorn's CLI environment and passes the validated `/s/.../p/...` mount directly to Hedron.
-This lets Hedron decode the proxy target before setting the request's local ASGI root path.
-
-If your Workbench release supplies only a path and requests fail with `FWB-0006`, set the externally
-visible origin in the terminal environment before starting the app (this launcher setting must be
-available before the application imports its `.env` file):
-
-```bash
-export HEDRON_WORKBENCH_PUBLIC_BASE_URL='https://your-workbench-host'
-python -m app serve --reload
-```
-
-Use only the approved Workbench origin. Do not disable Hedron's absolute-target origin check.
-
-`seed-demo-connections` adds encrypted, deliberately fake bundles for MSS, MCS-COP, and
-PostgreSQL under reserved `.demo.invalid` hosts. It leaves an existing provider bundle unchanged; use
-`--replace` only when you intentionally want to reset that development account to fake values. The
-command requires a current schema and an existing account, and refuses to run when
-`APP_ENV=production` or `DATA_MOVER_MODE=real`.
-
-If the URL is not printed, ask Workbench for it:
-
-```bash
-/usr/lib/rstudio-server/bin/rserver-url -l 8000
-```
-
-Verify `/health`, sign in, confirm **Connections → Status** shows the three seeded providers, confirm
-Pipeline reports **3/3 connections ready**, run a demo transfer, and log out. To
-exercise registration, invitations, or password reset, start the console email worker in a second
-Workbench terminal:
+The demo does not need a separately supervised pipeline worker. To exercise registration,
+invitations, or password reset, start the console email worker in a second terminal:
 
 ```bash
 cd /path/to/user-token-management-app
@@ -112,178 +69,142 @@ source .venv/bin/activate
 python -m app email-worker
 ```
 
-## Deploy the app to Posit Connect
+If the application does not print a usable Workbench URL or reports `FWB-0006`, see
+[Workbench proxy problems](troubleshooting.md#schema--startup). Those are troubleshooting cases,
+not normal setup steps.
 
-This is the complete production sequence. Run steps 1–6 from a secured Workbench or operator shell
-that can reach the production PostgreSQL database, SMTP relay, Python package repository, and
-Connect server.
+## Production deployment
 
-Do not add `seed-demo-connections` to this production sequence. The command is for the Workbench and
-SQLite Connect demonstrations only and is rejected by the `APP_ENV=production` configuration below.
+Production is not a single Connect process. Connect serves the browser application, while three
+operator-managed processes handle queued work. Every process uses the same application revision,
+PostgreSQL database, and security secrets. Host-local paths and network settings may differ by
+role.
 
-Production uses four process roles backed by the same PostgreSQL application database:
-
-| Process | Responsibility | Required connectivity |
+| Role | Runs where | Responsibility |
 |---|---|---|
-| Connect web process | UI, authentication, schema check, and queue creation | PostgreSQL, directory service, package repository |
-| Email worker | Claims queued messages and sends multipart email | PostgreSQL and SMTP |
-| Pipeline worker | Claims and executes transfer runs | PostgreSQL, provider endpoints, local spool |
-| Pipeline janitor | Removes expired run metadata and stale spool artifacts | PostgreSQL and local spool |
+| Web application | Posit Connect | Authentication, UI, administration, audit records, and run enqueueing |
+| Email worker | Supervised worker host | Invitation, verification, and password-reset delivery |
+| Pipeline worker | Supervised worker host | Live provider access and transfer execution |
+| Pipeline janitor | Scheduled worker job | Retention cleanup for run data, catalogs, and spool files |
 
-Supervise the three background roles independently from the Connect web process. Do not run them in
-an interactive Workbench terminal as the long-term production arrangement.
+Do not run the background roles permanently in an interactive Workbench terminal. Use systemd,
+Kubernetes, or another approved supervisor.
 
 ### Before you begin
 
-You need:
+Have these resources ready before configuring the application:
 
-- Posit Connect 2025.06.0 or newer with a Python 3.11 runtime configured;
-- a stable HTTPS Connect vanity URL, or permission to create a content item and use its assigned
-  direct URL;
-- a PostgreSQL database and a `postgresql+psycopg` connection URL;
+- an organization-supported Posit Connect server with Python 3.11 configured;
+- a Connect account that can publish FastAPI content and an API key for that account;
+- the final external HTTPS URL, or permission to update the content immediately after its first
+  publish;
+- a PostgreSQL database owned by a least-privileged application role;
 - an SMTP relay with STARTTLS;
 - an approved password blocklist file;
-- a Connect publishing API key; and
-- separately supervised services for the email worker, pipeline worker, and janitor;
-- a protected, writable pipeline spool directory.
+- a protected writable spool directory on every host that loads real-mode configuration;
+- approved network routes and hostnames for MSS, MCS-COP, and PostgreSQL; and
+- service supervision for the email worker, pipeline worker, and janitor.
 
-For `AUTHENTICATION_MODE=trusted_header`, you also need an approved identity-aware proxy and the
-exact IP addresses of the immediate proxies that connect to the application. You do not need
-`TRUSTED_PROXY_IPS` for local-password authentication or native Connect cookies.
+Choose the authentication model before deployment. `local_password` requires explicit production
+risk acceptance. `trusted_header` requires an approved identity-aware proxy that is the only path
+to the application. Read [Authentication modes](auth-modes.md) before selecting either mode.
 
 ### 1. Create the publishing environment
 
-From the repository root:
+On a secured publishing host:
 
 ```bash
 cd /path/to/user-token-management-app
-python3.11 --version
 python3.11 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install -e ".[dev]"
+python -m pip install -e .
 python -m pip install rsconnect-python
+python -m pip check
 ```
 
-The publishing interpreter and the selected Connect interpreter must use the same Python 3.11
-minor series. `rsconnect-python` is needed only by the publishing shell and is intentionally absent
-from `requirements.txt`. Connect restores application dependencies from that explicit file; ensure
-the approved package repository contains every listed package, including Hedron, `hedron-posit`,
-and the psycopg binary distribution.
+Connect reconstructs the content environment from `requirements.txt`. Keep that file synchronized
+with `pyproject.toml` and make sure Connect can reach the approved Python package repository.
+`rsconnect-python` is needed only on the publishing host.
 
-### 2. Create the production configuration
+The project declares Python `>=3.11`. Connect uses that constraint when choosing an installed
+interpreter. This guide standardizes on Python 3.11 because it is the repository's tested baseline;
+an administrator may configure stricter version matching on the server.
 
-Create a protected `.env`; never commit or publish it:
+### 2. Provision external resources
+
+#### PostgreSQL
+
+Ask the database administrator to create the database and application role. The role needs to
+connect to its database and create or alter objects in the application schema. It must not be a
+PostgreSQL superuser.
+
+Data Mover reads one SQLAlchemy URL:
+
+```dotenv
+DATABASE_URL='postgresql+psycopg://USER:URL_ENCODED_PASSWORD@HOST:5432/DBNAME'
+```
+
+URL-encode special characters in the username and password. Treat the complete URL as a secret.
+Provisioning variables such as `DB_HOST` or `DB_PASSWORD` are not read by the application.
+
+#### Files and directories
+
+Create the files and directories required by the production gate:
 
 ```bash
-cp .env.example .env
-chmod 600 .env
 mkdir -p deployment
 cp /path/to/approved/password-blocklist.txt deployment/password-blocklist.txt
 chmod 600 deployment/password-blocklist.txt
 ```
 
-The committed defaults in `app/config.py` cover ordinary behavior. Add only the labeled production
-values and intentional deployment overrides to `.env`; do not copy every default into the file. See
-[configuration.md](configuration.md) for the purpose of each variable and the settings that normally
-can remain omitted.
+Create `PIPELINE_SPOOL_ROOT` separately on every runtime host. It must be writable only by the
+relevant service account; mode `0700` is a suitable starting point. Spool directories are local
+working storage and do not need to be shared between Connect and the pipeline worker.
 
-Copy private CA files into `deployment/` only when they are required, keep them non-secret and
-operator-reviewed, and reference them with bundle-relative paths such as
-`deployment/directory-ca.pem`. Do not put private keys in the deployment bundle.
+Copy public CA bundles into `deployment/` only when the deployment needs private trust roots. Do not
+place private keys in the repository or deployment bundle.
 
-Before validation, provision the `PIPELINE_SPOOL_ROOT` directory with platform-appropriate
-ownership and mode (for example, a dedicated `data-mover` service account with mode `0700`). The
-configured path must exist on every host that loads the production environment, including the
-publishing shell, Connect runtime, pipeline worker, email worker, and janitor. Use process-specific
-environment files with equivalent protected paths when those hosts do not share a filesystem.
+### 3. Create protected runtime configuration
 
-Generate three independent application secrets:
+Production secrets do not belong in `app/config.py`. Inject them from an approved secret manager or
+from protected platform configuration. The repository publishing helper can read a protected env
+file on the publishing host and forwards selected variables to Connect without bundling that file.
+
+To use the helper:
 
 ```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
+cp .env.example .env
+chmod 600 .env
 ```
 
-Run that command three times for `JWT_SECRET`, `SESSION_PEPPER`, and `CSRF_SECRET`. Generate the
-connection-credential encryption key separately (the environment variable keeps its legacy
-`API_TOKEN_*` name):
+Edit `.env` so it contains the reviewed production values below. Replace the active development
+secret and key entries from the template; do not leave the zero-valued `development-v1` encryption
+key alongside the production key. The file is sourced as shell syntax, so only use a file you
+trust, quote values containing spaces or shell characters, and never commit it.
 
-```bash
-python -c 'import base64,json,secrets; print(json.dumps({"production-v1":base64.b64encode(secrets.token_bytes(32)).decode()}))'
-```
-
-#### Provision PostgreSQL from existing `DB_*` credentials
-
-The application reads `DATABASE_URL`; it does not assemble a connection from `DB_NAME`, `DB_USER`,
-`DB_PASSWORD`, `DB_HOST`, and `DB_PORT`. If those five variables already exist in your protected
-environment and the login role has `CREATEDB`, create the database idempotently with psycopg:
-
-```bash
-set -a
-. ./.env
-set +a
-python - <<'PY'
-import os
-
-import psycopg
-from psycopg import sql
-
-database = os.environ["DB_NAME"]
-connection_options = {
-    "dbname": os.environ.get("DB_ADMIN_DATABASE", "postgres"),
-    "user": os.environ["DB_USER"],
-    "password": os.environ["DB_PASSWORD"],
-    "host": os.environ["DB_HOST"],
-    "port": int(os.environ.get("DB_PORT", "5432")),
-}
-if sslmode := os.environ.get("DB_SSLMODE"):
-    connection_options["sslmode"] = sslmode
-
-with psycopg.connect(**connection_options, autocommit=True) as connection:
-    exists = connection.execute(
-        "SELECT 1 FROM pg_database WHERE datname = %s", (database,)
-    ).fetchone()
-    if not exists:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-        print("Database created.")
-    else:
-        print("Database already exists.")
-PY
-```
-
-If the role cannot create databases, have the PostgreSQL administrator create `DB_NAME`, make
-`DB_USER` its owner, and grant it permission to connect and create or alter objects in the
-application schema. Do not grant the application role superuser privileges.
-
-Generate the SQLAlchemy URL from those variables in the secured shell so usernames and passwords
-are encoded correctly, then store the resulting value as `DATABASE_URL` in the deployment secret
-store or protected `.env`:
+Generate three independent signing/protection secrets and one 32-byte credential-encryption key:
 
 ```bash
 python - <<'PY'
-import os
-from sqlalchemy.engine import URL
+import base64
+import json
+import secrets
 
-query = {}
-if sslmode := os.environ.get("DB_SSLMODE"):
-    query["sslmode"] = sslmode
-url = URL.create(
-    "postgresql+psycopg",
-    username=os.environ["DB_USER"],
-    password=os.environ["DB_PASSWORD"],
-    host=os.environ["DB_HOST"],
-    port=int(os.environ.get("DB_PORT", "5432")),
-    database=os.environ["DB_NAME"],
-    query=query,
-)
-print(url.render_as_string(hide_password=False))
+print("JWT_SECRET=" + repr(secrets.token_urlsafe(48)))
+print("SESSION_PEPPER=" + repr(secrets.token_urlsafe(48)))
+print("CSRF_SECRET=" + repr(secrets.token_urlsafe(48)))
+key = base64.b64encode(secrets.token_bytes(32)).decode()
+print("API_TOKEN_ENCRYPTION_KEYS=" + repr(json.dumps({"production-v1": key})))
 PY
 ```
 
-Treat that output as a secret. The `DB_*` variables may remain for operator tooling, but they do
-not replace `DATABASE_URL` for Data Mover.
+Transfer those values directly into the approved secret store or protected env file. Do not paste
+them into source code, tickets, chat, or deployment logs. Losing the credential-encryption key makes
+saved provider credentials undecryptable; protect and back it up according to the organization's
+key-management policy.
 
-Set the following values in `.env`. Replace every example hostname, credential, domain, and secret:
+Start with this minimum production configuration and replace every example value:
 
 ```dotenv
 APP_ENV=production
@@ -303,6 +224,7 @@ COOKIE_SECURE=true
 COOKIE_PATH=auto
 ALLOWED_EMAIL_DOMAINS='example.gov,example.mil'
 RATE_LIMIT_ENABLED=true
+PASSWORD_BLOCKLIST_PATH='deployment/password-blocklist.txt'
 
 EMAIL_BACKEND=smtp
 EMAIL_REDACT_SENT_BODIES=true
@@ -310,13 +232,8 @@ EMAIL_FROM='Data Mover <no-reply@example.gov>'
 SMTP_HOST='smtp.example.gov'
 SMTP_PORT=587
 SMTP_STARTTLS=true
-SMTP_USERNAME=''
-SMTP_PASSWORD=''
-# jwt-user-management compatibility names are accepted too: SMTP_FROM_EMAIL and SMTP_USE_TLS.
-# Keep the legacy port-25 fallback disabled unless an approved relay specifically requires it.
-SMTP_ALLOW_LEGACY_PORT25_FALLBACK=false
-
-PASSWORD_BLOCKLIST_PATH='deployment/password-blocklist.txt'
+SMTP_USERNAME='service-account'
+SMTP_PASSWORD='REPLACE_WITH_SMTP_PASSWORD'
 
 DATA_MOVER_MODE=real
 PIPELINE_SPOOL_ROOT='/var/lib/data-mover/spool'
@@ -326,11 +243,44 @@ PIPELINE_ENABLE_MSS_WRITER=false
 PIPELINE_ENABLE_MCSCOP_WRITER=false
 ```
 
-URL-encode special characters in the PostgreSQL username and password. `PUBLIC_BASE_URL` must be
-the exact external HTTPS URL users open, without a query or fragment.
+`PUBLIC_BASE_URL` must be the exact external HTTPS address users open, including the Connect content
+path. Leave the Foundry writer flags disabled until the corresponding endpoints, permissions,
+network path, and integration tests are approved.
 
-To check invitation and self-registration addresses against the same directory endpoint contract
-as `jwt-user-management`, add:
+If the SMTP relay does not require authentication, set `SMTP_USERNAME` and `SMTP_PASSWORD` to empty
+values. Add `SMTP_CA_BUNDLE`, `PIPELINE_CA_BUNDLE`, or the optional directory settings only when the
+deployment needs them. The complete variable reference is in
+[Data Mover configuration](configuration.md).
+
+#### Choose one authentication mode
+
+For application-managed accounts and passwords:
+
+```dotenv
+AUTHENTICATION_MODE=local_password
+PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED=true
+TRUSTED_PROXY_IPS=''
+```
+
+Set the risk-acceptance flag only after the system owner has accepted the password-only posture.
+
+For an approved identity-aware proxy:
+
+```dotenv
+AUTHENTICATION_MODE=trusted_header
+PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED=false
+TRUSTED_IDENTITY_HEADER=x-access-registry-user
+TRUSTED_PROXY_IPS='10.0.0.10,10.0.0.11'
+```
+
+The proxy must strip client-supplied identity headers, authenticate the user, inject exactly one
+normalized email, and prevent direct access around the proxy. List only the immediate proxy peers in
+`TRUSTED_PROXY_IPS`. Connect sign-in by itself is not used as Data Mover identity.
+
+#### Optional directory eligibility check
+
+Directory lookup controls whether an email is eligible to enroll; it is not authentication. When an
+approved directory endpoint must be authoritative, add:
 
 ```dotenv
 DIRECTORY_LOOKUP_URL='https://directory.example.gov/api/ldapEmail'
@@ -341,72 +291,33 @@ DIRECTORY_LOOKUP_BEARER_TOKEN='REPLACE_WITH_DIRECTORY_TOKEN'
 DIRECTORY_LOOKUP_REQUIRED=true
 ```
 
-The app sends `GET DIRECTORY_LOOKUP_URL?query=user@example.gov`. A successful response may expose
-the exact address at `email`, `mail`, `attributes.mail`, or `attributes.userPrincipalName`;
-double-encoded JSON returned by the reference service is accepted. Set
-`DIRECTORY_LOOKUP_REQUIRED=true` to make not-found, mismatched, unavailable, or malformed responses
-block enrollment. With `false`, lookup is advisory and domain allowlisting plus mailbox-link
-verification still apply. Omit the bearer token and CA path when the approved endpoint does not
-require them. The CA file must be readable both inside the Connect bundle and on every separately
-supervised process that loads the same production environment.
+Omit the bearer token and CA bundle when the approved endpoint does not require them. Every process
+that loads this configuration must be able to read the referenced file.
 
-If this is the first deployment and Connect has not assigned a content URL yet, keep the valid
-placeholder shown above for the initial publish. Step 6 explains how to replace it immediately.
+### 4. Validate configuration and initialize the database
 
-`PIPELINE_SPOOL_ROOT` must already exist and be writable wherever the application starts. The
-pipeline worker uses it for bounded source and destination staging; it is worker-local and does not
-need to be a shared filesystem with the Connect web process. If the Connect runtime and worker use
-different filesystems, set the same variable name to an equivalent writable path in each process's
-environment. `PIPELINE_ALLOWED_HTTPS_HOSTS` is a comma-separated allowlist of operator-approved
-Foundry hosts. Foundry destination writes remain disabled until their corresponding writer flags
-are intentionally enabled.
-
-Choose one authentication mode and append its values to `.env`.
-
-For application-managed accounts and passwords:
-
-```dotenv
-AUTHENTICATION_MODE=local_password
-PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED=true
-TRUSTED_PROXY_IPS=''
-```
-
-The risk-acceptance flag is required by the production configuration gate. Set it only after the
-system owner accepts the password-only authentication posture.
-
-For an approved identity-aware proxy that injects the authenticated email:
-
-```dotenv
-AUTHENTICATION_MODE=trusted_header
-PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED=false
-TRUSTED_IDENTITY_HEADER=x-access-registry-user
-TRUSTED_PROXY_IPS='10.0.0.10,10.0.0.11'
-```
-
-The proxy must remove client-supplied identity headers, authenticate the user, and inject exactly
-one normalized email. Connect credentials alone are not used as Data Mover identity. See
-[Authentication modes](auth-modes.md) before enabling this mode.
-
-Load the reviewed `.env` into the current shell and validate it:
+Load the protected file on the publishing host:
 
 ```bash
 set -a
 . ./.env
 set +a
+```
+
+Do not source a file you have not reviewed. Confirm required files and settings before touching the
+database:
+
+```bash
 python -m pip check
-test -r requirements.txt
 test -r "$PASSWORD_BLOCKLIST_PATH"
-test -z "$DIRECTORY_LOOKUP_CA_BUNDLE" || test -r "$DIRECTORY_LOOKUP_CA_BUNDLE"
-test -z "$SMTP_CA_BUNDLE" || test -r "$SMTP_CA_BUNDLE"
-test -z "$PIPELINE_CA_BUNDLE" || test -r "$PIPELINE_CA_BUNDLE"
+test -d "$PIPELINE_SPOOL_ROOT" && test -w "$PIPELINE_SPOOL_ROOT"
+test -z "${DIRECTORY_LOOKUP_CA_BUNDLE:-}" || test -r "$DIRECTORY_LOOKUP_CA_BUNDLE"
+test -z "${SMTP_CA_BUNDLE:-}" || test -r "$SMTP_CA_BUNDLE"
+test -z "${PIPELINE_CA_BUNDLE:-}" || test -r "$PIPELINE_CA_BUNDLE"
 python -c "from app.config import get_settings; assert get_settings().is_production; print('Production configuration validates')"
 ```
 
-Do not source an untrusted `.env` file.
-
-### 3. Prepare PostgreSQL and application assets
-
-Back up an existing database before applying migrations. Then run:
+Back up an existing database. Then apply migrations and create the first administrator:
 
 ```bash
 python -m app migrate
@@ -414,14 +325,14 @@ python -m app schema-status
 python -m app create-admin --email admin@example.gov
 ```
 
-`schema-status` must report that `Current` equals `Head`. In local-password mode, `create-admin`
-prompts for the application password. In trusted-header mode, it creates or promotes the account
+`schema-status` must report that `Current` equals `Head`. In local-password mode,
+`create-admin` prompts for a password. In trusted-header mode, it creates or promotes the account
 without an application password.
 
-The deployment wrapper builds Hedron immediately before publishing and verifies the generated
-`.hedron/build/manifest.json`; do not delete that build during the publish.
+Do not run `seed-demo-connections` in production. The command is rejected when
+`APP_ENV=production` or `DATA_MOVER_MODE=real`.
 
-### 4. Register the Connect server
+### 5. Register the Connect server
 
 Create a publishing API key in Connect and register the server once:
 
@@ -434,196 +345,207 @@ rsconnect add \
 unset CONNECT_API_KEY
 ```
 
-If `my-connect` is already registered in this environment, skip this step.
+Skip this step when the `my-connect` profile already exists on the publishing host. Do not use
+`--insecure`; supply the approved Connect CA certificate when private trust is required.
 
-### 5. Publish the application
+### 6. Publish the web application
 
-The repository includes an `.env`-driven publishing wrapper. It sources the trusted `.env`, runs
-the production preflight, rebuilds Hedron assets, and forwards the configured application variables
-to `rsconnect` without requiring you to type a long list of
-`--environment` flags or expose secret values in the command line.
-
-Register the Connect profile once in step 4, then run from the repository root:
+The repository helper validates production settings, checks the database revision, builds Hedron
+assets, excludes local and secret files, and publishes `app.main:app` as FastAPI content:
 
 ```bash
+DATA_MOVER_ENV_FILE=.env \
 CONNECT_NAME=my-connect \
 CONNECT_TITLE='Data Mover' \
 ./scripts/deploy-connect.sh
 ```
 
-`CONNECT_NAME` is the profile registered in step 4. Optional settings are read directly from
-`.env`; set `DATA_MOVER_ENV_FILE=/path/to/production.env` when the deployment file has a different
-name or location. Use `PYTHON_BIN=/path/to/python` and `CONNECT_REQUIREMENTS_FILE=...` only when
-the standard virtualenv and `requirements.txt` are not being used.
+The helper passes environment-variable names to `rsconnect`; `rsconnect` reads their values from the
+current process. The env file itself is excluded from the bundle.
 
-The wrapper forwards explicitly configured values, including empty values, so a value can be cleared
-in Connect by setting it empty in `.env`. It excludes `.env`, local databases, tests, and development
-environments while publishing application code, migrations, static files, approved deployment files,
-and the built Hedron manifest. Never put database credentials, bearer tokens, or private keys in the
-bundle. Connect retains environment variables omitted from a later update, and environment changes
-can take effect even if the new bundle fails to deploy; review the Connect content environment after
-a failed deployment before restoring service.
+If the final content URL is not known before the first publish:
 
-### 6. Finish the first deployment in Connect
+1. use the valid temporary HTTPS value shown in the example;
+2. keep the new content restricted while it starts;
+3. copy the direct content URL reported by Connect;
+4. replace `PUBLIC_BASE_URL` with that exact URL; and
+5. run the same publish command again before inviting users.
 
-After the publish succeeds:
+Use a stable vanity URL instead when one has already been assigned.
 
-1. Copy the **Direct content URL** printed by `rsconnect`.
-2. If `.env` still contains the placeholder `PUBLIC_BASE_URL`, replace it with that direct URL.
-3. Reload `.env` and rerun the publish command from step 5. Future deployments reuse the same
-   Connect content item.
-4. In the content **Access** settings, grant access only to the intended users or groups.
-5. In **Advanced > Runtime**, confirm the content is using Python 3.11.
-6. Start or restart the content after any environment-setting change.
+After publishing, configure the content in Connect:
 
-If the application uses a stable vanity URL, use that URL for `PUBLIC_BASE_URL` instead of the
-direct `/content/<id>` URL.
+1. Restrict **Access** to the intended users or groups.
+2. Confirm the selected runtime uses an approved Python 3.11 installation.
+3. Confirm the stored environment values match the reviewed production configuration.
+4. Restart the content after changing environment settings.
 
-No Nginx rule or application-cookie proxy is needed. With `COOKIE_PATH=auto`, the app emits
-`Path=/` to Connect; Connect adds `/content/<id>` to the browser-facing cookies exactly once.
+No application-cookie proxy or custom Nginx rule is required. Leave `COOKIE_PATH=auto` unless a
+tested deployment requirement says otherwise.
 
-### 7. Start the background workers
+> [!CAUTION]
+> Connect applies supplied environment-variable updates before it verifies the new bundle. If a
+> deployment fails, review the content environment before assuming the previous configuration is
+> still active. Variables omitted from an update remain unchanged.
 
-Install the same application revision and `requirements.txt` on each worker host. Give every role
-the production `DATABASE_URL`, application secrets, readable blocklist/CA files, and only the
-network access it needs. Run `python -m app schema-status` before starting each service and after
-every deployment.
+### 7. Start the background services
 
-The Connect web process queues pipeline runs but does not execute them. Start the pipeline worker
-under systemd, Kubernetes, or another approved supervisor with production database access,
-provider network access, and real-mode pipeline settings:
+Install the same application revision and runtime requirements on every worker host. Each process
+must load the reviewed production configuration and use the same `DATABASE_URL` and
+`API_TOKEN_ENCRYPTION_KEYS` key ring as the web application.
+
+Run this before starting or restarting a worker:
 
 ```bash
 cd /path/to/user-token-management-app
 source .venv/bin/activate
 set -a
-. ./.env
+. /path/to/data-mover.production.env
 set +a
+python -m app schema-status
+```
+
+Start the long-running pipeline worker under a supervisor:
+
+```bash
 python -m app pipeline-worker
 ```
 
-Schedule the janitor once per day under the same application revision and environment:
+Start the long-running email worker separately:
+
+```bash
+python -m app email-worker
+```
+
+Schedule one janitor per spool directory, normally once per day:
 
 ```bash
 python -m app pipeline-janitor
 ```
 
-Only one janitor should run against a given spool directory at a time. The worker host's
-`PIPELINE_SPOOL_ROOT` must be a protected writable directory. It may be a different local path from
-the Connect web process because spools are worker-local; both processes still validate that their
-configured path exists at startup.
-
-The Connect web process queues email but does not send it. On its separately supervised host, use
-the same application revision, production database, and SMTP settings:
-
-```bash
-cd /path/to/user-token-management-app
-source .venv/bin/activate
-set -a
-. ./.env
-set +a
-python -m app email-worker
-```
-
-For a delivery test, create an invitation to an approved test mailbox, stop the long-running email
-worker, run `python -m app email-worker --once`, and confirm exactly one queued batch is processed.
-Restart the supervised worker afterward. Use `python -m app retry-email --limit 20` only after
-correcting the cause of dead-lettered delivery; repeated retries do not repair SMTP configuration.
+Grant each process only the network and filesystem access it needs. The pipeline worker needs
+provider connectivity and its protected spool directory. The email worker needs PostgreSQL and
+SMTP. See the [pipeline worker runbook](runbooks/pipeline-worker.md) for lease, recovery, and
+reconciliation behavior.
 
 ### 8. Verify the deployment
 
-Open `PUBLIC_BASE_URL` and verify:
+Before granting general access, verify all of the following:
 
-1. `/health` returns `{"status":"ok"}`.
-2. `/ready` returns `{"status":"ready"}`.
-3. The initial administrator can authenticate.
-4. Pipeline, Connections, Account, Team, and Audit log stay under the Connect content URL.
-5. Refresh works and logout clears the application session.
-6. An invitation reaches an approved test mailbox as multipart text/HTML mail, its link stays under
-   `PUBLIC_BASE_URL`, and the worker reports delivery without exposing the token after redaction.
-   Confirm the invitation form defaults to the **User** role; administrator access must be selected
-   explicitly.
-7. `python -m app schema-status` still reports `Current` equal to `Head`.
-8. Each connection type renders its expected fields. Test a connection without revealing secrets.
-9. A pipeline can select catalog objects, save/load its definition, enqueue a run, and
-   scan a non-sensitive UTF-8 CSV source. Confirm that providers without a saved, Connected bundle
-   are absent from its pickers and cannot be submitted directly. Confirm the supervised pipeline
-   worker claims the run and completes it in real mode.
-10. If `DIRECTORY_LOOKUP_REQUIRED=true`, a known directory address can enroll while a not-found or
-    mismatched address is rejected, and a directory outage returns a controlled enrollment error.
+- `<PUBLIC_BASE_URL>/health` returns `{"status":"ok"}`.
+- `<PUBLIC_BASE_URL>/ready` returns `{"status":"ready"}`.
+- The initial administrator can sign in through the selected authentication mode.
+- Navigation, refresh, and logout remain under the Connect content URL.
+- `python -m app schema-status` reports `Current` equal to `Head` on every runtime host.
+- An invitation reaches an approved test mailbox and its link uses `PUBLIC_BASE_URL`.
+- The email worker delivers queued mail without logging message capabilities or secrets.
+- A user can save and test each approved connection without saved credentials being revealed.
+- A non-sensitive test pipeline can be saved, enqueued, claimed by the pipeline worker, and brought
+  to a truthful terminal state.
+- An administrator can review the resulting audit events.
+- If directory lookup is required, a known address succeeds and unavailable, malformed, mismatched,
+  and unknown responses fail according to policy.
 
-These checks validate Data Mover's application workflow. Real Foundry and PostgreSQL transfers also
-require allowlisted hosts, a spool directory, and an operator-approved network path. See
-[pipeline worker runbook](runbooks/pipeline-worker.md).
+Real provider verification must use approved non-production endpoints, allowlisted hosts, and
+non-sensitive data. Do not enable a destination writer solely because the web application starts.
 
-For temporary, secret-free authentication diagnostics, add this content environment variable and
-restart the content:
-
-```dotenv
-ACCESS_REGISTRY_DEV_TRACE=1
-```
-
-Load `/login`, sign in once, and inspect the content **Logs** pane. A successful cookie round trip
-includes:
-
-```text
-csrf.preauth.accepted
-auth.cookies.issued cookie_path='/' secure=True samesite='lax'
-auth.access.accepted source='cookie'
-```
-
-Remove `ACCESS_REGISTRY_DEV_TRACE` or set it to `0` after troubleshooting. The diagnostics exclude
-passwords, email addresses, cookie values, CSRF tokens, JWTs, and refresh tokens.
-
-The repository's licensed acceptance test reproduces this path with Connect 2025.06.0 and Python
-3.11.7:
+The licensed Connect smoke harness is optional and requires a valid test license:
 
 ```bash
 make connect-smoke
 ```
 
-That command requires `CONNECT_LICENSE` in the local `.env`; its cleanup trap deactivates the
-license and removes the temporary Connect container and data.
+The harness deactivates the license and removes its temporary container and data during cleanup.
+See [docker/README.md](../docker/README.md) before running it.
 
-## Redeploy the application
+## Redeploy and roll back
 
 For a normal code update:
 
 ```bash
 cd /path/to/user-token-management-app
 source .venv/bin/activate
-CONNECT_NAME=my-connect ./scripts/deploy-connect.sh
+DATA_MOVER_ENV_FILE=.env CONNECT_NAME=my-connect ./scripts/deploy-connect.sh
 ```
 
-The wrapper reads the same `.env` and performs the schema check and Hedron build before publishing.
-Back up PostgreSQL before migrations that alter production data. Do not generate new session or
-encryption secrets for an ordinary redeploy; rotate them only through an intentional key/session
-rotation procedure.
+Before every deployment:
 
-## Connect troubleshooting
+1. back up PostgreSQL when the release includes a migration;
+2. apply migrations with the intended production `DATABASE_URL`;
+3. confirm `schema-status` is current;
+4. deploy the same revision to worker hosts; and
+5. restart the web content and workers in a controlled order.
+
+Do not generate new JWT, session, CSRF, or encryption secrets during an ordinary redeploy. Secret
+rotation is a separate operational change. In particular, retain old credential-encryption keys
+until every stored credential that references them has been rewrapped.
+
+Connect can reactivate an earlier code bundle, but that does not reverse a database migration.
+Rollback is safe only when the earlier application revision is compatible with the current schema.
+Restore a tested database backup when a data migration must be reversed.
+
+## Validate with licensed Docker environments
+
+The repository includes acceptance tests against real licensed Workbench and Connect images. They
+are optional release checks, not substitutes for testing the target organization's identity,
+network, database, SMTP, and provider integrations.
+
+Put the evaluation licenses in the gitignored `.env` file, never in source control:
+
+```dotenv
+POSIT_WORKBENCH_KEY='REPLACE_WITH_EVALUATION_KEY'
+CONNECT_LICENSE='REPLACE_WITH_EVALUATION_KEY'
+```
+
+Run the Workbench acceptance suite:
+
+```bash
+make workbench-test
+```
+
+It verifies the licensed Workbench session mount, assets, CSRF and session cookies, application
+login, account and administrator workflows, connection management, invitations, registration, and
+the proxy redirect behavior used by the app.
+
+Run the Connect deployment smoke test:
+
+```bash
+make connect-smoke
+```
+
+It builds a fresh bundle, deploys it as FastAPI content, signs in through Connect and Data Mover,
+and verifies health, mounted cookies, an authenticated page, and redacted content diagnostics.
+
+Both harnesses use disposable test data. Their cleanup paths stop the products gracefully and
+deactivate the test licenses. Do not interrupt Docker forcefully while a license-backed test is
+running. See [docker/README.md](../docker/README.md) for ports, overrides, and recovery steps.
+
+## Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| Connect selects the wrong interpreter | Confirm Python 3.11 is configured on Connect and deploy from the Python 3.11 virtual environment |
-| Connect cannot install a package | Confirm the server can reach its configured Python package repository and is using `requirements.txt` |
-| Production validation reports a missing file or spool path | Create the path in the runtime that is loading the environment; bundle-relative blocklist/CA files must be included, while each worker needs its own local spool directory |
-| Startup reports an old schema | Run `python -m app migrate` with the exact production `DATABASE_URL` |
-| Startup reports a missing Hedron manifest | Run `python -m hedron build` immediately before publishing |
-| Links leave the Connect content path | Correct `PUBLIC_BASE_URL`, confirm the content URL, and keep `COOKIE_PATH=auto` |
-| Login CSRF reports `missing_cookie` | Confirm this version of the app is deployed, clear stale cookies for the Connect host, and retry from a fresh `/login` page |
-| Email remains queued | Confirm `EMAIL_BACKEND=smtp`, start the external worker, and verify its database and SMTP connectivity |
-| Directory check fails in production | Verify the HTTPS URL, bearer token, CA path, exact returned email, and `DIRECTORY_LOOKUP_REQUIRED` policy |
-| A failed redeploy changed runtime behavior | Review Connect's stored environment values; rsconnect applies supplied environment updates before bundle verification and retains omitted variables |
+| Workbench URL does not load | Open the URL printed by `serve`; do not construct `/proxy/8000/` manually. See [Troubleshooting](troubleshooting.md#schema--startup) for uncommon proxy errors. |
+| Connect selects the wrong Python | Confirm Python 3.11 is installed and allowed by the server's version-matching policy. |
+| Connect cannot install a package | Confirm `requirements.txt` is included and the server can reach its approved package repository. |
+| Production validation reports a missing file | Resolve the path in the runtime doing the validation; bundle-relative CA/blocklist files and host-local spool paths are different resources. |
+| Startup reports an old schema | Run `python -m app migrate` using the exact production `DATABASE_URL`, then confirm `schema-status`. |
+| Startup reports a missing Hedron manifest | Publish with `scripts/deploy-connect.sh`, or run `python -m hedron build` before a manual deployment. |
+| Links leave the Connect content path | Correct `PUBLIC_BASE_URL` and leave `COOKIE_PATH=auto`. |
+| Email remains queued | Confirm the email worker is running with the same database and valid SMTP settings. |
+| Pipeline runs remain queued | Confirm the pipeline worker is running with the same database, real-mode settings, spool path, and provider connectivity. |
+| A failed deploy changed runtime behavior | Review Connect's stored environment values; supplied changes can take effect even when bundle verification fails. |
 
-For more diagnostic detail, see [Troubleshooting](troubleshooting.md). Before production approval,
+For application diagnostics, see [Troubleshooting](troubleshooting.md). Before production approval,
 complete the [production security gate](../SECURITY.md#production-security-gate).
 
 ## Related documentation
 
-- [Data Mover user guide](user-guide.md)
-- [SQLite Connect demo](connect-sqlite-demo.md)
+- [Data Mover configuration](configuration.md)
 - [Authentication modes](auth-modes.md)
-- [Migrations](../migrations/README.md)
+- [Pipeline worker runbook](runbooks/pipeline-worker.md)
+- [SQLite Connect demo](connect-sqlite-demo.md)
+- [Database migrations](../migrations/README.md)
+- [Security policy and production gate](../SECURITY.md)
 - [Posit Connect FastAPI documentation](https://docs.posit.co/connect/user/fastapi/)
 - [Posit Connect command-line publishing](https://docs.posit.co/connect/user/publishing-cli/)
 - [Posit Workbench proxied servers](https://docs.posit.co/ide/server-pro/user/vs-code/guide/proxying-web-servers.html)
