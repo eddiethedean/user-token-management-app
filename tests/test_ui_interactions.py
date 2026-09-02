@@ -32,7 +32,7 @@ from app.database import SessionLocal
 from app.models import RefreshSession
 from app.security.tokens import decode_access_token
 from app.ui import partials as ui
-from app.ui.interactions import APP_REGIONS
+from app.ui.interactions import APP_REGIONS, toast_oob
 from app.ui.layout import alert_box, main_panel, page_heading
 from tests.helpers import (
     ADMIN_PASSWORD,
@@ -161,6 +161,12 @@ def test_toast_oob_appends_for_queueing() -> None:
     assert "hedron-toast-success" in markup
     assert "hedron-toast-danger" in markup
     assert "First" in markup and "Second" in markup
+
+
+def test_application_toasts_expire_after_three_seconds() -> None:
+    markup = render_html(toast_oob("Saved").content)
+
+    assert 'data-hedron-ttl="3000"' in markup
 
 
 def test_undeclared_hx_target_is_rejected(htmx) -> None:

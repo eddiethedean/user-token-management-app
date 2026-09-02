@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urljoin
+
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -654,3 +656,41 @@ def test_workbench_redirects_are_relative_for_both_entry_points() -> None:
         }
     )
     assert redirect_path(admin, "/admin/users?notice=queued") == "users?notice=queued"
+
+    pipeline_save = Request(
+        {
+            "type": "http",
+            "path": "/pipeline/save",
+            "root_path": "/s/session/p/port",
+            "headers": [],
+            "app": app,
+        }
+    )
+    saved_location = redirect_path(
+        pipeline_save,
+        "/pipeline?notice=saved&pipeline_id=route-123",
+    )
+    assert saved_location == "../pipeline?notice=saved&pipeline_id=route-123"
+    assert urljoin(
+        "https://workbench.example/s/session/p/port/pipeline/save",
+        saved_location,
+    ) == ("https://workbench.example/s/session/p/port/pipeline?notice=saved&pipeline_id=route-123")
+
+    nested_action = Request(
+        {
+            "type": "http",
+            "path": "/security/secrets/mss",
+            "root_path": "/s/session/p/port",
+            "headers": [],
+            "app": app,
+        }
+    )
+    secret_location = redirect_path(nested_action, "/security?notice=secret-saved")
+    assert secret_location == "../../security?notice=secret-saved"
+    assert (
+        urljoin(
+            "https://workbench.example/s/session/p/port/security/secrets/mss",
+            secret_location,
+        )
+        == "https://workbench.example/s/session/p/port/security?notice=secret-saved"
+    )

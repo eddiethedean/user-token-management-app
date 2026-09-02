@@ -77,7 +77,7 @@ def toast_oob(
     tone: ToastTone = "success",
 ) -> OobUpdate:
     return OobUpdate(
-        content=Toast(message, tone=tone),
+        content=Toast(message, tone=tone, ttl_ms=3000),
         element_id="hedron-toast",
         swap="beforeend",
     )

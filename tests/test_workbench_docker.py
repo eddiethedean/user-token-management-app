@@ -12,13 +12,14 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx2
 import pytest
 
 from tests.workbench_docker_support import (
     DEFAULT_USER_PASSWORD,
+    app_exec,
     app_login,
     client,
     compose,
@@ -508,6 +509,41 @@ def test_app_profile_update(app_session, workbench_stack) -> None:
     updated = app_session.get("/profile", follow_redirects=False)
     assert updated.status_code == 200
     assert marker in updated.text
+
+
+def test_app_pipeline_save_redirect_lands_without_a_slash_hop(app_session, workbench_stack) -> None:
+    seeded = app_exec(
+        "python",
+        "-m",
+        "app",
+        "seed-demo-connections",
+        "--email",
+        workbench_stack["app_email"],
+    )
+    assert seeded.returncode == 0, seeded.stderr
+    page = app_session.get("/pipeline", follow_redirects=False)
+    assert page.status_code == 200
+    saved = app_session.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_id": "",
+            "pipeline_name": f"Workbench redirect {short_id()}",
+            "source_provider": "mss",
+            "source_schema": "ri.foundry.main.dataset.demo-operations",
+            "source_table": "mission_orders.parquet",
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "mission_orders",
+            "write_mode": "append",
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    resolved = urljoin(str(saved.request.url), saved.headers["location"])
+    assert urlsplit(resolved).path == "/pipeline"
+    landed = app_session.get(resolved, follow_redirects=False)
+    assert landed.status_code == 200, landed.text[:300]
 
 
 def test_app_security_secret_save_and_delete(app_session) -> None:

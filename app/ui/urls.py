@@ -64,13 +64,17 @@ def redirect_path(request: Request, path: str) -> str:
         return mounted_path(request, path)
 
     parsed = urlsplit(path)
-    target = _abs_path(parsed.path)
+    target = _abs_path(parsed.path).rstrip("/") or "/"
     current = str(request.scope.get("path") or "/").split("?", 1)[0]
     current = current.rstrip("/") or "/"
     start = posixpath.dirname(current.lstrip("/")) or "."
     relative = posixpath.relpath(target.lstrip("/") or ".", start=start)
-    if relative == "." and target == "/":
-        relative = "."
+    if target != "/" and all(part in {".", ".."} for part in relative.split("/")):
+        # A dot-only reference denotes a directory and browsers add a trailing
+        # slash while resolving it. That extra slash invokes Starlette's route
+        # redirect, whose path-absolute Location can escape a Workbench mount.
+        # Name the target explicitly so the first redirect lands on the route.
+        relative = posixpath.normpath(posixpath.join(relative, "..", posixpath.basename(target)))
     suffix = f"?{parsed.query}" if parsed.query else ""
     if parsed.fragment:
         suffix += f"#{parsed.fragment}"
