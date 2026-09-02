@@ -186,6 +186,33 @@ def test_run_server_preserves_full_workbench_root_path_origin(monkeypatch) -> No
     assert get_route_path(normalized) == "/"
 
 
+def test_explicit_public_base_drops_stale_runtime_mount(monkeypatch) -> None:
+    _clear_workbench_public_base_environment(monkeypatch)
+    monkeypatch.setenv("RS_SERVER_URL", "http://127.0.0.1:8787/")
+    monkeypatch.setenv(
+        "UVICORN_ROOT_PATH",
+        "https://workbench.example.mil/s/session-token/p/old-proxy-token/",
+    )
+    monkeypatch.setenv("HEDRON_WORKBENCH_PUBLIC_BASE_URL", _WORKBENCH_URL)
+    captured = {}
+
+    def fake_run_target(target, *, config) -> None:
+        captured["target"] = target
+        captured["config"] = config
+        captured["uvicorn_root_path"] = os.environ.get("UVICORN_ROOT_PATH")
+
+    monkeypatch.setattr("app.server.run_target", fake_run_target)
+
+    run_server(host="127.0.0.1", port=8765)
+
+    assert captured["target"] == "app.main:app"
+    assert captured["config"].mount is None
+    assert captured["config"].public_base_url is None
+    assert captured["uvicorn_root_path"] is None
+    resolved = resolve_deployment(captured["config"], environ=os.environ, bound_port=8765)
+    assert resolved.browser_mount == "/s/session-token/p/proxy-token"
+
+
 def test_workbench_root_path_promotion_requires_runtime_and_full_url(monkeypatch) -> None:
     _clear_workbench_public_base_environment(monkeypatch)
     monkeypatch.delenv("RS_SERVER_URL", raising=False)

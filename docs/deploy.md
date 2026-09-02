@@ -46,7 +46,8 @@ make demo
 
 Open the Workbench URL printed by `make demo`. The launcher obtains that URL with
 `rserver-url -l 8765` and passes the same mount to Hedron before the app starts. It checks both
-`PATH` and Workbench's standard `/usr/lib/rstudio-server/bin/rserver-url` installation. Do not reuse a URL
+`PATH` and Workbench's standard `/usr/lib/rstudio-server/bin/rserver-url` installation. A newly
+discovered URL replaces stale mount/root handoffs left by an earlier port token. Do not reuse a URL
 created for port 8000, and do not combine `/proxy/8765/` with an `/s/<session>/p/<port>/` mount;
 Workbench supplies one entry point or the other.
 

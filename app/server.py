@@ -12,11 +12,15 @@ from hedron_posit import WorkbenchConfig
 from hedron_posit.resolve import resolve_deployment
 from hedron_posit.runner import run_target
 
-_PUBLIC_BASE_ENV_NAMES = (
+_EXPLICIT_WORKBENCH_PUBLIC_BASE_ENV_NAMES = (
     "HEDRON_WORKBENCH_PUBLIC_BASE_URL",
     "FASTAPI_WORKBENCH_PUBLIC_BASE_URL",
     "HEDRON_WORKBENCH_RESOLVED_PUBLIC_BASE",
     "FASTAPI_WORKBENCH_RESOLVED_PUBLIC_BASE",
+)
+
+_PUBLIC_BASE_ENV_NAMES = (
+    *_EXPLICIT_WORKBENCH_PUBLIC_BASE_ENV_NAMES,
     "PUBLIC_BASE_URL",
 )
 
@@ -74,6 +78,12 @@ def _prepare_workbench_environment(
     env = os.environ if environ is None else environ
     candidate = _workbench_runtime_url(env)
     if candidate is None:
+        return None
+    if any(str(env.get(name) or "").strip() for name in _EXPLICIT_WORKBENCH_PUBLIC_BASE_ENV_NAMES):
+        # An explicit Hedron handoff is authoritative. A full runtime root URL
+        # may belong to an earlier port token and must not become a conflicting
+        # config.mount alongside that newer public base.
+        env.pop("UVICORN_ROOT_PATH", None)
         return None
 
     # Resolve through Hedron before changing the handoff. This retains its

@@ -44,6 +44,13 @@ if [[ -z "${DEMO_PUBLIC_URL}" && -z "${DEMO_WORKBENCH_URL}" && \
   case "${DISCOVERED_WORKBENCH_URL}" in
     http://* | https://*)
       DEMO_WORKBENCH_URL="${DISCOVERED_WORKBENCH_URL%/}"
+      # The freshly generated URL is authoritative for this port. Remove
+      # inherited mount/root handoffs that can contain an older port token and
+      # would otherwise conflict with it during Hedron resolution.
+      unset UVICORN_ROOT_PATH
+      unset HEDRON_WORKBENCH_MOUNT FASTAPI_WORKBENCH_MOUNT
+      unset HEDRON_WORKBENCH_RESOLVED_MOUNT FASTAPI_WORKBENCH_RESOLVED_MOUNT
+      unset HEDRON_ROOT_PATH FASTAPI_WORKBENCH_ROOT_PATH
       ;;
   esac
 fi
