@@ -21,6 +21,7 @@ def _run_demo_with_discovery(
     discovered_url: str,
     *,
     workbench_env: dict[str, str] | None = None,
+    helper_on_path: bool = True,
 ) -> tuple[str, list[dict], bool]:
     calls_path = tmp_path / "python-calls.jsonl"
     discovery_calls_path = tmp_path / "rserver-url-called"
@@ -59,6 +60,7 @@ printf '%s\n' "$DEMO_TEST_DISCOVERED_URL"
         "FASTAPI_WORKBENCH_PUBLIC_BASE_URL",
         "HEDRON_WORKBENCH_RESOLVED_PUBLIC_BASE",
         "FASTAPI_WORKBENCH_RESOLVED_PUBLIC_BASE",
+        "DEMO_RSERVER_URL_BIN",
     ):
         env.pop(name, None)
     env.update(
@@ -66,10 +68,13 @@ printf '%s\n' "$DEMO_TEST_DISCOVERED_URL"
             "DEMO_TEST_CALLS": str(calls_path),
             "DEMO_TEST_DISCOVERED_URL": discovered_url,
             "DEMO_TEST_DISCOVERY_CALLS": str(discovery_calls_path),
-            "PATH": f"{fake_bin}{os.pathsep}{env['PATH']}",
             "PYTHON_BIN": str(fake_python),
         }
     )
+    if helper_on_path:
+        env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+    else:
+        env["DEMO_RSERVER_URL_BIN"] = str(rserver_url)
     env.update(workbench_env or {})
     result = subprocess.run(
         ["bash", str(PROJECT_ROOT / "scripts" / "run-demo.sh")],
@@ -101,6 +106,21 @@ def test_demo_launcher_uses_discovered_workbench_url_for_bound_port(tmp_path: Pa
         "--discover",
     ]
     assert calls[-1]["public_base_url"] == expected
+    assert calls[-1]["workbench_public_base_url"] == expected
+
+
+def test_demo_launcher_uses_rserver_url_outside_path(tmp_path: Path) -> None:
+    base = "https://workbench.example.mil/s/session-token/p/port-8765/"
+    stdout, calls, discovery_called = _run_demo_with_discovery(
+        tmp_path,
+        base,
+        helper_on_path=False,
+    )
+
+    expected = base.rstrip("/")
+    assert discovery_called is True
+    assert f"Data Mover demo (open this Workbench URL): {expected}/login" in stdout
+    assert calls[-1]["argv"][-1] == "--discover"
     assert calls[-1]["workbench_public_base_url"] == expected
 
 

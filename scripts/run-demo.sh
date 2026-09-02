@@ -20,16 +20,27 @@ DEMO_PUBLIC_URL="${DEMO_PUBLIC_URL:-}"
 # omit the runtime indicator tracked in Hedron #881.
 DEMO_WORKBENCH_URL="${HEDRON_WORKBENCH_PUBLIC_BASE_URL:-${FASTAPI_WORKBENCH_PUBLIC_BASE_URL:-${HEDRON_WORKBENCH_RESOLVED_PUBLIC_BASE:-${FASTAPI_WORKBENCH_RESOLVED_PUBLIC_BASE:-}}}}"
 DEMO_REQUEST_DISCOVERY="false"
+DEMO_RSERVER_URL_BIN="${DEMO_RSERVER_URL_BIN:-}"
 DEMO_ADMIN_EMAIL="${DEMO_ADMIN_EMAIL:-demo@example.gov}"
 DEMO_ADMIN_PASSWORD="${DEMO_ADMIN_PASSWORD:-Orbit-Copper!Trail-47}"
+
+if [[ -z "${DEMO_RSERVER_URL_BIN}" ]]; then
+  if command -v rserver-url >/dev/null 2>&1; then
+    DEMO_RSERVER_URL_BIN="$(command -v rserver-url)"
+  elif [[ -x /usr/lib/rstudio-server/bin/rserver-url ]]; then
+    # Posit installs the helper here but only recommends adding the directory
+    # to PATH. Real Workbench terminals therefore cannot rely on command -v.
+    DEMO_RSERVER_URL_BIN="/usr/lib/rstudio-server/bin/rserver-url"
+  fi
+fi
 
 # Ask Workbench for the session URL of the exact port this script will bind.
 # Passing that URL back to Hedron keeps forms, cookies, and redirects on the
 # same /s/.../p/... mount instead of falling through to a stale /proxy/8000/.
-if [[ -z "${DEMO_PUBLIC_URL}" && -z "${DEMO_WORKBENCH_URL}" ]] && \
-  command -v rserver-url >/dev/null 2>&1; then
+if [[ -z "${DEMO_PUBLIC_URL}" && -z "${DEMO_WORKBENCH_URL}" && \
+  -n "${DEMO_RSERVER_URL_BIN}" && -x "${DEMO_RSERVER_URL_BIN}" ]]; then
   DEMO_REQUEST_DISCOVERY="true"
-  DISCOVERED_WORKBENCH_URL="$(rserver-url -l "${DEMO_PORT}" 2>/dev/null || true)"
+  DISCOVERED_WORKBENCH_URL="$("${DEMO_RSERVER_URL_BIN}" -l "${DEMO_PORT}" 2>/dev/null || true)"
   case "${DISCOVERED_WORKBENCH_URL}" in
     http://* | https://*)
       DEMO_WORKBENCH_URL="${DISCOVERED_WORKBENCH_URL%/}"
