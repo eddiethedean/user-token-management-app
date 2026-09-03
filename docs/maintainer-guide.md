@@ -121,6 +121,8 @@ make check
 make hedron-check
 make hedron-build
 python -m hedron --app app.main:app routes
+hedron-posit check app.main:app --discover
+fastapi-workbench doctor app.main:app --live --discover
 ```
 
 Email delivery runs automatically in the app when testing registration, verification, invitations,

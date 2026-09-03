@@ -48,7 +48,9 @@ There is **no public REST API**. Mutations are form/HTMX POSTs; GETs render HTML
    console or SMTP after the response, so requests stay responsive.
 3. There is no separate email worker. Pending rows survive a process restart and are picked up by a
    later email-producing request or the one-shot `send-email` command.
-4. Production should redact sent bodies, monitor pending/dead-letter rows, and use `retry-email`
+4. Invitation, verification, and reset links use HedronPosit's validated external URL composer so
+   the configured origin and Workbench/Connect mount are preserved without double-prefixing.
+5. Production should redact sent bodies, monitor pending/dead-letter rows, and use `retry-email`
    after correcting a delivery problem.
 
 ## Connection credentials

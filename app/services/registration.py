@@ -24,6 +24,7 @@ from app.security.passwords import PasswordService, validate_password
 from app.security.tokens import hash_token, random_token
 from app.services.audit import client_ip, record_event
 from app.services.auth_common import TokenFlowError, _lock_role
+from app.services.links import public_url
 from app.services.mailer import queue_email
 from app.services.sessions import revoke_all_sessions
 
@@ -113,8 +114,10 @@ def request_self_registration(
         requested_ip=client_ip(request),
     )
     db.add(verification)
-    verification_url = (
-        f"{settings.public_base_url.rstrip('/')}/registration/verify?token={raw_token}"
+    verification_url = public_url(
+        settings,
+        "/registration/verify",
+        query={"token": raw_token},
     )
     queue_email(
         db,

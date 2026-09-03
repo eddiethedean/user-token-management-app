@@ -18,6 +18,7 @@ from app.security.passwords import PasswordService, validate_password
 from app.security.tokens import hash_token, random_token
 from app.services.audit import record_event
 from app.services.auth_common import TokenFlowError, _lock_role
+from app.services.links import public_url
 from app.services.mailer import queue_email
 
 
@@ -58,7 +59,11 @@ def create_invitation(
         expires_at=now + timedelta(hours=48),
     )
     db.add(invitation)
-    accept_url = f"{settings.public_base_url.rstrip('/')}/invitations/accept?token={raw_token}"
+    accept_url = public_url(
+        settings,
+        "/invitations/accept",
+        query={"token": raw_token},
+    )
     queue_email(
         db,
         original,

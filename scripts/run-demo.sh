@@ -15,9 +15,10 @@ fi
 DEMO_HOST="${DEMO_HOST:-127.0.0.1}"
 DEMO_PORT="${DEMO_PORT:-8765}"
 DEMO_PUBLIC_URL="${DEMO_PUBLIC_URL:-}"
-# Prefer any public base already supplied by current or future Hedron launchers.
-# The app-side discovery below is only a fallback for Workbench releases that
-# omit the runtime indicator tracked in Hedron #881.
+# Prefer a public base already supplied by the current Hedron launcher. When
+# Workbench exposes only rserver-url, resolve it here so the app settings and
+# printed browser link share the same canonical URL; the app launcher then
+# delegates mount/root-path handling to hedron-posit.
 DEMO_WORKBENCH_URL="${HEDRON_WORKBENCH_PUBLIC_BASE_URL:-${FASTAPI_WORKBENCH_PUBLIC_BASE_URL:-${HEDRON_WORKBENCH_RESOLVED_PUBLIC_BASE:-${FASTAPI_WORKBENCH_RESOLVED_PUBLIC_BASE:-}}}}"
 DEMO_REQUEST_DISCOVERY="false"
 DEMO_RSERVER_URL_BIN="${DEMO_RSERVER_URL_BIN:-}"

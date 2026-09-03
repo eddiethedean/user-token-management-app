@@ -342,13 +342,13 @@ source .venv/bin/activate
 set -a
 . ./.env
 set +a
-export HEDRON_WORKBENCH_PUBLIC_BASE_URL="$PUBLIC_BASE_URL"
-unset UVICORN_ROOT_PATH
-unset HEDRON_WORKBENCH_MOUNT FASTAPI_WORKBENCH_MOUNT
-unset HEDRON_WORKBENCH_RESOLVED_MOUNT FASTAPI_WORKBENCH_RESOLVED_MOUNT
-unset HEDRON_ROOT_PATH FASTAPI_WORKBENCH_ROOT_PATH
 python -m app serve --host 127.0.0.1 --port 8765 --discover
 ```
+
+With the current `hedron-posit` release, `--discover` binds the requested port, obtains the
+session URL, validates it, and applies the Workbench mount and cookie handoff. Do not manually set
+`UVICORN_ROOT_PATH` or Hedron/Workbench mount variables. `PUBLIC_BASE_URL` remains in `.env` because
+the application uses it as the canonical base for invitation and password-reset links.
 
 Open the URL in `PUBLIC_BASE_URL` (or the matching URL printed by Workbench) while this terminal is
 running.

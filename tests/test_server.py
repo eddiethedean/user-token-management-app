@@ -1,33 +1,13 @@
 from __future__ import annotations
 
-import os
 import sys
 
 import pytest
 from hedron_core.diagnostics import HedronError
-from hedron_posit.middleware import WorkbenchPathMiddleware
-from hedron_posit.resolve import resolve_deployment
-from starlette._utils import get_route_path
+from hedron_posit import WorkbenchConfig, WorkbenchMode, export_hedron_state, resolve_deployment
+from hedron_posit.urls import mounted_redirect
 
-from app.server import (
-    _has_workbench_handoff,
-    _prepare_workbench_environment,
-    _workbench_public_base_from_environment,
-    run_server,
-)
-
-_WORKBENCH_URL = "https://workbench.example.mil/s/session-token/p/proxy-token/"
-
-
-def _clear_workbench_public_base_environment(monkeypatch) -> None:
-    for name in (
-        "HEDRON_WORKBENCH_PUBLIC_BASE_URL",
-        "FASTAPI_WORKBENCH_PUBLIC_BASE_URL",
-        "HEDRON_WORKBENCH_RESOLVED_PUBLIC_BASE",
-        "FASTAPI_WORKBENCH_RESOLVED_PUBLIC_BASE",
-        "PUBLIC_BASE_URL",
-    ):
-        monkeypatch.delenv(name, raising=False)
+from app.server import run_server
 
 
 def test_serve_cli_forwards_explicit_discovery(monkeypatch) -> None:
@@ -55,219 +35,87 @@ def test_serve_cli_forwards_explicit_discovery(monkeypatch) -> None:
     }
 
 
-def test_run_server_delegates_discovery_and_serving_to_hedron_posit(monkeypatch) -> None:
-    monkeypatch.delenv("RS_SERVER_URL", raising=False)
-    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
-    _clear_workbench_public_base_environment(monkeypatch)
+def test_run_server_delegates_all_workbench_behavior_to_hedron_posit(monkeypatch) -> None:
     captured = {}
 
-    def fake_run_target(target, *, config) -> None:
-        captured["target"] = target
-        captured["config"] = config
+    def fake_run_target(target, *, config, discover=False) -> None:
+        captured.update(target=target, config=config, discover=discover)
 
     monkeypatch.setattr("app.server.run_target", fake_run_target)
 
-    run_server(host="127.0.0.1", port=8765, reload=True)
+    run_server(host="127.0.0.1", port=8765, reload=True, discover=True)
 
     assert captured["target"] == "app.main:app"
+    assert captured["discover"] is True
     config = captured["config"]
+    assert isinstance(config, WorkbenchConfig)
     assert config.host == "127.0.0.1"
     assert config.port == 8765
     assert config.reload is True
     assert config.allow_external_bind is False
-    assert config.public_base_url is None
+    assert config.app_target == "app.main:app"
 
 
-def test_run_server_passes_explicit_discovery_to_supporting_hedron(monkeypatch) -> None:
-    monkeypatch.delenv("RS_SERVER_URL", raising=False)
-    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
-    _clear_workbench_public_base_environment(monkeypatch)
+def test_run_server_allows_hedron_to_resolve_environment_handoffs(monkeypatch) -> None:
     captured = {}
+    monkeypatch.setenv(
+        "HEDRON_WORKBENCH_PUBLIC_BASE_URL", "https://workbench.example/s/session/p/8765"
+    )
+    monkeypatch.setenv("UVICORN_ROOT_PATH", "https://workbench.example/s/stale/p/8000")
 
     def fake_run_target(target, *, config, discover=False) -> None:
-        captured["target"] = target
-        captured["config"] = config
-        captured["discover"] = discover
+        captured.update(target=target, config=config, discover=discover)
 
     monkeypatch.setattr("app.server.run_target", fake_run_target)
 
-    run_server(host="127.0.0.1", port=8765, discover=True)
+    run_server(host="127.0.0.1", port=8765)
 
-    assert captured["target"] == "app.main:app"
-    assert captured["config"].port == 8765
-    assert captured["discover"] is True
-
-
-def test_run_server_keeps_current_hedron_fallback_with_explicit_handoff(monkeypatch) -> None:
-    monkeypatch.delenv("RS_SERVER_URL", raising=False)
-    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
-    _clear_workbench_public_base_environment(monkeypatch)
-    monkeypatch.setenv("HEDRON_WORKBENCH_PUBLIC_BASE_URL", _WORKBENCH_URL)
-    captured = {}
-
-    def current_run_target(target, *, config) -> None:
-        captured["target"] = target
-        captured["config"] = config
-
-    monkeypatch.setattr("app.server.run_target", current_run_target)
-
-    run_server(host="127.0.0.1", port=8765, discover=True)
-
-    assert captured["target"] == "app.main:app"
-    assert captured["config"].port == 8765
-    assert _has_workbench_handoff() is True
+    assert captured["config"].mount is None
+    assert captured["config"].public_base_url is None
+    # The application adapter does not rewrite or delete launcher variables;
+    # HedronPosit's resolver owns precedence and stale-handoff handling.
+    assert captured["discover"] is False
 
 
-def test_run_server_rejects_unavailable_explicit_discovery_without_fallback(
-    monkeypatch,
-) -> None:
-    monkeypatch.delenv("RS_SERVER_URL", raising=False)
-    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
-    _clear_workbench_public_base_environment(monkeypatch)
-
-    def current_run_target(target, *, config) -> None:
-        raise AssertionError("runner must not start without discovery or a handoff")
-
-    monkeypatch.setattr("app.server.run_target", current_run_target)
-
-    with pytest.raises(RuntimeError, match="Explicit Workbench discovery requires"):
-        run_server(host="127.0.0.1", port=8765, discover=True)
-
-
-def test_run_server_preserves_full_workbench_root_path_origin(monkeypatch) -> None:
-    _clear_workbench_public_base_environment(monkeypatch)
-    monkeypatch.setenv("RS_SERVER_URL", "http://127.0.0.1:8787/")
-    monkeypatch.setenv("UVICORN_ROOT_PATH", _WORKBENCH_URL)
-    captured = {}
-
-    def fake_run_target(target, *, config) -> None:
-        captured["config"] = config
-        captured["uvicorn_root_path"] = os.environ.get("UVICORN_ROOT_PATH")
-
-    monkeypatch.setattr("app.server.run_target", fake_run_target)
-
-    run_server(host="127.0.0.1", port=8000, reload=True)
-
-    config = captured["config"]
-    assert config.public_base_url == _WORKBENCH_URL
-    assert config.mount == "/s/session-token/p/proxy-token"
-    assert captured["uvicorn_root_path"] is None
+def test_hedron_resolves_full_workbench_url_and_exports_mount() -> None:
+    config = WorkbenchConfig(host="127.0.0.1", port=8765, app_target="app.main:app")
     resolved = resolve_deployment(
         config,
         environ={
             "RS_SERVER_URL": "http://127.0.0.1:8787/",
-            "UVICORN_ROOT_PATH": _WORKBENCH_URL,
+            "UVICORN_ROOT_PATH": "https://workbench.example/s/session/p/8765/",
         },
-        bound_port=8000,
+        bound_port=8765,
     )
+
     assert resolved.active is True
-    assert resolved.external_origin == "https://workbench.example.mil"
-    assert resolved.browser_mount == "/s/session-token/p/proxy-token"
+    assert resolved.mode is WorkbenchMode.AUTO
+    assert resolved.external_origin == "https://workbench.example"
+    assert resolved.browser_mount == "/s/session/p/8765"
 
-    async def downstream(scope, receive, send) -> None:
-        return None
-
-    middleware = WorkbenchPathMiddleware(
-        downstream,
-        expected_mount=resolved.browser_mount,
-        expected_origins=(resolved.external_origin,),
-    )
-    normalized = middleware.normalize_scope(
-        {
-            "type": "http",
-            "path": ("https%3A//workbench.example.mil/s/session-token/p/proxy-token//"),
-            "root_path": "",
-            "raw_path": b"",
-            "query_string": b"",
-        }
-    )
-    assert normalized["path"] == "/s/session-token/p/proxy-token/"
-    assert normalized["root_path"] == "/s/session-token/p/proxy-token"
-    assert get_route_path(normalized) == "/"
-
-
-def test_explicit_public_base_drops_stale_runtime_mount(monkeypatch) -> None:
-    _clear_workbench_public_base_environment(monkeypatch)
-    monkeypatch.setenv("RS_SERVER_URL", "http://127.0.0.1:8787/")
-    monkeypatch.setenv(
-        "UVICORN_ROOT_PATH",
-        "https://workbench.example.mil/s/session-token/p/old-proxy-token/",
-    )
-    monkeypatch.setenv("HEDRON_WORKBENCH_PUBLIC_BASE_URL", _WORKBENCH_URL)
-    captured = {}
-
-    def fake_run_target(target, *, config) -> None:
-        captured["target"] = target
-        captured["config"] = config
-        captured["uvicorn_root_path"] = os.environ.get("UVICORN_ROOT_PATH")
-
-    monkeypatch.setattr("app.server.run_target", fake_run_target)
-
-    run_server(host="127.0.0.1", port=8765)
-
-    assert captured["target"] == "app.main:app"
-    assert captured["config"].mount is None
-    assert captured["config"].public_base_url is None
-    assert captured["uvicorn_root_path"] is None
-    resolved = resolve_deployment(captured["config"], environ=os.environ, bound_port=8765)
-    assert resolved.browser_mount == "/s/session-token/p/proxy-token"
-
-
-def test_workbench_root_path_promotion_requires_runtime_and_full_url(monkeypatch) -> None:
-    _clear_workbench_public_base_environment(monkeypatch)
-    monkeypatch.delenv("RS_SERVER_URL", raising=False)
-    monkeypatch.setenv("UVICORN_ROOT_PATH", _WORKBENCH_URL)
-    assert _workbench_public_base_from_environment() is None
-
-    monkeypatch.setenv("RS_SERVER_URL", "http://127.0.0.1:8787/")
-    monkeypatch.setenv("UVICORN_ROOT_PATH", "/s/session-token/p/proxy-token/")
-    assert _workbench_public_base_from_environment() is None
-
-
-def test_explicit_workbench_public_base_takes_precedence(monkeypatch) -> None:
-    _clear_workbench_public_base_environment(monkeypatch)
-    monkeypatch.setenv("RS_SERVER_URL", "http://127.0.0.1:8787/")
-    monkeypatch.setenv("UVICORN_ROOT_PATH", _WORKBENCH_URL)
-    monkeypatch.setenv(
-        "HEDRON_WORKBENCH_PUBLIC_BASE_URL",
-        "https://configured.example.mil/custom-mount/",
+    environ = {}
+    export_hedron_state(resolved, environ=environ)
+    assert environ["HEDRON_ROOT_PATH"] == "/s/session/p/8765"
+    assert environ["FASTAPI_WORKBENCH_RESOLVED_PUBLIC_BASE"] == (
+        "https://workbench.example/s/session/p/8765"
     )
 
-    assert _workbench_public_base_from_environment() is None
+
+def test_hedron_rejects_conflicting_explicit_and_runtime_mounts() -> None:
+    with pytest.raises(HedronError, match="Conflicting Workbench mount and origin"):
+        resolve_deployment(
+            WorkbenchConfig(host="127.0.0.1", port=8765),
+            environ={
+                "RS_SERVER_URL": "http://127.0.0.1:8787/",
+                "HEDRON_WORKBENCH_PUBLIC_BASE_URL": "https://workbench.example/s/session/p/new",
+                "UVICORN_ROOT_PATH": "https://workbench.example/s/session/p/old",
+            },
+            bound_port=8765,
+        )
 
 
-def test_upstream_resolved_public_base_activates_without_app_override(monkeypatch) -> None:
-    _clear_workbench_public_base_environment(monkeypatch)
-    monkeypatch.delenv("RS_SERVER_URL", raising=False)
-    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
-    monkeypatch.setenv("HEDRON_WORKBENCH_RESOLVED_PUBLIC_BASE", _WORKBENCH_URL)
-    captured = {}
+def test_hedron_mounted_redirect_never_uses_relative_parent_depth() -> None:
+    response = mounted_redirect("/pipeline", mount="/s/session/p/8765")
 
-    def fake_run_target(target, *, config) -> None:
-        captured["target"] = target
-        captured["config"] = config
-
-    monkeypatch.setattr("app.server.run_target", fake_run_target)
-
-    run_server(host="127.0.0.1", port=8765)
-
-    config = captured["config"]
-    resolved = resolve_deployment(config, environ=os.environ, bound_port=8765)
-    assert captured["target"] == "app.main:app"
-    assert config.public_base_url is None
-    assert config.mount is None
-    assert resolved.active is True
-    assert resolved.external_origin == "https://workbench.example.mil"
-    assert resolved.browser_mount == "/s/session-token/p/proxy-token"
-
-
-def test_workbench_root_path_is_validated_before_uvicorn_handoff() -> None:
-    environ = {
-        "RS_SERVER_URL": "http://127.0.0.1:8787/",
-        "UVICORN_ROOT_PATH": f"{_WORKBENCH_URL}?unexpected=query",
-    }
-
-    with pytest.raises(HedronError, match="Unsafe Workbench public base URL"):
-        _prepare_workbench_environment(environ)
-
-    assert environ["UVICORN_ROOT_PATH"].endswith("?unexpected=query")
+    assert response.status_code == 303
+    assert response.headers["location"] == "/s/session/p/8765/pipeline"

@@ -17,6 +17,7 @@ from app.security.passwords import PasswordService, validate_password
 from app.security.tokens import hash_token, random_token
 from app.services.audit import client_ip, record_event
 from app.services.auth_common import TokenFlowError
+from app.services.links import public_url
 from app.services.mailer import queue_email
 from app.services.sessions import revoke_all_sessions
 
@@ -50,7 +51,11 @@ def request_password_reset(
         requested_ip=client_ip(request),
     )
     db.add(reset)
-    reset_url = f"{settings.public_base_url.rstrip('/')}/password/reset?token={raw_token}"
+    reset_url = public_url(
+        settings,
+        "/password/reset",
+        query={"token": raw_token},
+    )
     queue_email(
         db,
         user.email_original,
