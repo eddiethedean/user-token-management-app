@@ -54,6 +54,15 @@ def test_connect_instructions_retain_spool_directory_in_file_only_bundle() -> No
     )
 
 
+def test_connect_instructions_include_start_and_redeploy_steps() -> None:
+    deploy = DEPLOY_DOC.read_text(encoding="utf-8")
+    production = deploy[deploy.index("## Production deployment") :]
+
+    assert "choose **Start**" in production
+    assert "python -m app migrate" in production
+    assert "/path/to/data-mover.production.env" not in production
+
+
 def test_readme_operational_commands_use_one_in_process_app() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     introduction = "Its commands are:"

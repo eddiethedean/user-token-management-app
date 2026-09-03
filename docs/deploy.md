@@ -44,7 +44,7 @@ Open the URL printed by the command and sign in with the displayed demo account.
 the database, administrator, and fake MSS, MCS-COP, and PostgreSQL connections before starting the
 server on port 8765. Stop it with `Ctrl+C`.
 
-For a normal local server without fake connections:
+For a normal local server without pre-seeded demo connections:
 
 ```bash
 python -m app migrate
@@ -52,15 +52,16 @@ python -m app create-admin --email admin@example.gov
 python -m app serve --reload
 ```
 
-Open `http://127.0.0.1:8000/login`. Console verification, invitation, and reset links appear in the
-server output. Do not use a Workbench session URL as a durable public URL.
+Open `http://127.0.0.1:8000/login`. The default development mode uses fake connectors only when you
+configure or seed them; console verification, invitation, and reset links appear in the server
+output. Do not use a Workbench session URL as a durable public URL.
 
 ## Operational Workbench deployment
 
 This option runs one Hedron app process with in-process transfer, email, recovery, and retention
-tasks in an approved Workbench session. It is
-session-scoped: ending or sleeping the session stops the service. Use PostgreSQL for concurrent
-users, multiple app replicas, backups, or an always-on deployment.
+tasks in an approved Workbench session. It is session-scoped: ending or sleeping the session stops
+the service. Use the PostgreSQL/live mode for shared durable data; use Production Connect for an
+always-on service or multiple app replicas.
 
 ### Choose a mode
 
@@ -281,34 +282,38 @@ In Connect, restrict access, select Python 3.11, confirm the stored environment,
 content after environment changes. No cookie proxy or custom Nginx rule is required; leave
 `COOKIE_PATH=auto`.
 
-### Start the app and verify
+### Start and verify
 
-The Connect content process owns the in-process background runtime. It claims and executes queued
-transfers, recovers expired leases, and periodically runs retention cleanup; no separate worker host
-or janitor scheduler is required:
+After publishing, open the content in Posit Connect and choose **Start** (or **Restart** after an
+environment change). The Connect content process owns the in-process runtime: it executes queued
+transfers, recovers expired leases, delivers email, and performs retention cleanup. No separate
+worker host, email worker, or janitor scheduler is required.
 
-```bash
-source .venv/bin/activate
-set -a; . /path/to/data-mover.production.env; set +a
-python -m app schema-status
-```
+Open the final content URL and verify, in order:
 
-Email delivery runs in the Connect web process; there is no separate email worker. `send-email` is
-available for one-shot email recovery and `retry-email` requeues dead-lettered messages. Pipeline
-recovery and retention are owned by the app runtime; restart the app after an operational failure.
+1. `/health` returns `{"status":"ok"}` and `/ready` returns `{"status":"ready"}`.
+2. The administrator can sign in and the mounted navigation works.
+3. An invitation reaches the approved test mailbox.
+4. A non-sensitive connection test succeeds.
+5. A non-sensitive pipeline completes and its persisted run history is visible.
+6. Audit events appear for the test actions.
 
-Before granting general access, verify health, readiness, sign-in, mounted navigation, invitation
-delivery, connection tests, a non-sensitive pipeline, in-process transfer completion, and audit events. Use
-approved non-production provider endpoints and data for integration checks.
+If the content URL or environment changes, update `.env`, run the validation/migration steps below,
+republish, and restart the content before testing generated links.
 
 ### Redeploy and rollback
 
-For a normal release, back up PostgreSQL when migrations are included, run migrations, publish, and
-restart the web content in a controlled order:
+For a normal release, run these commands from the repository root after activating the same virtual
+environment used to publish:
 
 ```bash
+python -m app migrate
+python -m app schema-status
 ./scripts/deploy-connect.sh
 ```
+
+In Connect, restart the content after the publish completes. Back up PostgreSQL before migrations;
+`schema-status` must show `Current` equal to `Head` before the restart.
 
 Do not regenerate secrets during a redeploy. Retain old encryption keys until stored credentials have
 been rewrapped. Reverting a Connect bundle does not undo a database migration; restore a tested
