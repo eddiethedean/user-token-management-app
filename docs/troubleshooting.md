@@ -73,10 +73,10 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | `No module named 'sqlalchemy'` | The command is using a Python interpreter outside the project environment | From the repository root run `uv sync --locked --extra dev --python 3.11` (or `make install`), then use the app or activate `.venv` before running a CLI command |
-| No verification / reset mail | App not running or SMTP misconfigured | Check the app log and `EMAIL_BACKEND`/SMTP settings; use `send-email` for one batch |
+| No verification / reset mail | App not running, background task interrupted, or SMTP misconfigured | Confirm the request completed, check the app log and `EMAIL_BACKEND`/SMTP settings, then use `send-email` for one batch |
 | Links only in logs | `EMAIL_BACKEND=console` | Expected locally; use SMTP in production |
 | Messages stuck / dead-lettered | SMTP misconfig or attempt budget | Fix SMTP; `python -m app retry-email` |
-| Multiple workers on SQLite | Claim races | Use one worker with SQLite |
+| Multiple app processes on SQLite | In-process email claims can race across processes | Use one app process with SQLite, or use PostgreSQL for multi-process deployments |
 
 ## Connections and status
 

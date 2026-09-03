@@ -3,8 +3,8 @@
 This guide covers two supported uses of Data Mover:
 
 1. a local demonstration in Posit Workbench; and
-2. a persistent production deployment with the web application on Posit Connect and background
-   services on operator-managed infrastructure.
+2. a persistent production deployment with the web application and in-process email delivery on
+   Posit Connect, plus pipeline services on operator-managed infrastructure.
 
 If you only want a disposable Connect evaluation, use the
 [SQLite Connect demo](connect-sqlite-demo.md). Do not promote that configuration to production.
@@ -15,7 +15,7 @@ If you only want a disposable Connect evaluation, use the
 |---|---|---|---|
 | Explore Data Mover in Workbench | Workbench session | Disposable SQLite and simulated connectors | [Local Workbench demo](#local-workbench-demo) |
 | Evaluate the full app on Connect | Connect content | Disposable SQLite and simulated connectors | [SQLite Connect demo](connect-sqlite-demo.md) |
-| Run operational transfers | Connect plus supervised workers | PostgreSQL, SMTP, and approved live connectors | [Production deployment](#production-deployment) |
+| Run operational transfers | Connect plus supervised pipeline workers | PostgreSQL, SMTP, and approved live connectors | [Production deployment](#production-deployment) |
 
 Use an organization-supported Connect release and a configured Python 3.11 runtime. The version
 used by the repository's optional regression harness is test evidence, not the production
@@ -140,19 +140,19 @@ not normal setup steps.
 
 ## Production deployment
 
-Production is not a single Connect process. Connect serves the browser application, while three
-operator-managed processes handle queued work. Every process uses the same application revision,
-PostgreSQL database, and security secrets. Host-local paths and network settings may differ by
-role.
+Production uses Connect for the browser application and in-process email delivery, while the
+pipeline worker and janitor run under operator supervision. Every runtime uses the same application
+revision, PostgreSQL database, and security secrets. Host-local paths and network settings may
+differ by role.
 
 | Role | Runs where | Responsibility |
 |---|---|---|
 | Web application | Posit Connect | Authentication, UI, administration, audit records, and run enqueueing |
-| In-process email task | Posit Connect app | Invitation, verification, and password-reset delivery |
+| In-process email delivery | Posit Connect app process | Drains invitation, verification, password-reset, and account-security messages after email-producing requests |
 | Pipeline worker | Supervised worker host | Live provider access and transfer execution |
 | Pipeline janitor | Scheduled worker job | Retention cleanup for run data, catalogs, and spool files |
 
-Do not run the background roles permanently in an interactive Workbench terminal. Use systemd,
+Do not run the pipeline roles permanently in an interactive Workbench terminal. Use systemd,
 Kubernetes, or another approved supervisor.
 
 ### Before you begin
@@ -453,11 +453,11 @@ tested deployment requirement says otherwise.
 > deployment fails, review the content environment before assuming the previous configuration is
 > still active. Variables omitted from an update remain unchanged.
 
-### 7. Start the background services
+### 7. Start the pipeline services
 
-Install the same application revision and runtime requirements on every worker host. Each process
-must load the reviewed production configuration and use the same `DATABASE_URL` and
-`API_TOKEN_ENCRYPTION_KEYS` key ring as the web application.
+Install the same application revision and runtime requirements on every host running a pipeline
+worker or janitor. The Connect web process also loads the reviewed production configuration and
+uses the same `DATABASE_URL` and `API_TOKEN_ENCRYPTION_KEYS` key ring.
 
 Run this before starting or restarting a worker:
 
@@ -469,6 +469,27 @@ set -a
 set +a
 python -m app schema-status
 ```
+
+#### Email delivery
+
+Email delivery is built into the Connect web application; it does not require a separate email
+worker, service unit, container, or queue consumer. Email-producing requests (registration,
+verification, invitations, password reset, and password changes) enqueue rows in `email_outbox`
+and attach a FastAPI `BackgroundTasks` job. After the response is sent, the Connect process drains
+due rows using the configured PostgreSQL database and console or SMTP backend.
+
+The task is in-process and best-effort. If the Connect process restarts before a task completes,
+the outbox rows remain queued. A later email-producing request triggers another drain; operators
+can run `python -m app send-email` for a one-shot recovery. Use `python -m app retry-email` to
+requeue dead-lettered messages after correcting an SMTP or configuration problem. There is no
+periodic email worker to supervise, so monitor the outbox and application logs as part of the
+Connect deployment.
+
+The Connect runtime must be able to reach PostgreSQL and the approved SMTP relay. Keep
+`EMAIL_REDACT_SENT_BODIES=true` in production and use `EMAIL_BACKEND=console` only for local or
+non-delivery testing.
+
+#### Pipeline worker
 
 Start the long-running pipeline worker under a supervisor:
 

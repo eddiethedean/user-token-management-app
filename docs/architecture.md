@@ -30,7 +30,7 @@ There is **no public REST API**. Mutations are form/HTMX POSTs; GETs render HTML
 | Identity-aware proxy (`trusted_header`) | Only trusted component that may set the identity header |
 | Application process | Holds JWT/session/CSRF secrets and connection-credential master keys; least privilege DB role |
 | Database | Stores password hashes, HMAC digests of capability tokens, encrypted credential blobs, CSV uploads, saved pipelines, and audit rows |
-| SMTP / in-process email task | Sees plaintext capability URLs in message bodies until redacted after send |
+| SMTP / in-process email delivery | The Connect process's FastAPI background task sees plaintext capability URLs until redacted after send |
 | Downstream “run” workloads | Must not inherit master-key env; receive only explicitly granted provider tokens (deployment control) |
 
 ## Sessions
@@ -44,9 +44,12 @@ There is **no public REST API**. Mutations are form/HTMX POSTs; GETs render HTML
 ## Email pipeline
 
 1. Application enqueues rows in `email_outbox`.
-2. Email-producing routes attach a FastAPI background task that claims and delivers via console or
-   SMTP in a thread so requests stay responsive.
-3. Production should redact sent bodies and monitor dead letters (`retry-email`).
+2. Email-producing routes attach a FastAPI `BackgroundTasks` job that claims and delivers via
+   console or SMTP after the response, so requests stay responsive.
+3. There is no separate email worker. Pending rows survive a process restart and are picked up by a
+   later email-producing request or the one-shot `send-email` command.
+4. Production should redact sent bodies, monitor pending/dead-letter rows, and use `retry-email`
+   after correcting a delivery problem.
 
 ## Connection credentials
 

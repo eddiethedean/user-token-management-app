@@ -39,17 +39,19 @@ See [SECURITY.md](SECURITY.md).
 ## Runtime model
 
 The browser process owns authentication, the UI, persistence, audit records, and email delivery.
-Email is queued transactionally and drained by a lightweight in-process background task:
+Email is queued transactionally and drained by a lightweight in-process FastAPI background task:
 
 | Process | Responsibility |
 |---|---|
 | Web app (`serve`) | Render the UI, validate requests, enqueue runs, and expose `/health` |
-| In-process email task | Deliver verification, invitation, and password-reset messages |
+| In-process email delivery | Drain verification, invitation, registration, password-reset, and account-security messages after email-producing requests |
 | Pipeline worker | Claim leases, execute real transfers, and persist progress/events |
 | Pipeline janitor | Retain run history and clean expired events, catalogs, and spool files |
 
-In demo mode, connectors are fake and stay local. In real mode, only the separately supervised
-pipeline worker contacts configured providers.
+Email delivery does not use a separate worker process. If the web process restarts before a task
+finishes, pending rows remain in the outbox; a later email-producing request or `send-email` drains
+them, and `retry-email` requeues dead-lettered messages. In demo mode, connectors are fake and stay
+local. In real mode, only the separately supervised pipeline worker contacts configured providers.
 
 ## Screenshots
 
@@ -164,8 +166,9 @@ must not contain the email local-part; optional offline blocklist in production.
 **Interactive admin create** (no env var): `python -m app create-admin --email admin@example.gov`
 (prompts for password). The same command **promotes** an existing user to administrator.
 
-Email delivery starts automatically with the app. With `EMAIL_BACKEND=console`, verification and
-reset links print to the app log. The `send-email` command remains available for one-shot recovery.
+Email delivery starts automatically with the app when an email-producing request completes. With
+`EMAIL_BACKEND=console`, verification and reset links print to the app log. There is no email worker
+to start; `send-email` remains available for one-shot recovery and `retry-email` requeues dead letters.
 
 ## Explore the demo
 
@@ -210,7 +213,7 @@ All of these are available as `python -m app …` or `access-registry …`.
 | `create-admin … --password-env VAR` | Non-interactive password from env |
 | `seed-demo-connections --email … [--replace]` | Add fake encrypted credentials to a development account; refused in production |
 | `serve [--host] [--port] [--reload]` | Local / Workbench-aware server |
-| `send-email` | Deliver one batch of queued email |
+| `send-email` | One-shot drain of queued email (manual recovery) |
 | `retry-email [--message-id ID] [--limit N]` | Requeue dead-lettered messages |
 | `pipeline-worker [--once]` | Claim and execute queued pipeline runs |
 | `pipeline-janitor` | Purge expired runs, events, catalog cache, and spool files |

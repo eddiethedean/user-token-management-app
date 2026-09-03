@@ -73,8 +73,10 @@ Passwords must be 15–128 characters (Unicode NFC), must not contain the email 
 pass the optional offline blocklist when configured.
 
 **Why don’t emails arrive?**  
-Email delivery starts with the app. Check the app log and `EMAIL_BACKEND`/SMTP settings; use
-`send-email` for a one-shot manual retry. With `EMAIL_BACKEND=console`, links print to the app log.
+Email delivery runs in the app's FastAPI background task after registration, verification,
+invitation, password-reset, or password-change requests. Check the app log, the `email_outbox`
+state, and `EMAIL_BACKEND`/SMTP settings; use `send-email` for a one-shot drain and
+`retry-email` for dead-lettered messages. With `EMAIL_BACKEND=console`, links print to the app log.
 
 **local_password or trusted_header?**  
 See [auth-modes.md](auth-modes.md). Prefer trusted-header behind an approved CAC/MFA proxy when

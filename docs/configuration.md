@@ -66,7 +66,9 @@ Set or confirm all of the following:
 7. Set a real `ALLOWED_EMAIL_DOMAINS` list. This is an enrollment allowlist,
    not proof that the user completed CAC authentication.
 8. Configure SMTP with `EMAIL_BACKEND=smtp`, the approved `SMTP_HOST`, the
-   correct port and TLS settings, and `EMAIL_REDACT_SENT_BODIES=true`.
+   correct port and TLS settings, and `EMAIL_REDACT_SENT_BODIES=true`. Email is
+   delivered by an in-process FastAPI background task; no email worker service
+   or scheduler is required.
 9. Set `DATA_MOVER_MODE=real`, a writable `PIPELINE_SPOOL_ROOT`, and an
    explicit `PIPELINE_ALLOWED_HTTPS_HOSTS` allowlist. Writers for MSS and
    MCSCOP remain opt-in until their integrations are approved and tested.
@@ -85,8 +87,9 @@ operations require them:
 - `DB_POOL_*` controls SQLAlchemy connection pooling.
 - `RATE_LIMIT_*` controls shared login, registration, and reset protection.
 - `EMAIL_*ATTEMPTS`, `EMAIL_RETRY_*`, and `EMAIL_CLAIM_TIMEOUT_SECONDS` control queue retries and
-  claims. Delivery is triggered after email-producing responses; `send-email` remains available
-  for one-shot recovery.
+  claims. Delivery is triggered after email-producing responses by an in-process FastAPI
+  background task; pending rows survive app restarts. `send-email` remains available for one-shot
+  recovery and `retry-email` requeues dead-lettered messages.
 - `ACCESS_TOKEN_MINUTES`, `REFRESH_TOKEN_HOURS`, and
   `SESSION_IDLE_MINUTES` control session lifetime.
 - `PIPELINE_BATCH_*`, `PIPELINE_HTTP_*`, lease, retention, and size settings

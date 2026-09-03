@@ -218,7 +218,7 @@ navigation or a wider desktop viewport; server-side validation remains the same.
 | A run stays queued | Ask an operator to confirm `python -m app pipeline-worker` is running in real mode. |
 | A connection says Untested | Select **Test connection**; saving alone never marks a connection connected. |
 | A saved pipeline says Connection required | The owner deleted or replaced a required connection; restore and test it, then reload the pipeline. |
-| An email link never arrives | Local deployments print links in the app log; production operators must check the app logs and SMTP queue. |
+| An email link never arrives | Local deployments print links in the app log; production email is delivered by the app's in-process background task, so operators should check the app logs, `email_outbox`, and SMTP relay. |
 
 For mount-path, login, email, CSV, and worker failures, use the detailed [troubleshooting guide](troubleshooting.md).
 

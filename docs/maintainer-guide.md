@@ -34,7 +34,8 @@ app/ui ───────► app/services ───────► SQLAlchemy
                     ├───────────────► Connector protocol / registry
                     │                         │
                     │                         └── fake or live provider
-                    └───────────────► workers (email, pipeline, janitor)
+                    ├───────────────► in-process email task (FastAPI BackgroundTasks)
+                    └───────────────► pipeline worker / janitor
 ```
 
 Do not make a route, connector, worker, or migration become a second owner for another layer's
@@ -107,7 +108,7 @@ the committed defaults or `.env.example`.
 | `JWT_SECRET`, `SESSION_PEPPER`, `CSRF_SECRET` | Secret store | Independent high-entropy values; never share or commit them. |
 | `API_TOKEN_ENCRYPTION_KEYS` | Secret store | Key ring for encrypted provider bundles; rotate with a planned migration window. |
 | `DATA_MOVER_MODE`, `PIPELINE_*` | Worker/deployment | Controls live transfer behavior, leases, quotas, spool, and writer gates. |
-| `EMAIL_*`, `SMTP_*` | Application/deployment | Queue delivery runs after email-producing responses in a background task. |
+| `EMAIL_*`, `SMTP_*` | Application/deployment | Queue delivery runs after email-producing responses in an in-process FastAPI background task; there is no email worker service. |
 
 When a setting changes behavior or a security gate, add a validation test and update
 [SECURITY.md](../SECURITY.md) or [deploy.md](deploy.md), not only the example environment file.
@@ -122,8 +123,11 @@ make hedron-build
 python -m hedron --app app.main:app routes
 ```
 
-Email delivery runs automatically in the app when testing verification, invitations, or password
-reset. Use `python -m app send-email` for a one-shot manual recovery.
+Email delivery runs automatically in the app when testing registration, verification, invitations,
+password reset, or password changes. The route attaches a FastAPI `BackgroundTasks` job after the
+outbox transaction; there is no separate email worker service. If the process restarts, pending
+rows remain available for the next email-producing request or `python -m app send-email`. Use
+`python -m app retry-email` to requeue dead-lettered messages after fixing delivery settings.
 
 ## Application conventions
 
@@ -237,14 +241,17 @@ run events, and audit rows; restoring only the user table is not a complete appl
 
 ## Workers and operational processes
 
-The web process does not execute real transfers. Run these under separate supervision in real mode:
+The web process owns email delivery but does not execute real transfers. In real mode, supervise
+the pipeline worker and janitor separately:
 
 ```bash
 python -m app serve
 python -m app pipeline-worker
 python -m app pipeline-janitor       # schedule daily
-python -m app send-email       # optional one-shot recovery
 ```
+
+Use `python -m app send-email` only as an optional one-shot recovery command; it is not a
+long-running service.
 
 The pipeline worker claims a lease, decrypts credentials only for the claimed run, streams connector
 batches, and persists status/events. An expired lease before destination writes is requeued; an
@@ -277,7 +284,7 @@ connector error taxonomy in `app/connectors/errors.py` and redact provider respo
 |---|---|
 | Schema is current | `python -m app schema-status` |
 | Web process is healthy | Request `/health`; confirm startup logs show the expected schema head. |
-| Email queue is moving | `python -m app send-email` for a one-shot check, or inspect the app logs. |
+| Email queue is moving | Trigger an email-producing request and inspect app logs/outbox state; use `python -m app send-email` for a one-shot drain. |
 | Pipeline queue is moving | Confirm the pipeline worker is claiming leases and heartbeating. |
 | Retention is running | Schedule `python -m app pipeline-janitor` and inspect deleted/retained counts. |
 | Spool pressure is safe | Check `PIPELINE_SPOOL_ROOT` usage against `PIPELINE_MAX_SPOOL_BYTES`. |

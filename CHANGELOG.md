@@ -61,6 +61,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Changed
 
+- Replaced the separate email worker CLI with in-process FastAPI background delivery; retained
+  `send-email` and `retry-email` for operator recovery.
 - Connections are limited to MSS, MCS-COP, and PostgreSQL. Advana and MongoDB leave the UI; existing
   encrypted rows are preserved.
 - Save stores credentials as untested; Test is a distinct connector health check. Wake cluster is
@@ -83,7 +85,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Local password and trusted-header authentication modes.
 - Encrypted Advana, MSS, PostgreSQL, and MongoDB credential slots, plus the admin directory,
   invitations, and audit log.
-- Queued email delivery with supervised worker CLI.
+- Transactional queued email delivery with console and SMTP backends.
 - Alembic migrations with optional `--adopt-existing` for verified legacy schemas.
 - Security architecture and decision register (`SECURITY.md`) with production gate and
   vulnerability reporting guidance.
