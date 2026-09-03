@@ -86,6 +86,8 @@ testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q -m 'not workbench_docker and not live_foundry'"
 markers = [
+  "integration: cross-layer tests using the application and its services",
+  "system: subprocess-level tests of the packaged runtime",
   "workbench_docker: Posit Workbench Docker integration (opt-in via make workbench-test)",
   "live_foundry: opt-in live MSS/MCS-COP smoke tests (DATA_MOVER_LIVE_FOUNDRY=1)",
   "postgres: ephemeral PostgreSQL via testing.postgresql (skipped if server binaries are missing)",
