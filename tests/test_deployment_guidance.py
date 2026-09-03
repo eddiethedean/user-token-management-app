@@ -34,6 +34,19 @@ def test_postgres_workbench_instructions_create_required_password_blocklist() ->
     )
 
 
+def test_workbench_real_mode_documents_matching_encryption_key_ids() -> None:
+    deploy = DEPLOY_DOC.read_text(encoding="utf-8")
+    workbench = _section(
+        deploy,
+        "## Operational Workbench deployment",
+        "## Production deployment",
+    )
+
+    assert "API_TOKEN_ENCRYPTION_KEYS" in workbench
+    assert "API_TOKEN_ACTIVE_KEY_ID" in workbench
+    assert "active key ID must exactly match" in workbench
+
+
 def test_connect_instructions_retain_spool_directory_in_file_only_bundle() -> None:
     deploy = DEPLOY_DOC.read_text(encoding="utf-8")
     production = deploy[deploy.index("## Production deployment") :]

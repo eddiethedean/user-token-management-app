@@ -102,6 +102,26 @@ EMAIL_REDACT_SENT_BODIES=true
 For console-only testing, change `EMAIL_BACKEND=smtp` to `EMAIL_BACKEND=console`. Console mode
 prints links; it does not deliver invitations.
 
+Real mode requires three strong, independent application secrets and a non-development encryption
+key, whether the database is SQLite or PostgreSQL. Generate them once without putting them in shell
+history or source control:
+
+```bash
+python - <<'PY'
+import base64, json, secrets
+print("JWT_SECRET=" + repr(secrets.token_urlsafe(48)))
+print("SESSION_PEPPER=" + repr(secrets.token_urlsafe(48)))
+print("CSRF_SECRET=" + repr(secrets.token_urlsafe(48)))
+key = base64.b64encode(secrets.token_bytes(32)).decode()
+print("API_TOKEN_ENCRYPTION_KEYS=" + repr(json.dumps({"workbench-v1": key})))
+print("API_TOKEN_ACTIVE_KEY_ID=" + repr("workbench-v1"))
+PY
+```
+
+Replace all five printed values in `.env`. The active key ID must exactly match an ID in the JSON
+key ring. Keep the old key in the JSON when reusing a database that already contains encrypted
+credentials; never replace a key that existing records still need.
+
 PostgreSQL/live uses the production block in [.env.example](../.env.example), with at least:
 
 ```dotenv
@@ -125,22 +145,6 @@ mkdir -p deployment
 cp /path/to/approved/password-blocklist.txt deployment/password-blocklist.txt
 chmod 600 deployment/password-blocklist.txt
 ```
-
-Generate secrets without putting them in shell history or source control:
-
-```bash
-python - <<'PY'
-import base64, json, secrets
-print("JWT_SECRET=" + repr(secrets.token_urlsafe(48)))
-print("SESSION_PEPPER=" + repr(secrets.token_urlsafe(48)))
-print("CSRF_SECRET=" + repr(secrets.token_urlsafe(48)))
-key = base64.b64encode(secrets.token_bytes(32)).decode()
-print("API_TOKEN_ENCRYPTION_KEYS=" + repr(json.dumps({"workbench-v1": key})))
-print("API_TOKEN_ACTIVE_KEY_ID=" + repr("workbench-v1"))
-PY
-```
-
-Replace the printed values in `.env`. Never reuse the development encryption key for live data.
 
 Create a local spool directory before starting live transfers:
 
