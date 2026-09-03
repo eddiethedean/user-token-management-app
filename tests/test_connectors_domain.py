@@ -118,14 +118,59 @@ def test_apply_internal_ca_fix_is_optional(monkeypatch) -> None:
     assert called["n"] == 1
 
 
-def test_real_mode_rejects_sqlite_and_empty_allowlist(tmp_path) -> None:
-    with pytest.raises(ValueError, match="PostgreSQL application database"):
+def test_real_mode_allows_sqlite_for_session_scoped_workbench(tmp_path) -> None:
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    settings = Settings(
+        _env_file=None,
+        app_env="development",
+        data_mover_mode="real",
+        database_url=f"sqlite:///{tmp_path / 'app.db'}",
+        public_base_url="https://mover.example.gov",
+        pipeline_spool_root=str(spool),
+        pipeline_allowed_https_hosts="mss.example.gov",
+        jwt_secret="workbench-jwt-secret-must-be-long-enough",
+        session_pepper="workbench-session-pepper-must-be-long",
+        csrf_secret="workbench-csrf-secret-must-be-long-enuf",
+        api_token_encryption_keys={"workbench-v1": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="},
+        api_token_active_key_id="workbench-v1",
+        cookie_secure=True,
+    )
+    assert settings.database_url.startswith("sqlite:")
+
+    with pytest.raises(ValueError, match="strong real-mode secret"):
         Settings(
             _env_file=None,
             app_env="development",
             data_mover_mode="real",
-            database_url=f"sqlite:///{tmp_path / 'app.db'}",
+            database_url=f"sqlite:///{tmp_path / 'weak.db'}",
+            public_base_url="https://mover.example.gov",
+            pipeline_spool_root=str(spool),
+            pipeline_allowed_https_hosts="mss.example.gov",
+            cookie_secure=True,
         )
+
+    with pytest.raises(ValueError, match="file-backed"):
+        Settings(
+            _env_file=None,
+            app_env="development",
+            data_mover_mode="real",
+            database_url="sqlite:///:memory:",
+            public_base_url="https://mover.example.gov",
+            pipeline_spool_root=str(spool),
+            pipeline_allowed_https_hosts="mss.example.gov",
+            jwt_secret="workbench-jwt-secret-must-be-long-enough",
+            session_pepper="workbench-session-pepper-must-be-long",
+            csrf_secret="workbench-csrf-secret-must-be-long-enuf",
+            api_token_encryption_keys={
+                "workbench-v1": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="
+            },
+            api_token_active_key_id="workbench-v1",
+            cookie_secure=True,
+        )
+
+
+def test_real_mode_requires_spool_and_allowlist(tmp_path) -> None:
     spool = tmp_path / "spool"
     spool.mkdir()
     with pytest.raises(ValueError, match="PIPELINE_ALLOWED_HTTPS_HOSTS"):
@@ -134,8 +179,73 @@ def test_real_mode_rejects_sqlite_and_empty_allowlist(tmp_path) -> None:
             app_env="development",
             data_mover_mode="real",
             database_url="postgresql+psycopg://mover:pass@localhost:5432/app",
+            public_base_url="https://mover.example.gov",
             pipeline_spool_root=str(spool),
+            jwt_secret="workbench-jwt-secret-must-be-long-enough",
+            session_pepper="workbench-session-pepper-must-be-long",
+            csrf_secret="workbench-csrf-secret-must-be-long-enuf",
+            api_token_encryption_keys={
+                "workbench-v1": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="
+            },
+            api_token_active_key_id="workbench-v1",
+            cookie_secure=True,
         )
+
+    with pytest.raises(ValueError, match="absolute HTTPS URL"):
+        Settings(
+            _env_file=None,
+            app_env="development",
+            data_mover_mode="real",
+            database_url=f"sqlite:///{tmp_path / 'http.db'}",
+            public_base_url="http://mover.example.gov",
+            pipeline_spool_root=str(spool),
+            pipeline_allowed_https_hosts="mss.example.gov",
+            jwt_secret="workbench-jwt-secret-must-be-long-enough",
+            session_pepper="workbench-session-pepper-must-be-long",
+            csrf_secret="workbench-csrf-secret-must-be-long-enuf",
+            api_token_encryption_keys={
+                "workbench-v1": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="
+            },
+            api_token_active_key_id="workbench-v1",
+            cookie_secure=True,
+        )
+
+
+def test_production_real_mode_rejects_sqlite(tmp_path) -> None:
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    with pytest.raises(ValueError, match="PostgreSQL"):
+        Settings(
+            _env_file=None,
+            app_env="production",
+            data_mover_mode="real",
+            database_url=f"sqlite:///{tmp_path / 'app.db'}",
+            pipeline_spool_root=str(spool),
+            pipeline_allowed_https_hosts="mss.example.gov",
+            public_base_url="https://mover.example.gov",
+            cookie_secure=True,
+            allowed_email_domains="example.gov",
+            jwt_secret="production-jwt-secret-must-be-long-enough",
+            session_pepper="production-session-pepper-must-be-long",
+            csrf_secret="production-csrf-secret-must-be-long-enuf",
+            email_backend="smtp",
+            smtp_host="smtp.example.gov",
+            email_redact_sent_bodies=True,
+            password_only_production_risk_accepted=True,
+            password_blocklist_path=str(Path("tests/fixtures/password-blocklist.txt").resolve()),
+            api_token_encryption_keys={"prod-v1": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="},
+            api_token_active_key_id="prod-v1",
+        )
+
+
+def test_sqlite_worker_lock_prevents_duplicate_workers(tmp_path) -> None:
+    from app.database import sqlite_worker_lock
+
+    database_url = f"sqlite:///{tmp_path / 'app.db'}"
+    with sqlite_worker_lock(database_url, "pipeline"):
+        with pytest.raises(RuntimeError, match="already running"):
+            with sqlite_worker_lock(database_url, "pipeline"):
+                pass
 
 
 def test_production_rejects_demo_mode() -> None:

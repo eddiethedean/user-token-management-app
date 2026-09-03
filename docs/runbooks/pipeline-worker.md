@@ -30,17 +30,20 @@ Makefile targets: `make serve`, `make pipeline-worker`, `make pipeline-janitor`.
 ## Real mode requirements
 
 - `DATA_MOVER_MODE=real`
-- PostgreSQL application database (`postgresql+psycopg://…`)
+- PostgreSQL application database (`postgresql+psycopg://…`) for production or multiple workers;
+  SQLite is supported for a single-operator, session-scoped Workbench deployment
 - `PIPELINE_SPOOL_ROOT` writable
 - `PIPELINE_ALLOWED_HTTPS_HOSTS` listing every Foundry hostname
 - Foundry writers remain off until `PIPELINE_ENABLE_MSS_WRITER` / `PIPELINE_ENABLE_MCSCOP_WRITER`
 
-Production refuses `DATA_MOVER_MODE=demo`.
+Production refuses `DATA_MOVER_MODE=demo` and refuses SQLite. For Workbench SQLite/live mode, run
+exactly one pipeline worker; the web process, including in-process email delivery, may run
+alongside it.
 
 The spool directory must exist before startup and be writable by the process account. It may be a
 different local path for the web process and worker; it is not a shared data store. Use the same
-PostgreSQL database and application encryption key ring in every process, and schedule exactly one
-janitor per spool directory.
+application database (SQLite file or PostgreSQL) and application encryption key ring in every
+process, and schedule exactly one janitor per spool directory.
 
 ## Crash and lease recovery
 

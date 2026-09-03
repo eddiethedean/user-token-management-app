@@ -43,6 +43,13 @@ The committed defaults plus the development-only secret placeholders in
 - The example secrets and encryption key are for local work only. Generate new,
   independent values before sharing a database or deploying anywhere.
 
+For a session-scoped Workbench operation, `APP_ENV=development` with SQLite and
+`DATA_MOVER_MODE=real` is also supported. It performs live connector checks and transfers and can
+send invitations through SMTP, but it requires generated application secrets, `COOKIE_SECURE=true`,
+and one pipeline worker. Email delivery runs in the web process's FastAPI background task. It is not
+a production or multi-user database. See the
+[operational Workbench deployment](deploy.md#operational-workbench-deployment).
+
 ### Production
 
 Set or confirm all of the following:

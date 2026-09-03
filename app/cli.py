@@ -8,7 +8,7 @@ import sys
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.database import SessionLocal
+from app.database import SessionLocal, sqlite_worker_lock
 from app.models import Role, User, UserStatus, utcnow
 from app.schema import assert_schema_current, current_revision, head_revision, upgrade_schema
 from app.security.email import normalize_email
@@ -167,9 +167,14 @@ def main() -> None:
         print(f"Head:    {head_revision()}")
     if args.command == "send-email":
         assert_schema_current()
-        with SessionLocal() as db:
-            delivered = deliver_pending(db, get_settings())
-            print(f"Delivered {delivered} message(s).")
+        settings = get_settings()
+        try:
+            with sqlite_worker_lock(settings.database_url, "email"):
+                with SessionLocal() as db:
+                    delivered = deliver_pending(db, settings)
+                    print(f"Delivered {delivered} message(s).")
+        except RuntimeError as exc:
+            raise SystemExit(str(exc)) from exc
     if args.command == "pipeline-worker":
         from app.worker import run_worker
 

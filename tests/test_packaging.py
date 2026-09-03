@@ -43,8 +43,8 @@ def test_project_requirements_do_not_set_upper_version_caps() -> None:
         assert "<" not in requirement
 
     assert [requirement for requirement in requirements if requirement.startswith("hedron")] == [
-        "hedron>=1.0.0",
-        "hedron-posit>=1.0.0",
+        "hedron>=1.0.8",
+        "hedron-posit>=1.0.9",
     ]
 
 

@@ -856,7 +856,7 @@ eavesdropping, injection, and replay.
   proxies, and notes that even an allowlist cannot make the earlier chain trustworthy or replace a
   protected proxy-to-origin link.
 
-### SD-21 — Use SQLite only for development and an approved service for production
+### SD-21 — Use SQLite only for session-scoped Workbench and an approved service for production
 
 **Status:** Versioned schema control implemented; production operation is a deployment control.
 
@@ -871,9 +871,11 @@ data. The production core dependency set includes the `psycopg` PostgreSQL drive
 requires an approved managed or operated database, backup, migration, encryption, access-control,
 monitoring, and recovery process.
 
-**Rationale:** Credential, session, outbox, profile, role, and audit data require concurrent access,
-durability, backup, operational monitoring, and controlled schema change beyond the local developer
-configuration.
+**Rationale:** A single-operator Workbench session may use SQLite for live connector checks,
+transfers, and email delivery when exactly one pipeline worker is run. Credential, session, outbox,
+profile, role, and audit data require concurrent access, durability, backup, operational monitoring,
+and controlled schema change for multi-user, multi-worker, or always-on production operation; those
+deployments require PostgreSQL or another approved service.
 
 **Deployment control:** prove encryption in transit and at rest, least-privilege service credentials,
 backup confidentiality and restore tests, patching, high availability as required, migration review,

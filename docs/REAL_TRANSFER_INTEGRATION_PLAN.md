@@ -471,8 +471,9 @@ Worker requirements:
 - shut down gracefully without claiming new work;
 - make retry policy provider- and stage-aware.
 
-SQLite may remain supported for unit tests and the demo UI, but real multi-process execution should
-require application PostgreSQL. Validate that condition at worker startup.
+SQLite may remain supported for unit tests, the demo UI, and a session-scoped single-operator
+Workbench live mode. Real multi-process or production execution requires application PostgreSQL;
+validate that condition at worker startup.
 
 Add deployment configuration for worker replicas, concurrency, batch sizes, quotas, CA bundle,
 endpoint allowlists, HTTP timeouts, retry limits, catalog TTL, and retention periods. Update Docker,
@@ -505,9 +506,11 @@ Add typed settings with safe bounds. Suggested names and initial defaults:
 | `PIPELINE_ALLOWED_HTTPS_HOSTS` | empty | required allowlist in real mode |
 | `PIPELINE_CA_BUNDLE` | empty | required when system trust is insufficient |
 
-Settings validation MUST reject real mode when the application database is SQLite, spool root is
-missing/unwritable, endpoint allowlist is empty, limits are inconsistent, or production TLS policy is
-unsafe. Secrets such as bearer tokens remain per-user encrypted credentials, not global settings.
+Settings validation MUST reject production real mode when the application database is SQLite. For
+session-scoped Workbench live mode, SQLite is allowed but the spool root must be writable, the
+endpoint allowlist must be non-empty, limits must be consistent, and production TLS policy remains
+enforced whenever `APP_ENV=production`. Secrets such as bearer tokens remain per-user encrypted
+credentials, not global settings.
 
 ### 8.2 Claiming and idempotency
 

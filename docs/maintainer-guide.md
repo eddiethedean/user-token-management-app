@@ -231,7 +231,7 @@ Migration rules:
 
 - Never create or bootstrap administrators in a migration.
 - Preserve owner scoping and foreign-key behavior for credentials, uploads, pipelines, and events.
-- Make upgrades safe for existing SQLite development databases and PostgreSQL production databases.
+- Make upgrades safe for existing SQLite demo/session databases and PostgreSQL production databases.
 - Take a recoverable backup before `migrate --adopt-existing`; it is not an undo mechanism.
 - Test both the new migration path and the behavior of a database upgraded from the previous head.
 

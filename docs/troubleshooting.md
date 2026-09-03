@@ -76,7 +76,7 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 | No verification / reset mail | App not running, background task interrupted, or SMTP misconfigured | Confirm the request completed, check the app log and `EMAIL_BACKEND`/SMTP settings, then use `send-email` for one batch |
 | Links only in logs | `EMAIL_BACKEND=console` | Expected locally; use SMTP in production |
 | Messages stuck / dead-lettered | SMTP misconfig or attempt budget | Fix SMTP; `python -m app retry-email` |
-| Multiple app processes on SQLite | In-process email claims can race across processes | Use one app process with SQLite, or use PostgreSQL for multi-process deployments |
+| Multiple app processes/workers on SQLite | In-process email or pipeline claims can race across processes | Use one app process, one pipeline worker, and the in-process email delivery path with SQLite; use PostgreSQL for concurrent workers |
 
 ## Connections and status
 

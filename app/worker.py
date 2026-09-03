@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -17,7 +18,7 @@ from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import parse_snapshot
 from app.connectors.registry import load_builtin_connectors
 from app.connectors.tls import apply_internal_ca_fix
-from app.database import SessionLocal
+from app.database import SessionLocal, sqlite_worker_lock
 from app.models import PipelineRun, User
 from app.schema import assert_schema_current
 from app.services import pipeline_runs
@@ -132,8 +133,11 @@ def run_worker(*, once: bool = False, poll_seconds: float = 2.0) -> None:
     settings = get_settings()
     assert_schema_current()
     if settings.data_mover_mode == "real":
-        if not str(settings.database_url).startswith("postgresql"):
-            raise SystemExit("Real pipeline workers require a PostgreSQL application database.")
+        database_url = make_url(settings.database_url)
+        if settings.is_production and database_url.drivername != "postgresql+psycopg":
+            raise SystemExit("Production real pipeline workers require PostgreSQL.")
+        if database_url.drivername not in {"sqlite", "sqlite+pysqlite", "postgresql+psycopg"}:
+            raise SystemExit("Real pipeline workers require SQLite or PostgreSQL.")
         spool = Path(settings.pipeline_spool_root)
         spool.mkdir(parents=True, exist_ok=True)
         if settings.pipeline_apply_internal_ca_fix:
@@ -144,12 +148,15 @@ def run_worker(*, once: bool = False, poll_seconds: float = 2.0) -> None:
     load_builtin_connectors(demo=settings.is_demo_mode)
     log.info("pipeline worker %s starting mode=%s", worker_id(settings), settings.data_mover_mode)
     try:
-        while True:
-            with SessionLocal() as db:
-                processed = process_one(db, settings)
-            if once:
-                break
-            if not processed:
-                time.sleep(poll_seconds)
+        with sqlite_worker_lock(settings.database_url, "pipeline"):
+            while True:
+                with SessionLocal() as db:
+                    processed = process_one(db, settings)
+                if once:
+                    break
+                if not processed:
+                    time.sleep(poll_seconds)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
     except KeyboardInterrupt:
         log.info("pipeline worker stopping")

@@ -16,6 +16,7 @@ If you only want a disposable Connect evaluation, use the
 | Explore Data Mover in Workbench | Workbench session | Disposable SQLite and simulated connectors | [Local Workbench demo](#local-workbench-demo) |
 | Evaluate the full app on Connect | Connect content | Disposable SQLite and simulated connectors | [SQLite Connect demo](connect-sqlite-demo.md) |
 | Run operational transfers | Connect plus supervised pipeline workers | PostgreSQL, SMTP, and approved live connectors | [Production deployment](#production-deployment) |
+| Operate Data Mover directly from Workbench | Workbench session and separate processes | SQLite/live or PostgreSQL/live connectors | [Operational Workbench deployment](#operational-workbench-deployment) |
 
 Use an organization-supported Connect release and a configured Python 3.11 runtime. The version
 used by the repository's optional regression harness is test evidence, not the production
@@ -137,6 +138,268 @@ make serve
 If the application does not print a usable Workbench URL or reports `FWB-0006`, see
 [Workbench proxy problems](troubleshooting.md#schema--startup). Those are troubleshooting cases,
 not normal setup steps.
+
+## Operational Workbench deployment
+
+This path runs the web application and its supervised pipeline worker directly in an approved Posit
+Workbench session. Email delivery runs in the web process through FastAPI background tasks. It offers two database modes: SQLite for a single-operator live session, or
+PostgreSQL for live transfers with SMTP and approved provider access. In both modes, the application
+is available only while the operator's Workbench session and processes are running. Use the
+[production deployment](#production-deployment) path for an always-on multi-user service.
+
+Workbench generates a new `/s/<session>/p/<port>/` URL for each session. That URL is valid for this
+session-scoped option, and invitation or password-reset links will work for the operator who can
+access that session. Generate and configure the URL again whenever a new session is started.
+
+### Choose the database mode
+
+| Mode | Required settings | Connectors and use |
+|---|---|---|
+| SQLite/live | `APP_ENV=development`, SQLite `DATABASE_URL`, `DATA_MOVER_MODE=real` | Live connector checks, transfers, and SMTP invitations for one operator session; use one pipeline worker and do not treat it as a production database |
+| PostgreSQL/live | `APP_ENV=production`, PostgreSQL `DATABASE_URL`, `DATA_MOVER_MODE=real` | Approved live connectors and transfer execution; requires the full production security, SMTP, and network configuration |
+
+SQLite/live mode supports live provider calls, transfers, and email delivery for one operator while
+the Workbench session is running. SQLite uses a single writer file, so run exactly one web process
+and one pipeline worker and keep this mode session-scoped; PostgreSQL/live is required for concurrent users,
+multiple pipeline workers, backups, or an always-on production service. The remaining steps apply
+to both modes unless a mode-specific instruction is called out.
+
+### 1. Prepare the Workbench host
+
+Before starting, confirm that the Workbench environment has:
+
+- Python 3.11 and a persistent project directory;
+- a Workbench session that can reach the application port; and
+- a protected location for the session database and spool files.
+
+For SQLite/live mode, the database, worker lock files, and spool directory must be on a host-local
+filesystem with reliable file locking. Do not place them on NFS or another shared filesystem; use
+PostgreSQL/live when Workbench storage is network-mounted.
+
+SQLite/live mode additionally requires an approved SMTP relay (if invitations must be delivered)
+and permission to use the required live provider endpoints. PostgreSQL/live mode additionally
+requires PostgreSQL access using an application role, an approved SMTP relay and provider network
+routes, an approved password blocklist, and permission to use the required live provider endpoints.
+
+This option does not make the Workbench session a continuously supervised service. Ending or
+sleeping the session stops the application and workers.
+
+### 2. Install and configure the application
+
+Open a Workbench terminal in the application checkout:
+
+```bash
+cd /path/to/user-token-management-app
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -e .
+python -m pip check
+```
+
+Create the protected runtime files:
+
+```bash
+test -f .env || cp .env.example .env
+chmod 600 .env
+```
+
+For either live mode, create a protected spool directory:
+
+```bash
+mkdir -p /path/to/persistent/data-mover-spool
+chmod 700 /path/to/persistent/data-mover-spool
+```
+
+For PostgreSQL/live mode, also create the production-only password blocklist:
+
+```bash
+mkdir -p deployment
+cp /path/to/approved/password-blocklist.txt deployment/password-blocklist.txt
+chmod 600 deployment/password-blocklist.txt
+```
+
+For SQLite/live mode, use this minimum `.env` configuration (the session URL is added below):
+
+```dotenv
+APP_ENV=development
+DATABASE_URL='sqlite:///./access-registry.db'
+DATA_MOVER_MODE=real
+JWT_SECRET='REPLACE_WITH_A_RANDOM_VALUE_AT_LEAST_32_CHARACTERS'
+SESSION_PEPPER='REPLACE_WITH_A_DIFFERENT_RANDOM_VALUE_AT_LEAST_32_CHARACTERS'
+CSRF_SECRET='REPLACE_WITH_A_THIRD_RANDOM_VALUE_AT_LEAST_32_CHARACTERS'
+API_TOKEN_ENCRYPTION_KEYS='{"workbench-v1":"REPLACE_WITH_BASE64_32_BYTE_KEY"}'
+API_TOKEN_ACTIVE_KEY_ID=workbench-v1
+COOKIE_SECURE=true
+PIPELINE_SPOOL_ROOT='/path/to/persistent/data-mover-spool'
+PIPELINE_ALLOWED_HTTPS_HOSTS='mss.example.gov,mcscop.example.gov'
+EMAIL_BACKEND=smtp
+EMAIL_FROM='Data Mover <no-reply@example.gov>'
+SMTP_HOST='smtp.example.gov'
+SMTP_PORT=587
+SMTP_STARTTLS=true
+EMAIL_REDACT_SENT_BODIES=true
+ALLOWED_EMAIL_DOMAINS='example.gov,example.mil,socom.mil'
+```
+
+Replace every `REPLACE_WITH_*` value with a newly generated value before starting. Generate the
+three application secrets independently with `secrets.token_urlsafe(48)` and generate the
+encryption key with `base64.b64encode(secrets.token_bytes(32))`; never reuse the values from
+`.env.example`. Set the SMTP host, sender, TLS mode, and credentials to the values approved for the
+Workbench network. If you only want links printed in the terminal, use `EMAIL_BACKEND=console`;
+invitations will not be delivered by email in that mode. PostgreSQL writes are enabled by default in
+real mode; enable `PIPELINE_ENABLE_MSS_WRITER` or `PIPELINE_ENABLE_MCSCOP_WRITER` only when those
+destination integrations are approved.
+
+For PostgreSQL/live mode, populate `.env` with the complete production configuration from
+[Create protected runtime configuration](#3-create-protected-runtime-configuration). Set
+`PUBLIC_BASE_URL` to the current URL returned by `rserver-url -l 8765` and set
+`PIPELINE_SPOOL_ROOT=/path/to/persistent/data-mover-spool` (or another protected persistent path).
+Use `APP_ENV=production`, PostgreSQL `DATABASE_URL`, `EMAIL_BACKEND=smtp`, `DATA_MOVER_MODE=real`,
+strong generated secrets, the approved authentication mode, and the provider host/writer allowlists.
+Do not use `seed-demo-connections` in PostgreSQL/live mode.
+
+Do not use `make demo` for either operational mode; it is a separate disposable demo launcher.
+
+Discover the session URL before starting the web process and put that exact URL in `.env` as
+`PUBLIC_BASE_URL`. Workbench installations commonly provide `rserver-url` on `PATH`; the standard
+fallback path is shown here:
+
+```bash
+RSERVER_URL_BIN="$(command -v rserver-url 2>/dev/null || true)"
+if [ -z "$RSERVER_URL_BIN" ] && [ -x /usr/lib/rstudio-server/bin/rserver-url ]; then
+  RSERVER_URL_BIN=/usr/lib/rstudio-server/bin/rserver-url
+fi
+test -n "$RSERVER_URL_BIN" && test -x "$RSERVER_URL_BIN"
+WORKBENCH_PUBLIC_URL="$("$RSERVER_URL_BIN" -l 8765)"
+WORKBENCH_PUBLIC_URL="${WORKBENCH_PUBLIC_URL%/}"
+case "$WORKBENCH_PUBLIC_URL" in
+  https://*) ;;
+  *) printf 'rserver-url did not return an HTTPS URL: %s\n' "$WORKBENCH_PUBLIC_URL" >&2; exit 1 ;;
+esac
+printf 'Set PUBLIC_BASE_URL in .env to: %s\n' "$WORKBENCH_PUBLIC_URL"
+```
+
+Update the `PUBLIC_BASE_URL` line in `.env` with the printed value before running migrations or any
+application process. Do this again for every new Workbench session. The web process's `--discover`
+flag uses the same port to configure the Workbench mount; `PUBLIC_BASE_URL` is separately required
+so email links point to the operator's current session.
+
+Protect the environment file and load it only after reviewing it and updating `PUBLIC_BASE_URL`:
+
+```bash
+chmod 600 .env
+set -a
+. ./.env
+set +a
+python -c "from app.config import get_settings; s=get_settings(); assert not s.is_production and not s.is_demo_mode; print('SQLite live Workbench configuration validates')"
+test -d "$PIPELINE_SPOOL_ROOT" && test -w "$PIPELINE_SPOOL_ROOT"
+```
+
+For PostgreSQL/live mode, load the reviewed file and validate the production-only requirements:
+
+```bash
+set -a
+. ./.env
+set +a
+python -c "from app.config import get_settings; assert get_settings().is_production; print('Production Workbench configuration validates')"
+test -r "$PASSWORD_BLOCKLIST_PATH"
+test -d "$PIPELINE_SPOOL_ROOT" && test -w "$PIPELINE_SPOOL_ROOT"
+```
+
+### 3. Initialize the database
+
+Use the same reviewed `.env` in every Workbench process:
+
+```bash
+python -m app migrate
+python -m app schema-status
+python -m app create-admin --email admin@example.gov
+```
+
+Do not run `seed-demo-connections` in either live mode. Create each real MSS, MCS-COP, PostgreSQL,
+or CSV connection in the UI, then use **Test connection** before saving a pipeline. The credentials
+are encrypted in the application database and are used by the live worker only for the selected
+transfer.
+
+`schema-status` must report that `Current` equals `Head`. In local-password mode,
+`create-admin` prompts for a password; in trusted-header mode, the configured identity proxy must
+be available before testing sign-in.
+
+### 4. Start the services in separate Workbench terminals
+
+Activate the virtual environment and load the reviewed `.env` in each terminal. Keep the printed
+session URL in `PUBLIC_BASE_URL` for all terminals.
+
+Terminal 1 — web process:
+
+```bash
+cd /path/to/user-token-management-app
+source .venv/bin/activate
+set -a
+. ./.env
+set +a
+export HEDRON_WORKBENCH_PUBLIC_BASE_URL="$PUBLIC_BASE_URL"
+unset UVICORN_ROOT_PATH
+unset HEDRON_WORKBENCH_MOUNT FASTAPI_WORKBENCH_MOUNT
+unset HEDRON_WORKBENCH_RESOLVED_MOUNT FASTAPI_WORKBENCH_RESOLVED_MOUNT
+unset HEDRON_ROOT_PATH FASTAPI_WORKBENCH_ROOT_PATH
+python -m app serve --host 127.0.0.1 --port 8765 --discover
+```
+
+Open the URL in `PUBLIC_BASE_URL` (or the matching URL printed by Workbench) while this terminal is
+running.
+
+Terminal 2 — pipeline worker:
+
+```bash
+cd /path/to/user-token-management-app
+source .venv/bin/activate
+set -a
+. ./.env
+set +a
+python -m app pipeline-worker
+```
+
+For SQLite/live mode, run exactly one web process and one pipeline-worker process. Email delivery
+runs in the web process after email-producing requests. SQLite uses a busy timeout to tolerate
+short write contention, but additional workers or high-concurrency use require PostgreSQL.
+
+Terminal 4 — run the janitor once per day while the session is active:
+
+```bash
+cd /path/to/user-token-management-app
+source .venv/bin/activate
+set -a
+. ./.env
+set +a
+python -m app pipeline-janitor
+```
+
+Do not run `make demo`; it enables fake connectors and a disposable database. Ending or sleeping
+the Workbench session stops the web process and workers.
+
+### 5. Verify operational behavior
+
+Before granting general access, confirm:
+
+1. `<PUBLIC_BASE_URL>/health` returns `{"status":"ok"}`.
+2. `<PUBLIC_BASE_URL>/ready` returns `{"status":"ready"}`.
+3. The administrator can sign in through the selected authentication mode.
+4. An invitation reaches the approved test mailbox and its link uses the current Workbench session URL.
+5. A non-sensitive test connection and pipeline complete through the pipeline worker.
+6. The web process, pipeline worker, and janitor logs contain no credentials or sensitive payloads.
+7. Audit events are visible to an administrator.
+
+For upgrades, stop the web process and pipeline worker, install the reviewed application revision, and
+back up the application database before migrating. For SQLite/live, copy the SQLite file while all
+processes are stopped; the adjacent worker lock files are runtime-only and should not be backed up.
+For PostgreSQL/live, use the approved database backup procedure. Keep the same application
+database, encryption key ring, SMTP settings, and spool directory across restarts. Update
+`PUBLIC_BASE_URL` if the Workbench session changed, run
+`python -m app migrate` and `python -m app schema-status`, then restart the web process and pipeline
+worker. See the [pipeline worker runbook](runbooks/pipeline-worker.md) for lease recovery and
+reconciliation procedures.
 
 ## Production deployment
 

@@ -411,11 +411,23 @@ class Settings(BaseSettings):
             "x-forwarded-proto",
         }:
             raise ValueError("TRUSTED_IDENTITY_HEADER cannot use a reserved security header")
+        if self.data_mover_mode == "real" and not self.is_production:
+            weak_markers = ("development-only", "replace-with")
+            for name in ("jwt_secret", "session_pepper", "csrf_secret"):
+                value = getattr(self, name)
+                if len(value) < 32 or any(marker in value.casefold() for marker in weak_markers):
+                    raise ValueError(f"{name.upper()} must be a strong real-mode secret")
+            if self.api_token_active_key_id.startswith("development-") or any(
+                not any(key) for key in key_ring.values()
+            ):
+                raise ValueError("API token encryption keys must be replaced in real mode")
+            if not self.cookie_secure:
+                raise ValueError("COOKIE_SECURE must be true in real mode")
         if self.is_production:
             weak_markers = ("development-only", "replace-with")
             for name in ("jwt_secret", "session_pepper", "csrf_secret"):
                 value = getattr(self, name)
-                if len(value) < 32 or any(marker in value for marker in weak_markers):
+                if len(value) < 32 or any(marker in value.casefold() for marker in weak_markers):
                     raise ValueError(f"{name.upper()} must be a strong production secret")
             if self.api_token_active_key_id.startswith("development-") or any(
                 not any(key) for key in key_ring.values()
@@ -485,12 +497,40 @@ class Settings(BaseSettings):
             if self.data_mover_mode != "real":
                 raise ValueError("DATA_MOVER_MODE must be real in production")
         if self.data_mover_mode == "real":
+            if not self.is_production:
+                parsed_public_url = urlsplit(self.public_base_url)
+                try:
+                    _ = parsed_public_url.port
+                except ValueError as exc:
+                    raise ValueError("PUBLIC_BASE_URL contains an invalid port") from exc
+                if (
+                    parsed_public_url.scheme != "https"
+                    or not parsed_public_url.hostname
+                    or parsed_public_url.username
+                    or parsed_public_url.password
+                    or parsed_public_url.query
+                    or parsed_public_url.fragment
+                    or parsed_public_url.path.startswith("//")
+                    or "\\" in self.public_base_url
+                    or any(character.isspace() for character in self.public_base_url)
+                ):
+                    raise ValueError(
+                        "PUBLIC_BASE_URL must be an absolute HTTPS URL without credentials, query, or fragment"
+                    )
             try:
                 database_url = make_url(self.database_url)
             except (ArgumentError, TypeError, ValueError) as exc:
                 raise ValueError("DATABASE_URL must be a valid SQLAlchemy URL") from exc
-            if database_url.drivername != "postgresql+psycopg" or not database_url.database:
-                raise ValueError("Real transfers require a PostgreSQL application database")
+            if database_url.drivername == "postgresql+psycopg":
+                if not database_url.database:
+                    raise ValueError("DATABASE_URL must identify a PostgreSQL database")
+            elif database_url.drivername in {"sqlite", "sqlite+pysqlite"}:
+                if not database_url.database or database_url.database == ":memory:":
+                    raise ValueError("SQLite real mode requires a file-backed application database")
+            else:
+                raise ValueError(
+                    "Real transfers require a SQLite or PostgreSQL application database"
+                )
             if not self.pipeline_spool_root:
                 raise ValueError("PIPELINE_SPOOL_ROOT is required in real mode")
             spool_root = Path(self.pipeline_spool_root)
