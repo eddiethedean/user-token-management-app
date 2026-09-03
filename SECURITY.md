@@ -65,7 +65,7 @@ authorization evidence.
       legacy configuration name) are injected separately from JWT/session secrets; old
       referenced key versions remain available, protected backups and recovery are tested, and the
       exact cryptographic module and operational environment have the required validation evidence.
-- [ ] The separately supervised pipeline worker is isolated from the web and email workers with a
+- [ ] The separately supervised pipeline worker is isolated from the web application with a
       least-privilege service account, protected spool directory, network egress policy, and resource
       limits. The current worker executes trusted built-in connector code in-process; it is not a
       sandbox for arbitrary user-supplied code.
@@ -112,8 +112,8 @@ authorization evidence.
       allowlists, CA verification, source/spool quotas, staging cleanup, and PostgreSQL TLS mode are
       tested with production-equivalent configuration. The production allowlist must not include a
       loopback host, because loopback HTTP is reserved for local development.
-- [ ] The dedicated email worker is supervised; SMTP transport is approved; batch metrics, retry
-      backlog, and dead letters are monitored; the operator requeue procedure is tested.
+- [ ] The app's background email delivery is monitored; SMTP transport is approved; retry backlog
+      and dead letters are monitored; the operator requeue procedure is tested.
 - [ ] Sent outbox bodies are redacted; pending/dead-letter retention is approved; proxy,
       application, SMTP, and SIEM logs redact registration/invitation/reset query tokens.
 - [ ] PostgreSQL security, Alembic migration/adoption rehearsal, backup encryption, restore testing,
@@ -782,11 +782,11 @@ documents least-privilege access, automated rotation, auditing, revocation, and 
 **Status:** Asynchronous delivery, retry, and dead-letter controls implemented; relay operation is a
 deployment control.
 
-**Decision:** Request handlers only queue messages transactionally. A separately supervised worker
-claims due rows atomically with PostgreSQL `FOR UPDATE SKIP LOCKED`, sends outside the claim
-transaction, applies bounded exponential backoff, emits per-batch delivery metrics, and marks
-exhausted messages as dead letters. Operators can explicitly requeue all or one approved dead
-letter. The SMTP backend uses STARTTLS with hostname and certificate validation through the system
+**Decision:** Request handlers queue messages transactionally and attach a FastAPI background task
+to successful email-producing responses. The task claims due rows atomically with PostgreSQL
+`FOR UPDATE SKIP LOCKED`, sends outside the claim transaction, applies bounded exponential backoff,
+and marks exhausted messages as dead letters. Operators can explicitly requeue all or one approved
+dead letter. The SMTP backend uses STARTTLS with hostname and certificate validation through the system
 trust store or `SMTP_CA_BUNDLE`, plus optional relay authentication. The application sends
 registration/invitation/reset URLs and account-status or password-change notifications (including
 authenticated password changes from the security page), never passwords.
@@ -802,7 +802,7 @@ capability URLs and require strict access and retention controls.
 
 **Deployment control:** require an approved enclave-local relay and protected route, verify TLS and
 certificate behavior, prohibit console email in production, restrict outbox and backup readers,
-monitor worker batch metrics and dead letters, and define the shortest workable retention/purge
+monitor delivery failures and dead letters, and define the shortest workable retention/purge
 period for pending and failed bodies. Mail administrators must define equivalent retention and
 access controls downstream.
 

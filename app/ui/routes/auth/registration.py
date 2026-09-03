@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import Request, status
+from fastapi import BackgroundTasks, Request, status
 from hedron import Hedron
 from starlette.responses import Response
 
@@ -16,6 +16,7 @@ from app.services.auth import (
     request_self_registration,
 )
 from app.services.directory import DirectoryUnavailableError, validate_directory_email
+from app.services.mailer import schedule_email_delivery
 from app.services.rate_limit import check_rate_limit
 from app.ui.params import (
     EmailForm,
@@ -39,6 +40,7 @@ def register_registration_routes(app: Hedron) -> None:
         request: Request,
         db: DbSession,
         settings: SettingsDep,
+        background_tasks: BackgroundTasks,
         email: EmailForm,
         full_name: FullNameForm = "",
         preauth_csrf_token: PreauthCsrfForm = "",
@@ -62,6 +64,7 @@ def register_registration_routes(app: Hedron) -> None:
                 full_name=full_name or (directory_record.display_name if directory_record else ""),
                 request=request,
             )
+            schedule_email_delivery(background_tasks, settings)
         except (ValueError, DirectoryUnavailableError) as exc:
             return render_register_page(
                 request,
@@ -111,6 +114,7 @@ def register_registration_routes(app: Hedron) -> None:
         request: Request,
         db: DbSession,
         settings: SettingsDep,
+        background_tasks: BackgroundTasks,
         token: FlowTokenForm,
         password: OptionalPasswordForm = "",
         password_confirm: OptionalPasswordConfirmForm = "",
@@ -131,6 +135,7 @@ def register_registration_routes(app: Hedron) -> None:
             complete_self_registration(
                 db, settings, raw_token=token, password=password, request=request
             )
+            schedule_email_delivery(background_tasks, settings)
             return render_verify_page(
                 request,
                 settings,

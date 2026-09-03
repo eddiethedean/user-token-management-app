@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException, Request, status
+from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, HedronRouter, InteractionResult, SplitView, html
 from hedron.htmx import is_htmx_request
@@ -28,6 +28,7 @@ from app.services.directory import (
     user_listing_values,
     validate_directory_email,
 )
+from app.services.mailer import schedule_email_delivery
 from app.ui import partials as ui
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.design_system import surface_card
@@ -205,6 +206,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
+        background_tasks: BackgroundTasks,
         _csrf: RequireCsrf,
         email: EmailForm,
         role: RoleForm = "user",
@@ -217,6 +219,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
             create_invitation(
                 db, settings, email=email, role_name=role, inviter=auth.user, request=request
             )
+            schedule_email_delivery(background_tasks, settings)
         except DirectoryUnavailableError as exc:
             error = str(exc)
             field_errors["invite_email"] = error
@@ -260,7 +263,17 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
         )
 
     async def _admin_user_mutation(
-        request, user_id, auth, db, settings, *, action: str, q="", status_filter="", page=1
+        request,
+        user_id,
+        auth,
+        db,
+        settings,
+        *,
+        action: str,
+        background_tasks: BackgroundTasks | None = None,
+        q="",
+        status_filter="",
+        page=1,
     ) -> Response:
         if not lock_administrator_action(db, auth.user):
             db.rollback()
@@ -316,6 +329,8 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                 approve_self_registration(
                     db, settings, user=user, administrator=auth.user, request=request
                 )
+                if background_tasks is not None:
+                    schedule_email_delivery(background_tasks, settings)
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
@@ -327,6 +342,8 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                 deny_self_registration(
                     db, settings, user=user, administrator=auth.user, request=request
                 )
+                if background_tasks is not None:
+                    schedule_email_delivery(background_tasks, settings)
             except ValueError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
@@ -396,6 +413,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
+        background_tasks: BackgroundTasks,
         _csrf: RequireCsrf,
         q: ListingQueryForm = "",
         status: ListingStatusForm = "",
@@ -408,6 +426,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
             db,
             settings,
             action="approve",
+            background_tasks=background_tasks,
             q=q,
             status_filter=status,
             page=page,
@@ -424,6 +443,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
         auth: AdminAuth,
         db: DbSession,
         settings: SettingsDep,
+        background_tasks: BackgroundTasks,
         _csrf: RequireCsrf,
         q: ListingQueryForm = "",
         status: ListingStatusForm = "",
@@ -436,6 +456,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
             db,
             settings,
             action="deny",
+            background_tasks=background_tasks,
             q=q,
             status_filter=status,
             page=page,

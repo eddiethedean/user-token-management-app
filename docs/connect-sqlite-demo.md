@@ -2,7 +2,7 @@
 
 This is the shortest Connect path for evaluating the **full Data Mover application** on
 Python 3.11. It uses a pre-initialized SQLite database bundled with the application, local-password
-authentication, and no external email worker.
+authentication, and in-process email delivery.
 
 > **No cookie proxy required:** licensed acceptance tests pass natively on Connect 2025.06.0 and
 > 2026.07. The app preserves its own user-management and cookie system; it does not use Connect
@@ -21,7 +21,7 @@ This is a disposable demo, not a production configuration:
 - The content must use **one process**. Do not use this database from multiple Connect processes,
   nodes, or Kubernetes replicas.
 - The pre-created administrator can sign in and exercise the UI. Registration, invitations, and
-  password resets queue email, but this demo does not run the separate email worker.
+  password resets queue email, which the app delivers in-process and prints when console delivery is enabled.
 - Share the content only with the specific people evaluating it. Do not store real connection
   credentials, CSV data, or other operational data in this demo.
 

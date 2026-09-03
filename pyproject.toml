@@ -38,19 +38,19 @@ classifiers = [
 dependencies = [
   "alembic>=1.13.1",
   "cryptography>=42.0.8",
-  "email-validator>=2.2",
-  "fastapi>=0.141.1",
-  "hedron>=1.0.0,<1.1",
-  "hedron-posit>=1.0.0,<1.1",
+  "email-validator>=2.0.0",
+  "fastapi>=0.133.0",
+  "hedron>=1.0.0",
+  "hedron-posit>=1.0.0",
   "httpx2>=2.9.1",
   "pyjwt>=2.8",
-  "pydantic-settings>=2.2.1",
+  "pydantic-settings>=2.0.0",
   "pwdlib[argon2]>=0.2",
   "polars>=1.21",
-  "psycopg[binary]>=3.1.18",
-  "python-multipart>=0.0.20",
+  "psycopg[binary]>=3.1.4",
+  "python-multipart>=0.0.9",
   "sqlalchemy>=2.0",
-  "uvicorn[standard]>=0.30",
+  "uvicorn[standard]>=0.32.0",
 ]
 
 [project.optional-dependencies]

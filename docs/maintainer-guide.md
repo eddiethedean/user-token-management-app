@@ -107,7 +107,7 @@ the committed defaults or `.env.example`.
 | `JWT_SECRET`, `SESSION_PEPPER`, `CSRF_SECRET` | Secret store | Independent high-entropy values; never share or commit them. |
 | `API_TOKEN_ENCRYPTION_KEYS` | Secret store | Key ring for encrypted provider bundles; rotate with a planned migration window. |
 | `DATA_MOVER_MODE`, `PIPELINE_*` | Worker/deployment | Controls live transfer behavior, leases, quotas, spool, and writer gates. |
-| `EMAIL_*`, `SMTP_*` | Email worker/deployment | Queue delivery is separate from web requests. |
+| `EMAIL_*`, `SMTP_*` | Application/deployment | Queue delivery runs after email-producing responses in a background task. |
 
 When a setting changes behavior or a security gate, add a validation test and update
 [SECURITY.md](../SECURITY.md) or [deploy.md](deploy.md), not only the example environment file.
@@ -122,11 +122,8 @@ make hedron-build
 python -m hedron --app app.main:app routes
 ```
 
-Run the email worker separately when testing verification, invitations, or password reset:
-
-```bash
-python -m app email-worker
-```
+Email delivery runs automatically in the app when testing verification, invitations, or password
+reset. Use `python -m app send-email` for a one-shot manual recovery.
 
 ## Application conventions
 
@@ -246,7 +243,7 @@ The web process does not execute real transfers. Run these under separate superv
 python -m app serve
 python -m app pipeline-worker
 python -m app pipeline-janitor       # schedule daily
-python -m app email-worker
+python -m app send-email       # optional one-shot recovery
 ```
 
 The pipeline worker claims a lease, decrypts credentials only for the claimed run, streams connector
@@ -280,7 +277,7 @@ connector error taxonomy in `app/connectors/errors.py` and redact provider respo
 |---|---|
 | Schema is current | `python -m app schema-status` |
 | Web process is healthy | Request `/health`; confirm startup logs show the expected schema head. |
-| Email queue is moving | `python -m app send-email` for a one-shot check, or inspect the supervised worker. |
+| Email queue is moving | `python -m app send-email` for a one-shot check, or inspect the app logs. |
 | Pipeline queue is moving | Confirm the pipeline worker is claiming leases and heartbeating. |
 | Retention is running | Schedule `python -m app pipeline-janitor` and inspect deleted/retained counts. |
 | Spool pressure is safe | Check `PIPELINE_SPOOL_ROOT` usage against `PIPELINE_MAX_SPOOL_BYTES`. |

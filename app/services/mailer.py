@@ -4,11 +4,13 @@ import logging
 import re
 import smtplib
 import ssl
+import threading
 from dataclasses import dataclass
 from datetime import timedelta
 from email.message import EmailMessage
 from html import escape
 
+from fastapi import BackgroundTasks
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -17,6 +19,7 @@ from app.models import EmailDeliveryState, EmailOutbox, new_id, utcnow
 
 log = logging.getLogger(__name__)
 _URL_PATTERN = re.compile(r"https?://[^\s<>]+")
+_BACKGROUND_DELIVERY_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -25,6 +28,27 @@ class DeliveryMetrics:
     delivered: int = 0
     deferred: int = 0
     dead_lettered: int = 0
+
+
+def schedule_email_delivery(background_tasks: BackgroundTasks, settings: Settings) -> None:
+    """Attach one outbox drain to a response that may have queued email."""
+    if settings.app_env != "test":
+        background_tasks.add_task(deliver_pending_background, settings)
+
+
+def deliver_pending_background(settings: Settings, *, limit: int = 20) -> None:
+    """Drain one outbox batch from a FastAPI background task."""
+    from app.database import SessionLocal
+
+    with _BACKGROUND_DELIVERY_LOCK:
+        try:
+            with SessionLocal() as db:
+                while deliver_pending_with_metrics(db, settings, limit=limit).claimed == limit:
+                    pass
+        except Exception:
+            # Background task failures happen after the response has been sent;
+            # log them without turning a successful request into a server error.
+            log.exception("Background email delivery cycle failed")
 
 
 def queue_email(db: Session, recipient: str, subject: str, body_text: str) -> EmailOutbox:

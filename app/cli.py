@@ -4,7 +4,6 @@ import argparse
 import getpass
 import os
 import sys
-import time
 
 from sqlalchemy import select
 
@@ -17,7 +16,7 @@ from app.security.passwords import PasswordPolicyError, PasswordService, validat
 from app.server import run_server
 from app.services.auth import ensure_default_roles, revoke_all_sessions
 from app.services.demo import seed_demo_connections
-from app.services.mailer import deliver_pending, deliver_pending_with_metrics, retry_failed
+from app.services.mailer import deliver_pending, retry_failed
 
 
 def create_admin(email: str, password: str | None = None) -> int:
@@ -123,12 +122,6 @@ def main() -> None:
     )
     subparsers.add_parser("schema-status", help="Show the current and expected schema revisions")
     subparsers.add_parser("send-email", help="Deliver queued email")
-    worker_parser = subparsers.add_parser(
-        "email-worker", help="Continuously claim and deliver queued email"
-    )
-    worker_parser.add_argument("--once", action="store_true", help="Process one batch and exit")
-    worker_parser.add_argument("--batch-size", type=int, default=20)
-    worker_parser.add_argument("--poll-seconds", type=float, default=5.0)
     pipeline_worker_parser = subparsers.add_parser(
         "pipeline-worker", help="Claim and execute queued pipeline runs"
     )
@@ -177,40 +170,6 @@ def main() -> None:
         with SessionLocal() as db:
             delivered = deliver_pending(db, get_settings())
             print(f"Delivered {delivered} message(s).")
-    if args.command == "email-worker":
-        assert_schema_current()
-        if args.batch_size < 1 or args.batch_size > 200 or args.poll_seconds < 0.1:
-            parser.error("email-worker requires batch-size 1..200 and poll-seconds >= 0.1")
-        mode = "one batch" if args.once else f"every {args.poll_seconds:g}s"
-        print(
-            f"Email worker running; checking for queued messages {mode} "
-            f"(batch size {args.batch_size}).",
-            flush=True,
-        )
-        try:
-            while True:
-                with SessionLocal() as db:
-                    metrics = deliver_pending_with_metrics(
-                        db, get_settings(), limit=args.batch_size
-                    )
-                if metrics.claimed or args.once:
-                    print(
-                        "Email worker batch: "
-                        f"claimed={metrics.claimed} delivered={metrics.delivered} "
-                        f"deferred={metrics.deferred} dead_lettered={metrics.dead_lettered}",
-                        flush=True,
-                    )
-                else:
-                    print(
-                        "Email worker idle; no queued messages "
-                        f"(next check in {args.poll_seconds:g}s).",
-                        flush=True,
-                    )
-                if args.once:
-                    break
-                time.sleep(args.poll_seconds)
-        except KeyboardInterrupt:
-            print("Email worker stopped.")
     if args.command == "pipeline-worker":
         from app.worker import run_worker
 

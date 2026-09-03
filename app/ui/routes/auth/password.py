@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException, Request, status
+from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron
 from starlette.responses import Response
@@ -16,6 +16,7 @@ from app.services.auth import (
     get_valid_password_reset,
     request_password_reset,
 )
+from app.services.mailer import schedule_email_delivery
 from app.services.rate_limit import check_rate_limit
 from app.ui.params import (
     EmailForm,
@@ -41,6 +42,7 @@ def register_password_routes(app: Hedron) -> None:
         request: Request,
         db: DbSession,
         settings: SettingsDep,
+        background_tasks: BackgroundTasks,
         email: EmailForm,
         preauth_csrf_token: PreauthCsrfForm = "",
     ) -> Response:
@@ -57,6 +59,7 @@ def register_password_routes(app: Hedron) -> None:
             account_key=email,
         )
         request_password_reset(db, settings, email=email, request=request)
+        schedule_email_delivery(background_tasks, settings)
         return render_forgot_page(
             request,
             settings,
@@ -90,6 +93,7 @@ def register_password_routes(app: Hedron) -> None:
         request: Request,
         db: DbSession,
         settings: SettingsDep,
+        background_tasks: BackgroundTasks,
         token: FlowTokenForm,
         password: PasswordForm,
         password_confirm: PasswordConfirmForm,
@@ -102,6 +106,7 @@ def register_password_routes(app: Hedron) -> None:
             complete_password_reset(
                 db, settings, raw_token=token, password=password, request=request
             )
+            schedule_email_delivery(background_tasks, settings)
             return RedirectResponse(
                 redirect_path(request, "/login?password=changed"),
                 status_code=status.HTTP_303_SEE_OTHER,

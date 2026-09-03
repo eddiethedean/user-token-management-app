@@ -48,7 +48,7 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-The app and worker load this file automatically from the repository root; exported shell variables
+The app loads this file automatically from the repository root; exported shell variables
 take precedence over it. Review the file before use and keep it out of Git.
 
 For a local Workbench setup, keep email in the console and use the safe development database:
@@ -61,7 +61,7 @@ EMAIL_BACKEND=console
 EMAIL_FROM='Data Mover <no-reply@example.gov>'
 ```
 
-Verification, invitation, and password-reset links then appear in the email-worker log. To send
+Verification, invitation, and password-reset links then appear in the app log. To send
 mail through an approved relay instead, replace the email block with the real, reviewed values
 (never commit this file):
 
@@ -77,9 +77,8 @@ SMTP_PASSWORD='REPLACE_WITH_SMTP_PASSWORD'
 # SMTP_CA_BUNDLE='deployment/smtp-ca.pem'  # only for a private CA
 ```
 
-The web process and email worker must use the same `.env` and `DATABASE_URL`. For a normal Workbench
-launch (not `make demo`), start the web process in one terminal and the worker in a second terminal,
-both from the repository root:
+The web process uses the same `.env` and `DATABASE_URL` for email delivery. For a normal Workbench
+launch (not `make demo`), start the app from the repository root:
 
 ```bash
 # Terminal 1
@@ -87,8 +86,6 @@ make migrate
 python -m app create-admin --email admin@example.gov
 python -m app serve --reload
 
-# Terminal 2
-make email-worker
 ```
 
 Do not put an SMTP password in a command, URL, screenshot, or ticket. For production SMTP,
@@ -128,13 +125,13 @@ After signing in:
 3. Open **Pipeline → Live transfer** and confirm the run reaches a terminal state.
 4. Open **Audit log** and confirm the application recorded the activity.
 
-The demo does not need a separately supervised pipeline worker. To exercise registration,
-invitations, or password reset, start the console email worker in a second terminal:
+The demo does not need separately supervised email or pipeline workers. To exercise registration,
+invitations, or password reset, start the app and use the links printed in its log:
 
 ```bash
 cd /path/to/user-token-management-app
 source .venv/bin/activate
-make email-worker
+make serve
 ```
 
 If the application does not print a usable Workbench URL or reports `FWB-0006`, see
@@ -151,7 +148,7 @@ role.
 | Role | Runs where | Responsibility |
 |---|---|---|
 | Web application | Posit Connect | Authentication, UI, administration, audit records, and run enqueueing |
-| Email worker | Supervised worker host | Invitation, verification, and password-reset delivery |
+| In-process email task | Posit Connect app | Invitation, verification, and password-reset delivery |
 | Pipeline worker | Supervised worker host | Live provider access and transfer execution |
 | Pipeline janitor | Scheduled worker job | Retention cleanup for run data, catalogs, and spool files |
 
@@ -171,7 +168,7 @@ Have these resources ready before configuring the application:
 - an approved password blocklist file;
 - a protected writable spool directory on every host that loads real-mode configuration;
 - approved network routes and hostnames for MSS, MCS-COP, and PostgreSQL; and
-- service supervision for the email worker, pipeline worker, and janitor.
+- service supervision for the pipeline worker and janitor.
 
 Choose the authentication model before deployment. `local_password` requires explicit production
 risk acceptance. `trusted_header` requires an approved identity-aware proxy that is the only path
@@ -479,12 +476,6 @@ Start the long-running pipeline worker under a supervisor:
 python -m app pipeline-worker
 ```
 
-Start the long-running email worker separately:
-
-```bash
-python -m app email-worker
-```
-
 Schedule one janitor per spool directory, normally once per day:
 
 ```bash
@@ -492,8 +483,8 @@ python -m app pipeline-janitor
 ```
 
 Grant each process only the network and filesystem access it needs. The pipeline worker needs
-provider connectivity and its protected spool directory. The email worker needs PostgreSQL and
-SMTP. See the [pipeline worker runbook](runbooks/pipeline-worker.md) for lease, recovery, and
+provider connectivity and its protected spool directory. The app needs PostgreSQL and SMTP for
+in-process email delivery. See the [pipeline worker runbook](runbooks/pipeline-worker.md) for lease, recovery, and
 reconciliation behavior.
 
 ### 8. Verify the deployment
@@ -506,7 +497,7 @@ Before granting general access, verify all of the following:
 - Navigation, refresh, and logout remain under the Connect content URL.
 - `python -m app schema-status` reports `Current` equal to `Head` on every runtime host.
 - An invitation reaches an approved test mailbox and its link uses `PUBLIC_BASE_URL`.
-- The email worker delivers queued mail without logging message capabilities or secrets.
+- The app's background task delivers queued mail without logging message capabilities or secrets.
 - A user can save and test each approved connection without saved credentials being revealed.
 - A non-sensitive test pipeline can be saved, enqueued, claimed by the pipeline worker, and brought
   to a truthful terminal state.
@@ -599,7 +590,7 @@ running. See [docker/README.md](../docker/README.md) for ports, overrides, and r
 | Startup reports an old schema | Run `python -m app migrate` using the exact production `DATABASE_URL`, then confirm `schema-status`. |
 | Startup reports a missing Hedron manifest | Publish with `scripts/deploy-connect.sh`, or run `python -m hedron build` before a manual deployment. |
 | Links leave the Connect content path | Correct `PUBLIC_BASE_URL` and leave `COOKIE_PATH=auto`. |
-| Email remains queued | Confirm the email worker is running with the same database and valid SMTP settings. |
+| Email remains queued | Confirm the app is running and has the same database and valid SMTP settings. |
 | Pipeline runs remain queued | Confirm the pipeline worker is running with the same database, real-mode settings, spool path, and provider connectivity. |
 | A failed deploy changed runtime behavior | Review Connect's stored environment values; supplied changes can take effect even when bundle verification fails. |
 

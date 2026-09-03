@@ -33,18 +33,18 @@ See [SECURITY.md](SECURITY.md).
 - Encrypted, provider-specific credentials for MSS, MCS-COP, and PostgreSQL
 - Connector health checks (fake in demo mode; live in real mode)
 - Admin user directory, invitations, approve/deny/disable, audit log
-- Queued email delivery with a supervised worker
+- Asynchronous email delivery built into the web app
 - A separate pipeline worker and janitor for transfers, leases, and retention
 
 ## Runtime model
 
-The browser process owns authentication, the UI, persistence, and audit records. Background
-processes handle work that must survive a browser request:
+The browser process owns authentication, the UI, persistence, audit records, and email delivery.
+Email is queued transactionally and drained by a lightweight in-process background task:
 
 | Process | Responsibility |
 |---|---|
 | Web app (`serve`) | Render the UI, validate requests, enqueue runs, and expose `/health` |
-| Email worker | Deliver verification, invitation, and password-reset messages |
+| In-process email task | Deliver verification, invitation, and password-reset messages |
 | Pipeline worker | Claim leases, execute real transfers, and persist progress/events |
 | Pipeline janitor | Retain run history and clean expired events, catalogs, and spool files |
 
@@ -164,22 +164,8 @@ must not contain the email local-part; optional offline blocklist in production.
 **Interactive admin create** (no env var): `python -m app create-admin --email admin@example.gov`
 (prompts for password). The same command **promotes** an existing user to administrator.
 
-Optional: deliver console/SMTP mail in another terminal (use **one** worker with SQLite):
-
-```bash
-make email-worker
-```
-
-The Make target automatically uses `.venv/bin/python` when the project virtual environment
-exists. If you prefer the module command, activate the environment first and run
-`python -m app email-worker`. If Python reports `No module named 'sqlalchemy'`, install the
-project dependencies with `uv sync --locked --extra dev --python 3.11` (or `make install`), then
-retry the worker. Run `make migrate` once before starting it when using an existing local database.
-
-The worker prints a startup line, an idle heartbeat for an empty queue, and per-batch counts such as
-`claimed=1 delivered=1 deferred=0 dead_lettered=0`, so a running worker is visibly active.
-
-With `EMAIL_BACKEND=console`, verification and reset links print to the worker log.
+Email delivery starts automatically with the app. With `EMAIL_BACKEND=console`, verification and
+reset links print to the app log. The `send-email` command remains available for one-shot recovery.
 
 ## Explore the demo
 
@@ -225,7 +211,6 @@ All of these are available as `python -m app …` or `access-registry …`.
 | `seed-demo-connections --email … [--replace]` | Add fake encrypted credentials to a development account; refused in production |
 | `serve [--host] [--port] [--reload]` | Local / Workbench-aware server |
 | `send-email` | Deliver one batch of queued email |
-| `email-worker [--once] [--batch-size N] [--poll-seconds N]` | Supervised mail loop |
 | `retry-email [--message-id ID] [--limit N]` | Requeue dead-lettered messages |
 | `pipeline-worker [--once]` | Claim and execute queued pipeline runs |
 | `pipeline-janitor` | Purge expired runs, events, catalog cache, and spool files |
@@ -242,7 +227,6 @@ Schema must be current before `create-admin` or `serve` (startup checks).
 | `make serve` | `python -m app serve --reload` |
 | `make demo` | Create/refresh a local demo account, seed three fake provider connections, and serve on port 8765 |
 | `make create-admin` | Uses `ADMIN_EMAIL` (default `admin@example.gov`); set `ADMIN_BOOTSTRAP_PASSWORD` for non-interactive local mode |
-| `make email-worker` | Run the email worker |
 | `make pipeline-worker` | Run the pipeline worker |
 | `make pipeline-janitor` | Run pipeline retention and cleanup |
 | `make check` | ruff + basedpyright + pytest (80% coverage gate) |
@@ -288,8 +272,8 @@ python -m app seed-demo-connections --email admin@example.gov
 python -m app serve --reload
 ```
 
-Workbench email configuration (the root `.env`, console versus SMTP, and the separate worker
-terminal) is documented in [the deployment guide](docs/deploy.md#configure-env-and-email).
+Workbench email configuration (the root `.env`, console versus SMTP, and in-process delivery) is
+documented in [the deployment guide](docs/deploy.md#configure-env-and-email).
 
 The seed step is development-only, preserves existing connection bundles by default, and makes the
 three demo providers immediately available on Pipeline. The disposable Connect SQLite guide
@@ -310,8 +294,8 @@ Details: [docker/README.md](docker/README.md).
 The SQLite Connect path is a single-process, disposable demo whose data resets on redeployment. Do
 not promote that configuration to production. The production path requires PostgreSQL, SMTP, strong
 secrets, secure cookies, a password blocklist, migrations before startup, a Hedron build, a
-protected pipeline spool directory, and separately supervised email, pipeline-worker, and janitor
-services. Follow every production Connect step in the deployment guide before publishing
+protected pipeline spool directory, and separately supervised pipeline-worker and janitor services.
+Follow every production Connect step in the deployment guide before publishing
 `app.main:app` for operational use.
 
 ## Contributing

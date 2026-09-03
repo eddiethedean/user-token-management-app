@@ -37,8 +37,8 @@ The committed defaults plus the development-only secret placeholders in
 - SQLite stores the disposable local database.
 - `ALLOWED_EMAIL_DOMAINS` stays in `.env` because it is deployment policy; the
   example value allows the local Quick start to create an administrator.
-- `EMAIL_BACKEND=console` puts verification and reset links in the email-worker
-  output instead of sending mail.
+- `EMAIL_BACKEND=console` puts verification and reset links in the app output instead of sending
+  mail. Delivery runs automatically in a FastAPI background task.
 - `DATA_MOVER_MODE=demo` uses fake connectors and cannot be used by production.
 - The example secrets and encryption key are for local work only. Generate new,
   independent values before sharing a database or deploying anywhere.
@@ -84,8 +84,9 @@ operations require them:
 
 - `DB_POOL_*` controls SQLAlchemy connection pooling.
 - `RATE_LIMIT_*` controls shared login, registration, and reset protection.
-- `EMAIL_*ATTEMPTS`, `EMAIL_RETRY_*`, and `EMAIL_CLAIM_TIMEOUT_SECONDS` control
-  queue retries and worker claims.
+- `EMAIL_*ATTEMPTS`, `EMAIL_RETRY_*`, and `EMAIL_CLAIM_TIMEOUT_SECONDS` control queue retries and
+  claims. Delivery is triggered after email-producing responses; `send-email` remains available
+  for one-shot recovery.
 - `ACCESS_TOKEN_MINUTES`, `REFRESH_TOKEN_HOURS`, and
   `SESSION_IDLE_MINUTES` control session lifetime.
 - `PIPELINE_BATCH_*`, `PIPELINE_HTTP_*`, lease, retention, and size settings

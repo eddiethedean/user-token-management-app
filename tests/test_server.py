@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import sys
-from types import SimpleNamespace
 
 import pytest
 from hedron_core.diagnostics import HedronError
@@ -54,91 +53,6 @@ def test_serve_cli_forwards_explicit_discovery(monkeypatch) -> None:
         "reload": False,
         "discover": True,
     }
-
-
-def test_email_worker_reports_that_it_is_running(monkeypatch, capsys) -> None:
-    import app.cli
-
-    class _Session:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-    def interrupt_worker(*_args, **_kwargs):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr(app.cli, "assert_schema_current", lambda: None)
-    monkeypatch.setattr(app.cli, "get_settings", lambda: object())
-    monkeypatch.setattr(app.cli, "SessionLocal", lambda: _Session())
-    monkeypatch.setattr(app.cli, "deliver_pending_with_metrics", interrupt_worker)
-    monkeypatch.setattr(sys, "argv", ["access-registry", "email-worker", "--poll-seconds", "1"])
-
-    app.cli.main()
-
-    assert "Email worker running; checking for queued messages every 1s" in capsys.readouterr().out
-
-
-def test_email_worker_reports_idle_polls(monkeypatch, capsys) -> None:
-    import app.cli
-
-    class _Session:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-    monkeypatch.setattr(app.cli, "assert_schema_current", lambda: None)
-    monkeypatch.setattr(app.cli, "get_settings", lambda: object())
-    monkeypatch.setattr(app.cli, "SessionLocal", lambda: _Session())
-    monkeypatch.setattr(
-        app.cli,
-        "deliver_pending_with_metrics",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            claimed=0, delivered=0, deferred=0, dead_lettered=0
-        ),
-    )
-    monkeypatch.setattr(
-        app.cli,
-        "time",
-        SimpleNamespace(sleep=lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt)),
-    )
-    monkeypatch.setattr(sys, "argv", ["access-registry", "email-worker", "--poll-seconds", "1"])
-
-    app.cli.main()
-
-    output = capsys.readouterr().out
-    assert "Email worker idle; no queued messages (next check in 1s)." in output
-
-
-def test_email_worker_reports_batch_activity(monkeypatch, capsys) -> None:
-    import app.cli
-
-    class _Session:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return False
-
-    monkeypatch.setattr(app.cli, "assert_schema_current", lambda: None)
-    monkeypatch.setattr(app.cli, "get_settings", lambda: object())
-    monkeypatch.setattr(app.cli, "SessionLocal", lambda: _Session())
-    monkeypatch.setattr(
-        app.cli,
-        "deliver_pending_with_metrics",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            claimed=2, delivered=1, deferred=1, dead_lettered=0
-        ),
-    )
-    monkeypatch.setattr(sys, "argv", ["access-registry", "email-worker", "--once"])
-
-    app.cli.main()
-
-    output = capsys.readouterr().out
-    assert "Email worker batch: claimed=2 delivered=1 deferred=1 dead_lettered=0" in output
 
 
 def test_run_server_delegates_discovery_and_serving_to_hedron_posit(monkeypatch) -> None:

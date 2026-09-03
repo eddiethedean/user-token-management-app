@@ -21,7 +21,7 @@ subsystems.
 | 0.56 security plane | Data Mover publishes the `hedron-security-1` control-plane profile, bounded request budgets, and deny-by-default egress posture while retaining ownership of CSRF and response headers. |
 | Security posture | `make hedron-security-check` produces a strict SARIF posture report for CI/security review. |
 | 1.0.0 presentation contract | The app's `data-mover` brand is authored with Hedron `Color`, `ThemeBuilder`, validated `ThemeSpec`, accessibility modes, theme variants, typed recipe families, named control/surface/data/status/content recipes, and scoped auth/workspace recipe defaults. |
-| 1.0.0 release train | Runtime and Posit integration are pinned to `>=1.0.0,<1.1`; the 1.0.0 pass is verified against route, interaction, security, and deployment boundaries. |
+| 1.0.0 release train | Runtime and Posit integration require `>=1.0.0`; the 1.0.0 pass is verified against route, interaction, security, and deployment boundaries. |
 | 0.61 action lifecycle | Pipeline start, poll, cancel, retry, and reconciliation responses project Hedron `ActionState`/`ActionTrace` metadata with stable `OperationIdentity` values. |
 | 0.61 async regions | The live pipeline monitor uses the server-authored `AsyncRegion` to expose pending, success, error, cancelled, and conflict phases without application CSS or browser state. |
 | 0.61 busy controls | Pipeline run forms opt into Hedron's region busy lifecycle (`data-hedron-busy="region"`), which coordinates accessibility state and the global request indicator. |
@@ -229,7 +229,7 @@ HTML.
 
 ## Upgrade checklist
 
-1. Update the bounded Hedron 1.0.0 dependency and rebuild the virtual environment.
+1. Update the Hedron 1.0.0 minimum dependency and rebuild the virtual environment.
 2. Run `make hedron-check` and inspect `python -m hedron --app app.main:app routes`.
 3. Run `make check` and `make hedron-build`.
 4. Exercise sign-in, Pipeline, Connections credentials/status, CSV inspection, saved pipelines,

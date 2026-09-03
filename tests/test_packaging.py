@@ -40,10 +40,12 @@ def test_project_requirements_do_not_set_upper_version_caps() -> None:
     ]
 
     for requirement in requirements:
-        if requirement.startswith("hedron"):
-            assert "<" in requirement
-            continue
         assert "<" not in requirement
+
+    assert [requirement for requirement in requirements if requirement.startswith("hedron")] == [
+        "hedron>=1.0.0",
+        "hedron-posit>=1.0.0",
+    ]
 
 
 def test_workbench_compose_preserves_default_password_literal() -> None:

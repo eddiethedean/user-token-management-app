@@ -73,8 +73,8 @@ Passwords must be 15–128 characters (Unicode NFC), must not contain the email 
 pass the optional offline blocklist when configured.
 
 **Why don’t emails arrive?**  
-Run `python -m app email-worker` (or `send-email`). With `EMAIL_BACKEND=console`, links print to the
-worker log instead of SMTP.
+Email delivery starts with the app. Check the app log and `EMAIL_BACKEND`/SMTP settings; use
+`send-email` for a one-shot manual retry. With `EMAIL_BACKEND=console`, links print to the app log.
 
 **local_password or trusted_header?**  
 See [auth-modes.md](auth-modes.md). Prefer trusted-header behind an approved CAC/MFA proxy when

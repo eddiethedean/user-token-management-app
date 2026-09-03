@@ -456,6 +456,8 @@ class Settings(BaseSettings):
                 raise ValueError("Production email requires EMAIL_BACKEND=smtp and SMTP_HOST")
             if not self.smtp_starttls:
                 raise ValueError("SMTP_STARTTLS must be true in production")
+            if self.smtp_allow_legacy_port25_fallback:
+                raise ValueError("SMTP_ALLOW_LEGACY_PORT25_FALLBACK is not allowed in production")
             if self.authentication_mode == "local_password":
                 if not self.password_only_production_risk_accepted:
                     raise ValueError(

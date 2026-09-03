@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException, Request, status
+from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, HedronRouter, InteractionResult
 from hedron.htmx import is_htmx_request
@@ -21,6 +21,7 @@ from app.services.accounts import (
     change_password as change_account_password,
 )
 from app.services.auth import revoke_session
+from app.services.mailer import schedule_email_delivery
 from app.services.secrets import (
     SecretStorageError,
     delete_user_secret,
@@ -144,6 +145,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
         auth: Auth,
         db: DbSession,
         settings: SettingsDep,
+        background_tasks: BackgroundTasks,
         _csrf: RequireCsrf,
         current_password: PasswordForm,
         new_password: PasswordForm,
@@ -168,6 +170,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                     new_password=new_password,
                     request=request,
                 )
+                schedule_email_delivery(background_tasks, settings)
             except CurrentPasswordError as exc:
                 error = str(exc)
                 field_errors["current_password"] = error
