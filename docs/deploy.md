@@ -1,10 +1,12 @@
 # Deploy Data Mover
 
-This guide covers two supported uses of Data Mover:
+This guide covers four supported uses of Data Mover:
 
-1. a local demonstration in Posit Workbench; and
-2. a persistent production deployment with the web application and in-process email delivery on
-   Posit Connect, plus pipeline services on operator-managed infrastructure.
+1. a local demonstration in Posit Workbench;
+2. a disposable evaluation deployment on Posit Connect;
+3. a persistent production deployment with the web application and in-process email delivery on
+   Posit Connect, plus pipeline services on operator-managed infrastructure;
+4. a session-scoped operational deployment run directly from Posit Workbench.
 
 If you only want a disposable Connect evaluation, use the
 [SQLite Connect demo](connect-sqlite-demo.md). Do not promote that configuration to production.
@@ -142,7 +144,8 @@ not normal setup steps.
 ## Operational Workbench deployment
 
 This path runs the web application and its supervised pipeline worker directly in an approved Posit
-Workbench session. Email delivery runs in the web process through FastAPI background tasks. It offers two database modes: SQLite for a single-operator live session, or
+Workbench session. Email delivery runs in the web process through FastAPI background tasks. It
+offers two database modes: SQLite for a single-operator live session, or
 PostgreSQL for live transfers with SMTP and approved provider access. In both modes, the application
 is available only while the operator's Workbench session and processes are running. Use the
 [production deployment](#production-deployment) path for an always-on multi-user service.
@@ -365,7 +368,7 @@ For SQLite/live mode, run exactly one web process and one pipeline-worker proces
 runs in the web process after email-producing requests. SQLite uses a busy timeout to tolerate
 short write contention, but additional workers or high-concurrency use require PostgreSQL.
 
-Terminal 4 — run the janitor once per day while the session is active:
+Terminal 3 — run the janitor once per day while the session is active:
 
 ```bash
 cd /path/to/user-token-management-app
