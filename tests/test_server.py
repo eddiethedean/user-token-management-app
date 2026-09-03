@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 
 import pytest
@@ -56,15 +57,20 @@ def test_run_server_delegates_all_workbench_behavior_to_hedron_posit(monkeypatch
     assert config.app_target == "app.main:app"
 
 
-def test_run_server_allows_hedron_to_resolve_environment_handoffs(monkeypatch) -> None:
+def test_run_server_drops_stale_runtime_root_for_explicit_handoff(monkeypatch) -> None:
     captured = {}
     monkeypatch.setenv(
         "HEDRON_WORKBENCH_PUBLIC_BASE_URL", "https://workbench.example/s/session/p/8765"
     )
-    monkeypatch.setenv("UVICORN_ROOT_PATH", "https://workbench.example/s/stale/p/8000")
+    stale_root = "https://workbench.example/s/stale/p/8765"
+    monkeypatch.setenv("UVICORN_ROOT_PATH", stale_root)
 
     def fake_run_target(target, *, config, discover=False) -> None:
         captured.update(target=target, config=config, discover=discover)
+        captured["uvicorn_root_path"] = os.environ.get("UVICORN_ROOT_PATH")
+        captured["resolved_mount"] = resolve_deployment(
+            config, environ=os.environ, bound_port=8765
+        ).browser_mount
 
     monkeypatch.setattr("app.server.run_target", fake_run_target)
 
@@ -72,9 +78,31 @@ def test_run_server_allows_hedron_to_resolve_environment_handoffs(monkeypatch) -
 
     assert captured["config"].mount is None
     assert captured["config"].public_base_url is None
-    # The application adapter does not rewrite or delete launcher variables;
-    # HedronPosit's resolver owns precedence and stale-handoff handling.
     assert captured["discover"] is False
+    assert captured["uvicorn_root_path"] is None
+    assert captured["resolved_mount"] == "/s/session/p/8765"
+    assert os.environ["UVICORN_ROOT_PATH"] == stale_root
+
+
+def test_run_server_keeps_path_only_runtime_root(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setenv("HEDRON_WORKBENCH_PUBLIC_BASE_URL", "https://workbench.example")
+    runtime_root = "/s/session/p/8765"
+    monkeypatch.setenv("UVICORN_ROOT_PATH", runtime_root)
+
+    def fake_run_target(target, *, config, discover=False) -> None:
+        captured["uvicorn_root_path"] = os.environ.get("UVICORN_ROOT_PATH")
+        captured["resolved_mount"] = resolve_deployment(
+            config,
+            environ={**os.environ, "RS_SERVER_URL": "http://127.0.0.1:8787/"},
+            bound_port=8765,
+        ).browser_mount
+
+    monkeypatch.setattr("app.server.run_target", fake_run_target)
+
+    run_server(host="127.0.0.1", port=8765)
+
+    assert captured == {"uvicorn_root_path": runtime_root, "resolved_mount": runtime_root}
 
 
 def test_hedron_resolves_full_workbench_url_and_exports_mount() -> None:

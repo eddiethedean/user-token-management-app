@@ -257,25 +257,18 @@ For a disposable evaluation of the full app, use the dedicated
 [step-by-step Posit guide](docs/deploy.md) covers the local and operational Workbench paths, the
 SQLite Connect evaluation, and production Connect deployment. It includes Python 3.11 setup,
 installation, configuration, migrations, administrator bootstrap, Workbench session URLs,
-production secrets, PostgreSQL provisioning from `DB_*` credentials, SMTP invitations, directory
-email checks, Hedron assets, `.env`-driven Connect publishing, in-process email delivery, the
+production secrets, SMTP invitations, directory email checks, Hedron assets, `.env`-driven Connect
+publishing, in-process email delivery, the
 pipeline worker and janitor, and verification. Connect 2025.06.0
 and 2026.07 have both passed licensed, proxy-free application-cookie acceptance tests. Access
 Data Mover keeps its own users and sessions rather than treating Connect identity as application
 identity.
 
-Workbench demo setup begins with:
+Workbench demo setup is one command after the shared install:
 
 ```bash
-python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel
-python -m pip install -e ".[dev]"
-cp .env.example .env
-python -m app migrate
-python -m app create-admin --email admin@example.gov
-python -m app seed-demo-connections --email admin@example.gov
-python -m app serve --reload
+make demo
 ```
 
 Workbench email configuration (the root `.env`, console versus SMTP, and in-process delivery) is
@@ -288,7 +281,15 @@ uses the same step before bundling its database; production Connect explicitly o
 For live connector checks, transfers, and SMTP invitations from Workbench, follow the
 [operational Workbench deployment](docs/deploy.md#operational-workbench-deployment). That path
 supports session-scoped SQLite/live operation for one operator or PostgreSQL/live operation when
-the database and provider access are approved.
+the database and provider access are approved. Its commands are:
+
+```bash
+scripts/run-workbench.sh migrate
+scripts/run-workbench.sh admin --email admin@example.gov
+scripts/run-workbench.sh web
+scripts/run-workbench.sh worker   # separate terminal
+scripts/run-workbench.sh janitor  # optional daily cleanup
+```
 
 Optional local regression against a real Workbench image (put a trial key in `.env` only —
 never commit it):

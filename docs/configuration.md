@@ -59,7 +59,7 @@ Set or confirm all of the following:
    the Connect content path when applicable. It is used for invitation and
    password-reset links.
 3. `DATABASE_URL` must use PostgreSQL with the `psycopg` driver, for example
-   `postgresql+psycopg://...`. The `DB_*` values are provisioning helpers only.
+   `postgresql+psycopg://...`.
 4. Generate three independent application secrets. Rotate
    `API_TOKEN_ENCRYPTION_KEYS` by adding a new key and changing
    `API_TOKEN_ACTIVE_KEY_ID`; retain old keys until existing credentials have
@@ -80,8 +80,8 @@ Set or confirm all of the following:
    explicit `PIPELINE_ALLOWED_HTTPS_HOSTS` allowlist. Writers for MSS and
    MCSCOP remain opt-in until their integrations are approved and tested.
 
-The full production sequence, including PostgreSQL provisioning, CA bundles,
-workers, migrations, and Connect publishing, is in
+The full production sequence, including CA bundles, workers, migrations, and
+Connect publishing, is in
 [the deployment guide](deploy.md). The production gate is also summarized in
 [`SECURITY.md`](../SECURITY.md#production-security-gate).
 
@@ -113,8 +113,7 @@ requirement justify a change.
   `DIRECTORY_LOOKUP_TIMEOUT_S`, and `DIRECTORY_LOOKUP_VERIFY_SSL` are accepted
   for environments shared with `jwt-user-management`.
 - The Connect deployment helper forwards only variables that are actually set
-  in `.env`; omitted optional variables use the application defaults. It does
-  not forward the provisioning-only `DB_*` helpers.
+  in `.env`; omitted optional variables use the application defaults.
 - Environment variables supplied by the process supervisor or hosting
   platform take precedence over values loaded from `.env`, as is standard for
   Pydantic Settings. Keep one authoritative protected configuration per
