@@ -6,7 +6,7 @@ Implemented in the current Data Mover app:
 
 - Pipeline builder with source/destination catalogs, CSV inspection, write mode, and server-side
   validation (`app/ui/routes/pipeline.py`, `app/services/pipelines.py`).
-- Durable enqueue/worker state machine with validation, extraction, loading, verification, and
+- Durable enqueue/runtime state machine with validation, extraction, loading, verification, and
   persisted events (`app/services/pipeline_runs.py`, `app/worker.py`).
 - Hedron/HTMX run monitor with progress, diagnostics, and event feed.
 - Automated evidence in `tests/test_pipelines.py` and `tests/test_pipeline_runs.py`.
@@ -18,7 +18,7 @@ must follow [etl-integration-note.md](etl-integration-note.md) after a release t
 
 Run history, cancellation, persisted status, and saved routes are implemented. A user-editable
 calendar/schedule is not currently implemented. The safe follow-up is to add a schedule model and
-worker enqueue policy before exposing a UI; do not represent the current worker loop as a scheduler.
+runtime enqueue policy before exposing a UI; do not represent the current runtime loop as a scheduler.
 
 Required future acceptance tests:
 

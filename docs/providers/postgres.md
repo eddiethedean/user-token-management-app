@@ -50,5 +50,5 @@ Compare committed row effects (`loaded_rows`) against extracted totals. Optional
 Connector tests start an ephemeral PostgreSQL with
 [testing.postgresql](https://pypi.org/project/testing.postgresql/) (`tests/test_postgres_connector.py`).
 They cover health, catalog inspection, mixed-type extract with nulls, append/upsert/replace, abort,
-and staging janitor cleanup. The suite skips when `initdb` and `postgres` are not available. Local
+and in-process staging janitor cleanup. The suite skips when `initdb` and `postgres` are not available. Local
 trust auth uses `sslmode=disable`; production credentials still default to `sslmode=require`.

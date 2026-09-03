@@ -30,7 +30,7 @@ There is **no public REST API**. Mutations are form/HTMX POSTs; GETs render HTML
 | Identity-aware proxy (`trusted_header`) | Only trusted component that may set the identity header |
 | Application process | Holds JWT/session/CSRF secrets and connection-credential master keys; least privilege DB role |
 | Database | Stores password hashes, HMAC digests of capability tokens, encrypted credential blobs, CSV uploads, saved pipelines, and audit rows |
-| SMTP / in-process email delivery | The Connect process's FastAPI background task sees plaintext capability URLs until redacted after send |
+| SMTP / in-process background runtime | The Connect process's FastAPI background tasks see plaintext capability URLs and selected provider credentials only for their authorized task |
 | Downstream “run” workloads | Must not inherit master-key env; receive only explicitly granted provider tokens (deployment control) |
 
 ## Sessions
@@ -62,30 +62,30 @@ credentials; lifecycle and revocation at the remote provider remain operator res
 
 Save stores credentials as `untested`. **Test connection** is a distinct action that calls the
 connector. Demo mode uses fake connectors on reserved `.demo.invalid` hosts. Real mode decrypts
-credentials only inside a claimed pipeline-worker run.
+credentials only inside a claimed in-process transfer task.
 
 ## Pipeline definitions and runs
 
 Saved pipeline definitions are owner-scoped rows in `pipeline_definitions` with versioned locators
-and write policies. The web process enqueues runs; `python -m app pipeline-worker` claims a lease,
-decrypts only the provider credential bundles required by the route, streams Polars batches, and
-persists status and events. CSV sources do not require a source credential. The browser polls HTMX
-fragments that render only those persisted facts.
+and write policies. The Hedron app enqueues runs and attaches an in-process FastAPI background task;
+the app claims a lease, decrypts only the provider credential bundles required by the route, streams
+Polars batches, and persists status and events. A lightweight in-process supervisor also recovers
+queued or expired runs after restart and runs retention cleanup. CSV sources do not require a source
+credential. The browser polls HTMX fragments that render only those persisted facts.
 
 ```text
 Browser HTMX
    │  save / start / cancel / poll
    ▼
 app/ui routes ──► pipeline + catalog services ──► application DB
-   │
-   ▼
-pipeline-worker claims lease
-   │  decrypt two bundles only
-   ▼
-connector registry ──► postgres / foundry / csv
-   │
-   ▼
-Polars batches / Parquet spool ──► destination write + verification
+   │                         ▲
+   └─ in-process task ───────┘ claims lease and decrypts two bundles only
+                              │
+                              ▼
+                 connector registry ──► postgres / foundry / csv
+                              │
+                              ▼
+                 Polars batches / Parquet spool ──► destination write + verification
 ```
 
 ## CSV pipeline sources

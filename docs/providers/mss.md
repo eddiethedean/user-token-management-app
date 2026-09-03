@@ -79,4 +79,4 @@ connector.
 
 ## TLS
 
-Prefer an operator-configured CA profile / `PIPELINE_CA_BUNDLE`. If the deployment still requires `socom_ca_fix`, call it once through `app.connectors.tls` at worker startup. Do not mutate the process trust store from request handlers.
+Prefer an operator-configured CA profile / `PIPELINE_CA_BUNDLE`. If the deployment still requires `socom_ca_fix`, call it once through `app.connectors.tls` at app startup. Do not mutate the process trust store from request handlers.

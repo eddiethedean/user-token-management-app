@@ -7,7 +7,7 @@ Use the shortest path that matches your goal:
 | Try the app locally or in Workbench | `make demo` | Disposable SQLite, fake connectors, console email |
 | Run live transfers from one Workbench session | [Operational Workbench](#operational-workbench-deployment) | SQLite or PostgreSQL, live connectors, optional SMTP |
 | Evaluate the full app on Connect | [SQLite Connect demo](connect-sqlite-demo.md) | Disposable SQLite, console email |
-| Run a persistent service | [Production Connect](#production-deployment) | PostgreSQL, SMTP, supervised workers |
+| Run a persistent service | [Production Connect](#production-deployment) | PostgreSQL, SMTP, in-process background runtime |
 
 The demo paths are not production paths. Production requires PostgreSQL, HTTPS, SMTP, generated
 secrets, and the [production security gate](../SECURITY.md#production-security-gate).
@@ -57,15 +57,16 @@ server output. Do not use a Workbench session URL as a durable public URL.
 
 ## Operational Workbench deployment
 
-This option runs one web process and one pipeline worker in an approved Workbench session. It is
+This option runs one Hedron app process with in-process transfer, email, recovery, and retention
+tasks in an approved Workbench session. It is
 session-scoped: ending or sleeping the session stops the service. Use PostgreSQL for concurrent
-users, multiple workers, backups, or an always-on deployment.
+users, multiple app replicas, backups, or an always-on deployment.
 
 ### Choose a mode
 
 | Mode | Required values | Suitable for |
 |---|---|---|
-| SQLite/live | `APP_ENV=development`, `DATA_MOVER_MODE=real`, `DATABASE_URL=sqlite:///...` | One operator, one web process, one worker |
+| SQLite/live | `APP_ENV=development`, `DATA_MOVER_MODE=real`, `DATABASE_URL=sqlite:///...` | One operator, one app process |
 | PostgreSQL/live | `APP_ENV=production`, `DATA_MOVER_MODE=real`, PostgreSQL `DATABASE_URL` | Multiple users or production-grade storage |
 
 Both modes support live connector checks, transfers, and email invitations. SQLite requires a
@@ -160,21 +161,15 @@ scripts/run-workbench.sh migrate
 scripts/run-workbench.sh admin --email admin@example.gov
 ```
 
-Open three Workbench terminals and run one command in each:
+Run the single app process in Workbench:
 
 ```bash
-# Terminal 1 — web application
 scripts/run-workbench.sh web
-
-# Terminal 2 — live transfer worker
-scripts/run-workbench.sh worker
-
-# Terminal 3 — optional daily cleanup
-scripts/run-workbench.sh janitor
 ```
 
-The web command prints the current `/s/<session>/p/<port>/login` URL. Keep the web process and
-worker running in the same Workbench session. Run exactly one worker with SQLite.
+The command prints the current `/s/<session>/p/<port>/login` URL. Keep the app process running in
+the Workbench session. Transfers, invitations, lease recovery, and retention cleanup run inside
+that process; no second terminal, worker, or janitor is needed.
 
 ### Verify
 
@@ -183,20 +178,19 @@ Open the printed URL and confirm:
 1. `/health` returns `{"status":"ok"}` and `/ready` returns `{"status":"ready"}`.
 2. The administrator can sign in.
 3. A non-sensitive connection test succeeds.
-4. A test pipeline completes through the worker.
+4. A test pipeline completes through the in-process transfer task.
 5. An invitation reaches the approved test mailbox when SMTP is enabled.
 6. Audit events appear for the test actions.
 
-Update the code and rerun `scripts/run-workbench.sh migrate` after stopping the web and worker.
-Back up SQLite while all processes are stopped. Keep the same database, encryption key, SMTP
+Update the code and rerun `scripts/run-workbench.sh migrate` after stopping the app.
+Back up SQLite while the app is stopped. Keep the same database, encryption key, SMTP
 configuration, and spool directory across restarts. A new Workbench session gets a new URL; the
 `web` command discovers it automatically.
 
 ## Production deployment
 
-Production runs the web application on Posit Connect and runs the pipeline worker and janitor under
-an approved supervisor. Do not run production workers permanently in an interactive Workbench
-terminal.
+Production runs the web application and all background runtime tasks inside Posit Connect. There
+are no transfer-worker or janitor services to deploy separately.
 
 ### Before you begin
 
@@ -207,7 +201,7 @@ Have these ready:
 - an approved SMTP relay with STARTTLS;
 - an approved password blocklist and protected spool directory;
 - approved provider routes and HTTPS host allowlists; and
-- service supervision for the worker and janitor.
+- a Connect process sized for the expected transfer workload.
 
 Choose `local_password` (with explicit production risk acceptance) or `trusted_header` behind an
 identity-aware proxy. See [auth-modes.md](auth-modes.md).
@@ -235,8 +229,7 @@ Create `.env` from the production section of [.env.example](../.env.example). Se
 - the selected authentication, blocklist, and optional directory settings.
 
 For Connect, use a bundle-relative spool directory so the published content has the directory it
-validates at startup. The worker host may use a different local spool directory in its own env file;
-the spool is temporary working storage and is not shared with Connect.
+validates at startup. The spool is temporary working storage owned by the app process.
 
 Load the reviewed file, create the protected files, then validate and migrate:
 
@@ -288,29 +281,30 @@ In Connect, restrict access, select Python 3.11, confirm the stored environment,
 content after environment changes. No cookie proxy or custom Nginx rule is required; leave
 `COOKIE_PATH=auto`.
 
-### Start workers and verify
+### Start the app and verify
 
-Install the same revision and load the same production environment on each worker host:
+The Connect content process owns the in-process background runtime. It claims and executes queued
+transfers, recovers expired leases, and periodically runs retention cleanup; no separate worker host
+or janitor scheduler is required:
 
 ```bash
 source .venv/bin/activate
 set -a; . /path/to/data-mover.production.env; set +a
 python -m app schema-status
-python -m app pipeline-worker       # run under a supervisor
-python -m app pipeline-janitor      # schedule once per day
 ```
 
 Email delivery runs in the Connect web process; there is no separate email worker. `send-email` is
-available for one-shot recovery and `retry-email` requeues dead-lettered messages.
+available for one-shot email recovery and `retry-email` requeues dead-lettered messages. Pipeline
+recovery and retention are owned by the app runtime; restart the app after an operational failure.
 
 Before granting general access, verify health, readiness, sign-in, mounted navigation, invitation
-delivery, connection tests, a non-sensitive pipeline, worker completion, and audit events. Use
+delivery, connection tests, a non-sensitive pipeline, in-process transfer completion, and audit events. Use
 approved non-production provider endpoints and data for integration checks.
 
 ### Redeploy and rollback
 
-For a normal release, back up PostgreSQL when migrations are included, install the same revision on
-worker hosts, run migrations, publish, and restart the web content and workers in a controlled order:
+For a normal release, back up PostgreSQL when migrations are included, run migrations, publish, and
+restart the web content in a controlled order:
 
 ```bash
 ./scripts/deploy-connect.sh
@@ -329,11 +323,11 @@ database backup when a schema rollback is required.
 | Schema is old | Run `python -m app migrate`, then `python -m app schema-status` with the same database URL. |
 | Links leave the mounted URL | Confirm `PUBLIC_BASE_URL` is the exact external URL and keep `COOKIE_PATH=auto`. |
 | Email remains queued | Check SMTP settings, database access, and the Connect app logs; use `send-email` for recovery. |
-| Pipeline runs remain queued | Confirm one worker is running with the same database, spool path, real mode, and provider routes. |
+| Pipeline runs remain queued | Check the Connect app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; the in-process runtime should recover queued runs automatically. |
 | Connect cannot install packages | Confirm `requirements.txt` is present and the server can reach the approved package repository. |
 
 For detailed diagnostics, see [troubleshooting.md](troubleshooting.md), [configuration.md](configuration.md),
-and the [pipeline worker runbook](runbooks/pipeline-worker.md).
+and the [pipeline runtime runbook](runbooks/pipeline-worker.md).
 
 ## Optional licensed checks
 
@@ -359,7 +353,7 @@ See [docker/README.md](../docker/README.md) before running license-backed tests.
 
 - [Data Mover configuration](configuration.md)
 - [Authentication modes](auth-modes.md)
-- [Pipeline worker runbook](runbooks/pipeline-worker.md)
+- [Pipeline runtime runbook](runbooks/pipeline-worker.md)
 - [SQLite Connect demo](connect-sqlite-demo.md)
 - [Database migrations](../migrations/README.md)
 - [Security policy and production gate](../SECURITY.md)

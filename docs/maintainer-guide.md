@@ -18,7 +18,7 @@ The two runtime modes have intentionally different guarantees:
 | Mode | Use | External side effects |
 |---|---|---|
 | `demo` | Local exploration and confidence checks | Fake connectors only; no remote calls |
-| `real` | Approved operational deployments | Live connector calls from the pipeline worker |
+| `real` | Approved operational deployments | Live connector calls from the app's in-process background runtime |
 
 Production rejects demo mode. CSV uploads, saved pipeline definitions, and audit data are still real
 application data in demo mode.
@@ -35,7 +35,7 @@ app/ui ───────► app/services ───────► SQLAlchemy
                     │                         │
                     │                         └── fake or live provider
                     ├───────────────► in-process email task (FastAPI BackgroundTasks)
-                    └───────────────► pipeline worker / janitor
+                    └───────────────► in-process transfer / maintenance tasks
 ```
 
 Do not make a route, connector, worker, or migration become a second owner for another layer's
@@ -241,25 +241,23 @@ For destructive or high-volume changes, document the backup, rollback, and reten
 merging. Database backups must cover encrypted credential blobs, pipeline definitions, CSV uploads,
 run events, and audit rows; restoring only the user table is not a complete application restore.
 
-## Workers and operational processes
+## Background runtime and operational processes
 
-The web process owns email delivery but does not execute real transfers. In real mode, supervise
-the pipeline worker and janitor separately:
+The Hedron app owns email delivery, real transfers, lease recovery, and retention cleanup in-process:
 
 ```bash
 python -m app serve
-python -m app pipeline-worker
-python -m app pipeline-janitor       # schedule daily
 ```
 
-Use `python -m app send-email` only as an optional one-shot recovery command; it is not a
-long-running service.
+Use `python -m app send-email` only as an optional one-shot email recovery command. Pipeline
+transfers and retention are owned by the app runtime; restart the app after correcting an
+operational failure.
 
-The pipeline worker claims a lease, decrypts credentials only for the claimed run, streams connector
-batches, and persists status/events. An expired lease before destination writes is requeued; an
+The in-process transfer task claims a lease, decrypts credentials only for the claimed run, streams
+connector batches, and persists status/events. An expired lease before destination writes is requeued;
 expired lease during load or verification becomes `failed_needs_reconciliation`. Foundry upload
 timeouts are recorded as `publish_uncertain` and are not automatically retried. See the
-[pipeline worker runbook](runbooks/pipeline-worker.md).
+[pipeline runtime runbook](runbooks/pipeline-worker.md).
 
 Run verification also records the captured column schema in both run manifests and best-effort
 destination row snapshots in `verification_json`: `destination_rows_before`,
@@ -287,8 +285,8 @@ connector error taxonomy in `app/connectors/errors.py` and redact provider respo
 | Schema is current | `python -m app schema-status` |
 | Web process is healthy | Request `/health`; confirm startup logs show the expected schema head. |
 | Email queue is moving | Trigger an email-producing request and inspect app logs/outbox state; use `python -m app send-email` for a one-shot drain. |
-| Pipeline queue is moving | Confirm the pipeline worker is claiming leases and heartbeating. |
-| Retention is running | Schedule `python -m app pipeline-janitor` and inspect deleted/retained counts. |
+| Pipeline queue is moving | Confirm the app logs show in-process task claims and heartbeats. |
+| Retention is running | Inspect the app logs for the periodic in-process janitor cycle. |
 | Spool pressure is safe | Check `PIPELINE_SPOOL_ROOT` usage against `PIPELINE_MAX_SPOOL_BYTES`. |
 | No credential leakage | Review logs and traces for redaction; never enable request-body logging on credential routes. |
 
@@ -389,7 +387,7 @@ Every operationally meaningful change should leave behind:
 - the commit or release identifier;
 - migration and rollback notes, if schema changed;
 - changed environment variables and secret-rotation instructions;
-- worker/restart requirements;
+- runtime/restart requirements;
 - test and CI run links; and
 - updated user-facing and maintainer-facing documentation.
 

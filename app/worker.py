@@ -1,26 +1,17 @@
-"""Durable pipeline worker. Claims leased runs and executes transfers."""
+"""Durable pipeline execution used by the Hedron app runtime."""
 
 from __future__ import annotations
 
 import logging
-import os
-import socket
-import tempfile
-import time
-from pathlib import Path
+import threading
 
 from sqlalchemy import select
-from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from app.config import Settings, get_settings
+from app.config import Settings
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import parse_snapshot
-from app.connectors.registry import load_builtin_connectors
-from app.connectors.tls import apply_internal_ca_fix
-from app.database import SessionLocal, sqlite_worker_lock
 from app.models import PipelineRun, User
-from app.schema import assert_schema_current
 from app.services import pipeline_runs
 from app.services.secrets import decrypt_user_credentials_for_run
 from app.services.transfer_engine import execute_transfer
@@ -29,12 +20,27 @@ log = logging.getLogger(__name__)
 
 
 def worker_id(settings: Settings) -> str:
+    """Return the lease owner identifier for this Hedron app process."""
+    import os
+    import socket
+
     return settings.pipeline_worker_id or f"{socket.gethostname()}-{os.getpid()}"
 
 
-def process_one(db: Session, settings: Settings) -> bool:
+def process_one(
+    db: Session,
+    settings: Settings,
+    *,
+    run_id: str | None = None,
+    stop_event: threading.Event | None = None,
+) -> bool:
+    if stop_event is not None and stop_event.is_set():
+        return False
     claimed = pipeline_runs.claim_run(
-        db, worker_id=worker_id(settings), lease_seconds=settings.pipeline_lease_seconds
+        db,
+        worker_id=worker_id(settings),
+        lease_seconds=settings.pipeline_lease_seconds,
+        run_id=run_id,
     )
     if claimed is None:
         return False
@@ -66,7 +72,9 @@ def process_one(db: Session, settings: Settings) -> bool:
             source_credentials=source_credentials,
             destination_credentials=destination_credentials,
             settings=settings,
-            cancel_requested=lambda: _cancel_flag(db, run_id),
+            cancel_requested=lambda: (
+                _cancel_flag(db, run_id) or (stop_event is not None and stop_event.is_set())
+            ),
         )
     except ConnectorError as exc:
         db.rollback()
@@ -127,36 +135,3 @@ def _cancel_flag(db: Session, run_id: str) -> bool:
         db.scalar(select(PipelineRun.cancel_requested_at).where(PipelineRun.id == run_id))
         is not None
     )
-
-
-def run_worker(*, once: bool = False, poll_seconds: float = 2.0) -> None:
-    settings = get_settings()
-    assert_schema_current()
-    if settings.data_mover_mode == "real":
-        database_url = make_url(settings.database_url)
-        if settings.is_production and database_url.drivername != "postgresql+psycopg":
-            raise SystemExit("Production real pipeline workers require PostgreSQL.")
-        if database_url.drivername not in {"sqlite", "sqlite+pysqlite", "postgresql+psycopg"}:
-            raise SystemExit("Real pipeline workers require SQLite or PostgreSQL.")
-        spool = Path(settings.pipeline_spool_root)
-        spool.mkdir(parents=True, exist_ok=True)
-        if settings.pipeline_apply_internal_ca_fix:
-            apply_internal_ca_fix()
-    else:
-        if not settings.pipeline_spool_root:
-            settings.pipeline_spool_root = tempfile.mkdtemp(prefix="data-mover-spool-")
-    load_builtin_connectors(demo=settings.is_demo_mode)
-    log.info("pipeline worker %s starting mode=%s", worker_id(settings), settings.data_mover_mode)
-    try:
-        with sqlite_worker_lock(settings.database_url, "pipeline"):
-            while True:
-                with SessionLocal() as db:
-                    processed = process_one(db, settings)
-                if once:
-                    break
-                if not processed:
-                    time.sleep(poll_seconds)
-    except RuntimeError as exc:
-        raise SystemExit(str(exc)) from exc
-    except KeyboardInterrupt:
-        log.info("pipeline worker stopping")

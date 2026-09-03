@@ -7,7 +7,7 @@ between MSS, MCS-COP, PostgreSQL, and local CSV files using each user's encrypte
 It is a **browser UI** (FastAPI + [Hedron](https://github.com/eddiethedean/hedron) + HTMX),
 **not a public REST API**. Auth is either local passwords or a trusted identity header behind
 an approved CAC/MFA proxy. Set `DATA_MOVER_MODE=demo` for offline fake connectors, or
-`DATA_MOVER_MODE=real` for live transfers executed by `python -m app pipeline-worker`.
+`DATA_MOVER_MODE=real` for live transfers executed by the Hedron app's in-process background runtime.
 Production refuses demo mode.
 
 This software does **not** by itself constitute an ATO, FedRAMP package, or FIPS validation.
@@ -34,24 +34,27 @@ See [SECURITY.md](SECURITY.md).
 - Connector health checks (fake in demo mode; live in real mode)
 - Admin user directory, invitations, approve/deny/disable, audit log
 - Asynchronous email delivery built into the web app
-- A separate pipeline worker and janitor for transfers, leases, and retention
+- In-process pipeline execution, lease recovery, and retention cleanup
 
 ## Runtime model
 
-The browser process owns authentication, the UI, persistence, audit records, and email delivery.
-Email is queued transactionally and drained by a lightweight in-process FastAPI background task:
+The Hedron app process owns authentication, the UI, persistence, audit records, email delivery,
+pipeline execution, and retention cleanup. Work is queued transactionally and handled by lightweight
+in-process FastAPI background tasks:
 
 | Process | Responsibility |
 |---|---|
-| Web app (`serve`) | Render the UI, validate requests, enqueue runs, and expose `/health` |
+| Hedron app (`serve`) | Render the UI, validate requests, enqueue and execute runs, retain state, and expose `/health` |
 | In-process email delivery | Drain verification, invitation, registration, password-reset, and account-security messages after email-producing requests |
-| Pipeline worker | Claim leases, execute real transfers, and persist progress/events |
-| Pipeline janitor | Retain run history and clean expired events, catalogs, and spool files |
+| In-process transfer task | Claim a lease, decrypt only the selected credentials, execute the transfer, and persist progress/events |
+| In-process maintenance task | Recover queued/expired runs and periodically retain run history, events, catalogs, and spool files |
 
 Email delivery does not use a separate worker process. If the web process restarts before a task
 finishes, pending rows remain in the outbox; a later email-producing request or `send-email` drains
-them, and `retry-email` requeues dead-lettered messages. In demo mode, connectors are fake and stay
-local. In real mode, only the separately supervised pipeline worker contacts configured providers.
+them, and `retry-email` requeues dead-lettered messages. Pipeline runs remain durable in the database;
+the in-process supervisor recovers queued or expired runs after an app restart. In demo mode,
+connectors are fake and stay local. In real mode, the Hedron app is the only process that contacts
+configured providers.
 
 ## Screenshots
 
@@ -125,7 +128,7 @@ log during routine review or incident investigation.
 | [docs/faq.md](docs/faq.md) | Short answers |
 | [docs/architecture.md](docs/architecture.md) | Trust boundaries and layout |
 | [docs/maintainer-guide.md](docs/maintainer-guide.md) | Developer workflow, extension points, testing, and operations |
-| [docs/runbooks/pipeline-worker.md](docs/runbooks/pipeline-worker.md) | Web + worker operations |
+| [docs/runbooks/pipeline-worker.md](docs/runbooks/pipeline-worker.md) | In-process transfer runtime operations |
 | [docs/providers/mss.md](docs/providers/mss.md) | Frozen Foundry/Postgres protocol notes |
 | [docs/hedron.md](docs/hedron.md) | Hedron integration and feature coverage |
 | [docs/plans/README.md](docs/plans/README.md) | Roadmap artifacts, ETL/security contracts, ADE learning path, and delivery evidence |
@@ -216,8 +219,6 @@ All of these are available as `python -m app …` or `access-registry …`.
 | `serve [--host] [--port] [--reload]` | Local / Workbench-aware server |
 | `send-email` | One-shot drain of queued email (manual recovery) |
 | `retry-email [--message-id ID] [--limit N]` | Requeue dead-lettered messages |
-| `pipeline-worker [--once]` | Claim and execute queued pipeline runs |
-| `pipeline-janitor` | Purge expired runs, events, catalog cache, and spool files |
 
 Schema must be current before `create-admin` or `serve` (startup checks).
 
@@ -231,8 +232,6 @@ Schema must be current before `create-admin` or `serve` (startup checks).
 | `make serve` | `python -m app serve --reload` |
 | `make demo` | Create/refresh a local demo account, seed three fake provider connections, and serve on port 8765 |
 | `make create-admin` | Uses `ADMIN_EMAIL` (default `admin@example.gov`); set `ADMIN_BOOTSTRAP_PASSWORD` for non-interactive local mode |
-| `make pipeline-worker` | Run the pipeline worker |
-| `make pipeline-janitor` | Run pipeline retention and cleanup |
 | `make check` | ruff + basedpyright + pytest (80% coverage gate) |
 | `make hedron-check` | Validate Hedron routes and interaction contracts |
 | `make hedron-build` | Build the production Hedron asset manifest |
@@ -259,7 +258,7 @@ SQLite Connect evaluation, and production Connect deployment. It includes Python
 installation, configuration, migrations, administrator bootstrap, Workbench session URLs,
 production secrets, SMTP invitations, directory email checks, Hedron assets, `.env`-driven Connect
 publishing, in-process email delivery, the
-pipeline worker and janitor, and verification. Connect 2025.06.0
+in-process transfer and retention runtime, and verification. Connect 2025.06.0
 and 2026.07 have both passed licensed, proxy-free application-cookie acceptance tests. Access
 Data Mover keeps its own users and sessions rather than treating Connect identity as application
 identity.
@@ -287,8 +286,6 @@ the database and provider access are approved. Its commands are:
 scripts/run-workbench.sh migrate
 scripts/run-workbench.sh admin --email admin@example.gov
 scripts/run-workbench.sh web
-scripts/run-workbench.sh worker   # separate terminal
-scripts/run-workbench.sh janitor  # optional daily cleanup
 ```
 
 Optional local regression against a real Workbench image (put a trial key in `.env` only —
@@ -306,7 +303,8 @@ Details: [docker/README.md](docker/README.md).
 The SQLite Connect path is a single-process, disposable demo whose data resets on redeployment. Do
 not promote that configuration to production. The production path requires PostgreSQL, SMTP, strong
 secrets, secure cookies, a password blocklist, migrations before startup, a Hedron build, a
-protected pipeline spool directory, and separately supervised pipeline-worker and janitor services.
+protected pipeline spool directory. Transfers, email, lease recovery, and retention cleanup run
+inside the Hedron app process; no external worker or janitor service is required.
 Follow every production Connect step in the deployment guide before publishing
 `app.main:app` for operational use.
 

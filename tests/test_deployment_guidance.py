@@ -54,14 +54,15 @@ def test_connect_instructions_retain_spool_directory_in_file_only_bundle() -> No
     )
 
 
-def test_readme_operational_commands_include_worker_and_janitor() -> None:
+def test_readme_operational_commands_use_one_in_process_app() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     introduction = "Its commands are:"
     start = readme.index(introduction) + len(introduction)
     command_block = readme[start : readme.index("```", readme.index("```", start) + 3)]
 
-    assert "scripts/run-workbench.sh worker" in command_block
-    assert "scripts/run-workbench.sh janitor" in command_block
+    assert "scripts/run-workbench.sh web" in command_block
+    assert "scripts/run-workbench.sh worker" not in command_block
+    assert "scripts/run-workbench.sh janitor" not in command_block
 
 
 def test_documented_database_provisioning_helpers_have_a_consumer() -> None:

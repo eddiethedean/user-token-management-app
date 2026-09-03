@@ -1,13 +1,13 @@
 # FAQ
 
 **What is Data Mover?**
-A self-hosted data-movement application with reusable pipelines, durable worker runs, and encrypted
-per-user credentials for MSS, MCS-COP, and PostgreSQL.
+A self-hosted data-movement application with reusable pipelines, durable in-process runs, and
+encrypted per-user credentials for MSS, MCS-COP, and PostgreSQL.
 
 **Does Data Mover move real data today?**
 In `DATA_MOVER_MODE=demo`, connectors are fake and stay on this host. In `DATA_MOVER_MODE=real`, the
-pipeline worker performs live transfers. CSV uploads and saved pipeline definitions are always real
-data in Data Mover's database.
+the app's in-process background runtime performs live transfers. CSV uploads and saved pipeline
+definitions are always real data in Data Mover's database.
 
 **Which systems can be sources and destinations?**
 PostgreSQL and MSS can be either. MCS-COP is destination-only. CSV files are source-only. The same
@@ -48,7 +48,7 @@ Python 3.11 or newer. CI runs 3.11.
 **SQLite or PostgreSQL?**  
 SQLite can run the live connector, transfer, and email-invite path for one session-scoped Workbench
 operator when `APP_ENV=development`, `DATA_MOVER_MODE=real`, and a writable spool directory are
-configured. Run one pipeline worker with that mode. Concurrent users, multiple workers, backups,
+configured. Run one app process with that mode. Concurrent users, backups,
 and production require PostgreSQL (`postgresql+psycopg://…`).
 
 **What CSV files can I use as pipeline sources?**

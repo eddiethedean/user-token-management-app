@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import threading
 import time
 import uuid
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlencode
@@ -66,12 +68,27 @@ async def lifespan(app: HedronPosit) -> AsyncIterator[None]:
     load_builtin_connectors(demo=cfg.is_demo_mode)
     if cfg.app_env != "test":
         assert_schema_current()
+        if cfg.data_mover_mode == "real" and cfg.pipeline_apply_internal_ca_fix:
+            from app.connectors.tls import apply_internal_ca_fix
+
+            apply_internal_ca_fix()
     with SessionLocal() as db:
         ensure_default_roles(db)
     app.state.ready = True
+    pipeline_stop_event = threading.Event()
+    app.state.pipeline_stop_event = pipeline_stop_event
+    background_runtime = None
+    if cfg.app_env != "test":
+        from app.services.pipeline_tasks import run_background_runtime
+
+        background_runtime = asyncio.create_task(run_background_runtime(cfg, pipeline_stop_event))
     try:
         yield
     finally:
+        if background_runtime is not None:
+            pipeline_stop_event.set()
+            with suppress(asyncio.CancelledError):
+                await background_runtime
         app.state.ready = False
         engine.dispose()
 

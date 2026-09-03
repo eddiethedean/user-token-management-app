@@ -2,8 +2,7 @@
 
 This guide is for people who use the Data Mover browser application to configure connections,
 inspect source data, save pipelines, and monitor transfers. Maintainers and deployers should use
-the [maintainer guide](maintainer-guide.md), [deployment guide](deploy.md), and
-[pipeline-worker runbook](runbooks/pipeline-worker.md).
+the [maintainer guide](maintainer-guide.md) and [deployment guide](deploy.md).
 
 ## Quick navigation
 
@@ -17,7 +16,8 @@ the [maintainer guide](maintainer-guide.md), [deployment guide](deploy.md), and
 
 Data Mover stores each user's connection credentials encrypted, browses provider catalogs, and runs
 durable transfers between MSS, MCS-COP, PostgreSQL, and local CSV files. Demo mode (`DATA_MOVER_MODE=demo`)
-uses fake connectors on this host. Real mode uses the pipeline worker against live systems.
+uses fake connectors on this host. Real mode uses the app's in-process background runtime against
+live systems.
 
 ## Start here
 
@@ -41,10 +41,10 @@ entering real credentials.
    create a new destination table or Foundry file name.
 5. Name and save the pipeline. Saving makes the route reusable and enables **Run transfer**.
 6. Select **Run transfer** to enqueue a durable run, then open **Live transfer** to follow persisted
-   status and worker events.
+   status and in-process task events.
 
-In demo mode, connectors never contact the hostnames you type. In real mode, a separate
-`pipeline-worker` process decrypts credentials only for the claimed run.
+In demo mode, connectors never contact the hostnames you type. In real mode, the app decrypts
+credentials only for the claimed run's in-process background task.
 
 ### What you can see and change
 
@@ -163,8 +163,8 @@ deleted, the card reports **Connection required**.
 
 Before running, the **Schema & row counts** review shows the selected source and destination
 columns, types, nullability, primary key, and available row counts. Select **Run transfer** to
-enqueue a run. Demo mode may complete the run immediately with fake connectors. Real mode waits for
-`python -m app pipeline-worker`. After completion, **Run schema & row counts** shows the persisted
+enqueue a run. Demo mode may complete the run immediately with fake connectors. Real mode runs in
+the app's in-process background runtime. After completion, **Run schema & row counts** shows the persisted
 source and destination schemas plus destination counts before and after the run. The destination
 metric includes a signed delta such as `1,000 → 1,250 rows` and `+250 rows`. Providers without a
 portable count API are labeled as unavailable rather than showing an estimate. Every preview and
@@ -175,8 +175,8 @@ can expose before and after a run. For example, a catalog estimate is different 
 destination count, and Foundry file routes may only provide a local manifest after the transfer.
 
 Use **Cancel run** in the live monitor to request a safe stop. The monitor stays active until the
-worker records a terminal state. Retry is shown only for failures marked safe to retry. If a worker
-stops after destination work begins, the run enters **Failed / reconciliation needed** and the
+background task records a terminal state. Retry is shown only for failures marked safe to retry. If a
+task stops after destination work begins, the run enters **Failed / reconciliation needed** and the
 monitor provides **Record reconciliation review**. Inspect the destination first; recording the
 review does not clear the safety block or make an uncertain write safe automatically.
 
@@ -184,7 +184,7 @@ review does not clear the safety block or make an uncertain write safe automatic
 
 | Status | Meaning | Your next step |
 |---|---|---|
-| **Queued** | The run is waiting for a worker lease. | Wait, or cancel if it was submitted by mistake. |
+| **Queued** | The run is waiting for an in-process task lease. | Wait, or cancel if it was submitted by mistake. |
 | **Validating** | Credentials, locators, and safety rules are being checked. | Wait; a validation failure includes a message in the run log. |
 | **Extracting** | Rows are being read from the source. | Monitor source counts and the event log. |
 | **Loading** | Batches are being written to the destination. | Avoid changing the destination outside the pipeline while it runs. |
@@ -192,7 +192,7 @@ review does not clear the safety block or make an uncertain write safe automatic
 | **Succeeded** | The run completed and persisted its final counts. | Review the destination and keep the run for audit history. |
 | **Failed** | The run stopped before a successful final state. | Read the error summary; correct the pipeline or connection before retrying. |
 | **Cancelled** | A cancellation request was honored. | Start a new run when the source and destination are ready. |
-| **Failed / reconciliation needed** | A worker lease expired during destination work. | Do not blindly retry; have an operator inspect the destination first. |
+| **Failed / reconciliation needed** | An in-process task lease expired during destination work. | Do not blindly retry; have an operator inspect the destination first. |
 
 The terminal recovery panel shows the sanitized error code and summary. A retry action appears only
 when the connector marks the failure retryable. Reconciliation-required runs remain blocked from
@@ -215,12 +215,12 @@ navigation or a wider desktop viewport; server-side validation remains the same.
 |---|---|
 | A provider is missing from Pipeline | Confirm it is saved under **Connections → Credentials** and **Connected** under **Status**. |
 | Save or Run is disabled | Scan the CSV, choose different remote source/destination systems, and resolve every readiness message. |
-| A run stays queued | Ask an operator to confirm `python -m app pipeline-worker` is running in real mode. |
+| A run stays queued | Check the app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; the in-process runtime recovers queued runs automatically. |
 | A connection says Untested | Select **Test connection**; saving alone never marks a connection connected. |
 | A saved pipeline says Connection required | The owner deleted or replaced a required connection; restore and test it, then reload the pipeline. |
 | An email link never arrives | Local deployments print links in the app log; production email is delivered by the app's in-process background task, so operators should check the app logs, `email_outbox`, and SMTP relay. |
 
-For mount-path, login, email, CSV, and worker failures, use the detailed [troubleshooting guide](troubleshooting.md).
+For mount-path, login, email, CSV, and transfer failures, use the detailed [troubleshooting guide](troubleshooting.md).
 
 ## Local seeded demo
 
@@ -254,7 +254,7 @@ the identity-proxy administrator according to your organization's incident proce
 - CSV content, spool files, and saved pipelines are real application data.
 - Data Mover does not itself provide an ATO, FedRAMP package, FIPS validation, identity proofing, or
   clearance verification. See [SECURITY.md](../SECURITY.md).
-- Operator runbook: [pipeline worker](runbooks/pipeline-worker.md).
+- Operator runbook: [in-process pipeline runtime](runbooks/pipeline-worker.md).
 
 ## More help
 

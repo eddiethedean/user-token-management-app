@@ -1,7 +1,7 @@
 """TLS bootstrap for outbound connector traffic.
 
 Tests mock this module. Production prefers a configured CA bundle. The optional
-internal ``socom_ca_fix`` package is invoked at most once during worker startup.
+internal ``socom_ca_fix`` package is invoked during app startup when enabled.
 """
 
 from __future__ import annotations

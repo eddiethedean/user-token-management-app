@@ -118,3 +118,23 @@ with open(os.environ['CALL'], 'w', encoding='utf-8') as stream:
         "hedron_public_base_url": "https://workbench.example/s/session/p/8765",
         "uvicorn_root_path": None,
     }
+
+
+def test_workbench_rejects_external_worker_roles(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("APP_ENV=development\nDATA_MOVER_MODE=demo\n", encoding="utf-8")
+    fake_python = tmp_path / "python"
+    _executable(fake_python, "#!/usr/bin/env sh\nexit 0\n")
+    env = os.environ.copy()
+    env.update(DATA_MOVER_ENV_FILE=str(env_file), PYTHON_BIN=str(fake_python))
+
+    result = subprocess.run(
+        ["bash", str(PROJECT_ROOT / "scripts" / "run-workbench.sh"), "worker"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "Usage:" in result.stderr

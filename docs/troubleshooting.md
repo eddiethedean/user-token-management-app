@@ -76,7 +76,7 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 | No verification / reset mail | App not running, background task interrupted, or SMTP misconfigured | Confirm the request completed, check the app log and `EMAIL_BACKEND`/SMTP settings, then use `send-email` for one batch |
 | Links only in logs | `EMAIL_BACKEND=console` | Expected locally; use SMTP in production |
 | Messages stuck / dead-lettered | SMTP misconfig or attempt budget | Fix SMTP; `python -m app retry-email` |
-| Multiple app processes/workers on SQLite | In-process email or pipeline claims can race across processes | Use one app process, one pipeline worker, and the in-process email delivery path with SQLite; use PostgreSQL for concurrent workers |
+| Multiple app processes on SQLite | In-process tasks can race across independently started app processes | Use one app process with SQLite; use PostgreSQL when multiple app processes are required |
 
 ## Connections and status
 
@@ -86,7 +86,7 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 | Saved values appear blank | Expected non-reveal behavior | Enter a complete replacement bundle only when rotating or correcting the connection; Data Mover never repopulates plaintext credentials |
 | Status says `Not configured` | No encrypted credential bundle exists for that user/provider | Save the connection under **Connections → Credentials**; connections are owner-scoped |
 | Status says `Untested` | Credentials were saved without a connection test | Use **Test connection** under **Connections → Status** |
-| Status says `Connected`, but the real service is unavailable | Demo handshake, stale real check, or network change | In demo mode this is expected. In real mode run **Test connection** again and inspect worker/connector logs |
+| Status says `Connected`, but the real service is unavailable | Demo handshake, stale real check, or network change | In demo mode this is expected. In real mode run **Test connection** again and inspect app/connector logs |
 | I need a fully populated local demo | The normal app starts without user-owned connections | Run `make demo`; it creates the printed local account and seeds fake `.demo.invalid` credentials for MSS, MCS-COP, and PostgreSQL |
 
 ## Pipelines and saved routes
@@ -98,7 +98,7 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 | Save or Run is disabled | A required connection is missing, the CSV has not been scanned, or the same remote system is selected twice | Follow the availability message above the route. Restore and test the connection, scan the CSV, or choose distinct systems |
 | Cannot save a pipeline | Short name, unavailable connection, invalid catalog object, missing CSV scan, or invalid new-table name | Confirm both remote connections are Connected. Use a name with at least 3 characters and catalog values from the UI. New names must be 2–63 characters, start with a letter, and contain only letters, numbers, or underscores |
 | A saved pipeline is missing | Saved definitions are owner-scoped, or it is older than the 12 most recently updated entries shown | Sign in as the owner; update or recreate the route if it is outside the current list |
-| Run stays queued | The pipeline worker is not running | Start `python -m app pipeline-worker` (demo mode may complete in the web request) |
+| Run stays queued | The in-process runtime is paused or failed | Check the app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; restart the app after correcting the configuration |
 | Run completes but destination is unchanged | Demo connectors, or a Foundry writer flag is off | Demo mode does not write remotely. Real Foundry writers require `PIPELINE_ENABLE_MSS_WRITER` / `PIPELINE_ENABLE_MCSCOP_WRITER` |
 | Run button says transfer is running | A run is already active | Wait for a terminal status or cancel |
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import HTTPException, Request, status
+from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import (
     ActionGroup,
@@ -49,7 +49,6 @@ from hedron import (
 )
 from hedron.htmx import is_htmx_request
 from hedron_core import NodeLike
-from starlette.background import BackgroundTask
 from starlette.responses import Response
 
 from app.config import get_settings
@@ -61,7 +60,6 @@ from app.connectors.locators import (
     parse_snapshot,
 )
 from app.connectors.registry import capabilities_for, connector_for
-from app.database import SessionLocal
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.models import PipelineDefinition, PipelineUpload
 from app.services.catalogs import (
@@ -87,6 +85,7 @@ from app.services.pipeline_runs import (
     request_cancel,
     snapshot_from_definition,
 )
+from app.services.pipeline_tasks import schedule_pipeline_run
 from app.services.pipelines import list_pipelines, save_pipeline
 from app.services.secrets import list_user_secrets
 from app.ui.design_system import (
@@ -2035,15 +2034,6 @@ def _pipeline_body(
     ]
 
 
-def _process_demo_run() -> None:
-    """Run one demo transfer after the response exposes its live monitor."""
-
-    from app.worker import process_one
-
-    with SessionLocal() as worker_db:
-        process_one(worker_db, get_settings())
-
-
 def register_pipeline_routes(app: Hedron) -> None:
     @app.page(
         "/pipeline",
@@ -2345,6 +2335,7 @@ def register_pipeline_routes(app: Hedron) -> None:
         db: DbSession,
         settings: SettingsDep,
         _csrf: RequireCsrf,
+        background_tasks: BackgroundTasks,
         pipeline_id: str,
         idempotency_token: PipelineIdForm = "",
     ) -> Response:
@@ -2368,8 +2359,15 @@ def register_pipeline_routes(app: Hedron) -> None:
         if settings.is_demo_mode and settings.app_env == "test":
             from app.worker import process_one
 
-            process_one(db, settings)
+            process_one(db, settings, run_id=run.id)
             db.refresh(run)
+        else:
+            schedule_pipeline_run(
+                background_tasks,
+                settings,
+                run.id,
+                getattr(request.app.state, "pipeline_stop_event", None),
+            )
         if is_htmx_request(request):
             action_state, action_trace = _run_action_metadata(db, run)
             response = await interaction_response(
@@ -2381,15 +2379,11 @@ def register_pipeline_routes(app: Hedron) -> None:
                     action_trace=action_trace,
                 ),
             )
-            if settings.is_demo_mode and settings.app_env != "test":
-                response.background = BackgroundTask(_process_demo_run)
             return response
         response = RedirectResponse(
             redirect_path(request, f"/pipeline?notice=queued&run_id={run.id}"),
             status_code=status.HTTP_303_SEE_OTHER,
         )
-        if settings.is_demo_mode and settings.app_env != "test":
-            response.background = BackgroundTask(_process_demo_run)
         return response
 
     @app.action(
@@ -2402,6 +2396,7 @@ def register_pipeline_routes(app: Hedron) -> None:
         auth: Auth,
         db: DbSession,
         settings: SettingsDep,
+        background_tasks: BackgroundTasks,
         _csrf: RequireCsrf,
         pipeline_id: PipelineIdForm,
         idempotency_token: PipelineIdForm = "",
@@ -2416,6 +2411,7 @@ def register_pipeline_routes(app: Hedron) -> None:
             auth=auth,
             db=db,
             settings=settings,
+            background_tasks=background_tasks,
             _csrf=_csrf,
             pipeline_id=pipeline_id,
             idempotency_token=idempotency_token,

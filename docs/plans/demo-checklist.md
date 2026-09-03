@@ -20,7 +20,7 @@
 
 ## Recovery path
 
-- If a run stays queued, check the worker process and the [worker runbook](../runbooks/pipeline-worker.md).
+- If a run stays queued, check the app logs and the [pipeline runtime runbook](../runbooks/pipeline-worker.md).
 - If validation fails, correct the connection and rerun; do not edit the database.
 - If a transfer requires reconciliation, stop and follow the operator runbook before retrying.
 

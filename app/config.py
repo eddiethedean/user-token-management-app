@@ -74,7 +74,8 @@ class ConfigDefaults:
     pbkdf2_iterations: int = 600_000
     data_mover_mode: Literal["demo", "real"] = "demo"
     pipeline_worker_id: str = ""
-    pipeline_worker_concurrency: int = 2
+    pipeline_background_poll_seconds: float = 2.0
+    pipeline_janitor_interval_seconds: int = 3_600
     pipeline_lease_seconds: int = 120
     pipeline_batch_rows: int = 25_000
     pipeline_batch_target_bytes: int = 67_108_864
@@ -222,8 +223,11 @@ class Settings(BaseSettings):
 
     data_mover_mode: Literal["demo", "real"] = CONFIG_DEFAULTS.data_mover_mode
     pipeline_worker_id: str = CONFIG_DEFAULTS.pipeline_worker_id
-    pipeline_worker_concurrency: int = Field(
-        default=CONFIG_DEFAULTS.pipeline_worker_concurrency, ge=1, le=32
+    pipeline_background_poll_seconds: float = Field(
+        default=CONFIG_DEFAULTS.pipeline_background_poll_seconds, ge=0.5, le=60
+    )
+    pipeline_janitor_interval_seconds: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_janitor_interval_seconds, ge=60, le=86_400
     )
     pipeline_lease_seconds: int = Field(
         default=CONFIG_DEFAULTS.pipeline_lease_seconds, ge=30, le=3600

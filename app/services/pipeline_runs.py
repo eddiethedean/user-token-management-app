@@ -225,20 +225,24 @@ def claim_run(
     *,
     worker_id: str,
     lease_seconds: int,
+    run_id: str | None = None,
 ) -> tuple[PipelineRun, str] | None:
     now = utcnow()
+    conditions = [
+        or_(
+            PipelineRun.status == PipelineRunStatus.QUEUED.value,
+            and_(
+                PipelineRun.status.in_(WORKER_OWNED_STATUSES),
+                PipelineRun.lease_expires_at.is_not(None),
+                PipelineRun.lease_expires_at <= now,
+            ),
+        )
+    ]
+    if run_id:
+        conditions.append(PipelineRun.id == run_id)
     statement = (
         select(PipelineRun)
-        .where(
-            or_(
-                PipelineRun.status == PipelineRunStatus.QUEUED.value,
-                and_(
-                    PipelineRun.status.in_(WORKER_OWNED_STATUSES),
-                    PipelineRun.lease_expires_at.is_not(None),
-                    PipelineRun.lease_expires_at <= now,
-                ),
-            )
-        )
+        .where(*conditions)
         .order_by(PipelineRun.queued_at, PipelineRun.id)
         .limit(1)
     )

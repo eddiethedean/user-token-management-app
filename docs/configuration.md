@@ -46,8 +46,8 @@ The committed defaults plus the development-only secret placeholders in
 For a session-scoped Workbench operation, `APP_ENV=development` with SQLite and
 `DATA_MOVER_MODE=real` is also supported. It performs live connector checks and transfers and can
 send invitations through SMTP, but it requires generated application secrets, `COOKIE_SECURE=true`,
-and one pipeline worker. Email delivery runs in the web process's FastAPI background task. It is not
-a production or multi-user database. See the
+Email delivery, transfers, lease recovery, and retention cleanup run in the web process's FastAPI
+background runtime. It is not a production or multi-user database. See the
 [operational Workbench deployment](deploy.md#operational-workbench-deployment).
 
 ### Production
@@ -80,7 +80,7 @@ Set or confirm all of the following:
    explicit `PIPELINE_ALLOWED_HTTPS_HOSTS` allowlist. Writers for MSS and
    MCSCOP remain opt-in until their integrations are approved and tested.
 
-The full production sequence, including CA bundles, workers, migrations, and
+The full production sequence, including CA bundles, in-process runtime, migrations, and
 Connect publishing, is in
 [the deployment guide](deploy.md). The production gate is also summarized in
 [`SECURITY.md`](../SECURITY.md#production-security-gate).
@@ -99,6 +99,8 @@ operations require them:
   recovery and `retry-email` requeues dead-lettered messages.
 - `ACCESS_TOKEN_MINUTES`, `REFRESH_TOKEN_HOURS`, and
   `SESSION_IDLE_MINUTES` control session lifetime.
+- `PIPELINE_BACKGROUND_POLL_SECONDS` controls how often the in-process runtime looks for queued or
+  expired runs. `PIPELINE_JANITOR_INTERVAL_SECONDS` controls retention cleanup frequency.
 - `PIPELINE_BATCH_*`, `PIPELINE_HTTP_*`, lease, retention, and size settings
   control throughput, retry behavior, cleanup, and resource ceilings.
 

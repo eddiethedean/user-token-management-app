@@ -2,7 +2,7 @@
 # installed Hedron version from being used accidentally for local checks.
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 
-.PHONY: check demo demo-check hedron-check hedron-build hedron-security-check migrate install serve create-admin pipeline-worker pipeline-janitor schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
+.PHONY: check demo demo-check hedron-check hedron-build hedron-security-check migrate install serve create-admin schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -27,12 +27,6 @@ create-admin:
 	else \
 		$(PYTHON) -m app create-admin --email "$(ADMIN_EMAIL)"; \
 	fi
-
-pipeline-worker:
-	$(PYTHON) -m app pipeline-worker
-
-pipeline-janitor:
-	$(PYTHON) -m app pipeline-janitor
 
 check:
 	$(PYTHON) -m ruff check app tests demo-app

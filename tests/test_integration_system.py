@@ -14,9 +14,9 @@ import httpx2
 import pytest
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.database import SessionLocal
-from app.models import PipelineDefinition, PipelineRun, PipelineRunStatus, User
-from app.services.pipeline_runs import enqueue_run, snapshot_from_definition
+from app.models import PipelineDefinition, PipelineRun, PipelineRunStatus
 from tests.helpers import csrf_from, login_csrf_from, web_login
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -68,15 +68,18 @@ def _run_cli(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str
     )
 
 
-def test_pipeline_worker_cli_processes_run_in_separate_process(client, demo_connections) -> None:
-    """A run queued by the web layer survives until the worker claims it."""
+def test_pipeline_run_executes_as_an_in_process_background_task(
+    client, demo_connections, monkeypatch
+) -> None:
+    """A live-mode run completes in the app process after the enqueue response."""
+    monkeypatch.setattr(get_settings(), "app_env", "development")
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
     saved = client.post(
         "/pipeline/save",
         data={
             "csrf_token": csrf_from(page.text),
-            "pipeline_name": "Cross-process worker route",
+            "pipeline_name": "In-process transfer route",
             "source_provider": "mss",
             "source_schema": "ri.foundry.main.dataset.demo-operations",
             "source_table": "mission_orders.parquet",
@@ -90,46 +93,31 @@ def test_pipeline_worker_cli_processes_run_in_separate_process(client, demo_conn
 
     with SessionLocal() as db:
         pipeline = db.scalar(
-            select(PipelineDefinition).where(
-                PipelineDefinition.name == "Cross-process worker route"
-            )
+            select(PipelineDefinition).where(PipelineDefinition.name == "In-process transfer route")
         )
-        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
-        assert pipeline is not None and user is not None
-        run = enqueue_run(
-            db,
-            user=user,
-            pipeline=pipeline,
-            snapshot=snapshot_from_definition(pipeline),
-        )
-        run_id = run.id
+        assert pipeline is not None
+        pipeline_id = pipeline.id
 
-    env = os.environ.copy()
-    env.update(
-        {
-            "APP_ENV": "test",
-            "DATA_MOVER_MODE": "demo",
-            "PIPELINE_WORKER_ID": "integration-test-worker",
-        }
+    queued = client.post(
+        "/pipeline/runs",
+        data={
+            "csrf_token": csrf_from(client.get("/pipeline").text),
+            "pipeline_id": pipeline_id,
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor"},
     )
-    result = subprocess.run(
-        [sys.executable, "-m", "app", "pipeline-worker", "--once"],
-        cwd=PROJECT_ROOT,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert result.returncode == 0
+    assert queued.status_code == 202
+    assert "queued" in queued.text.lower()
 
     with SessionLocal() as db:
-        completed = db.get(PipelineRun, run_id)
+        completed = db.scalar(
+            select(PipelineRun).where(PipelineRun.pipeline_definition_id == pipeline_id)
+        )
         assert completed is not None
         assert completed.status == PipelineRunStatus.SUCCEEDED.value
         assert completed.finished_at is not None
 
-    history = client.get(f"/pipeline?pipeline_id={pipeline.id}")
+    history = client.get(f"/pipeline?pipeline_id={pipeline_id}")
     assert history.status_code == 200
     assert "Persisted run history" in history.text
     assert "Transfer succeeded." in history.text

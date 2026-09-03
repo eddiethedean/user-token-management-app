@@ -32,9 +32,9 @@ role="${1:-web}"
 shift || true
 
 case "${role}" in
-  web|worker|janitor|migrate|admin) ;;
+  web|migrate|admin) ;;
   *)
-    printf 'Usage: %s [web|worker|janitor|migrate|admin]\n' "$(basename "$0")" >&2
+    printf 'Usage: %s [web|migrate|admin]\n' "$(basename "$0")" >&2
     exit 2
     ;;
 esac
@@ -77,12 +77,6 @@ case "${role}" in
     serve_args=(-m app serve --host 127.0.0.1 --port "${port}")
     [[ "${DATA_MOVER_MODE:-demo}" == "real" ]] && serve_args+=(--discover)
     exec "${python_bin}" "${serve_args[@]}" "$@"
-    ;;
-  worker)
-    exec "${python_bin}" -m app pipeline-worker "$@"
-    ;;
-  janitor)
-    exec "${python_bin}" -m app pipeline-janitor "$@"
     ;;
   migrate)
     "${python_bin}" -m app migrate

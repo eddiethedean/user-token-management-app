@@ -122,15 +122,6 @@ def main() -> None:
     )
     subparsers.add_parser("schema-status", help="Show the current and expected schema revisions")
     subparsers.add_parser("send-email", help="Deliver queued email")
-    pipeline_worker_parser = subparsers.add_parser(
-        "pipeline-worker", help="Claim and execute queued pipeline runs"
-    )
-    pipeline_worker_parser.add_argument("--once", action="store_true")
-    pipeline_worker_parser.add_argument("--poll-seconds", type=float, default=2.0)
-    subparsers.add_parser(
-        "pipeline-janitor",
-        help="Purge expired pipeline runs, events, catalog cache, and spool files",
-    )
     retry_parser = subparsers.add_parser(
         "retry-email", help="Requeue dead-lettered email for another delivery cycle"
     )
@@ -175,21 +166,6 @@ def main() -> None:
                     print(f"Delivered {delivered} message(s).")
         except RuntimeError as exc:
             raise SystemExit(str(exc)) from exc
-    if args.command == "pipeline-worker":
-        from app.worker import run_worker
-
-        run_worker(once=args.once, poll_seconds=args.poll_seconds)
-    if args.command == "pipeline-janitor":
-        from app.services.pipeline_runs import janitor
-
-        assert_schema_current()
-        with SessionLocal() as db:
-            counts = janitor(db, get_settings())
-        print(
-            "Pipeline janitor: "
-            f"events={counts['events']} runs={counts['runs']} "
-            f"catalog_cache={counts['catalog_cache']} spool_files={counts['spool_files']}"
-        )
     if args.command == "retry-email":
         assert_schema_current()
         if args.limit < 1 or args.limit > 200:

@@ -44,11 +44,12 @@ Cursor may implement these without further product input:
 
 - Polars is the canonical batch engine.
 - psycopg 3 is the PostgreSQL driver.
-- real transfers run in a separate durable worker, not a web request or FastAPI background task.
+- real transfers run in the app-owned lifecycle supervisor, outside the web request but inside the
+  Hedron process; response-attached background tasks provide prompt execution for newly queued runs.
 - MSS/MCS-COP locators use dataset/branch/file terminology.
 - production cannot enable demo connectors.
 - the initial provider/route matrix in section 2.1 is authoritative.
-- secrets are decrypted only inside the claimed worker run.
+- secrets are decrypted only inside the claimed transfer execution.
 - status, metrics, and logs shown in the UI must be persisted facts.
 
 These require evidence from Phase 0 and must not be guessed:
@@ -166,7 +167,7 @@ Browser / HTMX
 Pipeline services ───────────────► application PostgreSQL
     │                                  definitions, runs, events, leases
     ▼
-DB-backed pipeline worker
+In-process lifecycle supervisor
     │ decrypt only the two required credential bundles
     ▼
 Connector registry
@@ -196,10 +197,10 @@ Add these modules, keeping responsibilities narrow:
 - `app/services/pipeline_runs.py`: enqueue, claim, execute, cancel, retry, status transitions, metrics,
   event persistence, and ownership checks.
 - `app/services/transfer_engine.py`: provider-neutral extract/load orchestration and verification.
-- `app/worker.py`: long-running worker entry point with graceful shutdown and lease recovery.
+- `app/worker.py`: transfer execution primitives used by the in-process lifecycle supervisor.
 
 Connector interfaces should be typed and async at the orchestration boundary even if psycopg/Polars
-work is executed in a bounded worker thread. Suggested operations:
+work is executed in a bounded execution thread. Suggested operations:
 
 - `test_connection(credentials) -> ConnectionHealth`;
 - `list_namespaces(credentials) -> list[RemoteNamespace]`;
@@ -212,8 +213,8 @@ work is executed in a bounded worker thread. Suggested operations:
 - `abort(load_session)`.
 
 Never pass decrypted credentials through models, route responses, logs, queue payloads, or run-event
-details. Decrypt in the worker immediately before connector construction and discard references when
-the run ends.
+details. Decrypt inside the transfer task immediately before connector construction and discard
+references when the run ends.
 
 ## 5. Polars data path
 
@@ -331,7 +332,7 @@ Add:
 
 - `pipeline_runs`: ID, pipeline/version snapshot, owner, status, attempt, timestamps, heartbeat,
   cancel request, stage, source/destination manifests, row/byte counters, checksum, error category,
-  sanitized error summary, and worker lease fields.
+  sanitized error summary, and execution lease fields.
 - `pipeline_run_events`: monotonic sequence, run ID, timestamp, level, stage, message, and sanitized
   structured detail.
 - `pipeline_run_batches`: optional/coalesced batch sequence, row/byte counts, duration, status, and
@@ -389,12 +390,12 @@ the first slice if batch metrics are represented as coalesced events, but the UI
 depend on one row per batch.
 
 Use optimistic/conditional updates for transitions, for example “update where current status is
-`queued` and lease is absent.” A route must never set worker-owned execution states directly.
+`queued` and lease is absent.” A route must never set execution-owned states directly.
 
 ### 6.5 Definition JSON contracts
 
-Validate JSON through versioned Pydantic discriminated unions before storage and again when a worker
-loads a snapshot. Unknown versions or kinds fail closed.
+Validate JSON through versioned Pydantic discriminated unions before storage and again when the
+runtime loads a snapshot. Unknown versions or kinds fail closed.
 
 Minimum locator kinds:
 
@@ -450,19 +451,22 @@ Outbound protections:
 
 Use an injectable TLS/bootstrap service. Unit tests mock that boundary instead of importing a fake
 top-level `socom_ca_fix` module. If deployment mandates `socom_ca_fix`, wrap it in one adapter called
-once during worker startup and mock the adapter in tests. Prefer a configured `ssl.SSLContext` with
+once during app startup and mock the adapter in tests. Prefer a configured `ssl.SSLContext` with
 the approved NIPR CA bundle.
 
-## 8. Worker and operational model
+## 8. In-process runtime and operational model
 
-Do not execute a real transfer inside `/pipeline/run` or a FastAPI background task. Add a separate
-worker process and a CLI command such as `python -m app pipeline-worker`.
+The Hedron app enqueues a durable run and attaches an in-process FastAPI background task to the
+response. A lifecycle supervisor in the same app process also claims queued or expired runs and
+periodically performs retention cleanup, so a dropped response or app restart does not strand work.
+There is no standalone pipeline-worker or pipeline-janitor service; restart the Hedron app after
+correcting an operational failure so its lifecycle supervisor can recover queued work.
 
-Worker requirements:
+Runtime requirements:
 
 - claim runs atomically from the application PostgreSQL database using row locking/leases;
-- limit global concurrency and per-user/per-provider concurrency;
-- heartbeat leases and recover from worker death;
+- serialize transfer and maintenance work per app process; rely on leases for PostgreSQL app replicas;
+- heartbeat leases and recover from app-process restart;
 - honor cancellation between batches and before irreversible finalization;
 - use a unique run-scoped temporary directory with restrictive permissions;
 - enforce maximum source bytes, rows, duration, spool bytes, and log/event counts;
@@ -471,13 +475,14 @@ Worker requirements:
 - shut down gracefully without claiming new work;
 - make retry policy provider- and stage-aware.
 
-SQLite may remain supported for unit tests, the demo UI, and a session-scoped single-operator
-Workbench live mode. Real multi-process or production execution requires application PostgreSQL;
-validate that condition at worker startup.
+SQLite remains supported for unit tests, the demo UI, and a session-scoped single-operator
+Workbench live mode. Production uses application PostgreSQL for concurrent access and durability;
+the in-process runtime validates the configured database at startup.
 
-Add deployment configuration for worker replicas, concurrency, batch sizes, quotas, CA bundle,
-endpoint allowlists, HTTP timeouts, retry limits, catalog TTL, and retention periods. Update Docker,
-Posit Connect guidance, Make targets, `.env.example`, and operations documentation.
+Document deployment process/replica sizing alongside batch sizes, quotas, CA bundle, endpoint
+allowlists, HTTP timeouts, retry limits, catalog TTL, and retention periods. The runtime executes one
+transfer at a time per app process; PostgreSQL replicas provide the supported scale-out mechanism.
+Update Docker, Posit Connect guidance, Make targets, `.env.example`, and operations documentation.
 
 ### 8.1 Configuration contract
 
@@ -486,15 +491,14 @@ Add typed settings with safe bounds. Suggested names and initial defaults:
 | Setting | Initial value | Production behavior |
 |---|---:|---|
 | `DATA_MOVER_MODE` | `demo` in development/test | MUST be `real` |
-| `PIPELINE_WORKER_ID` | generated hostname/process ID | unique per worker |
-| `PIPELINE_WORKER_CONCURRENCY` | `2` | tune after load test |
+| `PIPELINE_WORKER_ID` | generated hostname/process ID | unique per app process |
 | `PIPELINE_LEASE_SECONDS` | `120` | heartbeat before half-life |
 | `PIPELINE_BATCH_ROWS` | `25000` | bounded 1,000–250,000 |
 | `PIPELINE_BATCH_TARGET_BYTES` | `67108864` | hard upper bound per in-memory batch |
 | `PIPELINE_MAX_RUN_SECONDS` | `14400` | terminate cooperatively, then fail |
 | `PIPELINE_MAX_SOURCE_BYTES` | operator-selected | required in production |
 | `PIPELINE_MAX_SPOOL_BYTES` | operator-selected | less than provisioned free space |
-| `PIPELINE_SPOOL_ROOT` | empty/dev temp root | required protected worker volume |
+| `PIPELINE_SPOOL_ROOT` | empty/dev temp root | required protected app volume |
 | `PIPELINE_HTTP_CONNECT_SECONDS` | `10` | bounded |
 | `PIPELINE_HTTP_READ_SECONDS` | `120` | bounded |
 | `PIPELINE_HTTP_WRITE_SECONDS` | `120` | bounded |
@@ -521,7 +525,7 @@ credentials, not global settings.
 - Foundry destination filenames and transaction IDs must support reconciliation after a timeout. If
   the API has no idempotency facility, a timed-out publish is not automatically retryable.
 - Lease recovery must distinguish pre-write, staging-only, upload-uncertain, and committed states.
-- At most one worker may own a lease token; every heartbeat/final transition checks that token.
+- At most one execution task may own a lease token; every heartbeat/final transition checks that token.
 
 ### 8.3 Failure taxonomy
 
@@ -595,7 +599,7 @@ The application remains HTML/HTMX-first; these are not public JSON APIs.
   return success merely because a database row was created; the UI label must say Queued.
 - Status fragments include the run ID and last event sequence. Poll requests pass the sequence so the
   server returns only new event lines while always returning the authoritative summary.
-- Cancellation sets `cancel_requested_at`; it does not claim the run is cancelled until the worker
+- Cancellation sets `cancel_requested_at`; it does not claim the run is cancelled until the runtime
   reaches a safe boundary and persists the terminal state.
 - Retry creates a new run linked to the prior run and copies its immutable definition snapshot only
   after current credentials/locators are revalidated.
@@ -624,7 +628,7 @@ a server run and begin HTMX polling. Render only persisted facts:
 - rows/bytes extracted and loaded;
 - actual throughput and elapsed time;
 - batch counts derived from run events;
-- sanitized worker log events;
+- sanitized transfer-task log events;
 - final source/destination manifests and verification result;
 - actionable failure category and retry button when safe;
 - cancel control for non-terminal runs.
@@ -688,7 +692,8 @@ method, path encoding, headers, timeouts, redirect policy, and response parsing.
   keys, schema drift, and all write modes.
 - Semblance Foundry simulator (`tests/simulators/foundry.py`) that supports listing, streaming
   downloads, preview upload, upload failures, and Bearer auth against sanitized fixtures.
-- Worker crash/restart during extraction, upload, and finalization.
+- App-process restart during extraction, upload, and finalization, with lease recovery or
+  reconciliation according to the current stage.
 - End-to-end browser flow: configure → test → browse → save → run → poll → verify result.
 - Approved non-production MSS and MCS-COP smoke tests behind opt-in markers and environment secrets.
 
@@ -699,14 +704,14 @@ request. Live tests require an explicit marker and deny-by-default environment f
 
 Update:
 
-- `pyproject.toml` and `requirements.txt`: add Polars and any confirmed HTTP/worker dependencies;
+- `pyproject.toml` and `requirements.txt`: add Polars and any confirmed HTTP/runtime dependencies;
   standardize on psycopg 3 and remove standalone `psycopg2`, pandas, and unnecessary PyArrow usage.
-- `.env.example`: worker, quota, TLS, allowlist, catalog, timeout, retry, and retention settings.
+- `.env.example`: pipeline runtime, quota, TLS, allowlist, catalog, timeout, retry, and retention settings.
 - `README.md`: stop calling real-transfer mode a simulation; retain a clearly separated offline demo.
-- `docs/architecture.md`: worker trust boundary, connectors, spooling, and run persistence.
+- `docs/architecture.md`: in-process runtime trust boundary, connectors, spooling, and run persistence.
 - `docs/user-guide.md`: real credential risks, provider-specific object selection, run/cancel/retry.
-- `docs/deploy.md`: web + worker deployment, CA bundle, network egress, disk sizing, DB requirements.
-- `SECURITY.md`: outbound SSRF controls, decrypted credential lifetime, worker isolation, log redaction,
+- `docs/deploy.md`: single-app deployment, CA bundle, network egress, disk sizing, DB requirements.
+- `SECURITY.md`: outbound SSRF controls, decrypted credential lifetime, runtime isolation, log redaction,
   spool handling, and provider token rotation.
 - `CONTRIBUTING.md`: fake connector and opt-in live-test workflow.
 
@@ -729,7 +734,7 @@ conventions, but responsibilities should not be collapsed into the pipeline rout
 | Run execution | `app/cli.py`, `app/__main__.py` | `app/services/{pipeline_runs,transfer_engine}.py`, `app/worker.py` |
 | UI | `app/ui/routes/pipeline.py`, `app/static/app.js`, `app/static/theme.css`, region declarations | run/catalog fragments if splitting improves reviewability |
 | CSV | `app/services/csv_uploads.py`, `app/models.py` | storage backend abstraction |
-| Tests | `tests/conftest.py`, existing pipeline/secret/UI tests | connector, worker, state-machine, contract, and integration test modules |
+| Tests | `tests/conftest.py`, existing pipeline/secret/UI tests | connector, runtime, state-machine, contract, and integration test modules |
 | Operations/docs | `Makefile`, Docker/Connect config, README and security/operator docs | provider protocol notes and sanitized fixtures |
 
 Do not add pandas-based compatibility utilities. Do not import from `transfer_code/` in production.
@@ -754,7 +759,7 @@ Use these IDs in commits/PR descriptions and complete them in dependency order.
 | `RT-10` | PostgreSQL bounded source | `RT-06` | memory and mixed-type integration tests |
 | `RT-11` | MSS bounded source | `RT-07` | paginated multi-file contract tests |
 | `RT-12` | PostgreSQL destination modes | `RT-06`,`RT-10` | append/upsert/replace/failure tests |
-| `RT-13` | worker CLI and transfer orchestration | `RT-04`,`RT-09`–`RT-12` | end-to-end MSS/CSV → PostgreSQL |
+| `RT-13` | in-process transfer orchestration | `RT-04`,`RT-09`–`RT-12` | end-to-end MSS/CSV → PostgreSQL |
 | `RT-14` | Parquet spool and Foundry destinations | `RT-07`,`RT-13` | publish/reconcile/quota tests |
 | `RT-15` | enqueue/cancel/poll/retry UI | `RT-13`,`RT-14` | reloadable browser E2E tests |
 | `RT-16` | retention, janitor, metrics, operations | `RT-13`–`RT-15` | soak/crash/runbook evidence |
@@ -800,7 +805,7 @@ Exit: users can test connections and browse approved non-production objects; no 
 1. Convert CSV inspection/read to Polars.
 2. Implement PostgreSQL and MSS bounded extraction.
 3. Implement PostgreSQL staging, append/upsert/replace, cleanup, and verification.
-4. Deliver CSV → PostgreSQL and MSS → PostgreSQL end to end through the worker.
+4. Deliver CSV → PostgreSQL and MSS → PostgreSQL end to end through the in-process runtime.
 
 Exit: route integration tests pass with bounded memory and truthful persisted metrics.
 
@@ -820,7 +825,7 @@ duplicate or falsely successful publishes.
 3. Add recent runs, manifests, retry eligibility, and accurate error states.
 4. Remove all fabricated metrics/catalog code and simulation copy from real mode.
 
-Exit: every displayed metric comes from persisted worker state; refresh/resume works during a run.
+Exit: every displayed metric comes from persisted run state; refresh/resume works during a run.
 
 ### Phase 6 — hardening and cleanup
 
@@ -852,8 +857,8 @@ Rollback rules:
 
 - Database migrations in a release must be additive until the new path has survived the observation
   window. Do not drop legacy definition columns in the same release that stops writing them.
-- Disabling a writer prevents new claims but does not abandon active runs; workers drain or cancel at
-  a safe boundary according to the operator runbook.
+- Disabling a writer prevents new claims but does not abandon active runs; the in-process supervisor
+  drains or cancels at a safe boundary according to the operator runbook.
 - A rollback must not relabel uncertain remote publishes as failed/retryable. Preserve them as
   `publish_uncertain` for reconciliation.
 - Keep old web code able to read new nullable columns during the compatibility window.
@@ -862,7 +867,7 @@ Rollback rules:
 
 Before production enablement, operators must have runbooks for stuck leases, partial PostgreSQL
 staging tables, uncertain Foundry uploads, spool exhaustion, credential revocation, CA rotation,
-worker shutdown, and audit export.
+  app-runtime shutdown, and audit export.
 
 ### 13.2 Measurable release gates
 
@@ -871,10 +876,11 @@ throughput:
 
 - Peak resident memory remains within configured batch/spool overhead and does not grow linearly with
   source row count during a dataset at least ten times larger than the batch size.
-- No test or production transfer creates more than the configured concurrent source/destination
-  connections per worker.
-- Cancellation is observed by the worker within one completed batch or one bounded HTTP operation.
-- A killed worker's expired pre-write/staging run is reclaimed within two lease periods.
+- Each app process runs at most one transfer and one maintenance task at a time; PostgreSQL replica
+  count is deployment-controlled for scale-out.
+- Cancellation is observed by the in-process runtime within one completed batch or one bounded HTTP
+  operation.
+- An interrupted app process's expired pre-write/staging run is reclaimed within two lease periods.
 - Duplicate enqueue with the same idempotency token creates exactly one run.
 - Logs/events contain none of the seeded sentinel tokens, passwords, DSNs, sensitive query strings,
   or raw data-cell values.
@@ -890,14 +896,14 @@ throughput:
 - The supported route matrix exactly matches connector capabilities shown in the UI.
 - MSS/MCS-COP use dataset/branch/file terminology and validated RIDs.
 - All dataframe/file processing uses Polars; transfers operate in bounded memory.
-- Web requests only enqueue/control runs; a durable worker executes them.
-- Credentials are decrypted only inside the worker execution boundary and never persisted in runs.
+- Web requests only enqueue/control runs; the in-process runtime executes them.
+- Credentials are decrypted only inside the transfer execution boundary and never persisted in runs.
 - SQL identifiers are safely composed and every load uses explicit columns.
 - HTTP calls have TLS verification, allowlists, size limits, bounded timeouts, safe retries, and
   sanitized errors.
 - Every run has an immutable definition snapshot, valid state history, real metrics, and a provider-
   appropriate verification manifest.
-- Cancellation, worker crash, stale lease, partial upload, schema drift, quota exhaustion, and
+- Cancellation, app-process interruption, stale lease, partial upload, schema drift, quota exhaustion, and
   destination conflict are tested.
 - Unit/contract/integration/UI tests pass; live tests remain explicit and opt-in.
 - Demo mode remains isolated and unmistakably labeled; production cannot enable it.
