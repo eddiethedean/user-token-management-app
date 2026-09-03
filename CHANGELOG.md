@@ -1,12 +1,15 @@
 # Changelog
 
-## [Unreleased / Hedron 1.0.0] — 2026-08-30
+## [Unreleased / Hedron 1.0 train] — 2026-08-30
 
 - Upgraded the runtime and Posit integration to the compatible Hedron 1.0.0 train.
 - Migrated dependency-heavy fragment endpoints from the removed `component` route role to
   `HedronRouter.view`.
-- Added a narrow Workbench middleware compatibility bridge for the published 1.0.0 Posit adapter
-  and its 1.0.1 `fastapi-workbench` dependency.
+- Updated the Hedron runtime minimum to 1.0.8, the Posit adapter minimum to 1.0.9, and the
+  compatible `fastapi-workbench` dependency to 1.0.10.
+- Added a narrow Workbench middleware compatibility bridge for the published 1.0 Posit adapter.
+- Documented session-scoped operational Workbench deployment with SQLite/live and PostgreSQL/live
+  modes, in-process email delivery, and a supervised pipeline worker.
 - Added bounded 0.65 scoped motion/style registration and 0.66 typography presentation profiles.
 - Restored the wide desktop canvas and aligned nested auth/workspace surfaces with the selected
   light or dark color mode.

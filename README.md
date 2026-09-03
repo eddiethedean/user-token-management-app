@@ -167,8 +167,9 @@ must not contain the email local-part; optional offline blocklist in production.
 (prompts for password). The same command **promotes** an existing user to administrator.
 
 Email delivery starts automatically with the app when an email-producing request completes. With
-`EMAIL_BACKEND=console`, verification and reset links print to the app log. There is no email worker
-to start; `send-email` remains available for one-shot recovery and `retry-email` requeues dead letters.
+`EMAIL_BACKEND=console`, verification and reset links print to the app log. There is no separate
+email worker to start; `send-email` remains available for one-shot recovery and `retry-email`
+requeues dead letters.
 
 ## Explore the demo
 
@@ -253,15 +254,17 @@ SMTP, rate limits, and more). Checklist: [SECURITY.md — Production security ga
 
 For a disposable evaluation of the full app, use the dedicated
 [Connect SQLite demo guide](docs/connect-sqlite-demo.md). The full
-[step-by-step Posit guide](docs/deploy.md) covers Python 3.11 setup, installation, configuration,
-migrations, administrator bootstrap, the Workbench session URL, production secrets, PostgreSQL
-provisioning from `DB_*` credentials, SMTP invitations, directory email checks, Hedron assets,
-`.env`-driven Connect publishing, background workers, and verification. Connect 2025.06.0
+[step-by-step Posit guide](docs/deploy.md) covers the local and operational Workbench paths, the
+SQLite Connect evaluation, and production Connect deployment. It includes Python 3.11 setup,
+installation, configuration, migrations, administrator bootstrap, Workbench session URLs,
+production secrets, PostgreSQL provisioning from `DB_*` credentials, SMTP invitations, directory
+email checks, Hedron assets, `.env`-driven Connect publishing, in-process email delivery, the
+pipeline worker and janitor, and verification. Connect 2025.06.0
 and 2026.07 have both passed licensed, proxy-free application-cookie acceptance tests. Access
 Data Mover keeps its own users and sessions rather than treating Connect identity as application
 identity.
 
-Workbench development setup begins with:
+Workbench demo setup begins with:
 
 ```bash
 python3.11 -m venv .venv
@@ -281,6 +284,11 @@ documented in [the deployment guide](docs/deploy.md#configure-env-and-email).
 The seed step is development-only, preserves existing connection bundles by default, and makes the
 three demo providers immediately available on Pipeline. The disposable Connect SQLite guide
 uses the same step before bundling its database; production Connect explicitly omits it.
+
+For live connector checks, transfers, and SMTP invitations from Workbench, follow the
+[operational Workbench deployment](docs/deploy.md#operational-workbench-deployment). That path
+supports session-scoped SQLite/live operation for one operator or PostgreSQL/live operation when
+the database and provider access are approved.
 
 Optional local regression against a real Workbench image (put a trial key in `.env` only —
 never commit it):

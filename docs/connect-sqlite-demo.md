@@ -25,7 +25,7 @@ This is a disposable demo, not a production configuration:
 - Share the content only with the specific people evaluating it. Do not store real connection
   credentials, CSV data, or other operational data in this demo.
 
-Use the [production Connect guide](deploy.md#deploy-the-app-to-posit-connect) when
+Use the [production Connect guide](deploy.md#production-deployment) when
 you need durable data, multiple processes, SMTP, trusted-header authentication, or production use.
 Evaluators can follow the [Data Mover user guide](user-guide.md) after signing in.
 
