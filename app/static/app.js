@@ -38,6 +38,23 @@ function initializeNavCollapse() {
   setNavCollapsed(storedNavCollapsePreference(), { persist: false });
 }
 
+const scheduledToastExpiry = new WeakSet();
+
+function scheduleToastExpiry(node) {
+  if (!(node instanceof HTMLElement) || scheduledToastExpiry.has(node)) return;
+  const ttl = node.getAttribute("data-hedron-ttl");
+  const milliseconds = Number(ttl);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return;
+  scheduledToastExpiry.add(node);
+  window.setTimeout(() => node.remove(), milliseconds);
+}
+
+function scheduleVisibleToasts() {
+  const host = document.getElementById("hedron-toast");
+  if (!(host instanceof HTMLElement)) return;
+  host.querySelectorAll("[data-hedron-toast]").forEach(scheduleToastExpiry);
+}
+
 function applyColorMode(mode) {
   const normalized = mode === "dark" ? "dark" : "light";
   document.querySelectorAll("[data-theme]").forEach((element) => {
@@ -119,6 +136,10 @@ document.addEventListener("htmx:sendError", (event) => {
 });
 
 document.addEventListener("htmx:afterSettle", initializeNavCollapse);
+
+document.addEventListener("htmx:afterSwap", scheduleVisibleToasts);
+document.addEventListener("htmx:oobAfterSwap", scheduleVisibleToasts);
+scheduleVisibleToasts();
 
 document.addEventListener("DOMContentLoaded", () => {
   const nav = document.getElementById("side-nav");
