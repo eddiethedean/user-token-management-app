@@ -1,8 +1,9 @@
 # Prefer the repository virtualenv when one exists. This prevents a globally
 # installed Hedron version from being used accidentally for local checks.
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
+POSIT_CLI ?= $(if $(wildcard $(dir $(PYTHON))hedron-posit),$(dir $(PYTHON))hedron-posit,hedron-posit)
 
-.PHONY: check demo demo-check hedron-check hedron-build hedron-security-check migrate install serve create-admin schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
+.PHONY: check demo demo-check hedron-check hedron-build hedron-security-check posit-check migrate install serve create-admin schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -33,6 +34,7 @@ check:
 	$(PYTHON) -m ruff format --check app tests demo-app
 	$(PYTHON) -m basedpyright app
 	$(MAKE) hedron-check
+	$(MAKE) posit-check
 	$(PYTHON) -m pytest --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
 	$(MAKE) demo-check
 
@@ -45,6 +47,9 @@ hedron-check:
 hedron-security-check:
 	mkdir -p .hedron
 	$(PYTHON) -m hedron security-check --policy strict --format sarif > .hedron/security-report.sarif
+
+posit-check:
+	$(POSIT_CLI) check --matrix
 
 hedron-build:
 	$(PYTHON) -m hedron build

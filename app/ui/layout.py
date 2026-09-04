@@ -53,6 +53,7 @@ from starlette.responses import Response
 
 from app.config import Settings
 from app.dependencies import AuthContext
+from app.security.cookies import COLOR_MODE_COOKIE, THEME_COOKIE, set_application_cookie
 from app.ui.design_system import APP_SHELL_NAV_STYLE_CLASS
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import csrf_hidden, submit_button
@@ -60,8 +61,6 @@ from app.ui.icons import NAV_ICONS
 from app.ui.urls import asset_href, asset_src, form_action, hx_attrs, page_href
 
 INDICATOR = "#global-request-indicator"
-THEME_COOKIE = "data_mover_theme"
-COLOR_MODE_COOKIE = "data_mover_color_mode"
 THEME_CHOICES = ("data-mover", "aurora")
 UI_PREFERENCE_MAX_AGE = 31536000
 
@@ -102,13 +101,10 @@ def set_color_mode_cookie(
 
     mode = color_mode if color_mode in {"light", "dark"} else "light"
     path = "/" if settings.cookie_path == "auto" else settings.cookie_path
-    common = {
-        "secure": settings.cookie_secure,
-        "httponly": True,
-        "samesite": "lax",
-        "path": path,
-    }
     if path not in {None, "/"}:
+        # Remove cookies produced by older deployments before mount-aware paths
+        # were enabled. Otherwise browsers send both names and frameworks may
+        # retain the stale root value.
         response.delete_cookie(
             COLOR_MODE_COOKIE,
             secure=settings.cookie_secure,
@@ -116,11 +112,13 @@ def set_color_mode_cookie(
             samesite="lax",
             path="/",
         )
-    response.set_cookie(
+    set_application_cookie(
+        response,
+        request,
+        settings,
         COLOR_MODE_COOKIE,
         mode,
         max_age=UI_PREFERENCE_MAX_AGE,
-        **common,
     )
 
 

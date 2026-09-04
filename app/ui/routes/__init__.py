@@ -8,6 +8,7 @@ from hedron import Hedron, HedronRouter
 from hedron.htmx import is_htmx_request
 
 from app.dependencies import Auth, DbSession, OptionalAuth, RequireCsrf, SettingsDep
+from app.security.cookies import set_application_cookie
 from app.ui.layout import (
     THEME_CHOICES,
     THEME_COOKIE,
@@ -55,14 +56,6 @@ def register_routes(app: Hedron) -> None:
         )
         auth.user.preferred_color_mode = preference.color_mode
         db.commit()
-        path = "/" if settings.cookie_path == "auto" else settings.cookie_path
-        common = {
-            "secure": settings.cookie_secure,
-            "httponly": True,
-            "samesite": "lax",
-            "path": path,
-            "max_age": UI_PREFERENCE_MAX_AGE,
-        }
         response = (
             Response(status_code=status.HTTP_204_NO_CONTENT)
             if is_htmx_request(request)
@@ -71,7 +64,14 @@ def register_routes(app: Hedron) -> None:
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         )
-        response.set_cookie(THEME_COOKIE, preference.theme, **common)
+        set_application_cookie(
+            response,
+            request,
+            settings,
+            THEME_COOKIE,
+            preference.theme,
+            max_age=UI_PREFERENCE_MAX_AGE,
+        )
         set_color_mode_cookie(
             response,
             request=request,

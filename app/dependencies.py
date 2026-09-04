@@ -11,7 +11,13 @@ from app.config import Settings, get_settings
 from app.database import get_db
 from app.dev_trace import dev_trace
 from app.models import RefreshSession, User, utcnow
-from app.security.cookies import ACCESS_COOKIE, REFRESH_COOKIE, request_cookie_values
+from app.security.cookies import (
+    ACCESS_COOKIE,
+    REFRESH_COOKIE,
+    delete_application_cookie,
+    request_cookie_values,
+    set_application_cookie,
+)
 from app.security.csrf import assert_csrf
 from app.security.tokens import AccessTokenError, decode_access_token, hash_token
 from app.services.auth import SessionTokens, TokenFlowError, rotate_session
@@ -182,18 +188,22 @@ def set_auth_cookies(
         legacy = {**common, "path": "/"}
         response.delete_cookie(ACCESS_COOKIE, **legacy)
         response.delete_cookie(REFRESH_COOKIE, **legacy)
-    response.set_cookie(
+    set_application_cookie(
+        response,
+        request,
+        settings,
         ACCESS_COOKIE,
         tokens.access_token,
         max_age=tokens.access_expires_in,
-        **common,
     )
     refresh_remaining = int((tokens.session.absolute_expires_at - utcnow()).total_seconds())
-    response.set_cookie(
+    set_application_cookie(
+        response,
+        request,
+        settings,
         REFRESH_COOKIE,
         tokens.refresh_token,
         max_age=max(0, refresh_remaining),
-        **common,
     )
     dev_trace(
         "auth.cookies.issued",
@@ -212,8 +222,8 @@ def clear_auth_cookies(response: Response, settings: Settings, request: Request)
         "httponly": True,
         "samesite": "lax",
     }
-    response.delete_cookie(ACCESS_COOKIE, **common)
-    response.delete_cookie(REFRESH_COOKIE, **common)
+    delete_application_cookie(response, request, settings, ACCESS_COOKIE)
+    delete_application_cookie(response, request, settings, REFRESH_COOKIE)
     if path not in {None, "/"}:
         legacy = {**common, "path": "/"}
         response.delete_cookie(ACCESS_COOKIE, **legacy)

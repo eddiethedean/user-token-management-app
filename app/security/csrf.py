@@ -10,7 +10,12 @@ from fastapi import HTTPException, Request, Response, status
 
 from app.config import Settings
 from app.dev_trace import dev_trace
-from app.security.cookies import PREAUTH_CSRF_COOKIE, request_cookie_values
+from app.security.cookies import (
+    PREAUTH_CSRF_COOKIE,
+    delete_application_cookie,
+    request_cookie_values,
+    set_application_cookie,
+)
 
 PREAUTH_CSRF_MAX_AGE = 3600
 
@@ -100,14 +105,13 @@ def set_preauth_csrf_cookie(
             httponly=True,
             samesite="lax",
         )
-    response.set_cookie(
+    set_application_cookie(
+        response,
+        request,
+        settings,
         PREAUTH_CSRF_COOKIE,
         token,
         max_age=PREAUTH_CSRF_MAX_AGE,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite="lax",
-        path=path,
     )
     dev_trace(
         "csrf.preauth.cookie.issued",
@@ -120,13 +124,7 @@ def set_preauth_csrf_cookie(
 
 def clear_preauth_csrf_cookie(response: Response, request: Request, settings: Settings) -> None:
     path = "/" if settings.cookie_path == "auto" else settings.cookie_path
-    response.delete_cookie(
-        PREAUTH_CSRF_COOKIE,
-        path=path,
-        secure=settings.cookie_secure,
-        httponly=True,
-        samesite="lax",
-    )
+    delete_application_cookie(response, request, settings, PREAUTH_CSRF_COOKIE)
     if path != "/":
         response.delete_cookie(
             PREAUTH_CSRF_COOKIE,

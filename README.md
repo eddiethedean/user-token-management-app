@@ -234,6 +234,7 @@ Schema must be current before `create-admin` or `serve` (startup checks).
 | `make create-admin` | Uses `ADMIN_EMAIL` (default `admin@example.gov`); set `ADMIN_BOOTSTRAP_PASSWORD` for non-interactive local mode |
 | `make check` | ruff + basedpyright + pytest (80% coverage gate) |
 | `make hedron-check` | Validate Hedron routes and interaction contracts |
+| `make posit-check` | Validate HedronPosit deployment and cookie-path matrix |
 | `make hedron-build` | Build the production Hedron asset manifest |
 | `make workbench-up` | Start licensed Posit Workbench + app Docker stack (needs `POSIT_WORKBENCH_KEY`) |
 | `make workbench-test` | Opt-in Workbench Docker integration tests |

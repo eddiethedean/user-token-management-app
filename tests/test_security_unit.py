@@ -223,6 +223,82 @@ def test_hedron_posit_mount_drives_app_paths_and_root_cookie_emission() -> None:
     assert settings().cookie_path == "auto"
 
 
+def test_application_cookies_use_hedron_posit_mount_registry() -> None:
+    from hedron_posit import CookieRegistry, CookieSpec
+    from starlette.responses import Response
+
+    from app.security.cookies import set_application_cookie
+
+    mount = "/s/session/p/8765"
+    registry_app = SimpleNamespace(
+        state=SimpleNamespace(hedron_mount_path=mount),
+        _owned_cookie_names=lambda: (),
+    )
+    cookies = CookieRegistry(registry_app)
+    cookies.register(CookieSpec("data-mover-test", secure=False))
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "https",
+            "server": ("workbench.example", 443),
+            "path": f"{mount}/profile",
+            "raw_path": f"{mount}/profile".encode(),
+            "root_path": mount,
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 1),
+            "app": SimpleNamespace(cookies=cookies),
+        }
+    )
+    response = Response()
+    set_application_cookie(
+        response,
+        request,
+        settings(cookie_secure=False),
+        "data-mover-test",
+        "enabled",
+        max_age=60,
+    )
+
+    assert response.headers["set-cookie"] == (
+        "data-mover-test=enabled; HttpOnly; Max-Age=60; Path=/s/session/p/8765; SameSite=lax"
+    )
+
+
+def test_application_cookies_fall_back_without_an_asgi_app() -> None:
+    from starlette.responses import Response
+
+    from app.security.cookies import delete_application_cookie, set_application_cookie
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "path": "/",
+            "raw_path": b"/",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 1),
+        }
+    )
+    response = Response()
+    test_settings = settings(cookie_secure=False)
+
+    set_application_cookie(response, request, test_settings, "data-mover-test", "enabled")
+    delete_application_cookie(response, request, test_settings, "data-mover-test")
+
+    assert response.headers["set-cookie"].startswith("data-mover-test=enabled;")
+    deleted = response.raw_headers[-1][1].decode()
+    assert deleted.startswith('data-mover-test=""; expires=')
+    assert "Max-Age=0" in deleted
+    assert "Path=/" in deleted
+    assert "SameSite=lax" in deleted
+
+
 def test_forwarded_source_is_used_only_for_an_explicitly_trusted_proxy() -> None:
     untrusted = settings(trusted_proxy_ips="")
     trusted = settings(trusted_proxy_ips="10.0.0.10")

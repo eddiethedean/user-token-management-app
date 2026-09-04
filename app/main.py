@@ -26,7 +26,6 @@ from hedron import Heading, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
 from hedron_core import RenderMode, compile_style_bundle
-from hedron_core.registry import register_application_style
 from hedron_core.request_budget import RequestBudget, reset_request_budget, set_request_budget
 from hedron_posit import ConnectConfig, HedronPosit, PositConfig
 from pydantic import BaseModel
@@ -119,12 +118,11 @@ static_directory = Path(__file__).resolve().parent / "static"
 
 # Register product CSS with Hedron's 0.65 application-style catalog so future
 # Registry inspection sees its provenance without exposing a host path.
-register_application_style(
+app.styles(
     name="data-mover-art-direction",
     source=static_directory / "theme.css",
     global_=True,
     layer="application",
-    provenance="Data Mover product art direction; Hedron application CSS contract.",
     allowed_roots=(static_directory.parent.parent,),
 )
 

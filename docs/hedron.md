@@ -14,6 +14,7 @@ subsystems.
 | HTMX interactions | `InteractionResult`, declared `FragmentRegion` values, target authorization, OOB updates, push URLs, indicators, lazy loading, and refresh controls. |
 | Polling + long-running run UX | Pipeline monitor responses now emit Hedron-safe `hx-` polling hints (`hx-get`/`hx-trigger`) so live updates use declarative HTMX cycles instead of ad-hoc polling clients. |
 | Safe URLs | Mount-aware paths are parsed as Hedron `SafeUrl` values for navigation and form actions. |
+| Posit-owned cookies | All application cookies are registered with `HedronPosit`; automatic cookie paths use its deployment-aware cookie registry, including Workbench session mounts and Connect handoff. |
 | Public rendering APIs | Pages use `render_component_response`; interactions use `render_interaction`. |
 | Security policy integration | Hedron is told that Data Mover owns CSRF and response headers; fragment targets still fail closed. |
 | Production assets | `python -m hedron build` creates the checked production manifest; CI builds it after quality checks. |
@@ -237,3 +238,8 @@ HTML.
    at wide and medium desktop widths in both light and dark modes, with no console errors.
 5. Verify that `app.js` remains limited to application-owned progressive enhancement (dialog close
    and navigation affordances); Hedron owns HTMX loading, history, and lazy-region behavior.
+
+The normal `make check` target also runs `make posit-check`, which evaluates HedronPosit's
+root, Workbench, proxy, Connect, and external-base deployment matrix without requiring a live
+Posit installation. Use `hedron-posit check app.main:app --discover` or the Workbench Docker
+checks when validating an actual session URL and proxy handoff.

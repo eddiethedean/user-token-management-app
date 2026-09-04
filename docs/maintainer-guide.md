@@ -119,6 +119,7 @@ Useful commands:
 make schema-status
 make check
 make hedron-check
+make posit-check
 make hedron-build
 python -m hedron --app app.main:app routes
 hedron-posit check app.main:app --discover
