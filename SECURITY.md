@@ -6,7 +6,7 @@ support design review and preparation of an organization-specific system securit
 
 It is **not** an authorization to operate, a claim of FedRAMP or DoD compliance, or a substitute for
 the system owner's risk assessment. Repository implementation facts and deployment instructions were
-last reviewed on 2026-08-26; the linked standards and guidance remain reference material and must be
+last reviewed on 2026-09-03; the linked standards and guidance remain reference material and must be
 rechecked when a release or authorization baseline changes. Standards use their own normative terms
 (`SHALL`, `SHOULD`, and so on); an application decision citing a standard does not by itself establish
 conformance with the whole standard.
@@ -123,7 +123,9 @@ authorization evidence.
 - [ ] Administrator lifecycle, dual-control/break-glass needs, periodic access review, and prompt
       deprovisioning are documented.
 - [ ] Dependency locking, vulnerability scanning, Hedron/HTMX provenance review, patching, and
-      release approval are part of the deployment pipeline.
+      release approval are part of the deployment pipeline. Release evidence includes
+      `make check`, `make hedron-build`, `make hedron-security-check`, and
+      `hedron-posit check --matrix`.
 - [ ] Unit and HTMX fragment security tests pass; security tests also pass in the exact
       production-equivalent proxy and database topology; penetration testing and authorization
       review are complete at the required impact level.
@@ -365,10 +367,12 @@ rate-limit, paste, and password-manager requirements.
 
 **Status:** Implemented, with a FIPS deployment caveat.
 
-**Decision:** Argon2id through `pwdlib` is the default. A PBKDF2-HMAC-SHA-256 mode with at least
-600,000 iterations and a random 128-bit salt is available for a FIPS-constrained boundary. Stored
-formats carry algorithm and work-factor metadata, and successful login rehashes an outdated verifier.
-Passwords are never encrypted or stored in plaintext.
+**Decision:** Argon2id through `pwdlib` is the default. A PBKDF2-HMAC-SHA-256 mode with a random
+128-bit salt is available for a FIPS-constrained boundary and defaults to 600,000 iterations. The
+configuration validator permits an explicit value of 100,000 or greater, so a production deployment
+selecting PBKDF2 must enforce and record the approved value of at least 600,000 iterations as part
+of its security gate. Stored formats carry algorithm and work-factor metadata, and successful login
+rehashes an outdated verifier. Passwords are never encrypted or stored in plaintext.
 
 **Rationale:** Slow, salted password hashing raises the cost of offline guessing after a database
 breach. Rehash-on-login permits work factors and algorithms to evolve.
@@ -509,11 +513,16 @@ recognizes password change and logout as refresh-token revocation events.
 
 **Status:** Implemented, with a proxy deployment dependency.
 
-**Decision:** The browser receives access and refresh credentials in `HttpOnly`, `SameSite=Lax`
-cookies with no `Domain` attribute. Production refuses to start unless `Secure=true`. Cookie `Path`
-is restricted to the externally visible application mount, derived at request time for Posit Connect
-and Workbench, so the same code works at `/` and under dynamic proxy prefixes. Browser storage is not
-used. Logout expiration cookies use the same path and security attributes as the live cookies.
+**Decision:** The browser receives access, refresh, pre-authentication CSRF, theme, and color-mode
+credentials/preferences in `HttpOnly`, `SameSite=Lax` cookies with no `Domain` attribute. Production
+refuses to start unless `Secure=true`. All five application cookie names are declared to `HedronPosit`
+through `ConnectConfig.owned_cookie_names`; when `COOKIE_PATH=auto`, application set and delete
+operations use the Posit cookie registry so its deployment-aware path is used for Workbench session
+mounts and Connect handoff. Explicit `COOKIE_PATH` remains an operator override. Cookie `Path` is
+restricted to the externally visible application mount, derived at request time for Posit Connect and
+Workbench, so the same code works at `/` and under dynamic proxy prefixes. Browser storage is not
+used. Logout expiration cookies use the same deployment path as the live cookies; legacy root-scoped
+cookies are explicitly expired where an older deployment may have issued them.
 
 **Rationale:** `HttpOnly` prevents direct JavaScript reads, `Secure` confines transport to HTTPS,
 `SameSite` reduces cross-site attachment, omission of `Domain` makes the cookie host-only, and a
@@ -543,7 +552,7 @@ explains the attributes and cookie-prefix tradeoffs.
 state-changing browser requests must return it in a form field or
 `X-CSRF-Token` header; comparison is constant-time. `SameSite=Lax` is defense in depth, not the sole
 control. Password, federated login, self-registration, and forgot-password forms use a separate
-one-hour signed double-submit token in an `HttpOnly`, `SameSite=Strict` cookie scoped to the
+one-hour signed double-submit token in an `HttpOnly`, `SameSite=Lax` cookie scoped to the
 application mount; `CSRF_SECRET` signs that pre-authentication token.
 
 **Rationale:** Cookies are automatically sent by the browser, so authentication alone cannot
@@ -1120,6 +1129,57 @@ address type conversion, transactional failure, and partial-write recovery.
 and metadata-only audit events follow the authorization, input-handling, and logging principles
 already cited in this register. Tests cover invalid encoding/shape, size and header limits, inferred
 types, storage metadata, saved-pipeline ownership, and cross-user rejection.
+
+### SD-26 — Use Hedron and HedronPosit as explicit security boundaries
+
+**Status:** Implemented; proxy, platform, and release evidence remain deployment controls.
+
+**Decision:** Data Mover runs as a `HedronPosit` application and delegates Workbench discovery,
+mount normalization, external-base validation, response adaptation, and deployment-aware cookie
+handling to the supported Posit adapter. The app supplies `ConnectConfig` with an explicit trusted
+peer set and the complete application-owned cookie-name set. Workbench launches use
+`hedron_posit.runner.run_target` with a fixed `app.main:app` target; the launcher clears stale
+absolute `UVICORN_ROOT_PATH` and inherited mount handoffs before passing the current discovered
+session URL to the adapter. The application does not construct external URLs from untrusted host or
+forwarded headers.
+
+Hedron's built-in CSRF and response-header middleware are intentionally disabled because Data Mover
+owns those controls in its shared `SecurityPolicy` and application middleware. The policy still
+publishes the app's control-plane/conformance metadata, disables Explorer, applies request budgets of
+5 MiB request bodies, 10 MiB responses, 16 multipart parts, 256 form fields, and a 120-second
+deadline, and declares egress deny-by-default. Provider-specific outbound access remains separately
+controlled by the connector HTTPS-host and CA configuration.
+
+All browser UI routes use Hedron page/action/view registration. Mutating actions require the app's
+CSRF dependency, and route metadata declares allowed fragment regions and target behavior. Rendering
+uses Hedron's escaped component and interaction response APIs. This keeps navigation, fragment swaps,
+error targeting, and asset loading inside the same server-side authorization and CSP boundary; the
+browser is never trusted to enforce route access.
+
+The repository verification surface runs `hedron check` and `hedron-posit check --matrix`; release
+verification additionally runs the application security tests, the production asset build, and the
+strict Hedron security scan. The Posit matrix covers root, direct Workbench, proxied Workbench,
+native Connect, and external-base path models.
+These checks validate deterministic adapter contracts; they do not replace testing through the
+authorized live proxy, enterprise browser, TLS termination, or production-equivalent database.
+
+**Rationale:** Delegating mount and cookie adaptation to one supported adapter reduces duplicated
+proxy logic and prevents path drift between redirects, HTMX requests, static assets, and cookies.
+Keeping the app-owned CSRF and header policy in one middleware layer avoids competing security
+implementations while preserving Hedron's request-budget, route-contract, rendering, and diagnostics
+surfaces. Deny-by-default egress and explicit connector allowlists limit accidental outbound access,
+but neither control proves that a provider credential is least-privileged or that the proxy is safe.
+
+**Deployment control:** Pin and review compatible `hedron` and `hedron-posit` versions. Ensure the
+application is reachable only through the approved Posit proxy, verify trusted-peer addresses and
+forwarded-header sanitation, validate the discovered public URL at each Workbench restart, and
+preserve matrix, live-proxy, security-scan, and browser evidence with the release. A live Workbench
+or Connect session is required to prove platform behavior that the local matrix cannot observe.
+
+**Evidence:** The repository's [Hedron integration record](docs/hedron.md) documents the supported
+application, interaction, asset, and Posit surfaces. `app/ui/security_policy.py`, `app/main.py`,
+`app/server.py`, `app/security/cookies.py`, `scripts/run-workbench.sh`, and the Hedron/Posit tests
+are the implementation evidence for this decision.
 
 ## Reference index
 

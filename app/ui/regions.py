@@ -94,6 +94,11 @@ CSV_UPLOAD_STATE = FragmentRegion(
     selector="#pipeline-csv-upload-state",
     description="CSV upload scan status",
 )
+PIPELINE_CSV_FILE = FragmentRegion(
+    id="pipeline-csv-file",
+    selector="#pipeline-csv-file",
+    description="CSV upload control",
+)
 PIPELINE_SOURCE_SCHEMA_SELECT = FragmentRegion(
     id="pipeline-source-schema-select",
     selector="#pipeline-source-schema-select",
@@ -118,6 +123,26 @@ PIPELINE_PREVIEW_REGION = FragmentRegion(
     id="pipeline-preview-region",
     selector="#pipeline-preview-region",
     description="Pipeline preview refresh region",
+)
+PIPELINE_SOURCE_NODE = FragmentRegion(
+    id="pipeline-source-node",
+    selector="#pipeline-source-node",
+    description="Pipeline source connector node",
+)
+PIPELINE_TARGET_NODE = FragmentRegion(
+    id="pipeline-target-node",
+    selector="#pipeline-target-node",
+    description="Pipeline destination connector node",
+)
+PIPELINE_SOURCE_PROVIDER_LABEL = FragmentRegion(
+    id="pipeline-source-provider-label",
+    selector="#pipeline-source-provider-label",
+    description="Pipeline source provider badge",
+)
+PIPELINE_TARGET_PROVIDER_LABEL = FragmentRegion(
+    id="pipeline-target-provider-label",
+    selector="#pipeline-target-provider-label",
+    description="Pipeline destination provider badge",
 )
 PIPELINE_SCHEMA_PREVIEW = FragmentRegion(
     id="pipeline-schema-preview",

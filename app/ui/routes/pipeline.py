@@ -115,11 +115,16 @@ from app.ui.regions import (
     CSV_INSPECTION,
     CSV_UPLOAD_STATE,
     MAIN_PANEL,
+    PIPELINE_CSV_FILE,
     PIPELINE_PREVIEW_REGION,
     PIPELINE_RUN_MONITOR,
     PIPELINE_SCHEMA_PREVIEW,
+    PIPELINE_SOURCE_NODE,
+    PIPELINE_SOURCE_PROVIDER_LABEL,
     PIPELINE_SOURCE_SCHEMA_SELECT,
     PIPELINE_SOURCE_TABLE_SELECT,
+    PIPELINE_TARGET_NODE,
+    PIPELINE_TARGET_PROVIDER_LABEL,
     PIPELINE_TARGET_SCHEMA_SELECT,
     PIPELINE_TARGET_TABLE_SELECT,
     SIDE_NAV,
@@ -262,6 +267,34 @@ def _first_object(provider: str, namespace: str) -> str:
         return ""
     entries = _object_entries(provider, namespace)
     return entries[0][0] if entries else ""
+
+
+def _normalized_selection(
+    provider: str,
+    namespace: str,
+    object_name: str,
+    *,
+    preserve_create: bool = False,
+) -> tuple[str, str]:
+    """Keep a form selection valid when its provider changes."""
+    if not provider:
+        return "", ""
+    namespaces = _namespace_entries(provider)
+    if not namespaces:
+        return (
+            "",
+            CREATE_TABLE_VALUE if preserve_create and object_name == CREATE_TABLE_VALUE else "",
+        )
+    namespace_names = {name for name, _ in namespaces}
+    resolved_namespace = namespace if namespace in namespace_names else namespaces[0][0]
+    objects = _object_entries(provider, resolved_namespace)
+    object_names = {name for name, _ in objects}
+    if preserve_create and object_name == CREATE_TABLE_VALUE:
+        return resolved_namespace, CREATE_TABLE_VALUE
+    resolved_object = (
+        object_name if object_name in object_names else (objects[0][0] if objects else "")
+    )
+    return resolved_namespace, resolved_object
 
 
 def _schema_options(provider: str, preferred_schema: str = ""):
@@ -940,6 +973,32 @@ def _csv_inspection(
     )
 
 
+def _csv_upload_control(request: Request) -> NodeLike:
+    attrs = hx_attrs(
+        request,
+        path="/pipeline/csv/inspect",
+        target="#pipeline-csv-inspection",
+        trigger="change",
+        include="#pipeline-form [name='csrf_token']",
+        indicator="#pipeline-csv-upload-state",
+    )
+    attrs["hx-encoding"] = "multipart/form-data"
+    return AttrHost(
+        FileUpload(
+            name="csv_file",
+            accept=".csv,text/csv",
+            maximum_size=MAX_CSV_UPLOAD_BYTES,
+            label="Choose CSV file",
+            hint="UTF-8 CSV · scanned locally before use",
+            status="Select a file to inspect its schema.",
+            appearance="soft",
+            density="comfortable",
+        ),
+        id="pipeline-csv-file",
+        attrs={str(key): str(value) for key, value in attrs.items()},
+    )
+
+
 def _provider_node(
     *,
     kind: str,
@@ -1177,6 +1236,17 @@ def _pipeline_preview_fragment(
     csv_upload: PipelineUpload | None = None,
     connections: dict[str, dict[str, str | bool]],
 ):
+    if source_provider != "csv":
+        source_schema, source_table = _normalized_selection(
+            source_provider, source_schema, source_table
+        )
+    if target_provider:
+        target_schema, target_table = _normalized_selection(
+            target_provider,
+            target_schema,
+            target_table,
+            preserve_create=True,
+        )
     source_catalog = (
         CSV_SOURCE_CATALOG
         if source_provider == "csv"
@@ -1203,11 +1273,7 @@ def _pipeline_preview_fragment(
         if not target_runtime_ready
         else "Source and destination connections are ready."
     )
-    source_object_name = (
-        source_table
-        if source_provider == "csv"
-        else source_table or _first_object(source_provider, source_schema)
-    )
+    source_object_name = source_table
     table_name = (
         _committed_new_table_name(destination_table_new) or destination_table_new or target_table
     )
@@ -1380,11 +1446,18 @@ def _pipeline_body(
                 loaded_source_upload = None
                 loaded_source_inspection = None
 
-    source_object_name = (
-        source_table_display
-        if source_provider == "csv"
-        else source_table_display or _first_object(source_provider, source_schema_name)
-    )
+    if source_provider != "csv":
+        source_schema_name, source_table_display = _normalized_selection(
+            source_provider, source_schema_name, source_table_display
+        )
+    if target_provider:
+        target_schema_name, target_table_name = _normalized_selection(
+            target_provider,
+            target_schema_name,
+            target_table_name,
+            preserve_create=target_table_name == CREATE_TABLE_VALUE,
+        )
+    source_object_name = source_table_display
     target_object_name = (
         target_table_name or _first_object(target_provider, target_schema_name)
         if target_provider
@@ -1433,15 +1506,6 @@ def _pipeline_body(
         gap="sm",
         collapse="never",
     )
-    csv_upload_attrs = hx_attrs(
-        request,
-        path="/pipeline/csv/inspect",
-        target="#pipeline-csv-inspection",
-        trigger="change",
-        include="#pipeline-form [name='csrf_token']",
-        indicator="#pipeline-csv-upload-state",
-    )
-    csv_upload_attrs["hx-encoding"] = "multipart/form-data"
     pipeline_run_attrs = hx_attrs(
         request,
         path="/pipeline/runs",
@@ -1594,7 +1658,10 @@ def _pipeline_body(
                                         description="Choose a connected object or scan a local CSV.",
                                         level=3,
                                         density="compact",
-                                        meta=Badge(source_catalog.label, tone="success"),
+                                        meta=html.span(
+                                            Badge(source_catalog.label, tone="success"),
+                                            id="pipeline-source-provider-label",
+                                        ),
                                     ),
                                     Stack(
                                         FormField(
@@ -1613,7 +1680,7 @@ def _pipeline_body(
                                                     path="/pipeline/preview",
                                                     method="post",
                                                     target="#pipeline-preview-region",
-                                                    swap="outerHTML",
+                                                    swap="none",
                                                     include="#pipeline-form",
                                                     trigger="change",
                                                     select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
@@ -1649,7 +1716,7 @@ def _pipeline_body(
                                                         path="/pipeline/preview",
                                                         method="post",
                                                         target="#pipeline-preview-region",
-                                                        swap="outerHTML",
+                                                        swap="none",
                                                         include="#pipeline-form",
                                                         trigger="change",
                                                         select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
@@ -1685,7 +1752,7 @@ def _pipeline_body(
                                                         path="/pipeline/preview",
                                                         method="post",
                                                         target="#pipeline-preview-region",
-                                                        swap="outerHTML",
+                                                        swap="none",
                                                         include="#pipeline-form",
                                                         trigger="change",
                                                         select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
@@ -1707,23 +1774,7 @@ def _pipeline_body(
                                                     id="pipeline-csv-upload-state",
                                                 ),
                                             ),
-                                            AttrHost(
-                                                FileUpload(
-                                                    name="csv_file",
-                                                    accept=".csv,text/csv",
-                                                    maximum_size=MAX_CSV_UPLOAD_BYTES,
-                                                    label="Choose CSV file",
-                                                    hint="UTF-8 CSV · scanned locally before use",
-                                                    status="Select a file to inspect its schema.",
-                                                    appearance="soft",
-                                                    density="comfortable",
-                                                ),
-                                                id="pipeline-csv-file",
-                                                attrs={
-                                                    str(key): str(value)
-                                                    for key, value in csv_upload_attrs.items()
-                                                },
-                                            ),
+                                            _csv_upload_control(request),
                                             _csv_inspection(
                                                 loaded_source_upload
                                                 if source_provider == "csv"
@@ -1749,11 +1800,14 @@ def _pipeline_body(
                                         description="Select a connected target and write policy.",
                                         level=3,
                                         density="compact",
-                                        meta=Badge(
-                                            target_catalog.label
-                                            if target_catalog is not None
-                                            else "Not selected",
-                                            tone="info",
+                                        meta=html.span(
+                                            Badge(
+                                                target_catalog.label
+                                                if target_catalog is not None
+                                                else "Not selected",
+                                                tone="info",
+                                            ),
+                                            id="pipeline-target-provider-label",
                                         ),
                                     ),
                                     Stack(
@@ -1785,7 +1839,7 @@ def _pipeline_body(
                                                     path="/pipeline/preview",
                                                     method="post",
                                                     target="#pipeline-preview-region",
-                                                    swap="outerHTML",
+                                                    swap="none",
                                                     include="#pipeline-form",
                                                     trigger="change",
                                                     select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
@@ -1822,7 +1876,7 @@ def _pipeline_body(
                                                         path="/pipeline/preview",
                                                         method="post",
                                                         target="#pipeline-preview-region",
-                                                        swap="outerHTML",
+                                                        swap="none",
                                                         include="#pipeline-form",
                                                         trigger="change",
                                                         select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
@@ -1865,7 +1919,7 @@ def _pipeline_body(
                                                         path="/pipeline/preview",
                                                         method="post",
                                                         target="#pipeline-preview-region",
-                                                        swap="outerHTML",
+                                                        swap="none",
                                                         include="#pipeline-form",
                                                         trigger="change",
                                                     ),
@@ -2189,12 +2243,17 @@ def register_pipeline_routes(app: Hedron) -> None:
         fragment_regions=(
             CSV_INSPECTION,
             CSV_UPLOAD_STATE,
+            PIPELINE_CSV_FILE,
             PIPELINE_SOURCE_SCHEMA_SELECT,
             PIPELINE_SOURCE_TABLE_SELECT,
             PIPELINE_TARGET_SCHEMA_SELECT,
             PIPELINE_TARGET_TABLE_SELECT,
             PIPELINE_PREVIEW_REGION,
+            PIPELINE_SOURCE_NODE,
+            PIPELINE_SOURCE_PROVIDER_LABEL,
             PIPELINE_SCHEMA_PREVIEW,
+            PIPELINE_TARGET_NODE,
+            PIPELINE_TARGET_PROVIDER_LABEL,
             TOAST_HOST,
         ),
         include_in_schema=False,
@@ -2205,11 +2264,11 @@ def register_pipeline_routes(app: Hedron) -> None:
         db: DbSession,
         _csrf: RequireCsrf,
         source_provider: PipelineSourceProviderForm,
-        source_schema: PipelineSchemaForm,
-        source_table: PipelineTableForm,
         destination_provider: PipelineProviderForm,
         destination_schema: PipelineSchemaForm,
         destination_table: PipelineTableForm,
+        source_schema: PipelineOptionalTableForm = "",
+        source_table: PipelineOptionalTableForm = "",
         destination_table_new: PipelineOptionalTableForm = "",
         source_upload_id: PipelineIdForm = "",
         write_mode: PipelineWriteModeForm = "replace",
@@ -2232,6 +2291,17 @@ def register_pipeline_routes(app: Hedron) -> None:
             }
             for provider, secret in list_user_secrets(db, auth.user)
         }
+        if source_provider != "csv":
+            source_schema, source_table = _normalized_selection(
+                source_provider, source_schema, source_table
+            )
+        if destination_provider:
+            destination_schema, destination_table = _normalized_selection(
+                destination_provider,
+                destination_schema,
+                destination_table,
+                preserve_create=True,
+            )
         preview_fragment = _pipeline_preview_fragment(
             source_provider=source_provider,
             source_schema=source_schema,
@@ -2246,11 +2316,7 @@ def register_pipeline_routes(app: Hedron) -> None:
             csv_upload=csv_upload,
             connections=connections,
         )
-        source_object = (
-            source_table
-            if source_provider == "csv"
-            else source_table or _first_object(source_provider, source_schema)
-        )
+        source_object = source_table
         destination_object = _committed_new_table_name(destination_table_new) or destination_table
         if destination_table == CREATE_TABLE_VALUE:
             destination_object = _committed_new_table_name(destination_table_new) or "new_table"
@@ -2264,15 +2330,107 @@ def register_pipeline_routes(app: Hedron) -> None:
             destination_create=destination_table == CREATE_TABLE_VALUE,
             csv_inspection=csv_inspection if csv_upload is not None else None,
         )
+        source_catalog = (
+            CSV_SOURCE_CATALOG
+            if source_provider == "csv"
+            else require_catalog_provider(source_provider)
+        )
+        target_catalog = (
+            require_catalog_provider(destination_provider) if destination_provider else None
+        )
+        source_ready = (
+            source_provider == "csv" and csv_upload is not None and csv_inspection is not None
+        ) or (source_provider != "csv" and _connection_runnable(connections[source_provider]))
+        target_ready = target_catalog is not None and _connection_runnable(
+            connections[destination_provider]
+        )
+        source_detail = (
+            csv_inspection.filename
+            if source_provider == "csv" and source_ready and csv_inspection is not None
+            else "Choose a CSV file"
+            if source_provider == "csv"
+            else f"{source_schema}.{source_table}"
+        )
+        target_object = _committed_new_table_name(destination_table_new) or destination_table
+        if destination_table == CREATE_TABLE_VALUE:
+            target_object = _committed_new_table_name(destination_table_new) or "new_table"
+        oob_updates = [
+            OobUpdate(schema_preview, element_id="pipeline-schema-preview", swap="outerHTML"),
+            OobUpdate(
+                html.span(Badge(source_catalog.label, tone="success")),
+                element_id="pipeline-source-provider-label",
+                swap="outerHTML",
+            ),
+            OobUpdate(
+                html.span(
+                    Badge(
+                        target_catalog.label if target_catalog is not None else "Not selected",
+                        tone="info",
+                    )
+                ),
+                element_id="pipeline-target-provider-label",
+                swap="outerHTML",
+            ),
+            OobUpdate(
+                _provider_node(
+                    kind="source",
+                    catalog=source_catalog,
+                    detail=source_detail,
+                    configured=source_ready,
+                    runtime=(
+                        str(connections[source_provider]["runtime"])
+                        if source_provider != "csv"
+                        else ""
+                    ),
+                ),
+                element_id="pipeline-source-node",
+                swap="outerHTML",
+            ),
+            OobUpdate(
+                _provider_node(
+                    kind="target",
+                    catalog=target_catalog,
+                    detail=(
+                        f"{destination_schema}.{target_object}"
+                        if target_catalog is not None
+                        else "Configure a connection"
+                    ),
+                    configured=target_ready,
+                    runtime=(
+                        str(connections[destination_provider]["runtime"])
+                        if target_catalog is not None
+                        else ""
+                    ),
+                ),
+                element_id="pipeline-target-node",
+                swap="outerHTML",
+            ),
+        ]
+        if source_provider != "csv":
+            oob_updates.extend(
+                [
+                    OobUpdate(
+                        _csv_upload_control(request),
+                        element_id="pipeline-csv-file",
+                        swap="outerHTML",
+                    ),
+                    OobUpdate(
+                        _csv_inspection(),
+                        element_id="pipeline-csv-inspection",
+                        swap="outerHTML",
+                    ),
+                    OobUpdate(
+                        Badge("5 MB maximum", tone="neutral"),
+                        element_id="pipeline-csv-upload-state",
+                        swap="outerHTML",
+                    ),
+                ]
+            )
         return await interaction_response(
             request,
             ok_fragment(
                 preview_fragment,
-                oob=(
-                    OobUpdate(
-                        schema_preview, element_id="pipeline-schema-preview", swap="outerHTML"
-                    ),
-                ),
+                oob=tuple(oob_updates),
             ),
         )
 
@@ -2803,6 +2961,7 @@ def _run_schema_results(run):
                     gap="sm",
                 ),
                 open=False,
+                enhance="native",
             ),
             _schema_diff_surface(differences),
             id="pipeline-run-schema-results",
@@ -3231,6 +3390,7 @@ def _run_status_fragment(
                 label="Live event feed",
             ),
             open=monitor_active,
+            enhance="native",
         ),
         id="pipeline-run-monitor",
         aria={"live": "polite"},
