@@ -3,8 +3,6 @@ from __future__ import annotations
 import os
 import sys
 
-import pytest
-from hedron_core.diagnostics import HedronError
 from hedron_posit import WorkbenchConfig, WorkbenchMode, export_hedron_state, resolve_deployment
 from hedron_posit.urls import mounted_redirect
 
@@ -129,17 +127,19 @@ def test_hedron_resolves_full_workbench_url_and_exports_mount() -> None:
     )
 
 
-def test_hedron_rejects_conflicting_explicit_and_runtime_mounts() -> None:
-    with pytest.raises(HedronError, match="Conflicting Workbench mount and origin"):
-        resolve_deployment(
-            WorkbenchConfig(host="127.0.0.1", port=8765),
-            environ={
-                "RS_SERVER_URL": "http://127.0.0.1:8787/",
-                "HEDRON_WORKBENCH_PUBLIC_BASE_URL": "https://workbench.example/s/session/p/new",
-                "UVICORN_ROOT_PATH": "https://workbench.example/s/session/p/old",
-            },
-            bound_port=8765,
-        )
+def test_hedron_prefers_explicit_public_mount_over_stale_runtime_mount() -> None:
+    resolved = resolve_deployment(
+        WorkbenchConfig(host="127.0.0.1", port=8765),
+        environ={
+            "RS_SERVER_URL": "http://127.0.0.1:8787/",
+            "HEDRON_WORKBENCH_PUBLIC_BASE_URL": "https://workbench.example/s/session/p/new",
+            "UVICORN_ROOT_PATH": "https://workbench.example/s/session/p/old",
+        },
+        bound_port=8765,
+    )
+
+    assert resolved.external_origin == "https://workbench.example"
+    assert resolved.browser_mount == "/s/session/p/new"
 
 
 def test_hedron_mounted_redirect_never_uses_relative_parent_depth() -> None:

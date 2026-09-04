@@ -536,15 +536,15 @@ wheels = [
 
 [[package]]
 name = "fastapi-workbench"
-version = "1.0.10"
+version = "1.0.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/43/9d/7d779cffa0ad9a0fea9f2eed7ee50eaacedfa020d0585785d77915b56807/fastapi_workbench-1.0.10.tar.gz", hash = "sha256:9c3b973ba33e628e56446036c58457502703d80b6cad2b8c742be457a4b5dbbf", size = 31593, upload-time = "2026-09-03T01:11:25.952Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/8d/0d9c05ba2ca2e3800f25ad1bf09f54786c3262791342dbd2de501495691a/fastapi_workbench-1.0.11.tar.gz", hash = "sha256:f3538d9a6a9eee7bbb8972fa2284f74d5f7628ecbcef728f6b4622f50971a9c7", size = 32084, upload-time = "2026-09-04T01:17:41.922Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/77/3f66a5d0290519aca4b87d13865fd3ae3b0c696647cf0708b21c748e858e/fastapi_workbench-1.0.10-py3-none-any.whl", hash = "sha256:738a85485ccf850ff37bdfcbd66031edfbe601ccbff16363766c908e99b2661a", size = 37258, upload-time = "2026-09-03T01:11:24.967Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/71/580da0811124c5395b60acf0dca8842616988fe742f9e97a3e70f629d075/fastapi_workbench-1.0.11-py3-none-any.whl", hash = "sha256:79151ade013516cf818ebee2afe13f060c93d2d4397b04368c420fcbcec11ba6", size = 37520, upload-time = "2026-09-04T01:17:40.825Z" },
 ]
 
 [[package]]
