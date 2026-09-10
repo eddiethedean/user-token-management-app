@@ -144,6 +144,7 @@ def audit_results(
     page_count: int,
     total_events: int,
     page_size: int = 50,
+    region_id: str | None = "audit-results-region",
 ) -> Component[Any]:
     return Section(
         _audit_filter_form(request, event_type_filter, outcome_filter),
@@ -157,7 +158,7 @@ def audit_results(
             total_events=total_events,
             page_size=page_size,
         ),
-        id="audit-results-region",
+        id=region_id,
     )
 
 
@@ -333,6 +334,7 @@ def audit_results_error(
     event_type: str = "",
     outcome: str = "",
     page: int = 1,
+    region_id: str | None = "audit-results-region",
 ) -> NodeLike:
     path = _audit_results_path(request, event_type=event_type, outcome=outcome, page=page)
     poll_path = _filter_base_path(
@@ -342,10 +344,8 @@ def audit_results_error(
         outcome=outcome,
         page=str(page),
     )
-    return html.div(
-        ErrorState(message, retry_href=path, target="#audit-results-region"),
-        id="audit-results-region",
-        data={"lazy-error": "audit-results-region"},
+    attrs: dict[str, HtmlAttrValue] = {
+        "data": {"lazy-error": "audit-results-region"},
         **hx_attrs(
             request,
             method="get",
@@ -355,6 +355,12 @@ def audit_results_error(
             polling=45,
             indicator=INDICATOR,
         ),
+    }
+    if region_id is not None:
+        attrs["id"] = region_id
+    return html.div(
+        ErrorState(message, retry_href=path, target="#audit-results-region"),
+        **attrs,
     )
 
 

@@ -44,7 +44,7 @@ from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
 from app.ui.routes import register_routes
 from app.ui.security_policy import access_registry_security_policy
-from app.ui.urls import redirect_path
+from app.ui.urls import htmx_redirect_path, redirect_path
 
 configure_logging()
 settings = get_settings()
@@ -237,7 +237,9 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         )
         clear_auth_cookies(response, settings, request)
         if is_htmx:
-            response.headers["HX-Redirect"] = str(response.headers["location"])
+            response.headers["HX-Redirect"] = htmx_redirect_path(
+                f"/login?{urlencode({'next': next_path})}"
+            )
         return response
     detail = exc.detail if isinstance(exc.detail, str) else "The request could not be completed."
     if is_htmx:

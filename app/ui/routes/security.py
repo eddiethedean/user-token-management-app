@@ -30,7 +30,7 @@ from app.services.secrets import (
     test_user_connection,
 )
 from app.ui import partials as ui
-from app.ui.http import mutation_response, render_authenticated_view, render_page
+from app.ui.http import hx_target, mutation_response, render_authenticated_view, render_page
 from app.ui.interactions import (
     connection_status_oob,
     htmx_redirect,
@@ -60,7 +60,7 @@ from app.ui.regions import (
     SIDE_NAV,
     TOAST_HOST,
 )
-from app.ui.urls import redirect_path
+from app.ui.urls import htmx_redirect_path, redirect_path
 
 
 def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None:
@@ -128,10 +128,20 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
             )
         try:
             values = security_page_values(db, auth.user, settings)
-            return ok_fragment(ui.security_activity(request, values["events"]))
+            region_id = (
+                None
+                if hx_target(request) == SECURITY_ACTIVITY_LAZY_BODY.selector
+                else SECURITY_ACTIVITY.id
+            )
+            return ok_fragment(ui.security_activity(request, values["events"], region_id=region_id))
         except SQLAlchemyError:
+            region_id = (
+                None
+                if hx_target(request) == SECURITY_ACTIVITY_LAZY_BODY.selector
+                else SECURITY_ACTIVITY.id
+            )
             return ok_fragment(
-                ui.security_activity_error(request),
+                ui.security_activity_error(request, region_id=region_id),
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
@@ -181,7 +191,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
             if is_htmx_request(request):
                 response = await interaction_response(
                     request,
-                    htmx_redirect(redirect_path(request, "/login?password=changed")),
+                    htmx_redirect(htmx_redirect_path("/login?password=changed")),
                 )
                 clear_auth_cookies(response, settings, request)
                 return response

@@ -81,6 +81,22 @@ def redirect_path(request: Request, path: str) -> str:
     return f"{relative}{suffix}"
 
 
+def htmx_redirect_path(path: str) -> str:
+    """Build an unmounted local path suitable for an ``HX-Redirect`` header.
+
+    Workbench redirects in ``Location`` headers are deliberately relative so
+    that both supported entry points resolve correctly.  Hedron's HTMX
+    contract, however, requires ``HX-Redirect`` values to be root-local paths;
+    the Workbench response middleware adds the external mount afterward.
+    """
+    parsed = urlsplit(path)
+    target = _abs_path(parsed.path).rstrip("/") or "/"
+    suffix = f"?{parsed.query}" if parsed.query else ""
+    if parsed.fragment:
+        suffix += f"#{parsed.fragment}"
+    return f"{target}{suffix}"
+
+
 def page_href(request: Request, path: str) -> SafeUrl:
     return SafeUrl.parse(mounted_path(request, path), purpose=UrlPurpose.NAVIGATION)
 

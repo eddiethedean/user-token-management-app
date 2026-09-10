@@ -262,6 +262,29 @@ def test_password_htmx_error_fragment_and_success_redirect(htmx) -> None:
     assert_hx_redirect(as_adapter(success), "password=changed")
 
 
+def test_password_htmx_success_redirect_remains_local_when_workbench_is_active(
+    htmx, monkeypatch
+) -> None:
+    from app.main import app
+
+    htmx_login(htmx)
+    monkeypatch.setattr(app.state, "hedron_workbench_active", True, raising=False)
+    response = htmx.post(
+        "/profile/password",
+        data={
+            "csrf_token": csrf_from(htmx.get("/profile").text),
+            "current_password": ADMIN_PASSWORD,
+            "new_password": NEW_PASSWORD,
+            "new_password_confirm": NEW_PASSWORD,
+        },
+        headers={"HX-Target": "#password-form-region", "Accept": "text/html"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert response.headers.get("HX-Redirect") == "/login?password=changed"
+
+
 def test_session_revoke_with_second_session(access_app, make_user) -> None:
     user = make_user("revoke.pair@example.gov")
     primary = fragment_client(access_app)
@@ -318,6 +341,14 @@ def test_security_activity_lazy_fragment(htmx) -> None:
     assert "hedron-loading" not in response.text
     assert "hedron-timeline" in response.text
     assert "hedron-badge-success" in response.text
+
+    lazy_body = htmx.get(
+        "/profile/activity",
+        headers={"HX-Target": "#security-activity-body", "Accept": "text/html"},
+    )
+    assert lazy_body.status_code == 200
+    assert 'id="security-activity"' not in lazy_body.text
+    assert "hedron-timeline" in lazy_body.text
 
 
 def test_security_activity_undeclared_target_rejected(htmx) -> None:
@@ -421,6 +452,14 @@ def test_admin_directory_and_audit_filter_fragments(htmx, make_user) -> None:
     assert_fragment_body(lazy_adapter, contains="audit-results-region")
     assert_oob_present(lazy_adapter, contains="audit-match-count")
     assert_no_document_shell(lazy_adapter)
+
+    lazy_body = htmx.get(
+        "/admin/audit/results",
+        headers={"HX-Target": "#audit-results-region-body", "Accept": "text/html"},
+    )
+    assert lazy_body.status_code == 200
+    assert 'id="audit-results-region"' not in lazy_body.text
+    assert 'id="audit-results-body"' in lazy_body.text
 
 
 def test_audit_full_page_lazy_placeholder(page) -> None:
@@ -547,6 +586,9 @@ def test_fastapi_fixture_admin_round_trip(access_app, make_user) -> None:
     assert_page_document(users)
     assert_html_contains(users, "fixture.roundtrip@example.gov")
     assert_html_contains(users, "hedron-dialog")
+    assert_html_contains(users, "data-mover-admin-split")
+    assert_html_contains(users, "data-mover-app-shell")
+    assert_html_contains(users, "data-mover-nav-group")
 
     security = fixture.get("/security")
     assert_page_document(security)

@@ -2919,7 +2919,7 @@ def _run_schema_surface(title: str, manifest: dict[str, Any], row_value: str):
             Metric("Rows", row_value),
             Metric("Columns", f"{len(columns):,}"),
             Metric("Primary key", ", ".join(str(item) for item in primary_key) or "None"),
-            columns=3,
+            columns={"base": 2, "lg": 3},
             gap="sm",
         ),
         _schema_columns_table(columns, f"Persisted columns in {title}"),
@@ -2957,7 +2957,7 @@ def _run_schema_results(run):
                 Grid(
                     _run_schema_surface("Source", source_manifest, f"{int(source_rows):,}"),
                     _run_schema_surface("Destination", destination_manifest, destination_rows),
-                    columns=2,
+                    columns={"base": 1, "xl": 2},
                     gap="sm",
                 ),
                 open=False,
@@ -3358,7 +3358,7 @@ def _run_status_fragment(
                 stage_label,
                 delta=f"Attempt {run.attempt}",
             ),
-            columns=4,
+            columns={"base": 2, "xl": 4},
             gap="sm",
         ),
         _run_schema_results(run)

@@ -17,7 +17,7 @@ subsystems.
 | Posit-owned cookies | All application cookies are registered with `HedronPosit`; automatic cookie paths use its deployment-aware cookie registry, including Workbench session mounts and Connect handoff. |
 | Public rendering APIs | Pages use `render_component_response`; interactions use `render_interaction`. |
 | Security policy integration | Hedron is told that Data Mover owns CSRF and response headers; fragment targets still fail closed. |
-| Production assets | `python -m hedron build` creates the checked production manifest; CI builds it after quality checks. |
+| Production assets | Connect ships the app-owned desktop and component stylesheets directly; `.hedron/build` is excluded so a stale default-theme bundle cannot override the selected Data Mover theme. |
 | Diagnostics | `make hedron-check` fails on Hedron warnings or errors, and `python -m hedron --app app.main:app routes` exposes the registered UI contract. |
 | 0.56 security plane | Data Mover publishes the `hedron-security-1` control-plane profile, bounded request budgets, and deny-by-default egress posture while retaining ownership of CSRF and response headers. |
 | Security posture | `make hedron-security-check` produces a strict SARIF posture report for CI/security review. |

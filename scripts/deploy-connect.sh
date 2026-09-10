@@ -73,8 +73,6 @@ printf 'Validating production configuration from %s\n' "$env_file"
 "$python_bin" -m pip check
 "$python_bin" -m app schema-status
 "$python_bin" -c "from app.config import get_settings; get_settings(); print('Production configuration validates')"
-"$python_bin" -m hedron build
-test -f .hedron/build/manifest.json
 
 environment_names=(
     APP_ENV
@@ -177,6 +175,7 @@ done
 deploy_args+=(
     --exclude .env
     --exclude .venv
+    --exclude .hedron/build
     --exclude '**/__pycache__/*'
     --exclude '**/*.db'
     --exclude '**/*.sqlite3'

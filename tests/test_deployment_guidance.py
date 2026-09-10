@@ -5,6 +5,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_DOC = PROJECT_ROOT / "docs" / "deploy.md"
+CONNECT_DEPLOY_SCRIPT = PROJECT_ROOT / "scripts" / "deploy-connect.sh"
 
 
 def _section(source: str, heading: str, next_heading: str) -> str:
@@ -74,6 +75,13 @@ def test_connect_instructions_include_start_and_redeploy_steps() -> None:
     assert "choose **Start**" in production
     assert "python -m app migrate" in production
     assert "/path/to/data-mover.production.env" not in production
+
+
+def test_connect_deploy_excludes_generated_hedron_theme_bundle() -> None:
+    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'python_bin" -m hedron build' not in script
+    assert "--exclude .hedron/build" in script
 
 
 def test_readme_operational_commands_use_one_in_process_app() -> None:

@@ -184,6 +184,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                 ratio="2:1",
                 gap="lg",
                 collapse="never",
+                class_="data-mover-admin-split",
             ),
         ]
         return await render_authenticated_view(
@@ -625,6 +626,9 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                 db, event_type=event_type, outcome=outcome, page=page
             )
             page_count = max(1, (total + AUDIT_PAGE_SIZE - 1) // AUDIT_PAGE_SIZE)
+            region_id = (
+                None if hx_target(request) == AUDIT_RESULTS_LAZY_BODY.selector else AUDIT_RESULTS.id
+            )
             return ok_fragment(
                 ui.audit_results(
                     request,
@@ -635,6 +639,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                     page_count=page_count,
                     total_events=total,
                     page_size=AUDIT_PAGE_SIZE,
+                    region_id=region_id,
                 ),
                 oob=(audit_match_count_oob(total),),
             )
@@ -645,6 +650,11 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                     event_type=event_type or "",
                     outcome=outcome or "",
                     page=page,
+                    region_id=(
+                        None
+                        if hx_target(request) == AUDIT_RESULTS_LAZY_BODY.selector
+                        else AUDIT_RESULTS.id
+                    ),
                 ),
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             )

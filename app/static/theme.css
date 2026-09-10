@@ -7,21 +7,18 @@
  * choices that are not component styling features.
  */
 
-body {
+[data-theme] {
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  /* Hedron's compatibility bridge currently aliases both shadows to the
+   * raised token. Keep ordinary chrome quiet while preserving a distinct
+   * raised level for dialogs and overlays. */
+  --hedron-default-shadow: 0 1px 2px rgb(2 8 23 / 6%), 0 8px 24px rgb(2 8 23 / 8%);
+  --hedron-default-shadow-raised: var(--hedron-elevation-raised);
 }
 
-.data-mover-brand .hedron-brand-mark {
+.data-mover-brand > [data-hedron-mark-size] {
   inline-size: 3rem;
   block-size: 3rem;
-}
-
-.hedron-page-header-title {
-  letter-spacing: -0.045em;
-}
-
-.hedron-page-header-description {
-  text-wrap: pretty;
 }
 
 /* Hedron owns the switch geometry and interaction. The product layer only
@@ -45,7 +42,6 @@ body {
   background-position: center;
   background-repeat: no-repeat;
   background-size: 0.85rem;
-  content: "";
 }
 
 [data-hedron-mark="color-mode-toggle"] input:checked::before {
@@ -60,33 +56,16 @@ body {
   border-inline-start: 1px solid var(--hedron-color-border, var(--hedron-default-border));
 }
 
-.data-mover-account-summary .hedron-account-mark {
+.data-mover-account-summary > [data-hedron-mark-size] {
   flex: 0 0 auto;
 }
 
-.data-mover-account-summary .hedron-account-copy {
+.data-mover-account-summary > :nth-child(2) {
   display: grid;
   min-inline-size: 0;
   max-inline-size: 15rem;
   gap: var(--hedron-space-1, 0.25rem);
   line-height: 1.15;
-}
-
-.data-mover-account-summary .hedron-account-name {
-  display: block;
-  font-size: var(--hedron-type-supporting-size, 0.875rem);
-  font-weight: 700;
-}
-
-.data-mover-account-summary .hedron-account-detail {
-  display: block;
-  min-inline-size: 0;
-  overflow: hidden;
-  color: var(--hedron-color-muted, var(--hedron-default-muted, GrayText));
-  font-size: var(--hedron-type-metadata-size, 0.75rem);
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .data-mover-sign-out {
@@ -96,7 +75,7 @@ body {
 /* Hedron publishes AppShell's collapsed state as part of its presentation
  * vocabulary. Each route keeps the same icon and horizontal anchor in both
  * states; collapsing only hides the text label. */
-.hedron-app-shell {
+.data-mover-app-shell {
   transition: grid-template-columns var(--hedron-motion-emphasized, 300ms);
 }
 
@@ -108,7 +87,7 @@ body {
   display: flex;
 }
 
-.data-mover-nav-toggle-row + .hedron-nav-group > .hedron-nav-group-label {
+.data-mover-nav-toggle-row + .data-mover-nav-group > :first-child {
   padding-inline-end: 2.75rem;
 }
 
@@ -138,72 +117,52 @@ body {
   transform: none;
 }
 
-.data-mover-side-nav .hedron-icon {
+.data-mover-side-nav [data-hedron-icon] {
   display: inline-flex;
   flex: 0 0 auto;
 }
 
-.hedron-app-shell[data-nav-collapsed="true"] {
+.data-mover-app-shell[data-nav-collapsed="true"] {
   grid-template-columns: 4rem minmax(0, 1fr);
   column-gap: var(--hedron-space-4, 1rem);
 }
 
-.hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-toggle-row {
+.data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-toggle-row {
   inset-inline-start: 50%;
   inset-inline-end: auto;
   transform: translateX(-50%);
 }
 
-.hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav > .hedron-nav-group {
+.data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-group {
   min-inline-size: 0;
 }
 
-.hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-group-label {
-  contain: inline-size;
-  min-inline-size: 0;
-  overflow: hidden;
-  white-space: nowrap;
+.data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-group > :first-child {
+  visibility: hidden;
 }
 
-.hedron-app-shell[data-nav-collapsed="true"]
+.data-mover-app-shell[data-nav-collapsed="true"]
   .data-mover-nav-footer {
   display: none;
 }
 
-.hedron-app-shell[data-nav-collapsed="true"]
-  .data-mover-nav-toggle-row
-  + .hedron-nav-group
-  > .hedron-nav-group-label {
-  visibility: hidden;
-}
-
-.hedron-app-shell[data-nav-collapsed="true"]
-  .data-mover-side-nav
-  > .hedron-nav-group
-  + .hedron-nav-group
-  > .hedron-nav-group-label {
+.data-mover-app-shell[data-nav-collapsed="true"]
+  .data-mover-nav-group
+  + .data-mover-nav-group
+  > :first-child {
   position: relative;
-  color: transparent;
-  user-select: none;
-}
-
-.hedron-app-shell[data-nav-collapsed="true"]
-  .data-mover-side-nav
-  > .hedron-nav-group
-  + .hedron-nav-group
-  > .hedron-nav-group-label::after {
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline: var(--hedron-space-1, 0.25rem);
+  visibility: visible;
+  margin-block-start: var(--hedron-space-2, 0.5rem);
+  padding-block-start: var(--hedron-space-2, 0.5rem);
   border-block-start: 1px solid var(--hedron-color-border, var(--hedron-default-border));
-  content: "";
+  color: transparent;
 }
 
-.hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-item {
+.data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-item {
   position: relative;
 }
 
-.hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-item .hedron-nav-link {
+.data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-item > a {
   box-sizing: border-box;
   inline-size: calc(
     4rem - 2px - var(--hedron-space-3, 0.75rem) - var(--hedron-space-3, 0.75rem)
@@ -212,11 +171,11 @@ body {
   justify-content: flex-start;
 }
 
-.hedron-app-shell[data-nav-collapsed="true"] .data-mover-side-nav .hedron-icon {
+.data-mover-app-shell[data-nav-collapsed="true"] .data-mover-side-nav [data-hedron-icon] {
   margin-inline-end: 0;
 }
 
-.hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-link-label {
+.data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-item > a > :last-child {
   position: absolute;
   inline-size: 1px;
   block-size: 1px;
@@ -229,7 +188,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hedron-app-shell {
+  .data-mover-app-shell {
     transition: none;
   }
 }
@@ -239,35 +198,28 @@ body {
     display: none;
   }
 
-  .hedron-app-shell[data-nav-collapsed="true"]
+  .data-mover-app-shell[data-nav-collapsed="true"]
     .data-mover-nav-footer {
     display: initial;
   }
 
-  .hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-group-label {
-    contain: none;
-    overflow: visible;
+  .data-mover-app-shell[data-nav-collapsed="true"]
+    .data-mover-nav-group
+    > :first-child {
     visibility: visible;
+    margin-block-start: 0;
+    padding-block-start: 0;
+    border-block-start: 0;
     color: inherit;
-    user-select: auto;
-    white-space: normal;
   }
 
-  .hedron-app-shell[data-nav-collapsed="true"]
-    .data-mover-side-nav
-    > .hedron-nav-group
-    + .hedron-nav-group
-    > .hedron-nav-group-label::after {
-    display: none;
-  }
-
-  .hedron-app-shell[data-nav-collapsed="true"] .data-mover-nav-item .hedron-nav-link {
+  .data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-item > a {
     inline-size: auto;
     justify-content: flex-start;
     font-size: inherit;
   }
 
-  .hedron-app-shell[data-nav-collapsed="true"] .hedron-nav-link-label {
+  .data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-item > a > :last-child {
     position: static;
     inline-size: auto;
     block-size: auto;
@@ -276,6 +228,27 @@ body {
     clip: auto;
     clip-path: none;
     white-space: normal;
+  }
+}
+
+/* Keep the directory table fully visible at compact desktop widths. The
+ * invitation panel returns to the second column once both panes have enough
+ * room for their controls and data. */
+.data-mover-admin-split {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.data-mover-admin-split > [role="separator"] {
+  display: none;
+}
+
+@media (min-width: 72rem) {
+  .data-mover-admin-split {
+    grid-template-columns: var(--hedron-split-columns);
+  }
+
+  .data-mover-admin-split > [role="separator"] {
+    display: block;
   }
 }
 

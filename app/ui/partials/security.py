@@ -491,8 +491,11 @@ def security_activity(
     *,
     oob: bool = False,
     with_polling: bool = True,
+    region_id: str | None = "security-activity",
 ) -> NodeLike:
-    attrs: dict[str, HtmlAttrValue] = {"id": "security-activity"}
+    attrs: dict[str, HtmlAttrValue] = {}
+    if region_id is not None:
+        attrs["id"] = region_id
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     if with_polling and request is not None:
@@ -545,17 +548,13 @@ def security_activity(
 def security_activity_error(
     request: Request,
     message: str = "Could not load security activity.",
+    *,
+    region_id: str | None = "security-activity",
 ) -> NodeLike:
     """ErrorState wrapped so Lazy outerHTML swaps keep a stable region id."""
     activity_path = mounted_path(request, "/profile/activity")
-    return html.div(
-        ErrorState(
-            message,
-            retry_href=activity_path,
-            target="#security-activity",
-        ),
-        id="security-activity",
-        data={"lazy-error": "security-activity"},
+    attrs: dict[str, HtmlAttrValue] = {
+        "data": {"lazy-error": "security-activity"},
         **hx_attrs(
             request,
             path="profile/activity",
@@ -565,6 +564,16 @@ def security_activity_error(
             polling=30,
             indicator=INDICATOR,
         ),
+    }
+    if region_id is not None:
+        attrs["id"] = region_id
+    return html.div(
+        ErrorState(
+            message,
+            retry_href=activity_path,
+            target="#security-activity",
+        ),
+        **attrs,
     )
 
 

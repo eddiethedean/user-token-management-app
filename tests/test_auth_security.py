@@ -476,6 +476,22 @@ def test_htmx_unauthenticated_redirect_and_admin_error_retarget(client) -> None:
     assert "<html" not in rejected.text.lower()
 
 
+def test_htmx_unauthenticated_redirect_is_root_local_when_workbench_is_active(
+    client, monkeypatch
+) -> None:
+    from app.main import app
+
+    monkeypatch.setattr(app.state, "hedron_workbench_active", True, raising=False)
+    response = client.post(
+        "/profile",
+        data={"csrf_token": "expired", "full_name": "Expired"},
+        headers={"HX-Request": "true", "HX-Target": "#profile-form-region"},
+    )
+
+    assert response.status_code == 303
+    assert response.headers.get("HX-Redirect") == "/login?next=%2Fprofile"
+
+
 def test_password_change_and_reset_validation_edges(client) -> None:
     web_login(client)
     csrf = csrf_from(client.get("/profile").text)
@@ -694,3 +710,10 @@ def test_workbench_redirects_are_relative_for_both_entry_points() -> None:
         )
         == "https://workbench.example/s/session/p/port/security?notice=secret-saved"
     )
+
+
+def test_htmx_redirect_path_is_root_local_for_workbench() -> None:
+    from app.ui.urls import htmx_redirect_path
+
+    assert htmx_redirect_path("/login?password=changed") == "/login?password=changed"
+    assert htmx_redirect_path("login") == "/login"

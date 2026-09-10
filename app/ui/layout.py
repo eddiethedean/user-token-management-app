@@ -153,13 +153,13 @@ def document_head(
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=9"),
+                href=asset_href(request, "/assets/theme.css?v=10"),
             )
         )
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/app-assets/data-mover-components.css?v=8"),
+                href=asset_href(request, "/app-assets/data-mover-components.css?v=10"),
             )
         )
     return Fragment(*nodes)
@@ -280,7 +280,7 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
             ),
             class_="data-mover-nav-toggle-row",
         ),
-        NavGroup("Workspace", *workspace),
+        NavGroup("Workspace", *workspace, class_="data-mover-nav-group"),
     ]
     if "administrator" in auth.user.role_names:
         children.append(
@@ -288,6 +288,7 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
                 "Administration",
                 link("/admin/users", "Team", icon="team"),
                 link("/admin/audit", "Audit log", icon="activity"),
+                class_="data-mover-nav-group",
             )
         )
     return children
@@ -455,6 +456,7 @@ def app_shell(
                         ),
                         content_width="wide",
                         mobile_collapse=False,
+                        class_="data-mover-app-shell",
                     ),
                     layers=(
                         AmbientLayer(

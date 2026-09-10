@@ -251,7 +251,8 @@ _DATA_MOVER_THEME_TOKENS = {
     "color.link-visited": "#5944b5",
     "color.selection-bg": "#cbd2ff",
     "color.selection-fg": "#101a35",
-    "color.danger": "#d04348",
+    "color.danger": "#bd363d",
+    "color.danger-soft": "#fdecee",
     "color.success": "#18745a",
     "color.success-soft": "#e7f7f1",
     "color.warning": "#8a5a00",
@@ -281,6 +282,7 @@ _DATA_MOVER_DARK_MODE = {
     "color.selection-bg": "#5969d8",
     "color.selection-fg": "#ffffff",
     "color.danger": "#ff8ca6",
+    "color.danger-soft": "rgb(255 140 166 / 12%)",
     "color.success": "#63e0c6",
     "color.success-soft": "rgb(99 224 198 / 12%)",
     "color.warning": "#f0c76a",
@@ -311,7 +313,7 @@ DATA_MOVER_THEME: Theme = replace(
     },
     elevation={
         "focus": "0 12px 32px rgb(2 8 23 / 14%)",
-        "raised": "0 1px 0 rgb(255 255 255 / 6%), 0 28px 84px rgb(2 8 23 / 24%)",
+        "raised": "0 1px 2px rgb(2 8 23 / 8%), 0 18px 46px rgb(2 8 23 / 16%)",
     },
 )
 

@@ -10,7 +10,7 @@ function storedNavCollapsePreference() {
 }
 
 function setNavCollapsed(collapsed, { persist = true } = {}) {
-  const shell = document.querySelector(".hedron-app-shell");
+  const shell = document.querySelector(".data-mover-app-shell");
   const toggle = document.getElementById("side-nav-toggle");
   if (!shell || !toggle) return;
 
@@ -143,7 +143,7 @@ scheduleVisibleToasts();
 
 document.addEventListener("DOMContentLoaded", () => {
   const nav = document.getElementById("side-nav");
-  const active = nav?.querySelector(".hedron-nav-link.active");
+  const active = nav?.querySelector('[data-hedron-nav-link="true"].active');
   if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return;
   nav.scrollTo({
     left: active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2,
@@ -154,7 +154,7 @@ document.addEventListener("DOMContentLoaded", () => {
 document.addEventListener("click", (event) => {
   const navToggle = event.target.closest("#side-nav-toggle");
   if (navToggle) {
-    const shell = navToggle.closest(".hedron-app-shell");
+    const shell = navToggle.closest(".data-mover-app-shell");
     setNavCollapsed(shell?.dataset.navCollapsed !== "true");
     return;
   }

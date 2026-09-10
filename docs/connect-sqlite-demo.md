@@ -96,7 +96,7 @@ content URL from Connect, update `PUBLIC_BASE_URL` under **Settings > Advanced >
 variables**, and restart the content before testing any generated links. Update the exported shell
 value too, or a later deployment command will send the placeholder again.
 
-## 3. Seed the SQLite database and build assets
+## 3. Seed the SQLite database
 
 The app refuses to start with a missing or outdated schema, so initialize the database before it is
 included in the bundle:
@@ -107,9 +107,7 @@ python -m app migrate
 python -m app schema-status
 python -m app create-admin --email you@socom.mil
 python -m app seed-demo-connections --email you@socom.mil
-python -m hedron build
 test -f deployment/connect-demo.db
-test -f .hedron/build/manifest.json
 ```
 
 Use an administrator address on one of the configured `ALLOWED_EMAIL_DOMAINS`. The administrator

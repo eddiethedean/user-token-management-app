@@ -81,9 +81,9 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=2"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=9"')
-    assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=8"')
-    assert_html_contains(response, 'src="/assets/app.js?v=6"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=10"')
+    assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=10"')
+    assert_html_contains(response, 'src="/assets/app.js?v=7"')
     assert_html_contains(
         response,
         'type="image/png" href="/assets/brand/data-mover-mark.png?v=1" rel="icon"',
@@ -129,6 +129,9 @@ def test_hedron_component_bundles_are_served(access_app) -> None:
     assert "--hedron-color-bg: #f4f6fb" in response.body
     assert "--hedron-color-fg: #17213d" in response.body
     assert "--hedron-color-accent: #4053d6" in response.body
+    assert "--hedron-color-danger: #bd363d" in response.body
+    assert "--hedron-color-danger-soft: #fdecee" in response.body
+    assert "--hedron-color-danger-soft: rgb(255 140 166 / 12%)" in response.body
     assert "--hedron-color-link: #aab6ff" in response.body
     assert "--hedron-color-selection-bg: #5969d8" in response.body
     assert "--hedron-color-bg: #080d16" in response.body
@@ -156,9 +159,11 @@ def test_hedron_component_bundles_are_served(access_app) -> None:
     assert ".hedron-app-shell-nav" not in theme.body
     assert ".hedron-card::before" not in theme.body
     assert '[data-hedron-mark="color-mode-toggle"] input::before' in theme.body
-    assert "contain: inline-size" in theme.body
+    assert '.data-mover-app-shell[data-nav-collapsed="true"]' in theme.body
     assert "border-block-start: 1px solid" in theme.body
     assert "color: transparent" in theme.body
+    assert ".data-mover-admin-split" in theme.body
+    assert "@media (min-width: 72rem)" in theme.body
     assert ".data-mover-nav-footer" in theme.body
     assert "> .data-mover-nav-footer" not in theme.body
     assert ".data-mover-side-nav > :last-child" not in theme.body
