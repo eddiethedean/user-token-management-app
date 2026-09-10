@@ -21,6 +21,7 @@ from hedron.testing import (
 from hedron_core import RenderMode
 from starlette.requests import Request
 
+from app.config import Settings
 from app.ui import partials as ui
 from app.ui.design_system import (
     APP_SHELL_NAV_STYLE_CLASS,
@@ -35,7 +36,7 @@ from app.ui.design_system import (
 from app.ui.forms import submit_button
 from app.ui.hedron_styles import desktop_default_styles
 from app.ui.interactions import APP_REGIONS
-from app.ui.layout import alert_box, document_head, page_heading
+from app.ui.layout import alert_box, app_shell, document_head, page_heading
 from app.ui.urls import hx_attrs
 from tests.helpers import assert_redirect_path
 
@@ -99,6 +100,10 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'data-hedron-resource-list="true"')
     assert_html_contains(response, 'aria-label="Workspace protections"')
     assert_html_contains(response, "Continue to workspace")
+    assert_html_contains(response, "Test demo workspace")
+    assert_html_contains(response, "Test environment · Transfers are simulated")
+    assert_html_contains(response, "Demo mode")
+    assert "Sandbox" not in response.body
 
     dark = fixture.get("/login", cookies={"data_mover_color_mode": "dark"})
     assert_html_contains(dark, 'src="/assets/brand/data-mover-mark-dark.png?v=1"')
@@ -106,6 +111,31 @@ def test_login_page_document(access_app) -> None:
     light = fixture.get("/login", cookies={"data_mover_color_mode": "light"})
     assert_html_contains(light, 'data-theme="light"')
     assert_html_contains(light, 'src="/assets/brand/data-mover-mark-light.png?v=1"')
+
+
+def test_live_production_shell_reports_effective_runtime_mode() -> None:
+    live_settings = Settings.model_construct(
+        app_env="production",
+        app_name="Data Mover",
+        data_mover_mode="real",
+    )
+
+    rendered = render_html(
+        app_shell(
+            "Live content",
+            request=_request(),
+            settings=live_settings,
+            auth=None,
+            page_title="Live",
+        )
+    )
+
+    assert "Production live workspace" in rendered
+    assert "Transfers use configured endpoints and may change remote systems" in rendered
+    assert "Production environment · Remote systems may be changed" in rendered
+    assert "Live transfers" in rendered
+    assert "Demo" not in rendered
+    assert "Sandbox" not in rendered
 
 
 def test_brand_images_are_valid_png_responses(client) -> None:
@@ -776,7 +806,7 @@ def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:
     assert_html_contains(adapter, "hx-swap-oob")
     assert_html_contains(adapter, 'id="side-nav-toggle"')
     assert_html_contains(adapter, "data-mover-nav-footer")
-    assert_html_contains(adapter, "Sandbox healthy")
+    assert_html_contains(adapter, "Demo mode · Credentials encrypted")
     assert_html_contains(adapter, 'data-hedron-icon="data-mover-team"')
     assert_html_contains(adapter, 'data-hedron-icon="data-mover-activity"')
     assert "<!doctype" not in security.text.lower()

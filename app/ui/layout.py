@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from fastapi import Request
 from hedron import (
@@ -63,6 +64,72 @@ from app.ui.urls import asset_href, asset_src, form_action, hx_attrs, page_href
 INDICATOR = "#global-request-indicator"
 THEME_CHOICES = ("data-mover", "aurora")
 UI_PREFERENCE_MAX_AGE = 31536000
+
+BadgeTone = Literal["neutral", "info", "success", "warning", "danger"]
+StatusTone = Literal["info", "success", "warning", "danger"]
+
+
+@dataclass(frozen=True)
+class RuntimePresentation:
+    """Operator-facing shell copy derived from the effective runtime mode."""
+
+    environment_label: str
+    environment_tone: BadgeTone
+    mode_label: str
+    mode_tone: BadgeTone
+    banner: str
+    banner_tone: StatusTone
+    footer: str
+    nav_status: str
+    nav_tone: StatusTone
+
+
+def runtime_presentation(settings: Settings) -> RuntimePresentation:
+    """Describe the effective deployment without implying sandbox safety in live mode."""
+
+    environment_label: str
+    environment_tone: BadgeTone
+    if settings.app_env == "production":
+        environment_label = "Production"
+        environment_tone = "warning"
+    elif settings.app_env == "test":
+        environment_label = "Test"
+        environment_tone = "neutral"
+    else:
+        environment_label = "Development"
+        environment_tone = "info"
+
+    if settings.is_demo_mode:
+        return RuntimePresentation(
+            environment_label=environment_label,
+            environment_tone=environment_tone,
+            mode_label="Demo mode",
+            mode_tone="info",
+            banner=(
+                f"{environment_label} demo workspace · Transfers are simulated and remote "
+                "endpoints stay untouched"
+            ),
+            banner_tone="warning",
+            footer=f"{environment_label} environment · Transfers are simulated",
+            nav_status="Demo mode · Credentials encrypted",
+            nav_tone="success",
+        )
+
+    return RuntimePresentation(
+        environment_label=environment_label,
+        environment_tone=environment_tone,
+        mode_label="Live transfers",
+        mode_tone="danger",
+        banner=(
+            f"{environment_label} live workspace · Transfers use configured endpoints and may "
+            "change remote systems"
+        ),
+        banner_tone="danger",
+        footer=f"{environment_label} environment · Remote systems may be changed",
+        nav_status="Live endpoints · Credentials encrypted",
+        nav_tone="warning",
+    )
+
 
 HTMX_CONFIG = (
     '{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false,'
@@ -304,20 +371,21 @@ def side_nav(request: Request, auth: AuthContext) -> Nav:
     )
 
 
-def shell_nav_footer() -> NavStatus:
+def shell_nav_footer(settings: Settings) -> NavStatus:
     """Use Hedron's typed AppShell status slot for workspace health."""
+    runtime = runtime_presentation(settings)
     return NavStatus(
-        "Sandbox healthy · Credentials encrypted",
-        tone="success",
+        runtime.nav_status,
+        tone=runtime.nav_tone,
         mark="●",
         class_="data-mover-nav-footer",
     )
 
 
-def side_nav_oob(request: Request, auth: AuthContext) -> OobUpdate:
+def side_nav_oob(request: Request, auth: AuthContext, settings: Settings) -> OobUpdate:
     """Replace side-nav contents after in-shell navigation (preserves outer nav element)."""
     return OobUpdate(
-        content=Fragment(*side_nav_children(request, auth), shell_nav_footer()),
+        content=Fragment(*side_nav_children(request, auth), shell_nav_footer(settings)),
         element_id="side-nav",
         swap="innerHTML",
     )
@@ -398,7 +466,9 @@ def app_shell(
         Text("CDAO", as_="strong", role="caption", effect="subtle"),
         gap="xs",
     )
-    environment_badge = Badge("Sandbox online", tone="success")
+    runtime = runtime_presentation(settings)
+    environment_badge = Badge(runtime.environment_label, tone=runtime.environment_tone)
+    transfer_mode_badge = Badge(runtime.mode_label, tone=runtime.mode_tone)
     indicator = RequestIndicator(
         "Working…",
         id="global-request-indicator",
@@ -407,8 +477,8 @@ def app_shell(
     skip = SkipLink(target="#main-content", label="Skip to main content")
     content: NodeLike
     banner: NodeLike | None = EnvironmentBanner(
-        "Controlled demo workspace · Transfers are simulated and remote endpoints stay untouched",
-        tone="warning",
+        runtime.banner,
+        tone=runtime.banner_tone,
     )
     if auth:
         content = Container(
@@ -430,6 +500,7 @@ def app_shell(
                         account=(
                             Inline(
                                 environment_badge,
+                                transfer_mode_badge,
                                 color_mode_toggle(request, csrf_token=csrf_token),
                                 account_summary(request, auth),
                                 sign_out_action(request, csrf_token=csrf_token),
@@ -438,7 +509,7 @@ def app_shell(
                             if csrf_token
                             else None
                         ),
-                        nav_footer=shell_nav_footer(),
+                        nav_footer=shell_nav_footer(settings),
                         chrome=AppShellChrome(
                             preset="editorial",
                             header_behavior="sticky",
@@ -452,7 +523,7 @@ def app_shell(
                         ),
                         app_footer=AppFooter(
                             settings.app_name,
-                            html.span("Demo environment · No remote systems are contacted"),
+                            html.span(runtime.footer),
                         ),
                         content_width="wide",
                         mobile_collapse=False,
@@ -492,8 +563,8 @@ def app_shell(
                         brand,
                         Inline(
                             cdao_identity,
-                            Badge("Demo workspace", tone="warning"),
                             environment_badge,
+                            transfer_mode_badge,
                             gap="sm",
                         ),
                         align="between",
@@ -528,7 +599,7 @@ def app_shell(
                         ),
                         AppFooter(
                             settings.app_name,
-                            html.span("Demo environment · No remote systems are contacted"),
+                            html.span(runtime.footer),
                         ),
                         gap="md",
                     ),

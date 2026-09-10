@@ -133,7 +133,7 @@ async def render_authenticated_view(
                         preference.color_mode if preference.color_mode != "system" else None
                     ),
                 ),
-                oob=(side_nav_oob(request, auth),),
+                oob=(side_nav_oob(request, auth, settings),),
                 push_url=mounted_path(request, push_path),
             ),
         )
