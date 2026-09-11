@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from urllib.parse import urlsplit
 
-import httpx
+import httpx2
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -51,7 +51,7 @@ async def proxy(request: Request) -> Response:
     }
     body = await request.body()
 
-    async with httpx.AsyncClient(follow_redirects=False, timeout=30.0) as client:
+    async with httpx2.AsyncClient(follow_redirects=False, timeout=30.0) as client:
         upstream = await client.request(
             request.method,
             target,

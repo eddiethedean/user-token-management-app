@@ -34,3 +34,14 @@ def test_requirement_files_do_not_set_upper_version_caps() -> None:
     ]
 
     assert all("<" not in requirement for requirement in requirements)
+
+
+def test_development_http_client_uses_httpx2() -> None:
+    requirements = {
+        line.strip()
+        for line in (DEMO_ROOT / "requirements-dev.txt").read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith(("#", "-r"))
+    }
+
+    assert "httpx2>=2.9.1" in requirements
+    assert not any(requirement.startswith("httpx>=") for requirement in requirements)

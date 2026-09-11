@@ -255,7 +255,7 @@ def widen_cookie_paths(http: httpx2.Client) -> None:
 
     With ``UVICORN_ROOT_PATH=/s/…/p/…``, Data Mover sets ``Path=/s/…/p/…`` on auth
     cookies. Docker tests hit the published app port where the mount is already stripped
-    (``/login``, not ``/s/…/login``), so httpx would otherwise omit those cookies.
+    (``/login``, not ``/s/…/login``), so httpx2 would otherwise omit those cookies.
     """
     snapshots = [(cookie.name, cookie.value, cookie.domain) for cookie in list(http.cookies.jar)]
     http.cookies.clear()

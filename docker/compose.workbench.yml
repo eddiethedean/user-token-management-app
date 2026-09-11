@@ -99,7 +99,7 @@ services:
       [
         "sh",
         "-c",
-        "pip install --no-cache-dir 'uvicorn[standard]>=0.30' 'httpx>=0.27' 'starlette>=0.37' && python location_rewrite_proxy.py",
+        "pip install --no-cache-dir 'uvicorn[standard]>=0.30' 'httpx2>=2.9.1' 'starlette>=0.37' && python location_rewrite_proxy.py",
       ]
     environment:
       REWRITE_UPSTREAM: http://app:8000
