@@ -1,0 +1,114 @@
+[
+  {
+    "key": "event-loop",
+    "number": 8,
+    "title": "[BUG] Synchronous provider calls in async routes block the application event loop",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/8",
+    "severity": "High"
+  },
+  {
+    "key": "heartbeat",
+    "number": 9,
+    "title": "[BUG] Uncommitted batch events block the independent lease heartbeat during destination writes",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/9",
+    "severity": "High"
+  },
+  {
+    "key": "disabled-owner",
+    "number": 10,
+    "title": "[BUG] Queued transfers still execute after their owner account is disabled",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/10",
+    "severity": "High"
+  },
+  {
+    "key": "decimal",
+    "number": 11,
+    "title": "[BUG] PostgreSQL destination creation silently converts exact decimals to floating point",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/11",
+    "severity": "High"
+  },
+  {
+    "key": "null-marker",
+    "number": 12,
+    "title": "[BUG] PostgreSQL COPY silently turns literal backslash-N strings into SQL NULL",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/12",
+    "severity": "High"
+  },
+  {
+    "key": "binary",
+    "number": 13,
+    "title": "[BUG] PostgreSQL COPY stores Python byte-string representations instead of original bytes",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/13",
+    "severity": "High"
+  },
+  {
+    "key": "cancel-final",
+    "number": 14,
+    "title": "[BUG] Cancellation during the final batch is ignored before destination commit",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/14",
+    "severity": "High"
+  },
+  {
+    "key": "csv-contract",
+    "number": 15,
+    "title": "[BUG] CSV transfers ignore the delimiter and normalized headers shown by upload inspection",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/15",
+    "severity": "High"
+  },
+  {
+    "key": "upsert-dupes",
+    "number": 16,
+    "title": "[BUG] Upsert ignore fails on duplicate source keys before ON CONFLICT is reached",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/16",
+    "severity": "Medium"
+  },
+  {
+    "key": "pg-inference",
+    "number": 17,
+    "title": "[BUG] PostgreSQL extraction fails when the first 100 values are NULL",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/17",
+    "severity": "Medium"
+  },
+  {
+    "key": "unique-metadata",
+    "number": 18,
+    "title": "[BUG] PostgreSQL unique-key inspection mixes in columns from another table\u2019s constraint",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/18",
+    "severity": "Medium"
+  },
+  {
+    "key": "csv-inference",
+    "number": 19,
+    "title": "[BUG] CSV files accepted as mixed text fail execution when text occurs after row 10000",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/19",
+    "severity": "Medium"
+  },
+  {
+    "key": "empty-foundry",
+    "number": 20,
+    "title": "[BUG] Foundry destinations cannot finalize valid zero-row sources",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/20",
+    "severity": "Medium"
+  },
+  {
+    "key": "uppercase",
+    "number": 21,
+    "title": "[BUG] New PostgreSQL tables with uppercase names cannot be inspected by the same connector",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/21",
+    "severity": "Medium"
+  },
+  {
+    "key": "timeout-input",
+    "number": 22,
+    "title": "[BUG] PostgreSQL credentials accept an invalid connection timeout and fail only when tested",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/22",
+    "severity": "Low"
+  },
+  {
+    "key": "csrf-unicode",
+    "number": 23,
+    "title": "[BUG] Non-ASCII CSRF form values raise TypeError and return HTTP 500",
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/23",
+    "severity": "Low"
+  }
+]

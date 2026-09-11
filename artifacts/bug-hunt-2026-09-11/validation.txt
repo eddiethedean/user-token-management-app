@@ -1,0 +1,470 @@
+NULL marker roundtrip: [(None,), (None,), ('',)]
+.decimal source: 12345678901234567890.123456789 destination: [('1.2345678901234567e+19', 'double precision')]
+.binary source: b'abc' destination: [(b"b'abc'",)]
+.actual unique(id), reported: (('id', 'code'),)
+.100 nulls followed by 42: could not append value: 42 of type: i64 to the builder; make sure that all rows have the same schema or consider increasing `infer_schema_length`
+
+it might also be that a value overflows the data-type's capacity
+.upload columns: ['id', 'name'] transfer columns: ['id;name']
+.upload columns: ['id', 'name'] transfer columns: [' id ', ' name ']
+.accepted CSV with late text: The CSV file could not be parsed.
+.cancel requested during final batch; committed: True
+.upsert ignore duplicate input: duplicate key value violates unique constraint "dm_stage_63ec837ffa45_pkey"
+.- INFO alembic.runtime.migration Context impl SQLiteImpl.
+- INFO alembic.runtime.migration Will assume non-transactional DDL.
+Administrator ready: admin@example.gov
+disabled account run status: succeeded
+.empty typed source: No Parquet spool was produced.
+.validated timeout crashes: invalid literal for int() with base 10: 'abc'
+.accepted CamelTable locator: relation "public.cameltable" does not exist
+.- INFO alembic.runtime.migration Context impl SQLiteImpl.
+- INFO alembic.runtime.migration Will assume non-transactional DDL.
+- INFO alembic.runtime.migration Running upgrade  -> 0001_initial_schema, Create the original application schema.
+- INFO alembic.runtime.migration Running upgrade 0001_initial_schema -> 0002_self_registration, Add single-use self-registration verification capabilities.
+- INFO alembic.runtime.migration Running upgrade 0002_self_registration -> 0003_shared_rate_limits, Add shared fixed-window authentication throttling buckets.
+- INFO alembic.runtime.migration Running upgrade 0003_shared_rate_limits -> 0004_user_api_secrets, Add encrypted user-owned API token records.
+- INFO alembic.runtime.migration Running upgrade 0004_user_api_secrets -> 0005_atomic_tokens_email, Add refresh replay history and claimable email delivery state.
+- INFO alembic.runtime.migration Running upgrade 0005_atomic_tokens_email -> 0006_api_key_usage, Add aggregate API-token master-key usage accounting.
+- INFO alembic.runtime.migration Running upgrade 0006_api_key_usage -> 0007_saved_pipelines, Add user-owned saved pipeline definitions.
+- INFO alembic.runtime.migration Running upgrade 0007_saved_pipelines -> 0008_catalogs_health, Add connection health and schema-aware pipeline objects.
+- INFO alembic.runtime.migration Running upgrade 0008_catalogs_health -> 0009_csv_sources, Add owner-scoped CSV uploads for pipeline sources.
+- INFO alembic.runtime.migration Running upgrade 0009_csv_sources -> 0010_real_transfer_runs, Add versioned pipeline locators, durable runs, and catalog cache.
+- INFO alembic.runtime.migration Running upgrade 0010_real_transfer_runs -> 0011_user_color_mode, Persist each user's preferred light or dark color mode.
+- INFO alembic.runtime.migration Running upgrade 0011_user_color_mode -> 0012_dark_color_mode_default, Make dark mode the default for newly created users.
+- INFO alembic.runtime.migration Running upgrade 0012_dark_color_mode_default -> 0013_pipeline_event_sequence, Allocate pipeline run event sequences atomically.
+- INFO alembic.runtime.migration Running upgrade 0013_pipeline_event_sequence -> 0014_foundry_datasets, Add owner-scoped records for Foundry datasets created by Data Mover.
+- INFO alembic.runtime.migration Context impl SQLiteImpl.
+- INFO alembic.runtime.migration Will assume non-transactional DDL.
+Administrator ready: admin@example.gov
+heartbeat while extracted event is uncommitted: (sqlite3.OperationalError) database is locked
+.- INFO alembic.runtime.migration Context impl SQLiteImpl.
+- INFO alembic.runtime.migration Will assume non-transactional DDL.
+- INFO alembic.runtime.migration Running upgrade  -> 0001_initial_schema, Create the original application schema.
+- INFO alembic.runtime.migration Running upgrade 0001_initial_schema -> 0002_self_registration, Add single-use self-registration verification capabilities.
+- INFO alembic.runtime.migration Running upgrade 0002_self_registration -> 0003_shared_rate_limits, Add shared fixed-window authentication throttling buckets.
+- INFO alembic.runtime.migration Running upgrade 0003_shared_rate_limits -> 0004_user_api_secrets, Add encrypted user-owned API token records.
+- INFO alembic.runtime.migration Running upgrade 0004_user_api_secrets -> 0005_atomic_tokens_email, Add refresh replay history and claimable email delivery state.
+- INFO alembic.runtime.migration Running upgrade 0005_atomic_tokens_email -> 0006_api_key_usage, Add aggregate API-token master-key usage accounting.
+- INFO alembic.runtime.migration Running upgrade 0006_api_key_usage -> 0007_saved_pipelines, Add user-owned saved pipeline definitions.
+- INFO alembic.runtime.migration Running upgrade 0007_saved_pipelines -> 0008_catalogs_health, Add connection health and schema-aware pipeline objects.
+- INFO alembic.runtime.migration Running upgrade 0008_catalogs_health -> 0009_csv_sources, Add owner-scoped CSV uploads for pipeline sources.
+- INFO alembic.runtime.migration Running upgrade 0009_csv_sources -> 0010_real_transfer_runs, Add versioned pipeline locators, durable runs, and catalog cache.
+- INFO alembic.runtime.migration Running upgrade 0010_real_transfer_runs -> 0011_user_color_mode, Persist each user's preferred light or dark color mode.
+- INFO alembic.runtime.migration Running upgrade 0011_user_color_mode -> 0012_dark_color_mode_default, Make dark mode the default for newly created users.
+- INFO alembic.runtime.migration Running upgrade 0012_dark_color_mode_default -> 0013_pipeline_event_sequence, Allocate pipeline run event sequences atomically.
+- INFO alembic.runtime.migration Running upgrade 0013_pipeline_event_sequence -> 0014_foundry_datasets, Add owner-scoped records for Foundry datasets created by Data Mover.
+- INFO alembic.runtime.migration Context impl SQLiteImpl.
+- INFO alembic.runtime.migration Will assume non-transactional DDL.
+ad0bace4-eedd-4573-8019-fb6895949f54 INFO app.main method=GET path=/login status=200 duration_ms=29
+- INFO httpx2 HTTP Request: GET http://testserver/login "HTTP/1.1 200 OK"
+b6d2e71b-7d57-4b83-b25e-ef02f100d706 INFO app.main method=POST path=/login status=303 duration_ms=22
+- INFO httpx2 HTTP Request: POST http://testserver/login "HTTP/1.1 303 See Other"
+d2d24f35-f50d-4fae-b1a6-1c8fdd543ba2 INFO app.main method=GET path=/security status=200 duration_ms=22
+- INFO httpx2 HTTP Request: GET http://testserver/security "HTTP/1.1 200 OK"
+51f9af56-a082-4352-96da-ba8c2e569e8b INFO app.main method=POST path=/security/secrets/postgres/test status=303 duration_ms=268
+- INFO httpx2 HTTP Request: POST http://testserver/security/secrets/postgres/test "HTTP/1.1 303 See Other"
+Administrator ready: admin@example.gov
+slow provider runs on event loop: True max ticker gap: 0.26831295900046825
+.- INFO alembic.runtime.migration Context impl SQLiteImpl.
+- INFO alembic.runtime.migration Will assume non-transactional DDL.
+- INFO alembic.runtime.migration Running upgrade  -> 0001_initial_schema, Create the original application schema.
+- INFO alembic.runtime.migration Running upgrade 0001_initial_schema -> 0002_self_registration, Add single-use self-registration verification capabilities.
+- INFO alembic.runtime.migration Running upgrade 0002_self_registration -> 0003_shared_rate_limits, Add shared fixed-window authentication throttling buckets.
+- INFO alembic.runtime.migration Running upgrade 0003_shared_rate_limits -> 0004_user_api_secrets, Add encrypted user-owned API token records.
+- INFO alembic.runtime.migration Running upgrade 0004_user_api_secrets -> 0005_atomic_tokens_email, Add refresh replay history and claimable email delivery state.
+- INFO alembic.runtime.migration Running upgrade 0005_atomic_tokens_email -> 0006_api_key_usage, Add aggregate API-token master-key usage accounting.
+- INFO alembic.runtime.migration Running upgrade 0006_api_key_usage -> 0007_saved_pipelines, Add user-owned saved pipeline definitions.
+- INFO alembic.runtime.migration Running upgrade 0007_saved_pipelines -> 0008_catalogs_health, Add connection health and schema-aware pipeline objects.
+- INFO alembic.runtime.migration Running upgrade 0008_catalogs_health -> 0009_csv_sources, Add owner-scoped CSV uploads for pipeline sources.
+- INFO alembic.runtime.migration Running upgrade 0009_csv_sources -> 0010_real_transfer_runs, Add versioned pipeline locators, durable runs, and catalog cache.
+- INFO alembic.runtime.migration Running upgrade 0010_real_transfer_runs -> 0011_user_color_mode, Persist each user's preferred light or dark color mode.
+- INFO alembic.runtime.migration Running upgrade 0011_user_color_mode -> 0012_dark_color_mode_default, Make dark mode the default for newly created users.
+- INFO alembic.runtime.migration Running upgrade 0012_dark_color_mode_default -> 0013_pipeline_event_sequence, Allocate pipeline run event sequences atomically.
+- INFO alembic.runtime.migration Running upgrade 0013_pipeline_event_sequence -> 0014_foundry_datasets, Add owner-scoped records for Foundry datasets created by Data Mover.
+- INFO alembic.runtime.migration Context impl SQLiteImpl.
+- INFO alembic.runtime.migration Will assume non-transactional DDL.
+cdbdb721-d809-4821-b1f3-c7c43ac9c0ee INFO app.main method=GET path=/login status=200 duration_ms=6
+- INFO httpx2 HTTP Request: GET http://testserver/login "HTTP/1.1 200 OK"
+769e8862-83db-4735-b95b-646761059387 ERROR app.main request failed method=POST path=/login duration_ms=1
+  + Exception Group Traceback (most recent call last):
+  |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 85, in create_collapsing_task_group
+  |     async with anyio.create_task_group() as tg:
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 847, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Volumes/T7/coding/user-token-managment-app/app/main.py", line 187, in security_and_session_middleware
+    |     response = await call_next(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/runtime.py", line 154, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/security/plane_middleware.py", line 44, in dispatch
+    |     return await call_next(request)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/security/headers.py", line 23, in dispatch
+    |     response = await call_next(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/routing.py", line 670, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 2734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 1281, in handle
+    |     await super().handle(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/routing.py", line 280, in handle
+    |     await self.app(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 158, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 144, in app
+    |     response = await f(request)
+    |                ^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/routing/route.py", line 149, in handler
+    |     response = await original(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 706, in app
+    |     raw_response = await run_endpoint_function(
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 352, in run_endpoint_function
+    |     return await dependant.call(**values)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/routing/route.py", line 100, in wrapped
+    |     result = await await_if_needed(result)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/async_utils.py", line 34, in await_if_needed
+    |     return await value  # type: ignore[no-any-return]
+    |            ^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/routing/router.py", line 493, in endpoint
+    |     result = await await_if_needed(result)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/async_utils.py", line 34, in await_if_needed
+    |     return await value  # type: ignore[no-any-return]
+    |            ^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/app/pages.py", line 654, in endpoint
+    |     result = await await_if_needed(handler(*args, **call_kw))
+    |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/app/ui/routes/auth/login.py", line 95, in login_submit
+    |     require_preauth_csrf(request, preauth_csrf_token, settings)
+    |   File "/Volumes/T7/coding/user-token-managment-app/app/security/csrf.py", line 70, in require_preauth_csrf
+    |     matching_index = next(
+    |                      ^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/app/security/csrf.py", line 74, in <genexpr>
+    |     if validate_preauth_csrf(submitted, value, settings)
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/app/security/csrf.py", line 43, in validate_preauth_csrf
+    |     if not submitted or not cookie_value or not hmac.compare_digest(submitted, cookie_value):
+    |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | TypeError: comparing strings with non-ASCII characters is not supported
+    +------------------------------------
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/coding/user-token-managment-app/app/main.py", line 187, in security_and_session_middleware
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/runtime.py", line 154, in __call__
+    await self.app(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/security/plane_middleware.py", line 44, in dispatch
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/security/headers.py", line 23, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/routing.py", line 670, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 2734, in app
+    await route.handle(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 1281, in handle
+    await super().handle(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/routing.py", line 280, in handle
+    await self.app(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 158, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 144, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/routing/route.py", line 149, in handler
+    response = await original(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 706, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 352, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/routing/route.py", line 100, in wrapped
+    result = await await_if_needed(result)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/async_utils.py", line 34, in await_if_needed
+    return await value  # type: ignore[no-any-return]
+           ^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/routing/router.py", line 493, in endpoint
+    result = await await_if_needed(result)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/async_utils.py", line 34, in await_if_needed
+    return await value  # type: ignore[no-any-return]
+           ^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/app/pages.py", line 654, in endpoint
+    result = await await_if_needed(handler(*args, **call_kw))
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/app/ui/routes/auth/login.py", line 95, in login_submit
+    require_preauth_csrf(request, preauth_csrf_token, settings)
+  File "/Volumes/T7/coding/user-token-managment-app/app/security/csrf.py", line 70, in require_preauth_csrf
+    matching_index = next(
+                     ^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/app/security/csrf.py", line 74, in <genexpr>
+    if validate_preauth_csrf(submitted, value, settings)
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/app/security/csrf.py", line 43, in validate_preauth_csrf
+    if not submitted or not cookie_value or not hmac.compare_digest(submitted, cookie_value):
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: comparing strings with non-ASCII characters is not supported
+- INFO httpx2 HTTP Request: POST http://testserver/login "HTTP/1.1 500 Internal Server Error"
+29c92ef9-4233-47f2-804a-d21499507e9b INFO app.main method=GET path=/login status=200 duration_ms=9
+- INFO httpx2 HTTP Request: GET http://testserver/login "HTTP/1.1 200 OK"
+b76b31f2-f3aa-4afa-aa39-376dc835ed33 INFO app.main method=POST path=/login status=303 duration_ms=17
+- INFO httpx2 HTTP Request: POST http://testserver/login "HTTP/1.1 303 See Other"
+3dfe5650-d674-45d1-bc50-0e42ba399699 ERROR app.main request failed method=POST path=/logout duration_ms=3
+  + Exception Group Traceback (most recent call last):
+  |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 85, in create_collapsing_task_group
+  |     async with anyio.create_task_group() as tg:
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 847, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Volumes/T7/coding/user-token-managment-app/app/main.py", line 187, in security_and_session_middleware
+    |     response = await call_next(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/runtime.py", line 154, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/security/plane_middleware.py", line 44, in dispatch
+    |     return await call_next(request)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    |     response = await self.dispatch_func(request, call_next)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/security/headers.py", line 23, in dispatch
+    |     response = await call_next(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    |     raise app_exc from app_exc.__cause__ or app_exc.__context__
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    |     await self.app(scope, receive_or_disconnect, send_no_error)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    |     await self.app(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/routing.py", line 670, in __call__
+    |     await self.middleware_stack(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 2734, in app
+    |     await route.handle(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 1281, in handle
+    |     await super().handle(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/routing.py", line 280, in handle
+    |     await self.app(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 158, in app
+    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    |     raise exc
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    |     await app(scope, receive, sender)
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 144, in app
+    |     response = await f(request)
+    |                ^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/routing/route.py", line 149, in handler
+    |     response = await original(request)
+    |                ^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 481, in app
+    |     solved_result = await solve_dependencies(
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/dependencies/utils.py", line 676, in solve_dependencies
+    |     solved = await run_in_threadpool(call, **solved_result.values)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/concurrency.py", line 34, in run_in_threadpool
+    |     return await anyio.to_thread.run_sync(func)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/anyio/to_thread.py", line 65, in run_sync
+    |     return await get_async_backend().run_sync_in_worker_thread(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 2706, in run_sync_in_worker_thread
+    |     return await future
+    |            ^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 1100, in run
+    |     result = context.run(func, *args)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/Volumes/T7/coding/user-token-managment-app/app/dependencies.py", line 160, in enforce_session_csrf
+    |     assert_csrf(submitted, auth.session.csrf_token)
+    |   File "/Volumes/T7/coding/user-token-managment-app/app/security/csrf.py", line 145, in assert_csrf
+    |     if not submitted or not hmac.compare_digest(submitted, expected):
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    | TypeError: comparing strings with non-ASCII characters is not supported
+    +------------------------------------
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Volumes/T7/coding/user-token-managment-app/app/main.py", line 187, in security_and_session_middleware
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/runtime.py", line 154, in __call__
+    await self.app(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/security/plane_middleware.py", line 44, in dispatch
+    return await call_next(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+    response = await self.dispatch_func(request, call_next)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/security/headers.py", line 23, in dispatch
+    response = await call_next(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+    raise app_exc from app_exc.__cause__ or app_exc.__context__
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+    await self.app(scope, receive_or_disconnect, send_no_error)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/routing.py", line 670, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 2734, in app
+    await route.handle(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 1281, in handle
+    await super().handle(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/routing.py", line 280, in handle
+    await self.app(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 158, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 144, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/hedron/routing/route.py", line 149, in handler
+    response = await original(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 481, in app
+    solved_result = await solve_dependencies(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/fastapi/dependencies/utils.py", line 676, in solve_dependencies
+    solved = await run_in_threadpool(call, **solved_result.values)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/starlette/concurrency.py", line 34, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/anyio/to_thread.py", line 65, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 2706, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/.venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 1100, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Volumes/T7/coding/user-token-managment-app/app/dependencies.py", line 160, in enforce_session_csrf
+    assert_csrf(submitted, auth.session.csrf_token)
+  File "/Volumes/T7/coding/user-token-managment-app/app/security/csrf.py", line 145, in assert_csrf
+    if not submitted or not hmac.compare_digest(submitted, expected):
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: comparing strings with non-ASCII characters is not supported
+- INFO httpx2 HTTP Request: POST http://testserver/logout "HTTP/1.1 500 Internal Server Error"
+Administrator ready: admin@example.gov
+non-ASCII preauth CSRF HTTP status: 500
+non-ASCII session CSRF HTTP status: 500
+.
+17 passed in 13.39s
