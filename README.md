@@ -25,6 +25,7 @@ See [SECURITY.md](SECURITY.md).
 ## What it does
 
 - Saved, user-owned pipelines with provider-accurate locators (schema/table or dataset/branch/file)
+- In-app Foundry dataset creation for MSS and MCS-COP destination folders
 - Owner-scoped CSV sources with header discovery and inferred column data types
 - Durable pipeline runs with enqueue, cancel, and HTMX polling against persisted events
 - Self-registration (email verify → admin approve) or admin invitations

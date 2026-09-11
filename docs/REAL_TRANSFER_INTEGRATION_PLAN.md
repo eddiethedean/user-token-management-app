@@ -140,20 +140,20 @@ Make semantics explicit per destination:
 | PostgreSQL | insert all rows | conflict-key update or ignore, selected by pipeline policy | transactionally replace table contents/schema according to policy |
 | MSS/MCS-COP | new uniquely named file or verified append protocol | unavailable until the remote API's dataset transaction semantics are confirmed | upload/replace a named file and commit/publish using the confirmed API |
 
-The UI must show only modes supported by the selected destination. Do not claim that the current
-`preview=true` upload URL publishes data until that behavior has been verified in the target
-environment.
+The UI must show only modes supported by the selected destination. Use the documented committed v2
+upload as the primary path and retain the original `preview=true` behavior only as an explicitly
+reported compatibility fallback for deployments that reject the current contract.
 
 ## 3. Mandatory protocol-verification gate
 
 Complete this gate before implementing live writes. Record results in a short provider protocol
 document under `docs/providers/` and fixtures with secrets removed.
 
-1. Confirm the MSS and MCS-COP base URLs and whether `/api/v1/datasets/.../files` and
+1. Confirm the MSS and MCS-COP base URLs and whether `/api/v2/datasets/.../files` and
    `/api/v2/datasets/.../files/.../upload` are the approved APIs.
 2. Confirm authentication header format, token scopes, maximum upload size, pagination, rate limits,
    branch defaults, URL encoding rules, and whether redirects are expected.
-3. Confirm how an uploaded preview is committed/published and how overwrite conflicts behave.
+3. Confirm how committed uploads and the legacy preview fallback behave when overwriting a file.
 4. Capture sanitized success/error response shapes for list, download, upload, and publish actions.
 5. Confirm whether dataset discovery is available. If it is not, make dataset RID a credential- or
    pipeline-supplied locator and validate it with a metadata request.
@@ -701,7 +701,8 @@ method, path encoding, headers, timeouts, redirect policy, and response parsing.
 - Ephemeral PostgreSQL source/destination with mixed types, nulls, quoted identifiers, composite
   keys, schema drift, and all write modes.
 - Semblance Foundry simulator (`tests/simulators/foundry.py`) that supports listing, streaming
-  downloads, preview upload, upload failures, and Bearer auth against sanitized fixtures.
+  downloads, committed upload, the legacy preview-only fallback, upload failures, and Bearer auth
+  against sanitized fixtures.
 - App-process restart during extraction, upload, and finalization, with lease recovery or
   reconciliation according to the current stage.
 - End-to-end browser flow: configure → test → browse → save → run → poll → verify result.

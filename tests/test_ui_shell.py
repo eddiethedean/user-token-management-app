@@ -82,9 +82,9 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=2"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=10"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=13"')
     assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=10"')
-    assert_html_contains(response, 'src="/assets/app.js?v=7"')
+    assert_html_contains(response, 'src="/assets/app.js?v=10"')
     assert_html_contains(
         response,
         'type="image/png" href="/assets/brand/data-mover-mark.png?v=1" rel="icon"',
@@ -772,7 +772,7 @@ def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
     ]
     assert Counter(route.kind for route in routes) == {
         "page": 13,
-        "action": 26,
+        "action": 27,
         "view": 2,
     }
     assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)

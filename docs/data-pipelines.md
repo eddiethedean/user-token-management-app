@@ -69,8 +69,9 @@ request; no plaintext credential is written to the definition, run snapshot, cat
 
 The browser builds a route from connector capabilities, configured provider slots, and owner-scoped
 catalogs. Saving a route that uses a remote provider requires that provider's most recent connection
-test to have succeeded. CSV is a source-only option; its upload is scanned and stored before the
-route can be saved.
+test—or a confirmed first-dataset creation—to have succeeded. An untested MSS/MCS-COP slot may be
+shown only as a provisionable destination until that happens. CSV is a source-only option; its
+upload is scanned and stored before the route can be saved.
 
 The product-approved route matrix is intentionally narrower than the cross-product of connector
 capabilities:
@@ -91,6 +92,15 @@ credential. Namespace and object results are reduced to credential-free metadata
 user/provider/namespace for `PIPELINE_CATALOG_TTL_SECONDS` (300 seconds by default). Replacing or
 deleting that provider credential invalidates its cache. Schema inspection and row counts are live,
 best-effort connector calls rather than persisted row samples.
+
+For an MSS or MCS-COP destination, the editor can also provision an empty Foundry dataset with
+`POST /api/v2/datasets`. The request supplies an operator-approved parent folder RID and dataset
+name using the signed-in owner's validated provider credential. A confirmed response is persisted
+as an owner/provider-scoped dataset record and immediately becomes the selected destination; the
+first file is then supplied through the normal Foundry destination flow. Creation requires the
+provider writer flag, folder-level create permission, and `api:datasets-write` for OAuth clients.
+No ontology or object type is created. An ambiguous network outcome is recorded as
+`publish_uncertain` and is not retried automatically.
 
 ```mermaid
 flowchart LR
@@ -186,7 +196,7 @@ database transaction. Until finalization commits, the live destination remains i
 closed/crashed connection rolls the staging work back. After any connector reports a successful
 destination commit, a later failure to persist final run state is converted to `publish_uncertain`
 and requires reconciliation. A lost PostgreSQL commit acknowledgement and a Foundry timeout during
-preview upload use the same conservative outcome because the remote publish result cannot be proven.
+committed upload use the same conservative outcome because the remote publish result cannot be proven.
 
 ### What “validation” means today
 

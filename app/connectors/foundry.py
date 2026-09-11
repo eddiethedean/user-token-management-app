@@ -22,6 +22,7 @@ from app.connectors.base import (
     DestinationManifest,
     LoadSession,
     ObjectSchema,
+    ProvisionedDataset,
     RemoteNamespace,
     RemoteObject,
     TransferBatch,
@@ -135,11 +136,14 @@ class FoundryClient:
             verify=verify,
             follow_redirects=False,
         )
+        self._dataset_files_api_version: int | None = None
+        self._dataset_create_api_version: int | None = None
+        self._dataset_upload_api_version: int | None = None
 
     def close(self) -> None:
         self._client.close()
 
-    def request(self, method: str, url: str, **kwargs):
+    def request(self, method: str, url: str, *, for_destination: bool = False, **kwargs):
         try:
             response = self._client.request(method, url, **kwargs)
         except httpx2.TimeoutException as exc:
@@ -155,7 +159,10 @@ class FoundryClient:
             )
             raise ConnectorError(code, "The Foundry endpoint could not be reached.") from exc
         if not 200 <= response.status_code < 300:
-            code = map_http_status(response.status_code, for_destination="/upload" in url)
+            code = map_http_status(
+                response.status_code,
+                for_destination=for_destination or "/upload" in url,
+            )
             raise ConnectorError(code, f"Foundry returned HTTP {response.status_code}.")
         return response
 
@@ -163,8 +170,42 @@ class FoundryClient:
         params = {"branchName": branch}
         if cursor:
             params["pageToken"] = cursor
-        url = f"{self.base_url}/api/v1/datasets/{dataset_rid}/files"
-        return self.request("GET", url, params=params).json()
+        versions = (
+            (self._dataset_files_api_version,)
+            if self._dataset_files_api_version is not None
+            else (2, 1)
+        )
+        last_error: ConnectorError | None = None
+        for version in versions:
+            url = f"{self.base_url}/api/v{version}/datasets/{dataset_rid}/files"
+            try:
+                payload = self.request("GET", url, params=params).json()
+            except ConnectorError as exc:
+                last_error = exc
+                if (
+                    self._dataset_files_api_version is None
+                    and version == 2
+                    and exc.code == TransferErrorCode.SOURCE_NOT_FOUND
+                ):
+                    continue
+                raise
+            self._dataset_files_api_version = version
+            return payload
+        raise last_error or ConnectorError(
+            TransferErrorCode.SOURCE_NOT_FOUND, "Could not list dataset files."
+        )
+
+    @property
+    def dataset_files_api_version(self) -> int | None:
+        return self._dataset_files_api_version
+
+    @property
+    def dataset_create_api_version(self) -> int | None:
+        return self._dataset_create_api_version
+
+    @property
+    def dataset_upload_api_version(self) -> int | None:
+        return self._dataset_upload_api_version
 
     def list_all_files(self, dataset_rid: str, branch: str) -> list[dict]:
         """Collect a complete, bounded Foundry file listing without silent truncation."""
@@ -230,28 +271,49 @@ class FoundryClient:
 
     def download_file(self, dataset_rid: str, branch: str, path: str, dest: Path) -> int:
         encoded = quote(path, safe="")
-        url = f"{self.base_url}/api/v1/datasets/{dataset_rid}/files/{encoded}/content"
         try:
-            with self._client.stream(
-                "GET", url, params={"branchName": branch}, headers=self.headers
-            ) as response:
-                if not 200 <= response.status_code < 300:
-                    raise ConnectorError(
-                        map_http_status(response.status_code),
-                        f"Foundry returned HTTP {response.status_code}.",
-                    )
-                written = 0
-                max_bytes = self.settings.pipeline_max_source_bytes
-                with dest.open("wb") as handle:
-                    for chunk in response.iter_bytes():
-                        written += len(chunk)
-                        if written > max_bytes:
-                            raise ConnectorError(
-                                TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
-                                "The dataset file exceeds the configured source size limit.",
-                            )
-                        handle.write(chunk)
-                return written
+            versions = (
+                (self._dataset_files_api_version,)
+                if self._dataset_files_api_version is not None
+                else (2, 1)
+            )
+            last_error: ConnectorError | None = None
+            for version in versions:
+                url = (
+                    f"{self.base_url}/api/v{version}/datasets/{dataset_rid}/files/{encoded}/content"
+                )
+                with self._client.stream(
+                    "GET", url, params={"branchName": branch}, headers=self.headers
+                ) as response:
+                    if not 200 <= response.status_code < 300:
+                        error = ConnectorError(
+                            map_http_status(response.status_code),
+                            f"Foundry returned HTTP {response.status_code}.",
+                        )
+                        last_error = error
+                        if (
+                            self._dataset_files_api_version is None
+                            and version == 2
+                            and error.code == TransferErrorCode.SOURCE_NOT_FOUND
+                        ):
+                            continue
+                        raise error
+                    self._dataset_files_api_version = version
+                    written = 0
+                    max_bytes = self.settings.pipeline_max_source_bytes
+                    with dest.open("wb") as handle:
+                        for chunk in response.iter_bytes():
+                            written += len(chunk)
+                            if written > max_bytes:
+                                raise ConnectorError(
+                                    TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
+                                    "The dataset file exceeds the configured source size limit.",
+                                )
+                            handle.write(chunk)
+                    return written
+            raise last_error or ConnectorError(
+                TransferErrorCode.SOURCE_NOT_FOUND, "Could not download the dataset file."
+            )
         except httpx2.TimeoutException as exc:
             raise ConnectorError(
                 TransferErrorCode.CONNECTION_TIMEOUT, "The Foundry request timed out."
@@ -265,27 +327,175 @@ class FoundryClient:
             )
             raise ConnectorError(code, "The Foundry endpoint could not be reached.") from exc
 
-    def upload_file(self, dataset_rid: str, file_name: str, path: Path) -> dict:
-        url = (
+    def upload_file(
+        self, dataset_rid: str, file_name: str, path: Path, *, branch: str = "master"
+    ) -> dict:
+        v2_url = (
             f"{self.base_url}/api/v2/datasets/{dataset_rid}/files/"
             f"{quote(file_name, safe='')}/upload"
         )
-        with path.open("rb") as handle:
-            response = self.request(
-                "POST",
-                url,
-                params={"preview": "true"},
-                headers={**self.headers, "content-type": "application/octet-stream"},
-                content=handle,
-            )
-        fallback = {"filePath": file_name, "sizeBytes": path.stat().st_size}
+        publication = "committed_upload"
+        try:
+            with path.open("rb") as handle:
+                response = self.request(
+                    "POST",
+                    v2_url,
+                    for_destination=True,
+                    params={"branchName": branch, "transactionType": "UPDATE"},
+                    headers={**self.headers, "content-type": "application/octet-stream"},
+                    content=handle,
+                )
+        except ConnectorError as exc:
+            if exc.code == TransferErrorCode.INTERNAL_ERROR:
+                # Older Foundry deployments used by the original NIPR scripts can
+                # reject the current committed-upload query unless preview=true is
+                # present. A 400 response is safe to retry because no transaction
+                # was accepted; all ambiguous network failures still fail closed.
+                publication = "legacy_preview_upload"
+                try:
+                    with path.open("rb") as handle:
+                        response = self.request(
+                            "POST",
+                            v2_url,
+                            for_destination=True,
+                            params={"preview": "true", "branchName": branch},
+                            headers={
+                                **self.headers,
+                                "content-type": "application/octet-stream",
+                            },
+                            content=handle,
+                        )
+                except ConnectorError as preview_exc:
+                    if preview_exc.code != TransferErrorCode.DESTINATION_NOT_FOUND:
+                        raise
+                    response = self._upload_file_v1(dataset_rid, file_name, path, branch)
+                    publication = "committed_upload"
+                    self._dataset_upload_api_version = 1
+                else:
+                    self._dataset_upload_api_version = 2
+            elif exc.code == TransferErrorCode.DESTINATION_NOT_FOUND:
+                response = self._upload_file_v1(dataset_rid, file_name, path, branch)
+                self._dataset_upload_api_version = 1
+            else:
+                raise
+        else:
+            self._dataset_upload_api_version = 2
+        fallback = {
+            "path": file_name,
+            "sizeBytes": path.stat().st_size,
+            "_publication": publication,
+            "_api_version": self._dataset_upload_api_version,
+        }
         if response.content:
             try:
                 payload = response.json()
             except (json.JSONDecodeError, ValueError):
                 return fallback
-            return payload if isinstance(payload, dict) else fallback
+            if isinstance(payload, dict):
+                return {
+                    **payload,
+                    "_publication": publication,
+                    "_api_version": self._dataset_upload_api_version,
+                }
+            return fallback
         return fallback
+
+    def _upload_file_v1(self, dataset_rid: str, file_name: str, path: Path, branch: str):
+        """Use the stable v1 upload contract when the v2 resource is unavailable."""
+
+        url = f"{self.base_url}/api/v1/datasets/{dataset_rid}/files:upload"
+        with path.open("rb") as handle:
+            return self.request(
+                "POST",
+                url,
+                for_destination=True,
+                params={
+                    "filePath": file_name,
+                    "branchId": branch,
+                    "transactionType": "UPDATE",
+                },
+                headers={**self.headers, "content-type": "application/octet-stream"},
+                content=handle,
+            )
+
+    def create_dataset(self, parent_folder_rid: str, name: str) -> dict:
+        try:
+            versions = (
+                (self._dataset_create_api_version,)
+                if self._dataset_create_api_version is not None
+                else (2, 1)
+            )
+            response = None
+            last_error: ConnectorError | None = None
+            for version in versions:
+                url = f"{self.base_url}/api/v{version}/datasets"
+                try:
+                    response = self.request(
+                        "POST",
+                        url,
+                        for_destination=True,
+                        json={"parentFolderRid": parent_folder_rid, "name": name},
+                    )
+                except ConnectorError as exc:
+                    last_error = exc
+                    if (
+                        self._dataset_create_api_version is None
+                        and version == 2
+                        and exc.code == TransferErrorCode.DESTINATION_NOT_FOUND
+                    ):
+                        continue
+                    raise
+                self._dataset_create_api_version = version
+                break
+            if response is None:
+                raise last_error or ConnectorError(
+                    TransferErrorCode.DESTINATION_NOT_FOUND,
+                    "Foundry dataset creation is unavailable.",
+                )
+        except ConnectorError as exc:
+            if exc.code in {
+                TransferErrorCode.CONNECTION_TIMEOUT,
+                TransferErrorCode.PROVIDER_UNAVAILABLE,
+            }:
+                raise ConnectorError(
+                    TransferErrorCode.PUBLISH_UNCERTAIN,
+                    "Foundry may have created the dataset, but did not confirm the request.",
+                    retryable=False,
+                ) from exc
+            if exc.code == TransferErrorCode.PERMISSION_DENIED:
+                raise ConnectorError(
+                    exc.code,
+                    "The token cannot create a dataset in that Foundry folder.",
+                    retryable=False,
+                ) from exc
+            if exc.code == TransferErrorCode.DESTINATION_NOT_FOUND:
+                raise ConnectorError(
+                    exc.code,
+                    "The Foundry folder was not found or is not visible to this token.",
+                    retryable=False,
+                ) from exc
+            if exc.code == TransferErrorCode.DESTINATION_CONFLICT:
+                raise ConnectorError(
+                    exc.code,
+                    "A resource with that name already exists in the Foundry folder.",
+                    retryable=False,
+                ) from exc
+            raise
+        try:
+            payload = response.json()
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ConnectorError(
+                TransferErrorCode.PROVIDER_UNAVAILABLE,
+                "Foundry returned invalid dataset metadata.",
+                retryable=False,
+            ) from exc
+        if not isinstance(payload, dict) or not payload.get("rid"):
+            raise ConnectorError(
+                TransferErrorCode.PROVIDER_UNAVAILABLE,
+                "Foundry did not return the new dataset RID.",
+                retryable=False,
+            )
+        return payload
 
 
 def supported_files(entries: list[dict]) -> list[dict]:
@@ -307,6 +517,21 @@ class FoundryConnector:
     def _client(self, credentials) -> FoundryClient:
         return FoundryClient(credentials, self.settings)
 
+    def create_dataset(
+        self, credentials, *, parent_folder_rid: str, name: str
+    ) -> ProvisionedDataset:
+        client = self._client(credentials)
+        try:
+            payload = client.create_dataset(parent_folder_rid, name)
+            return ProvisionedDataset(
+                dataset_rid=str(payload["rid"]),
+                name=name,
+                parent_folder_rid=parent_folder_rid,
+                branch="master",
+            )
+        finally:
+            client.close()
+
     def test_connection(self, credentials) -> ConnectionHealth:
         client = self._client(credentials)
         try:
@@ -318,7 +543,9 @@ class FoundryConnector:
                     latency_ms=0,
                 )
             branch, files = client.resolve_branch(rid)
-            message = f"Authenticated · branch {branch} · {len(files)} files"
+            api_version = client.dataset_files_api_version
+            api_label = f" · Files API v{api_version}" if api_version is not None else ""
+            message = f"Authenticated · branch {branch} · {len(files)} files{api_label}"
             return ConnectionHealth(status="connected", message=message, latency_ms=1)
         except ConnectorError as exc:
             if exc.code == TransferErrorCode.SOURCE_NOT_FOUND:
@@ -454,13 +681,6 @@ class FoundryConnector:
                 "Foundry destination locator is invalid.",
                 retryable=False,
             )
-        configured_branch = credentials.get("branch", "") or "master"
-        if locator.branch != configured_branch:
-            raise ConnectorError(
-                TransferErrorCode.UNSUPPORTED_TYPE,
-                "The saved destination branch does not match the configured Foundry branch.",
-                retryable=False,
-            )
         self._load_credentials = dict(credentials)
         spool_root = Path(self.settings.pipeline_spool_root or "/tmp")
         spool_root.mkdir(parents=True, exist_ok=True)
@@ -548,7 +768,12 @@ class FoundryConnector:
             local_size = path.stat().st_size
             rows = int(load_session.metadata.get("rows", "0")) or int(pl.read_parquet(path).height)
             client = FoundryClient(getattr(self, "_load_credentials", {}), self.settings)
-            payload = client.upload_file(locator.dataset_rid, locator.file_name, path)
+            payload = client.upload_file(
+                locator.dataset_rid,
+                locator.file_name,
+                path,
+                branch=locator.branch,
+            )
             try:
                 size = int(payload.get("sizeBytes") or local_size)
             except (TypeError, ValueError):
@@ -557,8 +782,8 @@ class FoundryConnector:
                 locator=locator,
                 rows=rows,
                 bytes=size,
-                remote_id=str(payload.get("filePath") or locator.file_name),
-                details={"publication": locator.publication},
+                remote_id=str(payload.get("path") or payload.get("filePath") or locator.file_name),
+                details={"publication": str(payload.get("_publication") or locator.publication)},
             )
         except ConnectorError as exc:
             if exc.code in {

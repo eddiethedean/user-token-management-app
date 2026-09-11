@@ -29,6 +29,7 @@ class ProviderCapabilities:
     exact_row_counts: bool = True
     verification_level: str = "exact"
     limitations: tuple[str, ...] = ()
+    dataset_creation: bool = False
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,14 @@ class RemoteNamespace:
     name: str
     display_name: str
     kind: str = "namespace"
+
+
+@dataclass(frozen=True)
+class ProvisionedDataset:
+    dataset_rid: str
+    name: str
+    parent_folder_rid: str
+    branch: str = "master"
 
 
 @dataclass(frozen=True)

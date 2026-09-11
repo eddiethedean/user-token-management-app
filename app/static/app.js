@@ -135,10 +135,29 @@ document.addEventListener("htmx:sendError", (event) => {
   restoreColorMode(event.detail.elt.closest(colorModeFormSelector));
 });
 
-document.addEventListener("htmx:afterSettle", initializeNavCollapse);
+function syncNewDestinationName() {
+  const destinationSelect = document.querySelector("select#pipeline-target-table-select");
+  const field = document.querySelector(".data-mover-new-destination-name");
+  if (!destinationSelect || !field) return;
+
+  const creatingNew = destinationSelect.value === "__new__";
+  field.hidden = !creatingNew;
+  const input = field.querySelector('input[name="destination_table_new"]');
+  if (input) {
+    input.disabled = !creatingNew;
+  }
+}
+
+document.addEventListener("htmx:afterSettle", () => {
+  initializeNavCollapse();
+  syncNewDestinationName();
+});
 
 document.addEventListener("htmx:afterSwap", scheduleVisibleToasts);
-document.addEventListener("htmx:oobAfterSwap", scheduleVisibleToasts);
+document.addEventListener("htmx:oobAfterSwap", () => {
+  scheduleVisibleToasts();
+  syncNewDestinationName();
+});
 scheduleVisibleToasts();
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -178,6 +197,10 @@ document.addEventListener(
 );
 
 document.addEventListener("change", (event) => {
+  if (event.target.closest("#pipeline-target-table-select")) {
+    syncNewDestinationName();
+  }
+
   const modeToggle = event.target.closest(
     '[data-hedron-mark="color-mode-toggle"] input[type="checkbox"]',
   );
@@ -193,3 +216,4 @@ document.addEventListener("change", (event) => {
 });
 
 initializeNavCollapse();
+syncNewDestinationName();

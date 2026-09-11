@@ -24,6 +24,7 @@ class MssConnector(FoundryConnector):
         exact_row_counts=False,
         verification_level="local_manifest",
         limitations=("Foundry file metadata does not expose portable schema or row counts.",),
+        dataset_creation=True,
     )
 
 

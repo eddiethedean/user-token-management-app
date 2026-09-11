@@ -16,9 +16,16 @@ implicitly approve other combinations such as MSS → MCS-COP. Real MSS and MCS-
 remain hidden until their deployment writer flags are enabled.
 
 **Why is a connection missing from the Pipeline page?**
-Pipeline only lists remote connections that the signed-in user has saved and whose latest
-validation is **Connected**. Add the connection under **Connections → Credentials**, then use
-**Test connection** under **Connections → Status**.
+Pipeline normally lists remote connections whose latest validation is **Connected**. An MSS or
+MCS-COP connection with no default dataset may also appear as **Untested** so it can create its first
+dataset; other route actions remain unavailable until creation succeeds. Add the connection under
+**Connections → Credentials**, then use **Test connection** under **Connections → Status**.
+
+**Can Data Mover create a new Foundry destination?**
+Yes. Choose MSS or MCS-COP as the pipeline destination and expand **Create Foundry dataset**. Supply
+an authorized parent folder RID and a name; Data Mover calls Foundry's dataset-create API, retains
+the returned RID for your account, and selects it for the pipeline. The token needs create permission
+in that folder. This creates a dataset, not an Ontology object type.
 
 **What credentials does each connection need?**
 MSS and MCS-COP require an HTTPS endpoint and API token, and optionally a default dataset RID,

@@ -43,6 +43,7 @@ def test_real_catalog_decrypts_owner_credentials_for_connector(monkeypatch) -> N
 def test_demo_catalog_passes_saved_credentials_to_the_emulator(monkeypatch) -> None:
     db = Mock()
     db.scalar.side_effect = [None, None]
+    db.scalars.return_value.all.return_value = []
     credentials = {
         "endpoint": "https://mss.demo.invalid",
         "token": "demo-token",

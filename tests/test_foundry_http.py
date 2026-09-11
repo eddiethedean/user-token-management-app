@@ -56,7 +56,7 @@ def test_foundry_endpoint_normalization_handles_case_and_local_http() -> None:
 def test_semblance_list_files_matches_sanitized_fixture() -> None:
     client = FoundrySimulator().test_client()
     response = client.get(
-        f"/api/v1/datasets/{DATASET}/files",
+        f"/api/v2/datasets/{DATASET}/files",
         params={"branchName": "master"},
         headers={"authorization": f"Bearer {TOKEN}"},
     )
@@ -70,7 +70,7 @@ def test_semblance_list_files_matches_sanitized_fixture() -> None:
 def test_semblance_list_files_page_token_uses_paginated_fixture() -> None:
     client = FoundrySimulator().test_client()
     response = client.get(
-        f"/api/v1/datasets/{DATASET}/files",
+        f"/api/v2/datasets/{DATASET}/files",
         params={"branchName": "master", "pageToken": "page-2"},
         headers={"authorization": f"Bearer {TOKEN}"},
     )
@@ -82,7 +82,7 @@ def test_semblance_list_files_page_token_uses_paginated_fixture() -> None:
 
 def test_semblance_rejects_missing_bearer_token() -> None:
     client = FoundrySimulator().test_client()
-    response = client.get(f"/api/v1/datasets/{DATASET}/files")
+    response = client.get(f"/api/v2/datasets/{DATASET}/files")
     assert response.status_code == 401
     body = response.json()
     assert body["errorCode"] == "UNAUTHORIZED"
@@ -102,8 +102,91 @@ def test_foundry_client_lists_downloads_and_uploads(foundry_sim, tmp_path) -> No
     parquet = tmp_path / "out.snappy.parquet"
     pl.DataFrame({"event_id": [1]}).write_parquet(parquet, compression="snappy")
     uploaded = client.upload_file(DATASET, "readiness.snappy.parquet", parquet)
-    assert uploaded["filePath"] == "readiness.snappy.parquet"
+    assert uploaded["path"] == "readiness.snappy.parquet"
+    assert uploaded["_publication"] == "committed_upload"
     assert foundry_sim.last_download_branch == "master"
+    assert foundry_sim.last_upload_branch == "master"
+    client.close()
+
+
+def test_foundry_client_creates_dataset_in_parent_folder(foundry_sim, tmp_path) -> None:
+    client = FoundryClient(
+        {"endpoint": foundry_sim.base_url, "token": TOKEN},
+        _settings(tmp_path),
+    )
+
+    created = client.create_dataset(
+        "ri.compass.main.folder.11111111-1111-1111-1111-111111111111",
+        "Daily readiness feed",
+    )
+
+    assert created["rid"].startswith("ri.foundry.main.dataset.")
+    assert created["name"] == "Daily readiness feed"
+    assert foundry_sim.created_datasets == [created]
+    client.close()
+
+
+def test_foundry_client_falls_back_to_v1_dataset_creation(foundry_sim, tmp_path) -> None:
+    foundry_sim.legacy_create_only = True
+    client = FoundryClient(
+        {"endpoint": foundry_sim.base_url, "token": TOKEN},
+        _settings(tmp_path),
+    )
+
+    created = client.create_dataset(
+        "ri.compass.main.folder.11111111-1111-1111-1111-111111111111",
+        "Legacy enrollment feed",
+    )
+
+    assert created["rid"].startswith("ri.foundry.main.dataset.")
+    assert client.dataset_create_api_version == 1
+    client.close()
+
+
+def test_foundry_client_detects_and_reuses_v1_file_api(foundry_sim, tmp_path, monkeypatch) -> None:
+    client = FoundryClient(
+        {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+    request = client.request
+    attempted_urls: list[str] = []
+
+    def legacy_only(method: str, url: str, **kwargs):
+        attempted_urls.append(url)
+        if "/api/v2/datasets/" in url:
+            raise ConnectorError(TransferErrorCode.SOURCE_NOT_FOUND, "v2 route unavailable")
+        return request(method, url, **kwargs)
+
+    monkeypatch.setattr(client, "request", legacy_only)
+
+    listed = client.list_files(DATASET, "master")
+    assert listed["data"]
+    assert client.dataset_files_api_version == 1
+    client.list_files(DATASET, "master")
+    assert sum("/api/v2/datasets/" in url for url in attempted_urls) == 1
+
+    dest = tmp_path / "legacy.csv"
+    assert client.download_file(DATASET, "master", "notes.csv", dest) > 0
+    assert dest.exists()
+    client.close()
+
+
+def test_foundry_client_falls_back_to_v1_upload(foundry_sim, tmp_path) -> None:
+    foundry_sim.legacy_upload_only = True
+    client = FoundryClient(
+        {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+    parquet = tmp_path / "legacy.snappy.parquet"
+    pl.DataFrame({"event_id": [1]}).write_parquet(parquet, compression="snappy")
+
+    uploaded = client.upload_file(DATASET, "legacy.snappy.parquet", parquet)
+
+    assert uploaded["path"] == "legacy.snappy.parquet"
+    assert uploaded["_publication"] == "committed_upload"
+    assert uploaded["_api_version"] == 1
+    assert client.dataset_upload_api_version == 1
+    assert foundry_sim.last_upload_branch == "master"
     client.close()
 
 
@@ -149,7 +232,7 @@ def test_foundry_client_rejects_repeated_catalog_cursor(foundry_sim, tmp_path, m
     client.close()
 
 
-def test_foundry_writer_finalize_streams_preview_upload(foundry_sim, tmp_path) -> None:
+def test_foundry_writer_finalize_streams_committed_upload(foundry_sim, tmp_path) -> None:
     settings = _settings(tmp_path)
     connector = FoundryConnector(settings)
     credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
@@ -167,6 +250,7 @@ def test_foundry_writer_finalize_streams_preview_upload(foundry_sim, tmp_path) -
     manifest = connector.finalize(session)
     assert manifest.remote_id == "readiness.snappy.parquet"
     assert manifest.rows == 2
+    assert manifest.details["publication"] == "committed_upload"
 
 
 def test_foundry_writer_uses_local_manifest_after_malformed_success_metadata(
@@ -199,22 +283,34 @@ def test_foundry_writer_uses_local_manifest_after_malformed_success_metadata(
     assert manifest.bytes > 0
 
 
-def test_foundry_writer_rejects_branch_mismatch(foundry_sim, tmp_path) -> None:
+def test_foundry_writer_uploads_to_locator_branch(foundry_sim, tmp_path) -> None:
     settings = _settings(tmp_path)
     connector = FoundryConnector(settings)
     credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
     locator = FoundryUploadLocator(
         dataset_rid=DATASET, branch="release", file_name="release.snappy.parquet"
     )
-    with pytest.raises(ConnectorError) as excinfo:
-        connector.prepare_destination(
-            credentials,
-            locator,
-            ObjectSchema(locator=locator, columns=()),
-            FoundryReplaceFilePolicy(),
-            run_id="run-branch",
-        )
-    assert excinfo.value.code == TransferErrorCode.UNSUPPORTED_TYPE
+    session = connector.prepare_destination(
+        credentials,
+        locator,
+        ObjectSchema(locator=locator, columns=()),
+        FoundryReplaceFilePolicy(),
+        run_id="run-branch",
+    )
+    frame = pl.DataFrame({"event_id": [1]})
+    connector.write_batch(
+        session,
+        TransferBatch(
+            frame=frame,
+            row_count=frame.height,
+            byte_count=frame.estimated_size(),
+            sequence=1,
+        ),
+    )
+
+    connector.finalize(session)
+
+    assert foundry_sim.last_upload_branch == "release"
 
 
 def test_real_foundry_writers_are_denied_until_flags_are_set(monkeypatch) -> None:
@@ -272,16 +368,35 @@ def test_upload_timeout_is_publish_uncertain(foundry_sim, tmp_path, monkeypatch)
     assert getattr(excinfo.value, "code", None) == TransferErrorCode.PUBLISH_UNCERTAIN
 
 
-def test_preview_query_is_required_for_upload(foundry_sim, tmp_path) -> None:
+def test_standard_upload_commits_without_preview_query(foundry_sim, tmp_path) -> None:
     parquet = tmp_path / "out.snappy.parquet"
     pl.DataFrame({"event_id": [1]}).write_parquet(parquet, compression="snappy")
     url = f"{foundry_sim.base_url}/api/v2/datasets/{DATASET}/files/readiness.snappy.parquet/upload"
     response = httpx2.post(
         url,
+        params={"branchName": "master", "transactionType": "UPDATE"},
         headers={"authorization": f"Bearer {TOKEN}", "content-type": "application/octet-stream"},
         content=parquet.read_bytes(),
     )
-    assert response.status_code == 400
+    assert response.status_code == 200
+    assert response.json()["path"] == "readiness.snappy.parquet"
+
+
+def test_upload_falls_back_for_legacy_preview_only_foundry(foundry_sim, tmp_path) -> None:
+    foundry_sim.legacy_preview_only = True
+    parquet = tmp_path / "out.snappy.parquet"
+    pl.DataFrame({"event_id": [1]}).write_parquet(parquet, compression="snappy")
+    client = FoundryClient(
+        {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+
+    uploaded = client.upload_file(DATASET, "legacy.snappy.parquet", parquet)
+
+    assert uploaded["path"] == "legacy.snappy.parquet"
+    assert uploaded["_publication"] == "legacy_preview_upload"
+    assert foundry_sim.last_upload_publication == "legacy_preview_upload"
+    client.close()
 
 
 def test_foundry_health_without_rid_is_untested(foundry_sim, tmp_path) -> None:

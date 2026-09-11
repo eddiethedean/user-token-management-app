@@ -20,7 +20,7 @@ from app.connectors.registry import (
     listed_capabilities,
     load_builtin_connectors,
 )
-from app.models import PipelineCatalogCache, User, new_id, utcnow
+from app.models import FoundryDataset, PipelineCatalogCache, User, new_id, utcnow
 
 CREATE_TABLE_VALUE = "__new__"
 NEW_TABLE_VALUE_PREFIX = f"{CREATE_TABLE_VALUE}:"
@@ -43,6 +43,7 @@ class ProviderCatalog:
     exact_row_counts: bool = True
     verification_level: str = "exact"
     limitations: tuple[str, ...] = ()
+    dataset_creation: bool = False
 
 
 class UserCatalog:
@@ -65,14 +66,37 @@ class UserCatalog:
     def list_namespaces(self, provider: str) -> list[RemoteNamespace]:
         cached = self._read_cache(provider, "")
         if cached is not None:
-            return [RemoteNamespace(**item) for item in cached.get("items", [])]
-        items = connector_for(provider).list_namespaces(self._credentials_for(provider))
-        self._write_cache(
-            provider,
-            "",
-            {"items": [vars(item) for item in items]},
-        )
-        return items
+            items = [RemoteNamespace(**item) for item in cached.get("items", [])]
+        else:
+            items = connector_for(provider).list_namespaces(self._credentials_for(provider))
+            self._write_cache(
+                provider,
+                "",
+                {"items": [vars(item) for item in items]},
+            )
+        if provider.casefold() not in {"mss", "mcscop"}:
+            return items
+        provisioned = self.db.scalars(
+            select(FoundryDataset)
+            .where(
+                FoundryDataset.user_id == self.user.id,
+                FoundryDataset.provider == provider.casefold(),
+            )
+            .order_by(FoundryDataset.created_at.desc())
+        ).all()
+        known = {item.name for item in items}
+        return [
+            *(
+                RemoteNamespace(
+                    name=item.dataset_rid,
+                    display_name=f"{item.name} · {item.dataset_rid}",
+                    kind="dataset",
+                )
+                for item in provisioned
+                if item.dataset_rid not in known
+            ),
+            *items,
+        ]
 
     def list_objects(self, provider: str, namespace: str) -> CatalogPage:
         cached = self._read_cache(provider, namespace)
@@ -81,7 +105,13 @@ class UserCatalog:
                 items=tuple(self._remote_object(item) for item in cached.get("items", [])),
                 cursor=cached.get("cursor"),
             )
-        page = connector_for(provider).list_objects(self._credentials_for(provider), namespace)
+        credentials = self._credentials_for(provider)
+        if provider.casefold() in {"mss", "mcscop"}:
+            credentials = {
+                **credentials,
+                "branch": self.branch_for_namespace(provider, namespace),
+            }
+        page = connector_for(provider).list_objects(credentials, namespace)
         self._write_cache(
             provider,
             namespace,
@@ -104,6 +134,23 @@ class UserCatalog:
         if provider.casefold() in {"mss", "mcscop"}:
             return self._credentials_for(provider).get("branch", "") or "master"
         return ""
+
+    def branch_for_namespace(self, provider: str, namespace: str) -> str:
+        """Resolve the branch for a saved or newly provisioned destination dataset."""
+
+        provider_id = provider.casefold()
+        if provider_id not in {"mss", "mcscop"}:
+            return ""
+        provisioned = self.db.scalar(
+            select(FoundryDataset).where(
+                FoundryDataset.user_id == self.user.id,
+                FoundryDataset.provider == provider_id,
+                FoundryDataset.dataset_rid == namespace,
+            )
+        )
+        if provisioned is not None:
+            return provisioned.branch
+        return self.default_branch(provider_id)
 
     def _credentials_for(self, provider: str) -> dict[str, str]:
         provider_id = provider.casefold()
@@ -222,6 +269,7 @@ def provider_catalog(capabilities: ProviderCapabilities) -> ProviderCatalog:
         exact_row_counts=capabilities.exact_row_counts,
         verification_level=capabilities.verification_level,
         limitations=capabilities.limitations,
+        dataset_creation=capabilities.dataset_creation,
     )
 
 

@@ -1,7 +1,9 @@
 {
   "status_code": 200,
   "body": {
-    "filePath": "readiness.snappy.parquet",
-    "sizeBytes": 2048
+    "path": "readiness.snappy.parquet",
+    "sizeBytes": "2048",
+    "transactionRid": "ri.foundry.main.transaction.example",
+    "updatedTime": "2026-01-01T00:00:00Z"
   }
 }

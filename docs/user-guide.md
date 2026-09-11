@@ -115,8 +115,10 @@ three task tabs:
 The tabs and the route's save/run actions appear before the detailed provider capability panel so
 the next task remains visible in the main desktop workspace.
 
-A remote provider appears in a source or destination menu only after the signed-in user has saved it
-and its validation status is **Connected**. The menu also removes destinations whose writer is
+A remote provider normally appears in a source or destination menu only after the signed-in user has
+saved it and its validation status is **Connected**. MSS/MCS-COP is the narrow exception: an
+**Untested** saved connection may appear as a destination so the user can create its first dataset;
+successful creation validates that connection. The menu also removes destinations whose writer is
 disabled and providers that do not form an approved route with the selected opposite end. MCS-COP is
 destination-only. If no remote connection is ready, the source menu offers CSV only.
 
@@ -138,6 +140,12 @@ destination file name (Snappy Parquet). New PostgreSQL table names must:
 - start with a letter; and
 - use only letters, numbers, and underscores.
 
+For MSS or MCS-COP, expand **Create Foundry dataset**, enter a parent folder RID and dataset name,
+then select **Create and select dataset**. The connected API token must have permission to create resources in
+that folder (and OAuth clients need `api:datasets-write`). Data Mover saves the returned RID for the
+signed-in user, selects the new dataset, and prompts for the first destination file name. This creates
+a Foundry dataset—a place for files—not an Ontology object type.
+
 ### Choose a write mode
 
 PostgreSQL supports **append**, **upsert** on a selected destination primary or unique key, and
@@ -145,10 +153,14 @@ PostgreSQL supports **append**, **upsert** on a selected destination primary or 
 no eligible key exists or if the source no longer contains every key column. The worker rechecks
 that constraint immediately before loading.
 Replace/recreate loads stage and swap the table in one PostgreSQL transaction, so a failure before
-commit preserves the prior table. Foundry destinations replace a named file via the documented
-preview upload. Foundry source and destination locators inherit the default branch from the validated
-connection when the pipeline is saved. The frozen upload endpoint does not accept a branch parameter,
-so a later credential/route branch mismatch fails before staging. File catalogs and
+commit preserves the prior table. Foundry destinations replace a named file through a committed v2
+upload transaction. Foundry source and destination locators inherit the default branch from the validated
+connection when the pipeline is saved, except newly provisioned datasets, which use their default
+`master` branch. The saved branch and `UPDATE` transaction type are sent explicitly on upload. Older
+NIPR deployments that reject that request with HTTP 400 receive one compatibility retry using the
+legacy `preview=true` parameter. If a v2 dataset route is unavailable, Data Mover tries the matching
+stable v1 dataset operation; authorization, throttling, server, and ambiguous network failures never
+trigger a version fallback. File catalogs and
 `all_supported` extraction follow every provider page; configured safety limits fail explicitly
 instead of returning partial results.
 Timed-out Foundry uploads are recorded as `publish_uncertain` and are not auto-retried.

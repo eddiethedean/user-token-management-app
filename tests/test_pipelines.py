@@ -16,7 +16,15 @@ from app.connectors.locators import (
     parse_write_policy,
 )
 from app.database import SessionLocal
-from app.models import AuditEvent, PipelineCatalogCache, PipelineDefinition, PipelineUpload
+from app.models import (
+    AuditEvent,
+    FoundryDataset,
+    PipelineCatalogCache,
+    PipelineDefinition,
+    PipelineRun,
+    PipelineUpload,
+    UserSecret,
+)
 from app.services.catalogs import UserCatalog
 from app.services.csv_uploads import inspect_csv
 from tests.helpers import csrf_from, web_login
@@ -63,7 +71,7 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     assert 'value="mcscop"' in response.text
     assert "PostgreSQL 16" in response.text
     assert "Palantir Foundry" in response.text
-    assert "Create a new table" in response.text
+    assert "Create a new file" in response.text
     assert "Schema &amp; row counts" in response.text
     assert "Pre-run review" in response.text
     run_button = re.search(r'<button[^>]+data-pipeline-start="true"[^>]*>', response.text)
@@ -127,6 +135,7 @@ def test_pipeline_surface_exposes_metadata_capabilities_and_accessible_regions(
 MSS_DATASET = "ri.foundry.main.dataset.demo-operations"
 MSS_FILE = "mission_orders.parquet"
 MSS_DEST_DATASET = "ri.foundry.main.dataset.demo-destination"
+FOUNDRY_FOLDER = "ri.compass.main.folder.11111111-1111-1111-1111-111111111111"
 
 
 def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> None:
@@ -184,6 +193,120 @@ def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> Non
     assert f'<option value="{MSS_FILE}" selected>' in reloaded.text
     assert '<option value="public" selected>' in reloaded.text
     assert '<option value="mission_orders" selected>' in reloaded.text
+
+
+def test_pipeline_ui_creates_and_uses_a_new_foundry_dataset(client, demo_connections) -> None:
+    from app.config import get_settings
+    from app.services.demo import DEMO_CONNECTION_CREDENTIALS
+    from app.services.secrets import store_user_credentials
+
+    with SessionLocal() as db:
+        secret = db.scalar(select(UserSecret).where(UserSecret.provider == "mss"))
+        assert secret is not None
+        credentials = dict(DEMO_CONNECTION_CREDENTIALS["mss"])
+        credentials["dataset_rid"] = ""
+        stored = store_user_credentials(
+            db,
+            get_settings(),
+            user=secret.user,
+            provider="mss",
+            credentials=credentials,
+        )
+        assert stored.validation_status == "untested"
+
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    assert "Create Foundry dataset" in page.text
+
+    created = client.post(
+        "/pipeline/foundry-datasets",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "destination_provider": "mss",
+            "parent_folder_rid": FOUNDRY_FOLDER,
+            "dataset_name": "Daily readiness landing",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-dataset-creator"},
+    )
+
+    assert created.status_code == 201
+    assert "Dataset ready" in created.text
+    assert "Create another dataset" in created.text
+    assert "Daily readiness landing" in created.text
+    assert "pipeline-target-schema-select" in created.text
+    rid_match = re.search(
+        r'option value="(ri\.foundry\.main\.dataset\.[^"]+)" selected', created.text
+    )
+    assert rid_match is not None
+    dataset_rid = rid_match.group(1)
+
+    saved = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Readiness to provisioned dataset",
+            "source_provider": "postgres",
+            "source_schema": "public",
+            "source_table": "readiness_events",
+            "destination_provider": "mss",
+            "destination_schema": dataset_rid,
+            "destination_table": "__new__",
+            "destination_table_new": "readiness_export",
+            "write_mode": "replace",
+        },
+    )
+
+    assert saved.status_code == 303
+    with SessionLocal() as db:
+        dataset = db.scalar(select(FoundryDataset).where(FoundryDataset.dataset_rid == dataset_rid))
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(
+                PipelineDefinition.name == "Readiness to provisioned dataset"
+            )
+        )
+        assert dataset is not None
+        assert dataset.name == "Daily readiness landing"
+        assert dataset.parent_folder_rid == FOUNDRY_FOLDER
+        secret = db.scalar(select(UserSecret).where(UserSecret.provider == "mss"))
+        assert secret is not None
+        assert secret.validation_status == "connected"
+        assert pipeline is not None
+        assert pipeline.destination_schema == dataset_rid
+
+    run = client.post(
+        "/pipeline/runs",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_id": pipeline.id,
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor"},
+    )
+    assert run.status_code == 202
+    with SessionLocal() as db:
+        completed = db.scalar(
+            select(PipelineRun).where(PipelineRun.pipeline_definition_id == pipeline.id)
+        )
+        assert completed is not None
+        assert completed.status == "succeeded"
+
+
+def test_pipeline_dataset_creation_validates_parent_folder(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+
+    response = client.post(
+        "/pipeline/foundry-datasets",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "destination_provider": "mss",
+            "parent_folder_rid": "not-a-folder",
+            "dataset_name": "Invalid destination",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-dataset-creator"},
+    )
+
+    assert response.status_code == 422
+    assert "valid Foundry folder RID" in response.text
 
 
 def test_saved_pipeline_requires_distinct_systems(client, demo_connections) -> None:

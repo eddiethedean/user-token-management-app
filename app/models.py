@@ -281,6 +281,30 @@ class PipelineUpload(Base):
     user: Mapped[User] = relationship()
 
 
+class FoundryDataset(Base):
+    """Owner-scoped record of a dataset provisioned through Data Mover."""
+
+    __tablename__ = "foundry_datasets"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "provider", "dataset_rid", name="uq_foundry_datasets_owner_provider_rid"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    provider: Mapped[str] = mapped_column(String(32))
+    dataset_rid: Mapped[str] = mapped_column(String(240))
+    name: Mapped[str] = mapped_column(String(240))
+    parent_folder_rid: Mapped[str] = mapped_column(String(240))
+    branch: Mapped[str] = mapped_column(String(80), default="master")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    user: Mapped[User] = relationship()
+
+
 class PipelineDefinition(Base):
     __tablename__ = "pipeline_definitions"
 
@@ -434,6 +458,12 @@ Index(
     "ix_pipeline_uploads_user_created",
     PipelineUpload.user_id,
     PipelineUpload.created_at,
+)
+Index(
+    "ix_foundry_datasets_user_provider_created",
+    FoundryDataset.user_id,
+    FoundryDataset.provider,
+    FoundryDataset.created_at,
 )
 Index(
     "ix_registration_verifications_user_active",

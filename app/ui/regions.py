@@ -119,6 +119,11 @@ PIPELINE_TARGET_TABLE_SELECT = FragmentRegion(
     selector="#pipeline-target-table-select",
     description="Pipeline destination table select",
 )
+PIPELINE_DATASET_CREATOR = FragmentRegion(
+    id="pipeline-dataset-creator",
+    selector="#pipeline-dataset-creator",
+    description="Foundry destination dataset creator",
+)
 PIPELINE_PREVIEW_REGION = FragmentRegion(
     id="pipeline-preview-region",
     selector="#pipeline-preview-region",

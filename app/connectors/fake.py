@@ -25,6 +25,7 @@ from app.connectors.base import (
     LoadSession,
     ObjectSchema,
     ProviderCapabilities,
+    ProvisionedDataset,
     RemoteNamespace,
     RemoteObject,
     TransferBatch,
@@ -449,6 +450,19 @@ class _DemoBackend:
                 datasets[key] = {path: _demo_frame() for path in templates[dataset_rid]}
             return {path: _clone(frame) for path, frame in datasets[key].items()}
 
+    def create_foundry_dataset(
+        self,
+        provider: str,
+        connection_id: str,
+        dataset_rid: str,
+        branch: str,
+    ) -> None:
+        with self._lock:
+            templates = self._foundry_template_sets.setdefault(provider, {})
+            templates[dataset_rid] = ()
+            datasets = self._foundry_for(provider, connection_id)
+            datasets[(dataset_rid, branch)] = {}
+
     def put_foundry(
         self,
         provider: str,
@@ -679,6 +693,7 @@ class FakeFoundryConnector:
             exact_row_counts=False,
             verification_level="local_manifest",
             limitations=_FOUNDRY_LIMITATIONS,
+            dataset_creation=True,
         )
         self.settings = settings or get_settings()
         self._backend = backend or _DemoBackend()
@@ -716,6 +731,26 @@ class FakeFoundryConnector:
         self._validate(credentials)
         rid = str(credentials.get("dataset_rid") or "")
         return [RemoteNamespace(name=rid, display_name=rid, kind="dataset")] if rid else []
+
+    def create_dataset(
+        self, credentials, *, parent_folder_rid: str, name: str
+    ) -> ProvisionedDataset:
+        connection_id = self._validate(credentials)
+        branch = "master"
+        slug = "-".join(name.casefold().split())[:40] or "dataset"
+        dataset_rid = f"ri.foundry.main.dataset.demo-{slug}"
+        self._backend.create_foundry_dataset(
+            self.capabilities.provider,
+            connection_id,
+            dataset_rid,
+            branch,
+        )
+        return ProvisionedDataset(
+            dataset_rid=dataset_rid,
+            name=name,
+            parent_folder_rid=parent_folder_rid,
+            branch=branch,
+        )
 
     def list_objects(self, credentials, namespace: str, cursor: str | None = None) -> CatalogPage:
         connection_id = self._validate(credentials)
@@ -816,13 +851,6 @@ class FakeFoundryConnector:
             raise ConnectorError(
                 TransferErrorCode.DESTINATION_NOT_FOUND,
                 "Foundry destination locator is invalid.",
-                retryable=False,
-            )
-        branch = str(credentials.get("branch") or "master")
-        if locator.branch != branch:
-            raise ConnectorError(
-                TransferErrorCode.UNSUPPORTED_TYPE,
-                "The saved destination branch does not match the configured Foundry branch.",
                 retryable=False,
             )
         if not isinstance(write_policy, FoundryReplaceFilePolicy):

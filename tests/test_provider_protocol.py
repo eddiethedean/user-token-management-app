@@ -26,20 +26,20 @@ def test_foundry_pagination_fixture_exposes_next_page_token() -> None:
     assert payload["nextPageToken"] == "page-2"
 
 
-def test_foundry_url_contract_encodes_paths_and_uses_preview_upload() -> None:
+def test_foundry_url_contract_encodes_paths_and_uses_branched_committed_upload() -> None:
     dataset_rid = "ri.foundry.main.dataset.example"
     file_path = "folder/part 1.parquet"
     encoded = quote(file_path, safe="")
-    list_url = f"https://foundry.example/api/v1/datasets/{dataset_rid}/files"
-    content_url = f"https://foundry.example/api/v1/datasets/{dataset_rid}/files/{encoded}/content"
+    list_url = f"https://foundry.example/api/v2/datasets/{dataset_rid}/files"
+    content_url = f"https://foundry.example/api/v2/datasets/{dataset_rid}/files/{encoded}/content"
     upload_url = (
         f"https://foundry.example/api/v2/datasets/{dataset_rid}/files/"
-        "readiness.snappy.parquet/upload?preview=true"
+        "readiness.snappy.parquet/upload?branchName=master&transactionType=UPDATE"
     )
     assert encoded == "folder%2Fpart%201.parquet"
     assert list_url.endswith("/files")
     assert "/content" in content_url
-    assert upload_url.endswith("upload?preview=true")
+    assert upload_url.endswith("upload?branchName=master&transactionType=UPDATE")
 
 
 def test_error_fixtures_are_sanitized() -> None:

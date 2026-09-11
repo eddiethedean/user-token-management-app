@@ -78,7 +78,9 @@ def render_page(
     original_html = bytes(response.body).decode(response.charset or "utf-8")
     html_text = original_html
     script_src = (
-        mounted_path(request, "/assets/app.js?v=7") if request is not None else "/assets/app.js?v=7"
+        mounted_path(request, "/assets/app.js?v=10")
+        if request is not None
+        else "/assets/app.js?v=10"
     )
     app_script = f'<script src="{script_src}" defer></script>'
     if "app.js" not in html_text:

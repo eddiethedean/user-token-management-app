@@ -72,6 +72,73 @@
   margin-inline-start: var(--hedron-space-1, 0.25rem);
 }
 
+/* Keep the route's three-step orientation useful without pushing its working
+ * controls below the first viewport. */
+.data-mover-pipeline-workflow .hedron-process-flow-step {
+  padding: 0.45rem 0.75rem;
+}
+
+.data-mover-pipeline-workflow .hedron-process-flow-description {
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+/* Foundry provisioning is an optional sub-flow, so it reads as a focused
+ * inset rather than another full form section. */
+.data-mover-dataset-creator {
+  display: grid;
+  gap: var(--hedron-space-2, 0.5rem);
+}
+
+.data-mover-dataset-creator details {
+  border-color: color-mix(
+    in srgb,
+    var(--hedron-color-accent, var(--hedron-default-accent)) 32%,
+    var(--hedron-color-border, var(--hedron-default-border))
+  );
+  background: color-mix(
+    in srgb,
+    var(--hedron-color-accent, var(--hedron-default-accent)) 3%,
+    var(--hedron-color-surface, var(--hedron-default-surface))
+  );
+}
+
+.data-mover-dataset-creator details[open] {
+  box-shadow: inset 0.2rem 0 0
+    var(--hedron-color-accent, var(--hedron-default-accent));
+}
+
+.data-mover-dataset-creator summary {
+  color: var(--hedron-color-accent, var(--hedron-default-accent));
+}
+
+.data-mover-dataset-ready {
+  align-items: center;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid color-mix(
+    in srgb,
+    var(--hedron-color-success, #137a4e) 32%,
+    var(--hedron-color-border, var(--hedron-default-border))
+  );
+  border-radius: var(--hedron-radius-md, 0.5rem);
+  background: color-mix(
+    in srgb,
+    var(--hedron-color-success, #137a4e) 7%,
+    var(--hedron-color-surface, var(--hedron-default-surface))
+  );
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+
+.data-mover-rid-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+}
+
+.data-mover-new-destination-name[hidden] {
+  display: none;
+}
+
 /* Hedron publishes AppShell's collapsed state as part of its presentation
  * vocabulary. Each route keeps the same icon and horizontal anchor in both
  * states; collapsing only hides the text label. */
@@ -137,8 +204,14 @@
   min-inline-size: 0;
 }
 
+.data-mover-app-shell[data-nav-collapsed="true"]
+  .data-mover-nav-toggle-row
+  + .data-mover-nav-group {
+  padding-block-start: 2.75rem;
+}
+
 .data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-group > :first-child {
-  visibility: hidden;
+  display: none;
 }
 
 .data-mover-app-shell[data-nav-collapsed="true"]
@@ -148,14 +221,10 @@
 
 .data-mover-app-shell[data-nav-collapsed="true"]
   .data-mover-nav-group
-  + .data-mover-nav-group
-  > :first-child {
-  position: relative;
-  visibility: visible;
+  + .data-mover-nav-group {
   margin-block-start: var(--hedron-space-2, 0.5rem);
   padding-block-start: var(--hedron-space-2, 0.5rem);
   border-block-start: 1px solid var(--hedron-color-border, var(--hedron-default-border));
-  color: transparent;
 }
 
 .data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-item {
@@ -164,11 +233,12 @@
 
 .data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-item > a {
   box-sizing: border-box;
-  inline-size: calc(
-    4rem - 2px - var(--hedron-space-3, 0.75rem) - var(--hedron-space-3, 0.75rem)
-  );
+  inline-size: 2.5rem;
+  min-block-size: 2.5rem;
   min-inline-size: 0;
-  justify-content: flex-start;
+  margin-inline: auto;
+  padding-inline: 0;
+  justify-content: center;
 }
 
 .data-mover-app-shell[data-nav-collapsed="true"] .data-mover-side-nav [data-hedron-icon] {
@@ -206,11 +276,25 @@
   .data-mover-app-shell[data-nav-collapsed="true"]
     .data-mover-nav-group
     > :first-child {
-    visibility: visible;
+    display: initial;
     margin-block-start: 0;
     padding-block-start: 0;
     border-block-start: 0;
     color: inherit;
+  }
+
+  .data-mover-app-shell[data-nav-collapsed="true"]
+    .data-mover-nav-group
+    + .data-mover-nav-group {
+    margin-block-start: 0;
+    padding-block-start: 0;
+    border-block-start: 0;
+  }
+
+  .data-mover-app-shell[data-nav-collapsed="true"]
+    .data-mover-nav-toggle-row
+    + .data-mover-nav-group {
+    padding-block-start: 0;
   }
 
   .data-mover-app-shell[data-nav-collapsed="true"] .data-mover-nav-item > a {

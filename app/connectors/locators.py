@@ -72,7 +72,7 @@ class FoundryUploadLocator(BaseModel):
     dataset_rid: str
     branch: str = Field(min_length=1, max_length=80)
     file_name: str
-    publication: Literal["preview_upload"] = "preview_upload"
+    publication: Literal["committed_upload", "preview_upload"] = "committed_upload"
 
     @field_validator("dataset_rid")
     @classmethod
@@ -147,7 +147,7 @@ class PostgresReplacePolicy(BaseModel):
 
 class FoundryReplaceFilePolicy(BaseModel):
     kind: Literal["foundry_replace_file"] = "foundry_replace_file"
-    publication: Literal["preview_upload"] = "preview_upload"
+    publication: Literal["committed_upload", "preview_upload"] = "committed_upload"
 
 
 WritePolicy = Annotated[

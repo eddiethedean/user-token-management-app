@@ -80,6 +80,7 @@ from app.services.csv_uploads import (
     inspection_from_upload,
     store_csv_upload,
 )
+from app.services.foundry_datasets import create_foundry_dataset
 from app.services.pipeline_metadata import provenance_label, schema_diff
 from app.services.pipeline_runs import (
     enqueue_run,
@@ -106,6 +107,8 @@ from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.params import (
     CsvUploadForm,
+    FoundryDatasetNameForm,
+    FoundryFolderRidForm,
     NoticeQuery,
     PipelineConflictColumnsForm,
     PipelineIdForm,
@@ -122,6 +125,7 @@ from app.ui.regions import (
     CSV_UPLOAD_STATE,
     MAIN_PANEL,
     PIPELINE_CSV_FILE,
+    PIPELINE_DATASET_CREATOR,
     PIPELINE_PREVIEW_REGION,
     PIPELINE_RUN_MONITOR,
     PIPELINE_SCHEMA_PREVIEW,
@@ -262,6 +266,14 @@ def _connection_runnable(details: dict[str, str | bool]) -> bool:
     return _connection_configured(details)
 
 
+def _connection_provisionable(details: dict[str, str | bool], catalog: ProviderCatalog) -> bool:
+    return (
+        details["configured"] is True
+        and catalog.dataset_creation
+        and details["validation"] in {"connected", "untested"}
+    )
+
+
 def _configured_catalogs(
     connections: dict[str, dict[str, str | bool]], *, role: str
 ) -> tuple[ProviderCatalog, ...]:
@@ -269,7 +281,13 @@ def _configured_catalogs(
         catalog
         for catalog in all_provider_catalogs()
         if catalog.name in connections
-        and _connection_configured(connections[catalog.name])
+        and (
+            _connection_configured(connections[catalog.name])
+            or (
+                role == "destination"
+                and _connection_provisionable(connections[catalog.name], catalog)
+            )
+        )
         and (
             (role == "source" and catalog.source)
             or (role == "destination" and catalog.destination and writer_enabled(catalog.name))
@@ -297,7 +315,13 @@ def _provider_options(
         )
         for catalog in all_provider_catalogs()
         if catalog.name in connections
-        and _connection_configured(connections[catalog.name])
+        and (
+            _connection_configured(connections[catalog.name])
+            or (
+                role == "destination"
+                and _connection_provisionable(connections[catalog.name], catalog)
+            )
+        )
         and (
             (role == "source" and catalog.source)
             or (role == "destination" and catalog.destination and writer_enabled(catalog.name))
@@ -349,7 +373,13 @@ def _namespace_entries(catalog_access: UserCatalog, provider: str) -> list[tuple
 def _object_entries(
     catalog_access: UserCatalog, provider: str, namespace: str
 ) -> list[tuple[str, str]]:
-    page = catalog_access.list_objects(provider, namespace)
+    try:
+        page = catalog_access.list_objects(provider, namespace)
+    except ConnectorError:
+        # A saved remote namespace can disappear or, in the demo adapter, be
+        # empty after a process restart. Keep the workspace usable so the user
+        # can select another destination or provision a replacement.
+        return []
     return [(item.name, item.display_name) for item in page.items]
 
 
@@ -419,6 +449,7 @@ def _table_options(
     allow_create: bool = False,
     additional_tables: tuple[str, ...] = (),
     preferred_table: str = "",
+    create_label: str = "table",
 ):
     entries = _object_entries(catalog_access, provider, schema_name) if schema_name else []
     known = {name for name, _ in entries}
@@ -433,11 +464,144 @@ def _table_options(
         options.append(
             _option(
                 CREATE_TABLE_VALUE,
-                "＋ Create a new table…",
+                f"＋ Create a new {create_label}…",
                 selected=preferred_table == CREATE_TABLE_VALUE,
             )
         )
     return options
+
+
+def _destination_namespace_options(
+    catalog_access: UserCatalog,
+    catalog: ProviderCatalog,
+    provider: str,
+    *,
+    preferred_schema: str = "",
+):
+    options = _schema_options(catalog_access, provider, preferred_schema=preferred_schema)
+    if options or not catalog.dataset_creation:
+        return options
+    return [_option("", "Create a dataset above", selected=True, disabled=True)]
+
+
+def _destination_object_options(
+    catalog_access: UserCatalog,
+    catalog: ProviderCatalog,
+    provider: str,
+    namespace: str,
+    *,
+    preferred_table: str = "",
+    additional_tables: tuple[str, ...] = (),
+):
+    if catalog.dataset_creation and not namespace:
+        return [_option("", "Create a dataset first", selected=True, disabled=True)]
+    return _table_options(
+        catalog_access,
+        provider,
+        namespace,
+        allow_create=True,
+        additional_tables=additional_tables,
+        preferred_table=preferred_table,
+        create_label=catalog.objects_label.casefold(),
+    )
+
+
+def _dataset_creator(
+    request: Request,
+    catalog: ProviderCatalog | None,
+    *,
+    created_name: str = "",
+    error: str = "",
+    needs_dataset: bool = False,
+    oob: bool = False,
+) -> NodeLike:
+    attrs: dict[str, Any] = {
+        "id": "pipeline-dataset-creator",
+        "class_": "data-mover-dataset-creator",
+    }
+    if oob:
+        attrs["hx-swap-oob"] = "outerHTML:#pipeline-dataset-creator"
+    if catalog is None or not catalog.dataset_creation:
+        attrs["hidden"] = True
+        return html.div(**attrs)
+    feedback: NodeLike | None = None
+    if created_name:
+        feedback = Inline(
+            Badge("Dataset ready", tone="success"),
+            html.span(f"“{created_name}” is selected. Name its first file below."),
+            gap="sm",
+            class_="data-mover-dataset-ready",
+        )
+    elif error:
+        feedback = Alert(error, tone="danger")
+    elif needs_dataset:
+        feedback = Alert(
+            "No dataset is available yet. Create one to unlock the file destination.",
+            tone="info",
+        )
+    return html.div(
+        feedback if created_name else None,
+        Expander(
+            "Create another dataset" if created_name else "Create Foundry dataset",
+            Stack(
+                feedback if not created_name else None,
+                html.p(
+                    "Provision an empty dataset in an approved Foundry folder and select it for this route.",
+                    class_="hedron-text-muted",
+                ),
+                FormGrid(
+                    FormField(
+                        name="parent_folder_rid",
+                        label="Parent folder RID",
+                        help="The token must be allowed to create resources in this folder.",
+                        control=html.input(
+                            name="parent_folder_rid",
+                            maxlength="240",
+                            placeholder="ri.compass.main.folder…",
+                            autocomplete="off",
+                            class_="data-mover-rid-input",
+                        ),
+                    ),
+                    FormField(
+                        name="dataset_name",
+                        label="Dataset name",
+                        control=html.input(
+                            name="dataset_name",
+                            maxlength="160",
+                            placeholder="Daily readiness landing",
+                            autocomplete="off",
+                        ),
+                    ),
+                    columns=1,
+                    gap="sm",
+                    density="compact",
+                ),
+                Button(
+                    "Create and select dataset",
+                    type="button",
+                    variant="secondary",
+                    attrs={
+                        **hx_attrs(
+                            request,
+                            path="/pipeline/foundry-datasets",
+                            method="post",
+                            target="#pipeline-dataset-creator",
+                            swap="outerHTML",
+                            include="#pipeline-form",
+                            disabled_elt="this",
+                            indicator=INDICATOR,
+                            busy="region",
+                        ),
+                        "formnovalidate": True,
+                        "hx-validate": "false",
+                    },
+                ),
+                gap="sm",
+            ),
+            open=bool(error or needs_dataset),
+        ),
+        **attrs,
+    )
 
 
 def _select_fragment(
@@ -1337,6 +1501,7 @@ def _saved_pipeline_cards(
 
 def _pipeline_preview_fragment(
     *,
+    request: Request,
     catalog_access: UserCatalog,
     source_provider: str,
     source_schema: str,
@@ -1412,19 +1577,24 @@ def _pipeline_preview_fragment(
     target_schema_options = (
         [_option("", "No connection available", selected=True, disabled=True)]
         if target_catalog is None
-        else _schema_options(catalog_access, target_provider, preferred_schema=target_schema)
+        else _destination_namespace_options(
+            catalog_access,
+            target_catalog,
+            target_provider,
+            preferred_schema=target_schema,
+        )
     )
     target_table_options = (
         [_option("", "No connection available", selected=True, disabled=True)]
         if target_catalog is None
-        else _table_options(
+        else _destination_object_options(
             catalog_access,
+            target_catalog,
             target_provider,
             target_schema,
             preferred_table=table_name
             if target_table != CREATE_TABLE_VALUE
             else CREATE_TABLE_VALUE,
-            allow_create=True,
             additional_tables=_created_destination_tables([], target_provider, target_schema),
         )
     )
@@ -1458,6 +1628,14 @@ def _pipeline_preview_fragment(
             oob=True,
         ),
         _upsert_key_select(upsert_keys, selected=conflict_columns, oob=True),
+        _dataset_creator(
+            request,
+            target_catalog,
+            needs_dataset=bool(
+                target_catalog and target_catalog.dataset_creation and not target_schema
+            ),
+            oob=True,
+        ),
         html.p(
             source_schema + "." + source_object_name
             if source_provider != "csv"
@@ -1719,6 +1897,7 @@ def _pipeline_body(
         direction="horizontal",
         collapse="never",
         density="compact",
+        class_="data-mover-pipeline-workflow",
     )
     return [
         PageHeader(
@@ -1729,7 +1908,7 @@ def _pipeline_body(
                 "workspace."
             ),
             actions=connection_summary,
-            density="comfortable",
+            density="compact",
         ),
         setup_flow,
         alert_box(
@@ -1818,7 +1997,7 @@ def _pipeline_body(
                                     selected=saved_conflict_columns,
                                 ),
                             ),
-                            columns=3,
+                            columns={"base": 1, "lg": 3},
                             gap="md",
                         ),
                         Grid(
@@ -2026,15 +2205,29 @@ def _pipeline_body(
                                                 ),
                                             ),
                                         ),
+                                        _dataset_creator(
+                                            request,
+                                            target_catalog,
+                                            needs_dataset=bool(
+                                                target_catalog
+                                                and target_catalog.dataset_creation
+                                                and not target_schema_name
+                                            ),
+                                        ),
                                         FormGrid(
                                             FormField(
                                                 name="destination_schema",
-                                                label="Schema",
+                                                label=(
+                                                    target_catalog.namespaces_label
+                                                    if target_catalog is not None
+                                                    else "Schema"
+                                                ),
                                                 id="pipeline-target-schema-select",
                                                 control=html.select(
                                                     *(
-                                                        _schema_options(
+                                                        _destination_namespace_options(
                                                             catalog_access,
+                                                            target_catalog,
                                                             target_provider,
                                                             preferred_schema=target_schema_name,
                                                         )
@@ -2066,16 +2259,20 @@ def _pipeline_body(
                                             ),
                                             FormField(
                                                 name="destination_table",
-                                                label="Table",
+                                                label=(
+                                                    target_catalog.objects_label
+                                                    if target_catalog is not None
+                                                    else "Table"
+                                                ),
                                                 id="pipeline-target-table-select",
                                                 control=html.select(
                                                     *(
-                                                        _table_options(
+                                                        _destination_object_options(
                                                             catalog_access,
+                                                            target_catalog,
                                                             target_provider,
                                                             target_schema_name,
                                                             preferred_table=target_table_name,
-                                                            allow_create=True,
                                                             additional_tables=_created_destination_tables(
                                                                 pipelines,
                                                                 target_provider,
@@ -2110,25 +2307,46 @@ def _pipeline_body(
                                             columns=2,
                                             gap="sm",
                                         ),
-                                        FormField(
-                                            name="destination_table_new",
-                                            label="New table name",
-                                            id="pipeline-target-table-new",
-                                            help="Used only when Create a new table is selected.",
-                                            control=html.input(
-                                                id="pipeline-target-table-new",
+                                        html.div(
+                                            FormField(
                                                 name="destination_table_new",
-                                                value=new_target_table_name,
-                                                maxlength="63",
-                                                placeholder="readiness_events_copy",
-                                                pattern="[A-Za-z][A-Za-z0-9_]{1,62}",
+                                                label=(
+                                                    "New file name"
+                                                    if target_catalog is not None
+                                                    and target_catalog.dataset_creation
+                                                    else "New table name"
+                                                ),
+                                                id="pipeline-target-table-new",
+                                                help=(
+                                                    "Used only when Create a new file is selected. Parquet is added automatically."
+                                                    if target_catalog is not None
+                                                    and target_catalog.dataset_creation
+                                                    else "Used only when Create a new table is selected."
+                                                ),
+                                                control=html.input(
+                                                    id="pipeline-target-table-new",
+                                                    name="destination_table_new",
+                                                    value=new_target_table_name,
+                                                    maxlength="63",
+                                                    placeholder=(
+                                                        "readiness_export"
+                                                        if target_catalog is not None
+                                                        and target_catalog.dataset_creation
+                                                        else "readiness_events_copy"
+                                                    ),
+                                                    pattern="[A-Za-z][A-Za-z0-9_]{1,62}",
+                                                    disabled=target_table_name
+                                                    != CREATE_TABLE_VALUE,
+                                                ),
                                             ),
+                                            class_="data-mover-new-destination-name",
+                                            hidden=target_table_name != CREATE_TABLE_VALUE,
                                         ),
                                         gap="md",
                                     ),
                                 ),
                             ),
-                            columns=2,
+                            columns={"base": 1, "xl": 2},
                             gap="md",
                         ),
                         ConnectorFlow(
@@ -2181,7 +2399,7 @@ def _pipeline_body(
                                 ),
                             ),
                             direction="horizontal",
-                            collapse="never",
+                            collapse="lg",
                             appearance="soft",
                             background="dots",
                             overflow="auto",
@@ -2428,6 +2646,7 @@ def register_pipeline_routes(app: Hedron) -> None:
             CSV_INSPECTION,
             CSV_UPLOAD_STATE,
             PIPELINE_CSV_FILE,
+            PIPELINE_DATASET_CREATOR,
             PIPELINE_SOURCE_SCHEMA_SELECT,
             PIPELINE_SOURCE_TABLE_SELECT,
             PIPELINE_TARGET_SCHEMA_SELECT,
@@ -2509,6 +2728,7 @@ def register_pipeline_routes(app: Hedron) -> None:
                 preserve_create=True,
             )
         preview_fragment = _pipeline_preview_fragment(
+            request=request,
             catalog_access=catalog_access,
             source_provider=source_provider,
             source_schema=source_schema,
@@ -2643,6 +2863,111 @@ def register_pipeline_routes(app: Hedron) -> None:
             ),
         )
 
+    @app.action(
+        "/pipeline/foundry-datasets",
+        fragment_regions=(
+            PIPELINE_DATASET_CREATOR,
+            PIPELINE_TARGET_SCHEMA_SELECT,
+            PIPELINE_TARGET_TABLE_SELECT,
+            TOAST_HOST,
+        ),
+        include_in_schema=False,
+    )
+    async def pipeline_foundry_dataset_create(
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
+        _csrf: RequireCsrf,
+        destination_provider: PipelineProviderForm,
+        parent_folder_rid: FoundryFolderRidForm,
+        dataset_name: FoundryDatasetNameForm,
+    ) -> Response:
+        catalog = require_catalog_provider(destination_provider)
+        try:
+            created = create_foundry_dataset(
+                db,
+                settings,
+                user=auth.user,
+                provider=destination_provider,
+                parent_folder_rid=parent_folder_rid,
+                name=dataset_name,
+                request=request,
+            )
+        except (ConnectorError, ValueError) as exc:
+            return await interaction_response(
+                request,
+                ok_fragment(
+                    _dataset_creator(request, catalog, error=str(exc)),
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    region_id=PIPELINE_DATASET_CREATOR.id,
+                ),
+            )
+
+        catalog_access = UserCatalog(db, settings, auth.user, request=request)
+        namespace_select = html.select(
+            *_schema_options(
+                catalog_access,
+                destination_provider,
+                preferred_schema=created.dataset_rid,
+            ),
+            id="pipeline-target-schema-select",
+            name="destination_schema",
+            data={"pipeline-control": "target-schema"},
+            **hx_attrs(
+                request,
+                path="/pipeline/preview",
+                method="post",
+                target="#pipeline-preview-region",
+                swap="none",
+                include="#pipeline-form",
+                trigger="change",
+            ),
+        )
+        file_select = html.select(
+            *_table_options(
+                catalog_access,
+                destination_provider,
+                created.dataset_rid,
+                allow_create=True,
+                preferred_table=CREATE_TABLE_VALUE,
+                create_label="file",
+            ),
+            id="pipeline-target-table-select",
+            name="destination_table",
+            data={"pipeline-control": "target-table"},
+            **hx_attrs(
+                request,
+                path="/pipeline/preview",
+                method="post",
+                target="#pipeline-preview-region",
+                swap="none",
+                include="#pipeline-form",
+                trigger="change",
+            ),
+        )
+        return await interaction_response(
+            request,
+            ok_fragment(
+                _dataset_creator(request, catalog, created_name=created.name),
+                oob=(
+                    OobUpdate(
+                        namespace_select,
+                        element_id=PIPELINE_TARGET_SCHEMA_SELECT.id,
+                        swap="outerHTML",
+                    ),
+                    OobUpdate(
+                        file_select,
+                        element_id=PIPELINE_TARGET_TABLE_SELECT.id,
+                        swap="outerHTML",
+                    ),
+                ),
+                toast=f'Dataset "{created.name}" was created.',
+                status_code=status.HTTP_201_CREATED,
+                region_id=PIPELINE_DATASET_CREATOR.id,
+            ),
+        )
+
     @app.action("/pipeline/save", include_in_schema=False)
     async def pipeline_save(
         request: Request,
@@ -2676,7 +3001,7 @@ def register_pipeline_routes(app: Hedron) -> None:
                 else ""
             )
             destination_branch = (
-                catalog_access.default_branch(destination_provider)
+                catalog_access.branch_for_namespace(destination_provider, destination_schema)
                 if destination_provider in available_providers
                 else ""
             )
