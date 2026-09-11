@@ -27,6 +27,9 @@ Required future acceptance tests:
 - duplicate suppression and timezone handling;
 - failed scheduled run visible with actionable detail.
 
+The proposed scheduling flow, runtime boundary, and remaining policy decisions are visualized in
+[Data pipeline lifecycle](../data-pipelines.md#future-state-scheduling).
+
 ## DM-7 — stored-token references
 
 The app encrypts provider credentials at rest and keeps values out of plans, reports, UI fragments,

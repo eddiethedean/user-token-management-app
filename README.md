@@ -127,6 +127,7 @@ log during routine review or incident investigation.
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common failures |
 | [docs/faq.md](docs/faq.md) | Short answers |
 | [docs/architecture.md](docs/architecture.md) | Trust boundaries and layout |
+| [docs/data-pipelines.md](docs/data-pipelines.md) | Current pipeline lifecycle and future scheduling, validation, and transformation architecture |
 | [docs/maintainer-guide.md](docs/maintainer-guide.md) | Developer workflow, extension points, testing, and operations |
 | [docs/runbooks/pipeline-worker.md](docs/runbooks/pipeline-worker.md) | In-process transfer runtime operations |
 | [docs/providers/mss.md](docs/providers/mss.md) | Frozen Foundry/Postgres protocol notes |

@@ -2,7 +2,9 @@
 
 This guide is for people who use the Data Mover browser application to configure connections,
 inspect source data, save pipelines, and monitor transfers. Maintainers and deployers should use
-the [maintainer guide](maintainer-guide.md) and [deployment guide](deploy.md).
+the [maintainer guide](maintainer-guide.md) and [deployment guide](deploy.md). For a system-level
+view of how definitions and runs work, including the planned validation and transformation model,
+see [Data pipeline lifecycle](data-pipelines.md).
 
 ## Quick navigation
 

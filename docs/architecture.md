@@ -108,6 +108,7 @@ capabilities; hiding an option in the browser is not an authorization boundary.
 ## Related
 
 - [user-guide.md](user-guide.md)
+- [data-pipelines.md](data-pipelines.md)
 - [maintainer-guide.md](maintainer-guide.md)
 - [auth-modes.md](auth-modes.md)
 - [deploy.md](deploy.md)
