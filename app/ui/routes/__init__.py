@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import Request, status
 from fastapi.responses import RedirectResponse, Response
-from hedron import Hedron, HedronRouter
+from hedron import Hedron, HedronRouter, resolve_theme_preference
 from hedron.htmx import is_htmx_request
 
 from app.dependencies import Auth, DbSession, OptionalAuth, RequireCsrf, SettingsDep
@@ -45,8 +45,6 @@ def register_routes(app: Hedron) -> None:
         dark_mode: DarkModeForm = False,
         next: NextForm = "/pipeline",
     ):
-        from hedron_core.builtins import resolve_theme_preference
-
         from app.ui.http import safe_next
 
         preference = resolve_theme_preference(

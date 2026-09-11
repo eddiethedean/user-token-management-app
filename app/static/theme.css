@@ -72,17 +72,6 @@
   margin-inline-start: var(--hedron-space-1, 0.25rem);
 }
 
-/* Keep the route's three-step orientation useful without pushing its working
- * controls below the first viewport. */
-.data-mover-pipeline-workflow .hedron-process-flow-step {
-  padding: 0.45rem 0.75rem;
-}
-
-.data-mover-pipeline-workflow .hedron-process-flow-description {
-  font-size: 0.8125rem;
-  line-height: 1.35;
-}
-
 /* Foundry provisioning is an optional sub-flow, so it reads as a focused
  * inset rather than another full form section. */
 .data-mover-dataset-creator {

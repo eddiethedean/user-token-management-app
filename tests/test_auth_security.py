@@ -454,7 +454,7 @@ def test_htmx_unauthenticated_redirect_and_admin_error_retarget(client) -> None:
         data={"csrf_token": "expired", "full_name": "Expired"},
         headers={"HX-Request": "true", "HX-Target": "#profile-form-region"},
     )
-    assert unauthenticated.status_code == 303
+    assert unauthenticated.status_code == 200
     assert unauthenticated.headers.get("HX-Redirect", "").startswith("/login?next=")
 
     web_login(client)
@@ -488,7 +488,7 @@ def test_htmx_unauthenticated_redirect_is_root_local_when_workbench_is_active(
         headers={"HX-Request": "true", "HX-Target": "#profile-form-region"},
     )
 
-    assert response.status_code == 303
+    assert response.status_code == 200
     assert response.headers.get("HX-Redirect") == "/login?next=%2Fprofile"
 
 

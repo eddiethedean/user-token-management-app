@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import Literal
 
 from fastapi import Request
@@ -14,11 +15,12 @@ from hedron import (
     InteractionPolicy,
     InteractionResult,
     OobUpdate,
+    RenderMode,
     Toast,
 )
 from hedron import swap as build_swap
 from hedron.responses import render_interaction
-from hedron_core import NodeLike, RenderMode
+from hedron_core import NodeLike
 from starlette.responses import Response
 
 from app.ui import regions as region_defs
@@ -74,6 +76,11 @@ APP_POLICY = InteractionPolicy(
     error_retarget="#hedron-toast",
     error_reswap="innerHTML",
     indicator="#global-request-indicator",
+)
+ERROR_RESPONSE_POLICY = replace(
+    APP_POLICY,
+    declared_regions=(),
+    allow_undeclared_targets=True,
 )
 
 
@@ -149,8 +156,11 @@ def ok_fragment(
     region_id: str | None = None,
     swap: str | None = None,
     reswap: str | None = None,
+    retarget: str | None = None,
+    headers: Mapping[str, str] | None = None,
     action_state: ActionState | None = None,
     action_trace: ActionTrace | None = None,
+    policy: InteractionPolicy = APP_POLICY,
 ) -> InteractionResult:
     """Build an InteractionResult via Hedron ``swap``, with AR toast-host + policy."""
     return build_swap(
@@ -163,16 +173,23 @@ def ok_fragment(
         region_id=region_id,
         swap=swap,
         reswap=reswap,
+        retarget=retarget,
+        headers=dict(headers) if headers is not None else None,
         action_state=action_state,
         action_trace=action_trace,
-        policy=APP_POLICY,
+        policy=policy,
         cache="no-store",
     )
 
 
 def htmx_redirect(url: str) -> InteractionResult:
     """HX-Redirect InteractionResult with Data Mover policy defaults."""
-    return build_swap(None, redirect=url, policy=APP_POLICY, cache="no-store")
+    return build_swap(
+        None,
+        redirect=url,
+        policy=APP_POLICY,
+        cache="no-store",
+    )
 
 
 async def interaction_response(
@@ -180,6 +197,7 @@ async def interaction_response(
     result: InteractionResult,
     *,
     authenticated: bool = True,
+    allow_undeclared_targets: bool = False,
 ) -> Response:
     """Render an InteractionResult through Hedron's public response API."""
     request.state.hedron_authenticated = authenticated
@@ -190,5 +208,6 @@ async def interaction_response(
         kind="component",
         policy=access_registry_security_policy(),
         authenticated=authenticated,
-        fragment_regions=APP_REGIONS,
+        fragment_regions=() if allow_undeclared_targets else APP_REGIONS,
+        allow_undeclared_targets=allow_undeclared_targets,
     )

@@ -76,6 +76,5 @@ def test_htmx_admin_directory_requires_auth(client: TestClient) -> None:
         },
         follow_redirects=False,
     )
-    assert response.status_code == 303
-    assert_redirect_path(response, "/login", query={"next": ["/admin/users"]})
-    assert response.headers["hx-redirect"] == response.headers["location"]
+    assert response.status_code == 200
+    assert response.headers.get("HX-Redirect") == "/login?next=%2Fadmin%2Fusers"

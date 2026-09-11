@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Literal, cast
 
-from hedron import Button, CsrfField, html
-from hedron_core import Component, HtmlAttrValue, NodeLike, Props
+from hedron import Button, Component, CsrfField, Props, html
+from hedron_core import HtmlAttrValue, NodeLike
 
 from app.ui.design_system import apply_action_recipe
 

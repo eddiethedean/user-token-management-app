@@ -38,7 +38,6 @@ from app.ui.hedron_styles import desktop_default_styles
 from app.ui.interactions import APP_REGIONS
 from app.ui.layout import alert_box, app_shell, document_head, page_heading
 from app.ui.urls import hx_attrs
-from tests.helpers import assert_redirect_path
 
 
 def _request(root_path: str = "") -> Request:
@@ -82,9 +81,10 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=2"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=13"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=14"')
     assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=10"')
     assert_html_contains(response, 'src="/assets/app.js?v=10"')
+    assert response.body.count('src="/assets/app.js?v=10"') == 1
     assert_html_contains(
         response,
         'type="image/png" href="/assets/brand/data-mover-mark.png?v=1" rel="icon"',
@@ -497,9 +497,8 @@ def test_htmx_admin_users_requires_auth(access_app) -> None:
         headers={"HX-Target": "#user-directory", "Accept": "text/html"},
         follow_redirects=False,
     )
-    assert response.status_code == 303
-    assert_redirect_path(response, "/login", query={"next": ["/admin/users"]})
-    assert response.headers["hx-redirect"] == response.headers["location"]
+    assert response.status_code == 200
+    assert response.headers.get("HX-Redirect") == "/login?next=%2Fadmin%2Fusers"
 
 
 def test_alert_and_heading_render_helpers() -> None:

@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
 from fastapi import Request
-from hedron_core.security import SafeUrl, UrlPurpose
+from hedron import SafeUrl, UrlPurpose
 from hedron_posit import browser_mount_from_request, local_href
 
 

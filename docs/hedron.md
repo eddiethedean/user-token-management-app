@@ -15,14 +15,15 @@ subsystems.
 | Polling + long-running run UX | Pipeline monitor responses now emit Hedron-safe `hx-` polling hints (`hx-get`/`hx-trigger`) so live updates use declarative HTMX cycles instead of ad-hoc polling clients. |
 | Safe URLs | Mount-aware paths are parsed as Hedron `SafeUrl` values for navigation and form actions. |
 | Posit-owned cookies | All application cookies are registered with `HedronPosit`; automatic cookie paths use its deployment-aware cookie registry, including Workbench session mounts and Connect handoff. |
-| Public rendering APIs | Pages use `render_component_response`; interactions use `render_interaction`. |
+| Public rendering APIs | Pages use `render_component_response` and declare application JavaScript through `Page.scripts`; interactions use `render_interaction`. |
+| Typed response behavior | Redirects, retargets, reswaps, cache policy, and approved extra headers are carried by `InteractionResult`; exception rendering uses a dedicated policy for Hedron's reserved toast sink. |
 | Security policy integration | Hedron is told that Data Mover owns CSRF and response headers; fragment targets still fail closed. |
 | Production assets | Connect ships the app-owned desktop and component stylesheets directly; `.hedron/build` is excluded so a stale default-theme bundle cannot override the selected Data Mover theme. |
 | Diagnostics | `make hedron-check` fails on Hedron warnings or errors, and `python -m hedron --app app.main:app routes` exposes the registered UI contract. |
 | 0.56 security plane | Data Mover publishes the `hedron-security-1` control-plane profile, bounded request budgets, and deny-by-default egress posture while retaining ownership of CSRF and response headers. |
 | Security posture | `make hedron-security-check` produces a strict SARIF posture report for CI/security review. |
 | 1.0.0 presentation contract | The app's `data-mover` brand is authored with Hedron `Color`, `ThemeBuilder`, validated `ThemeSpec`, accessibility modes, theme variants, typed recipe families, named control/surface/data/status/content recipes, and scoped auth/workspace recipe defaults. |
-| 1.0 release train | Runtime requires `hedron>=1.0.8` and `hedron-posit>=1.0.9`; the 1.0 train is verified against route, interaction, security, and deployment boundaries. |
+| 1.0 release train | Runtime is bounded to the tested compatible line: `hedron>=1.0.10,<1.1` and `hedron-posit>=1.0.9,<1.1`. |
 | 0.61 action lifecycle | Pipeline start, poll, cancel, retry, and reconciliation responses project Hedron `ActionState`/`ActionTrace` metadata with stable `OperationIdentity` values. |
 | 0.61 async regions | The live pipeline monitor uses the server-authored `AsyncRegion` to expose pending, success, error, cancelled, and conflict phases without application CSS or browser state. |
 | 0.61 busy controls | Pipeline run forms opt into Hedron's region busy lifecycle (`data-hedron-busy="region"`), which coordinates accessibility state and the global request indicator. |
@@ -46,8 +47,13 @@ subsystems.
   Data Mover's registered Hedron theme is enabled by default; the
   `CUSTOM_THEME_ENABLED=false` switch omits the optional product art-direction asset.
 - Explorer stays off in production to avoid exposing a component-development surface.
+- Hedron's production plugin allowlist is explicitly empty; this app does not depend on runtime
+  plugin discovery.
 - Caching is not used for authenticated pages or secret-adjacent fragments; responses are
   `no-store` by design.
+- The audit, security-activity, and persisted-run fragment endpoints keep `HedronRouter.view`
+  because they deliberately coordinate custom multi-region or durable-worker response contracts;
+  ordinary navigable documents and mutations remain on `@app.page` and `@app.action`.
 - Data Mover's CSV source uses an application-owned multipart upload action and Hedron fragment updates;
   the inferred-schema table is rendered server-side. The transfer batch visualization is a
   synthetic CSS/DOM visualization rather than a remote streaming or chart subsystem.
@@ -58,7 +64,7 @@ subsystems.
 
 ## Hedron 1.0 status update
 
-Data Mover uses the Hedron 1.0 train (`hedron>=1.0.8` and `hedron-posit>=1.0.9`). The app deliberately keeps its existing
+Data Mover uses a bounded Hedron 1.0 train (`hedron>=1.0.10,<1.1` and `hedron-posit>=1.0.9,<1.1`). The app deliberately keeps its existing
 application-owned CSRF/session and response-header middleware, but opts into the new shared
 security-plane composition metadata so Hedron diagnostics and future integrations see the same
 control-plane posture. The request budget is intentionally bounded to the app's 5 MiB upload

@@ -10,6 +10,7 @@ from hedron import (
     ActionGroup,
     Badge,
     Button,
+    Component,
     ComponentRef,
     ErrorState,
     Form,
@@ -26,7 +27,7 @@ from hedron import (
     TextInput,
     html,
 )
-from hedron_core import Component, HtmlAttrValue, NodeLike
+from hedron_core import HtmlAttrValue, NodeLike
 
 from app.models import AuditEvent
 from app.ui.design_system import DataMoverPageHeader as PageHeader

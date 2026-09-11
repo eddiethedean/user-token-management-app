@@ -32,7 +32,7 @@ def test_connect_requirements_exclude_development_tools() -> None:
     )
 
 
-def test_project_requirements_do_not_set_upper_version_caps() -> None:
+def test_project_requirements_only_bound_hedron_to_its_tested_feature_line() -> None:
     configuration = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
     requirements = [
         *configuration["project"]["dependencies"],
@@ -40,11 +40,13 @@ def test_project_requirements_do_not_set_upper_version_caps() -> None:
     ]
 
     for requirement in requirements:
+        if requirement.startswith("hedron"):
+            continue
         assert "<" not in requirement
 
     assert [requirement for requirement in requirements if requirement.startswith("hedron")] == [
-        "hedron>=1.0.8",
-        "hedron-posit>=1.0.9",
+        "hedron>=1.0.10,<1.1",
+        "hedron-posit>=1.0.9,<1.1",
     ]
 
 

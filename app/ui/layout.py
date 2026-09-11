@@ -17,6 +17,7 @@ from hedron import (
     AppShellChrome,
     Badge,
     Brand,
+    Component,
     Container,
     EnvironmentBanner,
     Fragment,
@@ -30,24 +31,24 @@ from hedron import (
     NavStatus,
     OobUpdate,
     Page,
+    RequestIndicator,
     Section,
+    SkipLink,
     Stack,
     StyleScope,
     Surface,
     Text,
-    ToggleSwitch,
-    html,
-)
-from hedron_core import Component, HtmlAttrValue, NodeLike
-from hedron_core.builtins import (
-    BusyRegion,
-    RequestIndicator,
-    SkipLink,
-    SwapReveal,
     ThemePreference,
     ToastHost,
+    ToggleSwitch,
+    html,
     resolve_theme_preference,
     theme_markers,
+)
+from hedron_core import HtmlAttrValue, NodeLike
+from hedron_core.builtins import (
+    BusyRegion,
+    SwapReveal,
 )
 from starlette._utils import get_route_path
 from starlette.responses import Response
@@ -220,7 +221,7 @@ def document_head(
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=13"),
+                href=asset_href(request, "/assets/theme.css?v=14"),
             )
         )
         nodes.append(
@@ -645,6 +646,7 @@ def app_shell(
             custom_theme_enabled=settings.custom_theme_enabled,
             preference=preference,
         ),
+        scripts=(asset_src(request, "/assets/app.js?v=10"),),
     )
 
 

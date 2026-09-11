@@ -8,24 +8,25 @@ from typing import Any, TypeVar
 from hedron import (
     Card,
     Color,
+    Component,
     DesignSystem,
     PageHeader,
     RecipeFamily,
     StyleRecipe,
+    Theme,
     ThemeBuilder,
     export_theme,
     register_recipe_family,
     validate_theme_spec,
 )
 from hedron_core import (
-    Component,
     ResponsiveCondition,
     ScopedStyleRecipe,
     compile_scoped_styles,
     motion_recipes,
     presentation_contract,
 )
-from hedron_core.theme import Theme, aurora_theme
+from hedron_core.theme import aurora_theme
 
 _ComponentT = TypeVar("_ComponentT", bound=Component)
 

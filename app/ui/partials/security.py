@@ -11,6 +11,7 @@ from hedron import (
     Avatar,
     Badge,
     Button,
+    Component,
     ComponentRef,
     Dialog,
     ErrorState,
@@ -35,7 +36,7 @@ from hedron import (
     Timeline,
     html,
 )
-from hedron_core import Component, HtmlAttrValue, NodeLike
+from hedron_core import HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
 from app.models import AuditEvent, RefreshSession

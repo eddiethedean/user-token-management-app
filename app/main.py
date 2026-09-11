@@ -22,10 +22,10 @@ from fastapi.exception_handlers import (
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from hedron import Heading, html
+from hedron import Heading, RenderMode, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
-from hedron_core import RenderMode, compile_style_bundle
+from hedron_core import compile_style_bundle
 from hedron_core.request_budget import RequestBudget, reset_request_budget, set_request_budget
 from hedron_posit import ConnectConfig, HedronPosit, PositConfig
 from pydantic import BaseModel
@@ -40,6 +40,12 @@ from app.security.cookies import APPLICATION_COOKIE_NAMES
 from app.services.auth import ensure_default_roles
 from app.ui.design_system import DATA_MOVER_DESIGN, DATA_MOVER_SCOPED_STYLES, surface_card
 from app.ui.hedron_styles import desktop_default_styles
+from app.ui.interactions import (
+    ERROR_RESPONSE_POLICY,
+    htmx_redirect,
+    interaction_response,
+    ok_fragment,
+)
 from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
 from app.ui.routes import register_routes
@@ -235,29 +241,35 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         next_path = get_route_path(request.scope)
         if request.url.query:
             next_path += f"?{request.url.query}"
-        response = RedirectResponse(
-            redirect_path(request, f"/login?{urlencode({'next': next_path})}"),
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-        clear_auth_cookies(response, settings, request)
+        login_path = f"/login?{urlencode({'next': next_path})}"
         if is_htmx:
-            response.headers["HX-Redirect"] = htmx_redirect_path(
-                f"/login?{urlencode({'next': next_path})}"
+            response = await interaction_response(
+                request,
+                htmx_redirect(htmx_redirect_path(login_path)),
+                authenticated=False,
             )
+        else:
+            response = RedirectResponse(
+                redirect_path(request, login_path),
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+        clear_auth_cookies(response, settings, request)
         return response
     detail = exc.detail if isinstance(exc.detail, str) else "The request could not be completed."
     if is_htmx:
-        response = render_component_response(
-            request_error(detail),
-            request=request,
-            mode=RenderMode.FRAGMENT,
-            status_code=exc.status_code,
-            extra_headers=exc.headers,
+        return await interaction_response(
+            request,
+            ok_fragment(
+                request_error(detail),
+                status_code=exc.status_code,
+                headers=exc.headers,
+                retarget="#hedron-toast",
+                reswap="innerHTML",
+                policy=ERROR_RESPONSE_POLICY,
+            ),
+            authenticated=bool(getattr(request.state, "hedron_authenticated", False)),
             allow_undeclared_targets=True,
         )
-        response.headers["HX-Retarget"] = "#hedron-toast"
-        response.headers["HX-Reswap"] = "innerHTML"
-        return response
     if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS and accepts_html:
         page = app_shell(
             surface_card(
@@ -314,16 +326,18 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
         return await request_validation_exception_handler(request, exc)
     message = "Check the submitted values and try again."
     if is_htmx_request(request):
-        response = render_component_response(
-            request_error(message),
-            request=request,
-            mode=RenderMode.FRAGMENT,
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        return await interaction_response(
+            request,
+            ok_fragment(
+                request_error(message),
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                retarget="#hedron-toast",
+                reswap="innerHTML",
+                policy=ERROR_RESPONSE_POLICY,
+            ),
+            authenticated=bool(getattr(request.state, "hedron_authenticated", False)),
             allow_undeclared_targets=True,
         )
-        response.headers["HX-Retarget"] = "#hedron-toast"
-        response.headers["HX-Reswap"] = "innerHTML"
-        return response
     page = app_shell(
         surface_card(
             Heading("Request error", level=1),

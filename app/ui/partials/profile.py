@@ -8,6 +8,7 @@ from fastapi import Request
 from hedron import (
     Avatar,
     Badge,
+    Component,
     DescriptionList,
     Form,
     FormField,
@@ -24,7 +25,7 @@ from hedron import (
     TextInput,
     html,
 )
-from hedron_core import Component, HtmlAttrValue, NodeLike
+from hedron_core import HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
 from app.ui.design_system import DATA_MOVER_DESIGN, surface_card

@@ -1899,7 +1899,6 @@ def _pipeline_body(
         direction="horizontal",
         collapse="never",
         density="compact",
-        class_="data-mover-pipeline-workflow",
     )
     return [
         PageHeader(

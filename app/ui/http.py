@@ -6,10 +6,10 @@ from collections.abc import Mapping, Sequence
 
 from fastapi import Request, status
 from fastapi.responses import RedirectResponse
-from hedron import Grid, GridItem, InteractionResult, Page, Stack, html
+from hedron import Grid, GridItem, InteractionResult, Page, RenderMode, Stack, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
-from hedron_core import NodeLike, RenderMode
+from hedron_core import NodeLike
 from starlette.responses import Response
 
 from app.config import Settings
@@ -65,7 +65,7 @@ def render_page(
     headers: Mapping[str, str] | None = None,
     authenticated: bool = False,
 ) -> Response:
-    response = render_component_response(
+    return render_component_response(
         page,
         request=request,
         mode=RenderMode.PAGE,
@@ -74,24 +74,6 @@ def render_page(
         authenticated=authenticated,
         allow_undeclared_targets=request is not None and is_history_restore(request),
     )
-    # Hedron forbids <script> nodes in the tree; inject AR progressive-enhancement JS here.
-    original_html = bytes(response.body).decode(response.charset or "utf-8")
-    html_text = original_html
-    script_src = (
-        mounted_path(request, "/assets/app.js?v=10")
-        if request is not None
-        else "/assets/app.js?v=10"
-    )
-    app_script = f'<script src="{script_src}" defer></script>'
-    if "app.js" not in html_text:
-        if "</body>" in html_text:
-            html_text = html_text.replace("</body>", f"{app_script}</body>", 1)
-        else:
-            html_text += app_script
-    if html_text != original_html:
-        response.body = html_text.encode(response.charset or "utf-8")
-        response.headers["content-length"] = str(len(response.body))
-    return response
 
 
 def auth_card(*children: NodeLike) -> NodeLike:
