@@ -186,15 +186,16 @@ def execute_transfer(
                 pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
                 return
             frame = first_batch.frame
-            schema = ObjectSchema(
-                locator=snapshot.source,
-                columns=tuple(
-                    ColumnSchema(name=name, data_type=str(dtype), nullable=True)
-                    for name, dtype in frame.schema.items()
-                ),
-                primary_key=source_schema.primary_key,
-                unique_constraints=source_schema.unique_constraints,
-            )
+            if not source_schema.columns:
+                schema = ObjectSchema(
+                    locator=snapshot.source,
+                    columns=tuple(
+                        ColumnSchema(name=name, data_type=str(dtype), nullable=True)
+                        for name, dtype in frame.schema.items()
+                    ),
+                    primary_key=source_schema.primary_key,
+                    unique_constraints=source_schema.unique_constraints,
+                )
 
         destination_schema_before = _validate_upsert_policy(
             destination,
@@ -266,6 +267,10 @@ def execute_transfer(
                 f"Extracted batch {batch.sequence}: {batch.row_count} rows.",
                 stage="inspect",
             )
+            # Release the application-database write lock before remote I/O so
+            # the independent lease keeper can renew the run during a slow
+            # destination write.
+            db.commit()
             result = destination.write_batch(session, batch)
             loaded_bytes += result.bytes_acknowledged
             pipeline_runs.add_counters(
@@ -283,6 +288,12 @@ def execute_transfer(
             )
             db.commit()
             _demo_stage_pause(settings)
+        if lease_lost():
+            raise RunConflictError("This worker no longer holds the run lease.")
+        if cancel_requested():
+            _abort_quietly(destination, session)
+            pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
+            return
         pipeline_runs.transition(
             db,
             run,
@@ -293,6 +304,10 @@ def execute_transfer(
         _demo_stage_pause(settings)
         if lease_lost():
             raise RunConflictError("This worker no longer holds the run lease.")
+        if cancel_requested():
+            _abort_quietly(destination, session)
+            pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
+            return
         manifest = destination.finalize(session)
         destination_committed = True
         destination_rows_after = _destination_row_count(

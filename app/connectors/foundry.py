@@ -45,6 +45,31 @@ MAX_FOUNDRY_CATALOG_PAGES = 1_000
 MAX_FOUNDRY_CATALOG_FILES = 100_000
 
 
+def _polars_dtype(data_type: str):
+    folded = data_type.casefold()
+    if "bool" in folded:
+        return pl.Boolean
+    if "int" in folded:
+        return pl.Int64
+    if "float" in folded or "double" in folded:
+        return pl.Float64
+    if folded == "date":
+        return pl.Date
+    if folded.startswith("datetime") or folded.startswith("timestamp"):
+        return pl.Datetime("us")
+    if folded.startswith("time"):
+        return pl.Time
+    decimal = re.search(r"precision=(\d+),\s*scale=(\d+)", folded)
+    if decimal:
+        precision = min(38, int(decimal.group(1)))
+        return pl.Decimal(precision=precision, scale=min(precision, int(decimal.group(2))))
+    if "decimal" in folded or "numeric" in folded:
+        return pl.String
+    if "binary" in folded or "bytea" in folded:
+        return pl.Binary
+    return pl.String
+
+
 def normalize_foundry_base(endpoint: str) -> str:
     raw = endpoint.strip()
     parsed = urlsplit(raw)
@@ -692,7 +717,16 @@ class FoundryConnector:
             write_policy=write_policy,
             staging_name=str(spool),
             columns=tuple(column.name for column in schema.columns),
-            metadata={"chunk_root": str(chunk_root)},
+            metadata={
+                "chunk_root": str(chunk_root),
+                "schema": json.dumps(
+                    [
+                        {"name": column.name, "data_type": column.data_type}
+                        for column in schema.columns
+                    ],
+                    separators=(",", ":"),
+                ),
+            },
         )
 
     def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
@@ -749,6 +783,19 @@ class FoundryConnector:
                     pl.concat(
                         [pl.scan_parquet(chunk) for chunk in chunks], how="vertical_relaxed"
                     ).sink_parquet(path, compression="snappy")
+            if not path.exists():
+                try:
+                    stored_schema = json.loads(load_session.metadata.get("schema", "[]"))
+                except (TypeError, ValueError):
+                    stored_schema = []
+                if stored_schema:
+                    empty = pl.DataFrame(
+                        schema={
+                            str(column["name"]): _polars_dtype(str(column["data_type"]))
+                            for column in stored_schema
+                        }
+                    )
+                    empty.write_parquet(path, compression="snappy")
             if not path.exists():
                 raise ConnectorError(
                     TransferErrorCode.PARTIAL_WRITE, "No Parquet spool was produced."

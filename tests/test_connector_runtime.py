@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import polars as pl
 import pytest
 
@@ -45,6 +47,24 @@ def test_csv_source_rejects_missing_content() -> None:
     with pytest.raises(ConnectorError) as excinfo:
         connector.inspect_object({}, locator)
     assert excinfo.value.code == TransferErrorCode.SOURCE_NOT_FOUND
+
+
+def test_csv_source_reuses_inspection_delimiter_and_normalized_headers() -> None:
+    connector = CsvSourceConnector()
+    locator = CsvUploadLocator(
+        upload_id="11111111-1111-1111-1111-111111111111", checksum_sha256="c" * 64
+    )
+    credentials = {
+        "content": " id ; value\n001;ok\n002;still text\n",
+        "delimiter": ";",
+        "columns": json.dumps(["id", "value"]),
+        "column_types": json.dumps(["text", "text"]),
+    }
+    frame = connector.inspect_object(credentials, locator)
+    assert [column.name for column in frame.columns] == ["id", "value"]
+    assert frame.columns[0].data_type == "String"
+    batches = list(connector.extract(credentials, locator, batch_rows=100, batch_bytes=10_000))
+    assert batches[0].frame["id"].to_list() == ["001", "002"]
 
 
 def test_shared_batch_boundary_enforces_rows_and_bytes() -> None:

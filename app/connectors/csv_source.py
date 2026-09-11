@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from io import BytesIO
 
@@ -100,12 +101,43 @@ class CsvSourceConnector:
                 TransferErrorCode.SOURCE_NOT_FOUND, "The CSV upload is no longer available."
             )
         payload = content.encode("utf-8") if isinstance(content, str) else content
+        separator = str((credentials or {}).get("delimiter") or ",")[:1]
+        columns = _metadata_list((credentials or {}).get("columns"))
+        column_types = _metadata_list((credentials or {}).get("column_types"))
+        schema_overrides = None
+        if columns and len(columns) == len(column_types):
+            schema_overrides = {
+                name: pl.String
+                for name, inferred_type in zip(columns, column_types, strict=True)
+                if inferred_type in {"text", "empty"}
+            }
         try:
-            return pl.read_csv(BytesIO(payload), infer_schema_length=10_000)
+            return pl.read_csv(
+                BytesIO(payload),
+                infer_schema_length=None,
+                separator=separator,
+                new_columns=columns or None,
+                schema_overrides=schema_overrides,
+            )
         except Exception as exc:
             raise ConnectorError(
                 TransferErrorCode.UNSUPPORTED_TYPE, "The CSV file could not be parsed."
             ) from exc
+
+
+def _metadata_list(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError):
+            return []
+    else:
+        decoded = value
+    if not isinstance(decoded, list) or not all(isinstance(item, str) for item in decoded):
+        return []
+    return decoded
 
 
 def register() -> None:

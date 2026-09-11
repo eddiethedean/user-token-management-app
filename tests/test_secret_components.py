@@ -58,6 +58,21 @@ def test_credential_validator_rejects_invalid_values(
         CredentialValidator().validate(SECRET_CATALOG.require("mss"), credentials)
 
 
+@pytest.mark.parametrize("timeout", ["abc", "0", "61"])
+def test_credential_validator_rejects_invalid_postgres_connect_timeout(timeout: str) -> None:
+    credentials = {
+        "host": "localhost",
+        "port": "5432",
+        "database": "analytics",
+        "username": "user",
+        "password": "password",
+        "sslmode": "require",
+        "connect_timeout": timeout,
+    }
+    with pytest.raises(ValueError, match="Connect timeout"):
+        CredentialValidator().validate(SECRET_CATALOG.require("postgres"), credentials)
+
+
 def test_credential_envelope_round_trips_without_database_dependencies() -> None:
     settings = Settings(
         api_token_encryption_keys={

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, HedronRouter, InteractionResult
@@ -10,8 +12,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import Response
 
+from app.database import SessionLocal
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep, clear_auth_cookies
-from app.models import RefreshSession, UserSecret
+from app.models import RefreshSession, User, UserSecret
 from app.security.passwords import PasswordPolicyError
 from app.services.accounts import (
     CurrentPasswordError,
@@ -440,8 +443,11 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
     ) -> Response:
         try:
             specification = require_secret_provider(provider)
-            checked = test_user_connection(
-                db, settings=settings, user=auth.user, provider=provider, request=request
+            checked = await asyncio.to_thread(
+                _test_user_connection_in_thread,
+                settings,
+                auth.user.id,
+                provider,
             )
         except (ValueError, SecretStorageError) as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -464,4 +470,20 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 ),
                 toast=toast,
             ),
+        )
+
+
+def _test_user_connection_in_thread(settings, user_id: str, provider: str):
+    """Run synchronous connector I/O with a session owned by the worker thread."""
+
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        if user is None:
+            raise SecretStorageError("The account is no longer available.")
+        return test_user_connection(
+            db,
+            settings=settings,
+            user=user,
+            provider=provider,
+            request=None,
         )

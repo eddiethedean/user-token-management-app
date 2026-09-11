@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -104,6 +105,9 @@ def process_one(
             lease_token=lease_token,
         )
         return True
+    if not user.is_active:
+        pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
+        return True
     keeper = LeaseKeeper(settings=settings, run_id=run_id, lease_token=lease_token)
     keeper.start()
     try:
@@ -173,6 +177,12 @@ def process_one(
 
 
 def _credentials_for(db, settings, *, user, provider, snapshot) -> dict[str, str]:
+    if not user.is_active:
+        raise ConnectorError(
+            TransferErrorCode.PERMISSION_DENIED,
+            "The run owner account is disabled.",
+            retryable=False,
+        )
     if provider == "csv":
         from app.models import PipelineUpload
 
@@ -188,8 +198,14 @@ def _credentials_for(db, settings, *, user, provider, snapshot) -> dict[str, str
             raise ConnectorError(
                 TransferErrorCode.SCHEMA_DRIFT, "The CSV upload checksum no longer matches."
             )
+        from app.services.csv_uploads import inspection_from_upload
+
+        inspection = inspection_from_upload(upload)
         return {
-            "content": upload.content.decode("utf-8") if isinstance(upload.content, bytes) else ""
+            "content": upload.content.decode("utf-8") if isinstance(upload.content, bytes) else "",
+            "delimiter": inspection.delimiter,
+            "columns": json.dumps([column.name for column in inspection.columns]),
+            "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
         }
     return decrypt_user_credentials_for_run(db, settings, user=user, provider=provider)
 

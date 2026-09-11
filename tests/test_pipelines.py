@@ -132,6 +132,66 @@ def test_pipeline_surface_exposes_metadata_capabilities_and_accessible_regions(
     assert "Schema: Catalog metadata" in response.text
 
 
+def test_pipeline_preview_provider_calls_do_not_block_event_loop(
+    client, demo_connections, monkeypatch
+) -> None:
+    import asyncio
+    import threading
+    import time
+
+    import httpx2
+
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    csrf_token = csrf_from(page.text)
+    original = UserCatalog.list_namespaces
+    provider_threads = []
+
+    def slow_list_namespaces(self, provider):
+        provider_threads.append(threading.get_ident())
+        time.sleep(0.2)
+        return original(self, provider)
+
+    monkeypatch.setattr(UserCatalog, "list_namespaces", slow_list_namespaces)
+
+    async def exercise() -> None:
+        loop_thread = threading.get_ident()
+        ticks = []
+
+        async def ticker() -> None:
+            for _ in range(100):
+                ticks.append(time.monotonic())
+                await asyncio.sleep(0.01)
+
+        async with httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=client.app),
+            base_url="http://testserver",
+            cookies=client.cookies,
+        ) as async_client:
+            request = async_client.post(
+                "/pipeline/preview",
+                data={
+                    "csrf_token": csrf_token,
+                    "source_provider": "mss",
+                    "source_schema": MSS_DATASET,
+                    "source_table": MSS_FILE,
+                    "destination_provider": "postgres",
+                    "destination_schema": "public",
+                    "destination_table": "mission_orders",
+                    "write_mode": "append",
+                },
+                headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+            )
+            response, _ = await asyncio.gather(request, ticker())
+
+        assert response.status_code == 200
+        assert provider_threads
+        assert all(thread_id != loop_thread for thread_id in provider_threads)
+        assert max(after - before for before, after in zip(ticks, ticks[1:], strict=False)) < 0.1
+
+    asyncio.run(exercise())
+
+
 MSS_DATASET = "ri.foundry.main.dataset.demo-operations"
 MSS_FILE = "mission_orders.parquet"
 MSS_DEST_DATASET = "ri.foundry.main.dataset.demo-destination"

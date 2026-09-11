@@ -42,6 +42,7 @@ class CredentialValidator:
         self._validate_endpoint(normalized)
         self._validate_host(normalized)
         self._validate_port(normalized)
+        self._validate_connect_timeout(normalized)
         self._validate_choice(specification, normalized, "sslmode", "PostgreSQL SSL mode")
         self._validate_choice(specification, normalized, "tlsmode", "MongoDB TLS mode")
         return normalized
@@ -89,6 +90,12 @@ class CredentialValidator:
         port = credentials.get("port", "")
         if port and (not port.isdigit() or not 1 <= int(port) <= 65535):
             raise ValueError("Port must be between 1 and 65535.")
+
+    @staticmethod
+    def _validate_connect_timeout(credentials: Mapping[str, str]) -> None:
+        timeout = credentials.get("connect_timeout", "")
+        if timeout and (not timeout.isdigit() or not 1 <= int(timeout) <= 60):
+            raise ValueError("Connect timeout must be between 1 and 60 seconds.")
 
     @staticmethod
     def _validate_choice(
