@@ -7,7 +7,7 @@ import re
 from sqlalchemy import select
 
 from app.database import SessionLocal
-from app.models import AuditEvent, PipelineDefinition, PipelineUpload
+from app.models import AuditEvent, PipelineCatalogCache, PipelineDefinition, PipelineUpload
 from app.services.csv_uploads import inspect_csv
 from tests.helpers import csrf_from, web_login
 
@@ -69,6 +69,8 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     assert 'value="upsert"' not in mode_select.group(0)
     assert 'hx-post="/pipeline/preview"' in response.text
     assert 'hx-get="/pipeline/preview"' not in response.text
+    with SessionLocal() as db:
+        assert db.scalar(select(PipelineCatalogCache.id).limit(1)) is not None
 
     preview = client.post(
         "/pipeline/preview",

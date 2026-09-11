@@ -256,7 +256,35 @@ def test_postgres_replace_recreate_drops_prior_schema(postgres_credentials) -> N
     assert rows == [(99, "Zulu")]
 
 
-def test_postgres_abort_and_janitor_drop_staging(postgres_credentials) -> None:
+def test_postgres_replace_abort_preserves_live_table(postgres_credentials) -> None:
+    locator = postgres_table("public", "preserved_events")
+    _load(postgres_credentials, locator, PostgresAppendPolicy(), _key_frame(), "preserve-seed")
+    connector = PostgresConnector(connector_settings())
+    session = connector.prepare_destination(
+        postgres_credentials,
+        locator,
+        _schema(locator),
+        PostgresReplacePolicy(schema_policy="recreate"),
+        run_id="preserve-replacement",
+    )
+    connector.write_batch(
+        session,
+        TransferBatch(
+            frame=_frame(), row_count=3, byte_count=int(_frame().estimated_size()), sequence=1
+        ),
+    )
+    connector.abort(session)
+
+    rows = _fetchall(
+        postgres_credentials,
+        "SELECT event_id, unit_name FROM public.preserved_events ORDER BY event_id",
+    )
+    assert rows == [(1, "Alpha"), (2, "Bravo")]
+
+
+def test_postgres_abort_rolls_back_staging_and_janitor_drops_legacy_tables(
+    postgres_credentials,
+) -> None:
     locator = postgres_table("public", "janitor_events")
     connector = PostgresConnector(connector_settings())
     session = connector.prepare_destination(
@@ -268,7 +296,9 @@ def test_postgres_abort_and_janitor_drop_staging(postgres_credentials) -> None:
         "SELECT table_name FROM information_schema.tables WHERE table_name = %s",
         (staging,),
     )
-    assert present
+    # Staging DDL is intentionally uncommitted, so other sessions cannot see
+    # or accumulate it if the worker crashes.
+    assert present == []
     connector.abort(session)
     gone = _fetchall(
         postgres_credentials,

@@ -59,13 +59,14 @@ from app.connectors.locators import (
     parse_locator,
     parse_snapshot,
 )
-from app.connectors.registry import capabilities_for, connector_for
+from app.connectors.registry import capabilities_for, route_allowed, writer_enabled
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.models import PipelineDefinition, PipelineUpload
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
     CSV_SOURCE_CATALOG,
     ProviderCatalog,
+    UserCatalog,
     all_provider_catalogs,
     require_catalog_provider,
 )
@@ -204,16 +205,27 @@ def _connection_runnable(details: dict[str, str | bool]) -> bool:
 
 
 def _configured_catalogs(
-    connections: dict[str, dict[str, str | bool]],
+    connections: dict[str, dict[str, str | bool]], *, role: str
 ) -> tuple[ProviderCatalog, ...]:
     return tuple(
         catalog
         for catalog in all_provider_catalogs()
-        if catalog.name in connections and _connection_configured(connections[catalog.name])
+        if catalog.name in connections
+        and _connection_configured(connections[catalog.name])
+        and (
+            (role == "source" and catalog.source)
+            or (role == "destination" and catalog.destination and writer_enabled(catalog.name))
+        )
     )
 
 
-def _provider_options(connections: dict[str, dict[str, str | bool]], *, selected: str):
+def _provider_options(
+    connections: dict[str, dict[str, str | bool]],
+    *,
+    selected: str,
+    role: str,
+    counterpart: str = "",
+):
     return [
         _option(
             catalog.name,
@@ -226,50 +238,77 @@ def _provider_options(connections: dict[str, dict[str, str | bool]], *, selected
             region=catalog.namespaces_label,
         )
         for catalog in all_provider_catalogs()
-        if catalog.name in connections and _connection_configured(connections[catalog.name])
+        if catalog.name in connections
+        and _connection_configured(connections[catalog.name])
+        and (
+            (role == "source" and catalog.source)
+            or (role == "destination" and catalog.destination and writer_enabled(catalog.name))
+        )
+        and (
+            not counterpart
+            or (
+                route_allowed(catalog.name, counterpart)
+                if role == "source"
+                else route_allowed(counterpart, catalog.name)
+            )
+        )
     ]
 
 
-def _source_provider_options(connections: dict[str, dict[str, str | bool]], *, selected: str):
+def _source_provider_options(
+    connections: dict[str, dict[str, str | bool]], *, selected: str, target_provider: str
+):
     return [
-        *_provider_options(connections, selected=selected),
-        _option(
-            "csv",
-            "CSV file · Upload from device",
-            selected=selected == "csv",
-            configured="false",
-            validation="local",
-            runtime="",
-            technology=CSV_SOURCE_CATALOG.technology,
-            region=CSV_SOURCE_CATALOG.region,
+        *_provider_options(
+            connections,
+            selected=selected,
+            role="source",
+            counterpart=target_provider,
+        ),
+        *(
+            [
+                _option(
+                    "csv",
+                    "CSV file · Upload from device",
+                    selected=selected == "csv",
+                    configured="false",
+                    validation="local",
+                    runtime="",
+                    technology=CSV_SOURCE_CATALOG.technology,
+                    region=CSV_SOURCE_CATALOG.region,
+                )
+            ]
+            if not target_provider or route_allowed("csv", target_provider)
+            else []
         ),
     ]
 
 
-def _namespace_entries(provider: str) -> list[tuple[str, str]]:
-    connector = connector_for(provider)
-    return [(item.name, item.display_name) for item in connector.list_namespaces({})]
+def _namespace_entries(catalog_access: UserCatalog, provider: str) -> list[tuple[str, str]]:
+    return [(item.name, item.display_name) for item in catalog_access.list_namespaces(provider)]
 
 
-def _object_entries(provider: str, namespace: str) -> list[tuple[str, str]]:
-    connector = connector_for(provider)
-    page = connector.list_objects({}, namespace)
+def _object_entries(
+    catalog_access: UserCatalog, provider: str, namespace: str
+) -> list[tuple[str, str]]:
+    page = catalog_access.list_objects(provider, namespace)
     return [(item.name, item.display_name) for item in page.items]
 
 
-def _first_namespace(provider: str) -> str:
-    entries = _namespace_entries(provider)
+def _first_namespace(catalog_access: UserCatalog, provider: str) -> str:
+    entries = _namespace_entries(catalog_access, provider)
     return entries[0][0] if entries else ""
 
 
-def _first_object(provider: str, namespace: str) -> str:
+def _first_object(catalog_access: UserCatalog, provider: str, namespace: str) -> str:
     if not namespace:
         return ""
-    entries = _object_entries(provider, namespace)
+    entries = _object_entries(catalog_access, provider, namespace)
     return entries[0][0] if entries else ""
 
 
 def _normalized_selection(
+    catalog_access: UserCatalog,
     provider: str,
     namespace: str,
     object_name: str,
@@ -279,7 +318,7 @@ def _normalized_selection(
     """Keep a form selection valid when its provider changes."""
     if not provider:
         return "", ""
-    namespaces = _namespace_entries(provider)
+    namespaces = _namespace_entries(catalog_access, provider)
     if not namespaces:
         return (
             "",
@@ -287,7 +326,7 @@ def _normalized_selection(
         )
     namespace_names = {name for name, _ in namespaces}
     resolved_namespace = namespace if namespace in namespace_names else namespaces[0][0]
-    objects = _object_entries(provider, resolved_namespace)
+    objects = _object_entries(catalog_access, provider, resolved_namespace)
     object_names = {name for name, _ in objects}
     if preserve_create and object_name == CREATE_TABLE_VALUE:
         return resolved_namespace, CREATE_TABLE_VALUE
@@ -297,8 +336,8 @@ def _normalized_selection(
     return resolved_namespace, resolved_object
 
 
-def _schema_options(provider: str, preferred_schema: str = ""):
-    entries = _namespace_entries(provider)
+def _schema_options(catalog_access: UserCatalog, provider: str, preferred_schema: str = ""):
+    entries = _namespace_entries(catalog_access, provider)
     return [
         _option(
             name,
@@ -315,6 +354,7 @@ def _committed_new_table_name(value: str) -> str:
 
 
 def _table_options(
+    catalog_access: UserCatalog,
     provider: str,
     schema_name: str,
     *,
@@ -322,7 +362,7 @@ def _table_options(
     additional_tables: tuple[str, ...] = (),
     preferred_table: str = "",
 ):
-    entries = _object_entries(provider, schema_name) if schema_name else []
+    entries = _object_entries(catalog_access, provider, schema_name) if schema_name else []
     known = {name for name, _ in entries}
     options = [
         _option(name, display, selected=(name == preferred_table or index == 0))
@@ -539,13 +579,17 @@ def _saved_run_summary(run: object | None) -> str:
     )
 
 
-def _catalog_data(catalogs: tuple[ProviderCatalog, ...], pipelines: list[PipelineDefinition]):
+def _catalog_data(
+    catalog_access: UserCatalog,
+    catalogs: tuple[ProviderCatalog, ...],
+    pipelines: list[PipelineDefinition],
+):
     nodes = []
     for catalog in catalogs:
-        for namespace, _display in _namespace_entries(catalog.name):
-            objects = [name for name, _label in _object_entries(catalog.name, namespace)] + list(
-                _created_destination_tables(pipelines, catalog.name, namespace)
-            )
+        for namespace, _display in _namespace_entries(catalog_access, catalog.name):
+            objects = [
+                name for name, _label in _object_entries(catalog_access, catalog.name, namespace)
+            ] + list(_created_destination_tables(pipelines, catalog.name, namespace))
             for table_name in dict.fromkeys(objects):
                 nodes.append(
                     html.span(
@@ -603,18 +647,20 @@ def _csv_columns_json(inspection: CsvInspection) -> str:
     )
 
 
-def _remote_object_preview(provider: str, namespace: str, object_name: str):
+def _remote_object_preview(
+    catalog_access: UserCatalog, provider: str, namespace: str, object_name: str
+):
     if not provider or not namespace or not object_name or object_name == CREATE_TABLE_VALUE:
         return None
     try:
-        connector = connector_for(provider)
-        page = connector.list_objects({}, namespace)
+        page = catalog_access.list_objects(provider, namespace)
         return next((item for item in page.items if item.name == object_name), None)
     except Exception:
         return None
 
 
 def _route_schema_preview(
+    catalog_access: UserCatalog,
     provider: str,
     namespace: str,
     object_name: str,
@@ -665,7 +711,7 @@ def _route_schema_preview(
                 "limitations": ("The destination schema is created during the run.",),
             },
         }
-    remote = _remote_object_preview(provider, namespace, object_name)
+    remote = _remote_object_preview(catalog_access, provider, namespace, object_name)
     if remote is None:
         return None
     capabilities = capabilities_for(provider)
@@ -677,7 +723,7 @@ def _route_schema_preview(
     )
     row_provenance = "estimated" if estimated_rows is not None else "unavailable"
     try:
-        inspected = connector_for(provider).inspect_object({}, remote.locator)
+        inspected = catalog_access.inspect_object(provider, remote.locator)
         estimated_rows = inspected.estimated_rows or estimated_rows
         primary_key = list(inspected.primary_key)
         columns = [
@@ -697,7 +743,7 @@ def _route_schema_preview(
         pass
     if destination and capabilities.exact_row_counts:
         try:
-            counted = connector_for(provider).count_rows({}, remote.locator)
+            counted = catalog_access.count_rows(provider, remote.locator)
             estimated_rows = counted if counted is not None else estimated_rows
             if counted is not None:
                 row_provenance = "exact"
@@ -829,6 +875,7 @@ def _schema_preview_surface(
 
 def _pipeline_schema_preview_panel(
     *,
+    catalog_access: UserCatalog,
     source_provider: str,
     source_schema: str,
     source_object: str,
@@ -839,12 +886,14 @@ def _pipeline_schema_preview_panel(
     csv_inspection: CsvInspection | None,
 ):
     source = _route_schema_preview(
+        catalog_access,
         source_provider,
         source_schema,
         source_object,
         csv_inspection=csv_inspection,
     )
     destination = _route_schema_preview(
+        catalog_access,
         destination_provider,
         destination_schema,
         destination_object,
@@ -1123,8 +1172,15 @@ def _saved_pipeline_cards(
         source_runnable = pipeline.source_provider == "csv" or _connection_runnable(
             connections[pipeline.source_provider]
         )
-        target_runnable = _connection_runnable(connections[pipeline.destination_provider])
-        runnable = connections_configured and source_runnable and target_runnable
+        target_runnable = _connection_runnable(
+            connections[pipeline.destination_provider]
+        ) and writer_enabled(pipeline.destination_provider)
+        runnable = (
+            connections_configured
+            and source_runnable
+            and target_runnable
+            and route_allowed(pipeline.source_provider, pipeline.destination_provider)
+        )
         latest = latest_runs.get(pipeline.id)
         state = getattr(latest, "status", "Saved" if runnable else "Connection required")
         if latest is None:
@@ -1223,6 +1279,7 @@ def _saved_pipeline_cards(
 
 def _pipeline_preview_fragment(
     *,
+    catalog_access: UserCatalog,
     source_provider: str,
     source_schema: str,
     source_table: str,
@@ -1238,10 +1295,11 @@ def _pipeline_preview_fragment(
 ):
     if source_provider != "csv":
         source_schema, source_table = _normalized_selection(
-            source_provider, source_schema, source_table
+            catalog_access, source_provider, source_schema, source_table
         )
     if target_provider:
         target_schema, target_table = _normalized_selection(
+            catalog_access,
             target_provider,
             target_schema,
             target_table,
@@ -1283,22 +1341,25 @@ def _pipeline_preview_fragment(
     source_schema_options = (
         [_option("uploaded", "Upload a CSV to inspect its schema", selected=True, disabled=True)]
         if source_provider == "csv"
-        else _schema_options(source_provider, preferred_schema=source_schema)
+        else _schema_options(catalog_access, source_provider, preferred_schema=source_schema)
     )
     source_table_options = (
         [_option("", "Upload required", selected=True, disabled=True)]
         if source_provider == "csv"
-        else _table_options(source_provider, source_schema, preferred_table=source_table)
+        else _table_options(
+            catalog_access, source_provider, source_schema, preferred_table=source_table
+        )
     )
     target_schema_options = (
         [_option("", "No connection available", selected=True, disabled=True)]
         if target_catalog is None
-        else _schema_options(target_provider, preferred_schema=target_schema)
+        else _schema_options(catalog_access, target_provider, preferred_schema=target_schema)
     )
     target_table_options = (
         [_option("", "No connection available", selected=True, disabled=True)]
         if target_catalog is None
         else _table_options(
+            catalog_access,
             target_provider,
             target_schema,
             preferred_table=table_name
@@ -1361,6 +1422,7 @@ def _pipeline_preview_fragment(
 
 def _pipeline_body(
     request: Request,
+    catalog_access: UserCatalog,
     connections: dict[str, dict[str, str | bool]],
     pipelines: list[PipelineDefinition],
     *,
@@ -1373,14 +1435,23 @@ def _pipeline_body(
     run_monitor: NodeLike = None,
     demo_mode: bool = True,
 ):
-    catalogs = _configured_catalogs(connections)
+    source_catalogs = _configured_catalogs(connections, role="source")
+    destination_catalogs = _configured_catalogs(connections, role="destination")
+    catalogs = tuple(dict.fromkeys((*source_catalogs, *destination_catalogs)))
     ready_count = sum(1 for details in connections.values() if _connection_runnable(details))
-    if len(catalogs) >= 2:
-        source_catalog = catalogs[0]
-        target_catalog: ProviderCatalog | None = catalogs[1]
-    elif catalogs:
+    if source_catalogs and destination_catalogs:
+        source_catalog = source_catalogs[0]
+        target_catalog = next(
+            (
+                item
+                for item in destination_catalogs
+                if route_allowed(source_catalog.name, item.name)
+            ),
+            destination_catalogs[0],
+        )
+    elif destination_catalogs:
         source_catalog = CSV_SOURCE_CATALOG
-        target_catalog = catalogs[0]
+        target_catalog = destination_catalogs[0]
     else:
         source_catalog = CSV_SOURCE_CATALOG
         target_catalog = None
@@ -1408,9 +1479,13 @@ def _pipeline_body(
         else 14
     )
     source_schema_name = (
-        _first_namespace(source_provider) if source_provider != "csv" else "uploaded"
+        _first_namespace(catalog_access, source_provider)
+        if source_provider != "csv"
+        else "uploaded"
     )
-    target_schema_name = _first_namespace(target_provider) if target_provider else ""
+    target_schema_name = (
+        _first_namespace(catalog_access, target_provider) if target_provider else ""
+    )
 
     loaded_locations = (
         _pipeline_form_locations(loaded_pipeline) if loaded_pipeline is not None else None
@@ -1448,10 +1523,11 @@ def _pipeline_body(
 
     if source_provider != "csv":
         source_schema_name, source_table_display = _normalized_selection(
-            source_provider, source_schema_name, source_table_display
+            catalog_access, source_provider, source_schema_name, source_table_display
         )
     if target_provider:
         target_schema_name, target_table_name = _normalized_selection(
+            catalog_access,
             target_provider,
             target_schema_name,
             target_table_name,
@@ -1459,7 +1535,7 @@ def _pipeline_body(
         )
     source_object_name = source_table_display
     target_object_name = (
-        target_table_name or _first_object(target_provider, target_schema_name)
+        target_table_name or _first_object(catalog_access, target_provider, target_schema_name)
         if target_provider
         else ""
     )
@@ -1582,7 +1658,7 @@ def _pipeline_body(
                         html.input(
                             type="hidden", name="pipeline_id", value=pipeline_id, id="pipeline-id"
                         ),
-                        _catalog_data(catalogs, pipelines),
+                        _catalog_data(catalog_access, catalogs, pipelines),
                         PageHeader(
                             pipeline_name if pipeline_id else "Create a pipeline",
                             eyebrow="Current route" if pipeline_id else "New route",
@@ -1670,7 +1746,9 @@ def _pipeline_body(
                                             id="pipeline-source-select",
                                             control=html.select(
                                                 *_source_provider_options(
-                                                    connections, selected=source_provider
+                                                    connections,
+                                                    selected=source_provider,
+                                                    target_provider=target_provider,
                                                 ),
                                                 id="pipeline-source-select",
                                                 name="source_provider",
@@ -1695,6 +1773,7 @@ def _pipeline_body(
                                                 control=html.select(
                                                     *(
                                                         _schema_options(
+                                                            catalog_access,
                                                             source_provider,
                                                             preferred_schema=source_schema_name,
                                                         )
@@ -1730,6 +1809,7 @@ def _pipeline_body(
                                                 control=html.select(
                                                     *(
                                                         _table_options(
+                                                            catalog_access,
                                                             source_provider,
                                                             source_schema_name,
                                                             preferred_table=source_table_display,
@@ -1818,7 +1898,10 @@ def _pipeline_body(
                                             control=html.select(
                                                 *(
                                                     _provider_options(
-                                                        connections, selected=target_provider
+                                                        connections,
+                                                        selected=target_provider,
+                                                        role="destination",
+                                                        counterpart=source_provider,
                                                     )
                                                     if target_catalog is not None
                                                     else [
@@ -1854,6 +1937,7 @@ def _pipeline_body(
                                                 control=html.select(
                                                     *(
                                                         _schema_options(
+                                                            catalog_access,
                                                             target_provider,
                                                             preferred_schema=target_schema_name,
                                                         )
@@ -1890,6 +1974,7 @@ def _pipeline_body(
                                                 control=html.select(
                                                     *(
                                                         _table_options(
+                                                            catalog_access,
                                                             target_provider,
                                                             target_schema_name,
                                                             preferred_table=target_table_name,
@@ -2007,6 +2092,7 @@ def _pipeline_body(
                             id="pipeline-canvas",
                         ),
                         _pipeline_schema_preview_panel(
+                            catalog_access=catalog_access,
                             source_provider=source_provider,
                             source_schema=source_schema_name,
                             source_object=source_object_name,
@@ -2150,6 +2236,7 @@ def register_pipeline_routes(app: Hedron) -> None:
             request,
             body=_pipeline_body(
                 request,
+                UserCatalog(db, settings, auth.user, request=request),
                 connections,
                 pipelines,
                 csrf_token=auth.session.csrf_token,
@@ -2262,6 +2349,7 @@ def register_pipeline_routes(app: Hedron) -> None:
         request: Request,
         auth: Auth,
         db: DbSession,
+        settings: SettingsDep,
         _csrf: RequireCsrf,
         source_provider: PipelineSourceProviderForm,
         destination_provider: PipelineProviderForm,
@@ -2291,18 +2379,39 @@ def register_pipeline_routes(app: Hedron) -> None:
             }
             for provider, secret in list_user_secrets(db, auth.user)
         }
+        if source_provider != "csv" and not _connection_configured(connections[source_provider]):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Configure and validate the selected source connection first.",
+            )
+        if destination_provider and (
+            not _connection_configured(connections[destination_provider])
+            or not writer_enabled(destination_provider)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="The selected destination is not ready for writes.",
+            )
+        if destination_provider and not route_allowed(source_provider, destination_provider):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Select an approved source and destination route.",
+            )
+        catalog_access = UserCatalog(db, settings, auth.user, request=request)
         if source_provider != "csv":
             source_schema, source_table = _normalized_selection(
-                source_provider, source_schema, source_table
+                catalog_access, source_provider, source_schema, source_table
             )
         if destination_provider:
             destination_schema, destination_table = _normalized_selection(
+                catalog_access,
                 destination_provider,
                 destination_schema,
                 destination_table,
                 preserve_create=True,
             )
         preview_fragment = _pipeline_preview_fragment(
+            catalog_access=catalog_access,
             source_provider=source_provider,
             source_schema=source_schema,
             source_table=source_table,
@@ -2321,6 +2430,7 @@ def register_pipeline_routes(app: Hedron) -> None:
         if destination_table == CREATE_TABLE_VALUE:
             destination_object = _committed_new_table_name(destination_table_new) or "new_table"
         schema_preview = _pipeline_schema_preview_panel(
+            catalog_access=catalog_access,
             source_provider=source_provider,
             source_schema=source_schema,
             source_object=source_object,

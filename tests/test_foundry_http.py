@@ -12,7 +12,7 @@ import pytest
 
 from app.config import Settings
 from app.connectors.base import ObjectSchema, TransferBatch
-from app.connectors.errors import TransferErrorCode
+from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.foundry import (
     FoundryClient,
     FoundryConnector,
@@ -103,6 +103,7 @@ def test_foundry_client_lists_downloads_and_uploads(foundry_sim, tmp_path) -> No
     pl.DataFrame({"event_id": [1]}).write_parquet(parquet, compression="snappy")
     uploaded = client.upload_file(DATASET, "readiness.snappy.parquet", parquet)
     assert uploaded["filePath"] == "readiness.snappy.parquet"
+    assert foundry_sim.last_download_branch == "master"
     client.close()
 
 
@@ -124,6 +125,24 @@ def test_foundry_writer_finalize_streams_preview_upload(foundry_sim, tmp_path) -
     manifest = connector.finalize(session)
     assert manifest.remote_id == "readiness.snappy.parquet"
     assert manifest.rows == 2
+
+
+def test_foundry_writer_rejects_branch_mismatch(foundry_sim, tmp_path) -> None:
+    settings = _settings(tmp_path)
+    connector = FoundryConnector(settings)
+    credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
+    locator = FoundryUploadLocator(
+        dataset_rid=DATASET, branch="release", file_name="release.snappy.parquet"
+    )
+    with pytest.raises(ConnectorError) as excinfo:
+        connector.prepare_destination(
+            credentials,
+            locator,
+            ObjectSchema(locator=locator, columns=()),
+            FoundryReplaceFilePolicy(),
+            run_id="run-branch",
+        )
+    assert excinfo.value.code == TransferErrorCode.UNSUPPORTED_TYPE
 
 
 def test_real_foundry_writers_are_denied_until_flags_are_set(monkeypatch) -> None:
@@ -221,10 +240,11 @@ def test_foundry_health_and_extract_with_default_rid(foundry_sim, tmp_path) -> N
     from app.connectors.locators import FoundryDatasetFilesLocator
 
     locator = FoundryDatasetFilesLocator(
-        dataset_rid=DATASET, branch="master", file_paths=["notes.csv"]
+        dataset_rid=DATASET, branch="release", file_paths=["notes.csv"]
     )
     batches = list(connector.extract(credentials, locator, batch_rows=25, batch_bytes=1024))
     assert batches and batches[0].row_count >= 1
+    assert foundry_sim.last_download_branch == "release"
     assert list(spool.iterdir()) == []
     connector.abort(
         connector.prepare_destination(

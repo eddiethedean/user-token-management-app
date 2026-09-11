@@ -113,6 +113,47 @@ class DestinationManifest:
     details: Mapping[str, str] = field(default_factory=dict)
 
 
+def bounded_frame_batches(
+    frame: Any,
+    *,
+    batch_rows: int,
+    batch_bytes: int,
+    sequence_start: int = 1,
+) -> Iterator[TransferBatch]:
+    """Split a Polars frame so every emitted batch honors row and byte limits.
+
+    Connectors may have to materialize a driver/file chunk before its size is
+    known, but the shared transfer boundary never emits an oversized batch. A
+    single row larger than the byte ceiling cannot be subdivided safely and is
+    rejected explicitly.
+    """
+
+    start = 0
+    sequence = sequence_start
+    while start < frame.height:
+        length = min(batch_rows, frame.height - start)
+        candidate = frame.slice(start, length)
+        size = int(candidate.estimated_size())
+        while size > batch_bytes and length > 1:
+            length = max(1, length // 2)
+            candidate = frame.slice(start, length)
+            size = int(candidate.estimated_size())
+        if size > batch_bytes:
+            raise ConnectorError(
+                TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
+                "A single source row exceeds the configured batch-size limit.",
+                retryable=False,
+            )
+        yield TransferBatch(
+            frame=candidate,
+            row_count=candidate.height,
+            byte_count=size,
+            sequence=sequence,
+        )
+        start += length
+        sequence += 1
+
+
 class Connector(Protocol):
     capabilities: ProviderCapabilities
 

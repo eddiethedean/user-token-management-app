@@ -66,6 +66,20 @@ _DEFAULT_REGISTRY = ConnectorRegistry()
 _REGISTRY = _DEFAULT_REGISTRY._factories
 _CAPABILITIES = _DEFAULT_REGISTRY._capabilities
 
+# Product-approved transfer paths.  Provider capabilities describe what an
+# adapter can do in isolation; they must not be expanded into an implicit
+# cross-product because cross-system routes require separate approval.
+ALLOWED_ROUTES = frozenset(
+    {
+        ("mss", "postgres"),
+        ("postgres", "mss"),
+        ("postgres", "mcscop"),
+        ("csv", "postgres"),
+        ("csv", "mss"),
+        ("csv", "mcscop"),
+    }
+)
+
 
 def register_connector(factory: ConnectorFactory) -> ConnectorFactory:
     return _DEFAULT_REGISTRY.register(factory)
@@ -84,12 +98,12 @@ def listed_capabilities(*, sources: bool | None = None, destinations: bool | Non
 
 
 def route_allowed(source_provider: str, destination_provider: str) -> bool:
-    if source_provider == "csv":
-        return capabilities_for(destination_provider).destination
-    if source_provider == destination_provider:
+    source_id = source_provider.casefold()
+    destination_id = destination_provider.casefold()
+    if (source_id, destination_id) not in ALLOWED_ROUTES:
         return False
-    source = capabilities_for(source_provider)
-    destination = capabilities_for(destination_provider)
+    source = capabilities_for(source_id)
+    destination = capabilities_for(destination_id)
     return source.source and destination.destination
 
 

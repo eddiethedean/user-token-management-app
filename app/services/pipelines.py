@@ -20,7 +20,7 @@ from app.connectors.locators import (
     parse_write_policy,
     postgres_table,
 )
-from app.connectors.registry import capabilities_for, route_allowed
+from app.connectors.registry import capabilities_for, route_allowed, writer_enabled
 from app.models import PipelineDefinition, PipelineUpload, User, new_id
 from app.services.audit import record_event
 from app.services.catalogs import (
@@ -99,6 +99,8 @@ def save_pipeline(
         raise ValueError(
             "Configure and validate the selected destination connection before saving."
         )
+    if not writer_enabled(destination_provider):
+        raise ValueError("The selected destination writer is not enabled by the operator.")
 
     source_upload = None
     destination_create = False

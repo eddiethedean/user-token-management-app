@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import polars as pl
 import pytest
 
-from app.connectors.base import map_http_status
+from app.connectors.base import bounded_frame_batches, map_http_status
 from app.connectors.csv_source import CsvSourceConnector
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.fake import FakeCsvConnector
@@ -46,6 +47,15 @@ def test_csv_source_rejects_missing_content() -> None:
     assert excinfo.value.code == TransferErrorCode.SOURCE_NOT_FOUND
 
 
+def test_shared_batch_boundary_enforces_rows_and_bytes() -> None:
+    frame = pl.DataFrame({"value": ["x" * 100 for _ in range(10)]})
+    batches = list(bounded_frame_batches(frame, batch_rows=10, batch_bytes=250))
+
+    assert sum(batch.row_count for batch in batches) == 10
+    assert all(batch.row_count <= 10 for batch in batches)
+    assert all(batch.byte_count <= 250 for batch in batches)
+
+
 def test_fake_csv_cannot_be_a_destination() -> None:
     connector = FakeCsvConnector()
     with pytest.raises(ConnectorError):
@@ -58,6 +68,7 @@ def test_route_allowed_and_http_status_mapping() -> None:
     load_builtin_connectors(demo=True)
     assert route_allowed("csv", "postgres") is True
     assert route_allowed("mss", "mss") is False
+    assert route_allowed("mss", "mcscop") is False
     assert map_http_status(401) == TransferErrorCode.AUTHENTICATION_FAILED
     assert map_http_status(403) == TransferErrorCode.PERMISSION_DENIED
     assert map_http_status(404) == TransferErrorCode.SOURCE_NOT_FOUND

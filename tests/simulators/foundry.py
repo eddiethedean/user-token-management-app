@@ -64,6 +64,7 @@ class FoundrySimulator:
         self.token = token
         self.files: dict[str, bytes] = {"notes.csv": DEFAULT_CSV}
         self.fail_upload = False
+        self.last_download_branch = ""
         self.api = build_foundry_api(token)
         self.app = self._with_binary_routes(self.api.as_fastapi())
         self.base_url = ""
@@ -71,13 +72,17 @@ class FoundrySimulator:
     def _with_binary_routes(self, app: FastAPI) -> FastAPI:
         @app.get("/api/v1/datasets/{dataset_rid}/files/{file_path}/content")
         async def download_content(dataset_rid: str, file_path: str, branchName: str = "master"):
-            del dataset_rid, branchName
+            del dataset_rid
+            self.last_download_branch = branchName
             body = self.files.get(unquote(file_path), DEFAULT_CSV)
             return Response(content=body, media_type="application/octet-stream")
 
         @app.post("/api/v2/datasets/{dataset_rid}/files/{file_name}/upload")
         async def upload_file(
-            request: Request, dataset_rid: str, file_name: str, preview: str = "false"
+            request: Request,
+            dataset_rid: str,
+            file_name: str,
+            preview: str = "false",
         ):
             del dataset_rid
             if preview != "true":

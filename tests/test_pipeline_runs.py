@@ -6,6 +6,7 @@ import json
 import os
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -20,12 +21,16 @@ from app.models import (
 )
 from app.services.pipeline_runs import (
     ALLOWED_TRANSITIONS,
+    claim_run,
     enqueue_run,
+    heartbeat,
     janitor,
     record_reconciliation_review,
+    renew_lease,
     request_cancel,
     snapshot_from_definition,
 )
+from app.services.pipeline_state import RunConflictError
 from app.worker import _cancel_flag, process_one
 from tests.helpers import csrf_from, web_login
 
@@ -165,6 +170,49 @@ def test_worker_cancellation_check_reads_changes_from_another_session(access_app
             assert request_user is not None
             request_cancel(request_db, user=request_user, run_id=run_id)
         assert _cancel_flag(worker_db, run_id)
+
+
+def test_lease_renewal_is_atomic_and_stale_identity_map_is_rejected(access_app) -> None:
+    settings = get_settings()
+    with SessionLocal() as worker_db:
+        user = worker_db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        queued = PipelineRun(
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            status=PipelineRunStatus.QUEUED.value,
+            stage="queued",
+        )
+        worker_db.add(queued)
+        worker_db.commit()
+        claimed = claim_run(
+            worker_db,
+            worker_id="worker-a",
+            lease_seconds=settings.pipeline_lease_seconds,
+            run_id=queued.id,
+        )
+        assert claimed is not None
+        run, token = claimed
+
+        with SessionLocal() as heartbeat_db:
+            assert renew_lease(
+                heartbeat_db,
+                run_id=run.id,
+                lease_token=token,
+                lease_seconds=settings.pipeline_lease_seconds,
+            )
+            replacement = heartbeat_db.get(PipelineRun, run.id)
+            assert replacement is not None
+            replacement.lease_token = "worker-b-token"
+            heartbeat_db.commit()
+
+        with pytest.raises(RunConflictError):
+            heartbeat(
+                worker_db,
+                run,
+                lease_token=token,
+                lease_seconds=settings.pipeline_lease_seconds,
+            )
 
 
 def test_active_run_monitor_exposes_cancel_control(client, demo_connections) -> None:

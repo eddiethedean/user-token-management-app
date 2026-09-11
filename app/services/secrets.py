@@ -10,7 +10,7 @@ from app.config import Settings
 from app.connectors.base import Connector
 from app.connectors.registry import connector_for
 from app.db_compat import execute_dml, insert_for, supports_returning
-from app.models import ApiTokenKeyUsage, User, UserSecret, new_id, utcnow
+from app.models import ApiTokenKeyUsage, PipelineCatalogCache, User, UserSecret, new_id, utcnow
 from app.services.audit import record_event
 from app.services.secret_catalog import (
     SECRET_CATALOG,
@@ -180,6 +180,12 @@ def _store_encrypted_value(
     stored.validated_at = None
     stored.validation_message = "Saved. Test the connection before running a transfer."
     stored.runtime_status = ""
+    db.execute(
+        delete(PipelineCatalogCache).where(
+            PipelineCatalogCache.user_id == user.id,
+            PipelineCatalogCache.provider == specification.name,
+        )
+    )
     record_event(
         db,
         event_type,
@@ -213,7 +219,12 @@ def test_user_connection(
     if stored is None:
         raise SecretStorageError("Configure the connection before testing it.")
     credentials = decrypt_user_credentials_for_run(
-        db, settings, user=user, provider=provider, request=request
+        db,
+        settings,
+        user=user,
+        provider=provider,
+        request=request,
+        purpose="connection_test",
     )
     from app.connectors.errors import ConnectorError
 
@@ -271,6 +282,12 @@ def delete_user_secret(
     if not deleted_id:
         db.rollback()
         return False
+    db.execute(
+        delete(PipelineCatalogCache).where(
+            PipelineCatalogCache.user_id == user.id,
+            PipelineCatalogCache.provider == specification.name,
+        )
+    )
     record_event(
         db,
         "api_token.deleted",
@@ -313,6 +330,7 @@ def decrypt_user_credentials_for_run(
     user: User,
     provider: str,
     request: Request | None = None,
+    purpose: str = "run",
 ) -> dict[str, str]:
     """Return credentials at the authorized run boundary; never expose them through a route."""
     specification = require_secret_provider(provider)
@@ -334,7 +352,7 @@ def decrypt_user_credentials_for_run(
         request=request,
         actor=user,
         target=user,
-        detail={"provider": specification.name},
+        detail={"provider": specification.name, "purpose": purpose},
     )
     db.commit()
     return credentials

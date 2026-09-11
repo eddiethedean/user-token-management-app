@@ -4,8 +4,8 @@ set -Eeuo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 env_file="${repo_root}/.env"
 connect_image="rstudio/rstudio-connect:jammy-2025.06.0"
-host_port="39391"
-server_url="http://127.0.0.1:${host_port}"
+host_port="39443"
+server_url="https://127.0.0.1:${host_port}"
 run_id="$$"
 connect_container_name="access-registry-connect-smoke-${run_id}"
 network_name="access-registry-connect-smoke-${run_id}"
@@ -13,6 +13,8 @@ data_volume="access-registry-connect-smoke-data-${run_id}"
 smoke_root="$(mktemp -d "${TMPDIR:-/tmp}/access-registry-connect-smoke.XXXXXX")"
 bundle_dir="${smoke_root}/bundle"
 bootstrap_key="${smoke_root}/connect-bootstrap.key"
+tls_cert="${smoke_root}/connect-smoke.crt"
+tls_key="${smoke_root}/connect-smoke.key"
 cookie_jar="${smoke_root}/cookies.txt"
 confirmation_cookie_jar="${smoke_root}/confirmation-cookies.txt"
 login_page="${smoke_root}/login.html"
@@ -25,6 +27,10 @@ network_created=0
 
 log() {
     printf '[connect-smoke] %s\n' "$1"
+}
+
+curl_connect() {
+    curl --insecure --tls-max 1.2 --ciphers ECDHE-RSA-AES128-GCM-SHA256 "$@"
 }
 
 show_app_diagnostics() {
@@ -153,6 +159,11 @@ rsync -a \
 mkdir -p "${bundle_dir}/deployment"
 openssl rand -out "${bootstrap_key}" -base64 48
 chmod 600 "${bootstrap_key}"
+openssl req -x509 -newkey rsa:2048 -nodes \
+    -keyout "${tls_key}" -out "${tls_cert}" -days 1 \
+    -subj '/CN=127.0.0.1' -addext 'subjectAltName=IP:127.0.0.1' \
+    >/dev/null 2>&1
+chmod 644 "${tls_key}" "${tls_cert}"
 
 smoke_admin_password="$(openssl rand -base64 30 | tr -d '\n')"
 connect_browser_username="smokeuser${run_id}"
@@ -168,8 +179,9 @@ export API_TOKEN_ACTIVE_KEY_ID='connect-smoke-v1'
 api_encryption_key="$(openssl rand -base64 32 | tr -d '\n')"
 export API_TOKEN_ENCRYPTION_KEYS="{\"connect-smoke-v1\":\"${api_encryption_key}\"}"
 export AUTHENTICATION_MODE=local_password
-export COOKIE_SECURE=false
+export COOKIE_SECURE=true
 export COOKIE_PATH=auto
+export ACCESS_TOKEN_MINUTES=1
 export ALLOWED_EMAIL_DOMAINS=example.gov
 export RATE_LIMIT_ENABLED=true
 export EMAIL_BACKEND=console
@@ -188,7 +200,7 @@ log "building a fresh seeded SQLite bundle"
 docker volume create "${data_volume}" >/dev/null
 docker network create "${network_name}" >/dev/null
 network_created=1
-log "starting licensed Connect 2025.06.0 with Python 3.11.7 and native cookies"
+log "starting licensed Connect 2025.06.0 with native HTTPS and secure cookies"
 docker run -d \
     --platform linux/amd64 \
     --privileged \
@@ -197,18 +209,20 @@ docker run -d \
     --hostname "${connect_container_name}" \
     --network "${network_name}" \
     --network-alias connect \
-    -p "127.0.0.1:${host_port}:3939" \
+    -p "127.0.0.1:${host_port}:443" \
     -e RSC_LICENSE="${connect_license}" \
     -v "${data_volume}:/data" \
     -v "${repo_root}/docker/connect-smoke.gcfg:/etc/rstudio-connect/rstudio-connect.gcfg:ro" \
     -v "${bootstrap_key}:/run/secrets/connect-bootstrap.key:ro" \
+    -v "${tls_cert}:/run/secrets/connect-smoke.crt:ro" \
+    -v "${tls_key}:/run/secrets/connect-smoke.key:ro" \
     "${connect_image}" >/dev/null
 connect_started=1
 unset connect_license
 
 ready=0
 for _ in {1..90}; do
-    if curl --silent --fail "${server_url}/__api__/server_settings" >/dev/null 2>&1; then
+    if curl_connect --silent --fail "${server_url}/__api__/server_settings" >/dev/null 2>&1; then
         ready=1
         break
     fi
@@ -233,7 +247,7 @@ fi
 log "bootstrapping a temporary Connect publisher API key"
 export CONNECT_SERVER="${server_url}"
 CONNECT_API_KEY="$("${repo_root}/.venv/bin/rsconnect" bootstrap \
-    --server "${server_url}" --jwt-keypath "${bootstrap_key}" --raw)"
+    --server "${server_url}" --insecure --jwt-keypath "${bootstrap_key}" --raw)"
 export CONNECT_API_KEY
 if [[ -z "${CONNECT_API_KEY}" ]]; then
     log "Connect bootstrap did not return an API key"
@@ -253,7 +267,7 @@ connect_user_payload="$(jq -n \
         user_must_set_password: false,
         password: $password
     }')"
-connect_user_status="$(curl --silent --show-error \
+connect_user_status="$(curl_connect --silent --show-error \
     -H "Authorization: Key ${CONNECT_API_KEY}" \
     -H 'Content-Type: application/json' \
     --data "${connect_user_payload}" \
@@ -276,7 +290,7 @@ connect_browser_guid="$(jq -r '.guid' "${smoke_root}/connect-user-response.json"
 
 if ! jq -e '.confirmed == true' "${smoke_root}/connect-user-response.json" >/dev/null; then
     log "confirming the temporary Connect viewer through its one-time browser link"
-    confirmation_json="$(curl --silent --show-error --fail \
+    confirmation_json="$(curl_connect --silent --show-error --fail \
         -H "Authorization: Key ${CONNECT_API_KEY}" \
         -X POST \
         "${server_url}/__api__/users/${connect_browser_guid}/confirm/resend")"
@@ -302,7 +316,7 @@ if ! jq -e '.confirmed == true' "${smoke_root}/connect-user-response.json" >/dev
             password: $password,
             invalidatePassword: $invalidate_password
         }')"
-    confirmation_login_status="$(curl --silent --show-error \
+    confirmation_login_status="$(curl_connect --silent --show-error \
         -c "${confirmation_cookie_jar}" \
         -H 'Content-Type: application/json' \
         --data "${confirmation_login_payload}" \
@@ -314,7 +328,7 @@ if ! jq -e '.confirmed == true' "${smoke_root}/connect-user-response.json" >/dev
     fi
 fi
 
-confirmed_user_json="$(curl --silent --show-error --fail \
+confirmed_user_json="$(curl_connect --silent --show-error --fail \
     -H "Authorization: Key ${CONNECT_API_KEY}" \
     "${server_url}/__api__/v1/users/${connect_browser_guid}")"
 if ! printf '%s' "${confirmed_user_json}" | jq -e \
@@ -328,6 +342,7 @@ log "deploying the main app as FastAPI content"
     cd "${bundle_dir}"
     "${repo_root}/.venv/bin/rsconnect" deploy fastapi \
         --server "${server_url}" \
+        --insecure \
         --new \
         --title 'Data Mover Docker Smoke' \
         --entrypoint app.main:app \
@@ -345,6 +360,7 @@ log "deploying the main app as FastAPI content"
         --environment AUTHENTICATION_MODE \
         --environment COOKIE_SECURE \
         --environment COOKIE_PATH \
+        --environment ACCESS_TOKEN_MINUTES \
         --environment ALLOWED_EMAIL_DOMAINS \
         --environment RATE_LIMIT_ENABLED \
         --environment EMAIL_BACKEND \
@@ -358,7 +374,7 @@ log "deploying the main app as FastAPI content"
         deployment/connect-smoke.db
 )
 
-content_json="$(curl --silent --show-error --fail \
+content_json="$(curl_connect --silent --show-error --fail \
     -H "Authorization: Key ${CONNECT_API_KEY}" \
     "${server_url}/__api__/v1/content")"
 content_guid="$(printf '%s' "${content_json}" | jq -r \
@@ -370,7 +386,7 @@ fi
 content_url="${server_url}/content/${content_guid}"
 
 log "making only the disposable content reachable to logged-in Connect users"
-access_status="$(curl --silent --show-error \
+access_status="$(curl_connect --silent --show-error \
     -H "Authorization: Key ${CONNECT_API_KEY}" \
     -H 'Content-Type: application/json' \
     -X PATCH --data '{"access_type":"logged_in"}' \
@@ -386,7 +402,7 @@ connect_login_payload="$(jq -n \
     --arg username "${connect_browser_username}" \
     --arg password "${connect_browser_password}" \
     '{username: $username, password: $password, invalidatePassword: false}')"
-connect_login_status="$(curl --silent --show-error \
+connect_login_status="$(curl_connect --silent --show-error \
     -c "${cookie_jar}" \
     -H 'Content-Type: application/json' \
     --data "${connect_login_payload}" \
@@ -403,11 +419,11 @@ if ! awk '($0 !~ /^#/ || $0 ~ /^#HttpOnly_/) && $6 == "rsconnect" { found = 1 } 
 fi
 
 log "checking health and mount-aware native login through Connect"
-health_json="$(curl --silent --show-error --fail \
+health_json="$(curl_connect --silent --show-error --fail \
     -b "${cookie_jar}" -c "${cookie_jar}" "${content_url}/health")"
 printf '%s' "${health_json}" | jq -e '.status == "ok"' >/dev/null
 
-curl --silent --show-error --fail \
+curl_connect --silent --show-error --fail \
     -b "${cookie_jar}" -c "${cookie_jar}" -D "${login_headers}" \
     "${content_url}/login" -o "${login_page}"
 preauth_csrf="$(sed -n 's/.*name="preauth_csrf_token" value="\([^"]*\)".*/\1/p' \
@@ -421,10 +437,15 @@ if ! grep -Eqi "^set-cookie: access_registry_login_csrf=.*Path=/content/${conten
     log "login cookie did not use the expected Connect content path and SameSite policy"
     exit 1
 fi
+if ! grep -Eqi '^set-cookie: access_registry_login_csrf=.*;[[:space:]]*Secure([;[:space:]]|$)' \
+    "${login_headers}"; then
+    log "login cookie did not include the Secure attribute over HTTPS"
+    exit 1
+fi
 if ! awk -v expected_path="/content/${content_guid}" \
     '($0 !~ /^#/ || $0 ~ /^#HttpOnly_/) && \
         ($3 == expected_path || $3 == expected_path "/") && \
-        $6 == "access_registry_login_csrf" { found = 1 } END { exit !found }' \
+        $4 == "TRUE" && $6 == "access_registry_login_csrf" { found = 1 } END { exit !found }' \
     "${cookie_jar}"; then
     log "curl did not retain the application's mount-scoped login cookie"
     awk '($0 !~ /^#/ || $0 ~ /^#HttpOnly_/) && $6 ~ /^access_registry_/ {
@@ -433,7 +454,7 @@ if ! awk -v expected_path="/content/${content_guid}" \
     exit 1
 fi
 
-login_status="$(curl --silent --show-error \
+login_status="$(curl_connect --silent --show-error \
     -b "${cookie_jar}" -c "${cookie_jar}" -D "${login_headers}" \
     --data-urlencode 'email=admin@example.gov' \
     --data-urlencode "password=${smoke_admin_password}" \
@@ -456,13 +477,37 @@ for cookie_name in access_registry_access access_registry_refresh; do
         log "${cookie_name} did not use the expected Connect content path"
         exit 1
     fi
+    if ! grep -Eqi "^set-cookie: ${cookie_name}=.*;[[:space:]]*Secure([;[:space:]]|$)" \
+        "${login_headers}"; then
+        log "${cookie_name} did not include the Secure attribute over HTTPS"
+        exit 1
+    fi
 done
 
-profile_status="$(curl --silent --show-error \
+profile_status="$(curl_connect --silent --show-error \
     -b "${cookie_jar}" -c "${cookie_jar}" \
     -o "${profile_page}" -w '%{http_code}' "${content_url}/profile")"
 if [[ "${profile_status}" != "200" ]] || ! grep -q 'Profile details' "${profile_page}"; then
     log "authenticated profile smoke check failed"
+    show_app_diagnostics
+    exit 1
+fi
+
+log "waiting for the one-minute access token to expire and checking refresh rotation"
+sleep 65
+refreshed_profile="${smoke_root}/refreshed-profile.html"
+refreshed_profile_status="$(curl_connect --silent --show-error \
+    -b "${cookie_jar}" -c "${cookie_jar}" \
+    -o "${refreshed_profile}" -w '%{http_code}' "${content_url}/profile")"
+if [[ "${refreshed_profile_status}" != "200" ]] || \
+    ! grep -q 'Profile details' "${refreshed_profile}"; then
+    log "session refresh after access-token expiry failed with HTTP ${refreshed_profile_status}"
+    show_app_diagnostics
+    exit 1
+fi
+if ! docker exec "${connect_container_name}" /bin/bash -lc \
+    'grep -R -q "auth.refresh.accepted" /data/jobs 2>/dev/null' >/dev/null 2>&1; then
+    log "profile survived expiry, but refresh diagnostics were not found"
     show_app_diagnostics
     exit 1
 fi

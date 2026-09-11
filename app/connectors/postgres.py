@@ -24,6 +24,7 @@ from app.connectors.base import (
     RemoteNamespace,
     RemoteObject,
     TransferBatch,
+    bounded_frame_batches,
 )
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
@@ -293,13 +294,16 @@ class PostgresConnector:
                     if not rows:
                         break
                     frame = pl.DataFrame(rows, schema=names, orient="row")
-                    yield TransferBatch(
-                        frame=frame,
-                        row_count=frame.height,
-                        byte_count=int(frame.estimated_size()),
-                        sequence=sequence,
+                    batches = tuple(
+                        bounded_frame_batches(
+                            frame,
+                            batch_rows=batch_rows,
+                            batch_bytes=batch_bytes,
+                            sequence_start=sequence,
+                        )
                     )
-                    sequence += 1
+                    yield from batches
+                    sequence += len(batches)
         finally:
             conn.close()
 
@@ -334,27 +338,30 @@ class PostgresConnector:
                     sql.Identifier(locator.schema_name)
                 )
             )
-            if (
+            recreate = (
                 isinstance(write_policy, PostgresReplacePolicy)
                 and write_policy.schema_policy == "recreate"
-            ):
+            )
+            if recreate:
+                # Build the complete replacement without touching the live
+                # table. finalize() performs the destructive swap atomically.
                 cursor.execute(
-                    sql.SQL("DROP TABLE IF EXISTS {}").format(
-                        sql.Identifier(locator.schema_name, locator.table)
+                    sql.SQL("CREATE TABLE {} ({})").format(
+                        sql.Identifier(locator.schema_name, staging), col_defs
                     )
                 )
-            cursor.execute(
-                sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
-                    sql.Identifier(locator.schema_name, locator.table), col_defs
+            else:
+                cursor.execute(
+                    sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
+                        sql.Identifier(locator.schema_name, locator.table), col_defs
+                    )
                 )
-            )
-            cursor.execute(
-                sql.SQL("CREATE TABLE {} (LIKE {} INCLUDING ALL)").format(
-                    sql.Identifier(locator.schema_name, staging),
-                    sql.Identifier(locator.schema_name, locator.table),
+                cursor.execute(
+                    sql.SQL("CREATE TABLE {} (LIKE {} INCLUDING ALL)").format(
+                        sql.Identifier(locator.schema_name, staging),
+                        sql.Identifier(locator.schema_name, locator.table),
+                    )
                 )
-            )
-        conn.commit()
         return LoadSession(
             locator=locator,
             write_policy=write_policy,
@@ -374,9 +381,9 @@ class PostgresConnector:
         frame: pl.DataFrame = batch.frame.select(list(load_session.columns))
         writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
         for row in frame.iter_rows():
-            writer.writerow(["" if value is None else value for value in row])
+            writer.writerow([r"\N" if value is None else value for value in row])
         buffer.seek(0)
-        copy_sql = sql.SQL("COPY {} ({}) FROM STDIN WITH (FORMAT CSV, NULL '')").format(
+        copy_sql = sql.SQL("COPY {} ({}) FROM STDIN WITH (FORMAT CSV, NULL '\\N')").format(
             sql.Identifier(locator.schema_name, load_session.staging_name),
             sql.SQL(", ").join(sql.Identifier(name) for name in load_session.columns),
         )
@@ -441,6 +448,16 @@ class PostgresConnector:
                             ).format(dest, columns, columns, stage, conflict)
                         )
                 loaded = cursor.rowcount
+            elif isinstance(policy, PostgresReplacePolicy) and policy.schema_policy == "recreate":
+                cursor.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(stage))
+                row = cursor.fetchone()
+                loaded = int(row[0]) if row else 0
+                cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(dest))
+                cursor.execute(
+                    sql.SQL("ALTER TABLE {} RENAME TO {}").format(
+                        stage, sql.Identifier(locator.table)
+                    )
+                )
             else:
                 cursor.execute(sql.SQL("DELETE FROM {}").format(dest))
                 cursor.execute(
@@ -449,7 +466,10 @@ class PostgresConnector:
                     )
                 )
                 loaded = cursor.rowcount
-            cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(stage))
+            if not (
+                isinstance(policy, PostgresReplacePolicy) and policy.schema_policy == "recreate"
+            ):
+                cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(stage))
         conn.commit()
         conn.close()
         self._load_conn = None
@@ -459,16 +479,10 @@ class PostgresConnector:
         conn = self._load_conn
         if conn is None:
             return
-        locator = load_session.locator
         try:
-            if isinstance(locator, PostgresTableLocator) and load_session.staging_name:
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        sql.SQL("DROP TABLE IF EXISTS {}").format(
-                            sql.Identifier(locator.schema_name, load_session.staging_name)
-                        )
-                    )
-                conn.commit()
+            # Destination preparation and staging remain in one transaction;
+            # rollback removes uncommitted staging and preserves live data.
+            conn.rollback()
         finally:
             conn.close()
             self._load_conn = None

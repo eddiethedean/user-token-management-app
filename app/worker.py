@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,10 +14,57 @@ from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import parse_snapshot
 from app.models import PipelineRun, User
 from app.services import pipeline_runs
+from app.services.pipeline_state import RunConflictError
 from app.services.secrets import decrypt_user_credentials_for_run
 from app.services.transfer_engine import execute_transfer
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class LeaseKeeper:
+    """Renew one claimed run from an independent database session."""
+
+    settings: Settings
+    run_id: str
+    lease_token: str
+    stopped: threading.Event = field(default_factory=threading.Event)
+    lost: threading.Event = field(default_factory=threading.Event)
+    _thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"pipeline-lease-{self.run_id[:8]}",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self.stopped.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+
+    def _run(self) -> None:
+        from app.database import SessionLocal
+
+        interval = max(1.0, self.settings.pipeline_lease_seconds / 3)
+        while not self.stopped.wait(interval):
+            try:
+                with SessionLocal() as heartbeat_db:
+                    renewed = pipeline_runs.renew_lease(
+                        heartbeat_db,
+                        run_id=self.run_id,
+                        lease_token=self.lease_token,
+                        lease_seconds=self.settings.pipeline_lease_seconds,
+                    )
+            except Exception:
+                log.exception("pipeline lease heartbeat failed", extra={"run_id": self.run_id})
+                self.lost.set()
+                return
+            if not renewed:
+                self.lost.set()
+                return
 
 
 def worker_id(settings: Settings) -> str:
@@ -56,6 +104,8 @@ def process_one(
             lease_token=lease_token,
         )
         return True
+    keeper = LeaseKeeper(settings=settings, run_id=run_id, lease_token=lease_token)
+    keeper.start()
     try:
         snapshot = parse_snapshot(run.definition_snapshot_json)
         source_credentials = _credentials_for(
@@ -75,33 +125,50 @@ def process_one(
             cancel_requested=lambda: (
                 _cancel_flag(db, run_id) or (stop_event is not None and stop_event.is_set())
             ),
+            lease_lost=keeper.lost.is_set,
         )
     except ConnectorError as exc:
         db.rollback()
         failed = db.get(PipelineRun, run_id)
         if failed is None:
             return True
-        pipeline_runs.fail_run(
-            db,
-            failed,
-            code=exc.code,
-            summary=str(exc),
-            retryable=bool(exc.retryable),
-            needs_reconciliation=exc.code.value == "publish_uncertain",
-            lease_token=lease_token,
-        )
+        try:
+            pipeline_runs.fail_run(
+                db,
+                failed,
+                code=exc.code,
+                summary=str(exc),
+                retryable=bool(exc.retryable),
+                needs_reconciliation=exc.code.value == "publish_uncertain",
+                lease_token=lease_token,
+            )
+        except RunConflictError:
+            log.warning(
+                "pipeline lease was lost before failure could be recorded", extra={"run_id": run_id}
+            )
+    except RunConflictError:
+        db.rollback()
+        log.warning("pipeline worker stopped after losing its lease", extra={"run_id": run_id})
     except Exception:
         log.exception("pipeline run %s failed", run_id)
         db.rollback()
         failed = db.get(PipelineRun, run_id)
         if failed is not None:
-            pipeline_runs.fail_run(
-                db,
-                failed,
-                code=TransferErrorCode.INTERNAL_ERROR,
-                summary="The transfer failed unexpectedly.",
-                lease_token=lease_token,
-            )
+            try:
+                pipeline_runs.fail_run(
+                    db,
+                    failed,
+                    code=TransferErrorCode.INTERNAL_ERROR,
+                    summary="The transfer failed unexpectedly.",
+                    lease_token=lease_token,
+                )
+            except RunConflictError:
+                log.warning(
+                    "pipeline lease was lost before an unexpected failure could be recorded",
+                    extra={"run_id": run_id},
+                )
+    finally:
+        keeper.stop()
     return True
 
 

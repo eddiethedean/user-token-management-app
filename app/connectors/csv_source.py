@@ -18,6 +18,7 @@ from app.connectors.base import (
     ProviderCapabilities,
     RemoteNamespace,
     TransferBatch,
+    bounded_frame_batches,
 )
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import CsvUploadLocator, Locator, WritePolicy
@@ -72,18 +73,7 @@ class CsvSourceConnector:
         self, credentials, locator: Locator, *, batch_rows: int, batch_bytes: int
     ) -> Iterator[TransferBatch]:
         frame = self._frame(locator, credentials)
-        start = 0
-        sequence = 1
-        while start < frame.height:
-            slc = frame.slice(start, batch_rows)
-            yield TransferBatch(
-                frame=slc,
-                row_count=slc.height,
-                byte_count=int(slc.estimated_size()),
-                sequence=sequence,
-            )
-            start += batch_rows
-            sequence += 1
+        yield from bounded_frame_batches(frame, batch_rows=batch_rows, batch_bytes=batch_bytes)
 
     def prepare_destination(
         self, credentials, locator, schema, write_policy: WritePolicy, *, run_id: str

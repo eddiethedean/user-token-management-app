@@ -25,6 +25,7 @@ from app.connectors.base import (
     RemoteNamespace,
     RemoteObject,
     TransferBatch,
+    bounded_frame_batches,
     map_http_status,
 )
 from app.connectors.errors import ConnectorError, TransferErrorCode
@@ -163,11 +164,14 @@ class FoundryClient:
         url = f"{self.base_url}/api/v1/datasets/{dataset_rid}/files"
         return self.request("GET", url, params=params).json()
 
-    def resolve_branch(self, dataset_rid: str) -> tuple[str, list[dict]]:
-        branches = [
-            self.default_branch,
-            *[item for item in DEFAULT_BRANCHES if item != self.default_branch],
-        ]
+    def resolve_branch(
+        self, dataset_rid: str, preferred_branch: str | None = None
+    ) -> tuple[str, list[dict]]:
+        branches = (
+            [preferred_branch]
+            if preferred_branch
+            else list(dict.fromkeys((self.default_branch, *DEFAULT_BRANCHES)))
+        )
         last_error: ConnectorError | None = None
         for branch in branches:
             try:
@@ -343,7 +347,7 @@ class FoundryConnector:
         spool_root = Path(self.settings.pipeline_spool_root or "/tmp")
         spool_root.mkdir(parents=True, exist_ok=True)
         try:
-            branch, listed = client.resolve_branch(locator.dataset_rid)
+            branch, listed = client.resolve_branch(locator.dataset_rid, locator.branch)
             available = {str(item.get("path") or ""): item for item in supported_files(listed)}
             if locator.file_paths == "all_supported":
                 paths = list(available)
@@ -372,14 +376,18 @@ class FoundryConnector:
                     ):
                         if frame.height == 0:
                             continue
-                        yielded = True
-                        yield TransferBatch(
-                            frame=frame,
-                            row_count=frame.height,
-                            byte_count=int(frame.estimated_size()),
-                            sequence=sequence,
+                        batches = tuple(
+                            bounded_frame_batches(
+                                frame,
+                                batch_rows=batch_rows,
+                                batch_bytes=batch_bytes,
+                                sequence_start=sequence,
+                            )
                         )
-                        sequence += 1
+                        if batches:
+                            yielded = True
+                        yield from batches
+                        sequence += len(batches)
             if not yielded:
                 raise ConnectorError(
                     TransferErrorCode.SOURCE_NOT_FOUND, "The dataset has no CSV or Parquet files."
@@ -396,6 +404,14 @@ class FoundryConnector:
         *,
         run_id: str,
     ) -> LoadSession:
+        if isinstance(locator, FoundryUploadLocator):
+            configured_branch = credentials.get("branch", "") or "master"
+            if locator.branch != configured_branch:
+                raise ConnectorError(
+                    TransferErrorCode.UNSUPPORTED_TYPE,
+                    "The saved destination branch does not match the configured Foundry branch.",
+                    retryable=False,
+                )
         self._load_credentials = dict(credentials)
         spool_root = Path(self.settings.pipeline_spool_root or "/tmp")
         spool_root.mkdir(parents=True, exist_ok=True)

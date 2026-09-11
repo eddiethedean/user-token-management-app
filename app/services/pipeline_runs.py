@@ -8,12 +8,13 @@ from datetime import timedelta
 from pathlib import Path
 
 from fastapi import Request
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.connectors.errors import TransferErrorCode
 from app.connectors.locators import DefinitionSnapshot
 from app.connectors.redaction import redact_mapping, redact_text
+from app.connectors.registry import route_allowed, writer_enabled
 from app.models import (
     PipelineDefinition,
     PipelineRun,
@@ -64,6 +65,10 @@ def enqueue_run(
 ) -> PipelineRun:
     if pipeline.legacy_unsupported:
         raise ValueError("That saved pipeline uses an unsupported provider and cannot be run.")
+    if not route_allowed(snapshot.source_provider, snapshot.destination_provider):
+        raise ValueError("That saved pipeline uses an unsupported transfer route.")
+    if not writer_enabled(snapshot.destination_provider):
+        raise ValueError("That saved pipeline's destination writer is not enabled.")
     if idempotency_token:
         existing = db.scalar(
             select(PipelineRun).where(
@@ -260,7 +265,9 @@ def claim_run(
                 summary="The worker lost the lease after destination writes began.",
                 retryable=False,
                 needs_reconciliation=True,
-                lease_token=run.lease_token,
+                # claim_run holds the current database row lock; the expired
+                # worker must not be treated as an authorized lease holder.
+                lease_token=None,
             )
             return None
         run.status = PipelineRunStatus.QUEUED.value
@@ -289,11 +296,34 @@ def claim_run(
 
 
 def heartbeat(db: Session, run: PipelineRun, *, lease_token: str, lease_seconds: int) -> None:
-    _require_lease(run, lease_token)
+    _refresh_and_require_lease(db, run, lease_token)
     now = utcnow()
     run.heartbeat_at = now
     run.lease_expires_at = now + timedelta(seconds=lease_seconds)
     db.commit()
+
+
+def renew_lease(db: Session, *, run_id: str, lease_token: str, lease_seconds: int) -> bool:
+    """Renew a lease from a dedicated heartbeat session using a database CAS."""
+
+    now = utcnow()
+    result = db.execute(
+        update(PipelineRun)
+        .where(
+            PipelineRun.id == run_id,
+            PipelineRun.lease_token == lease_token,
+            PipelineRun.status.in_(WORKER_OWNED_STATUSES),
+            PipelineRun.lease_expires_at > now,
+        )
+        .values(
+            heartbeat_at=now,
+            lease_expires_at=now + timedelta(seconds=lease_seconds),
+            updated_at=now,
+        )
+    )
+    renewed = bool(getattr(result, "rowcount", 0))
+    db.commit()
+    return renewed
 
 
 def transition(
@@ -304,7 +334,7 @@ def transition(
     lease_token: str,
     message: str | None = None,
 ) -> None:
-    _require_lease(run, lease_token)
+    _refresh_and_require_lease(db, run, lease_token)
     _transition(run, status, lease_token=lease_token)
     if message:
         append_event(db, run, message, stage=run.stage)
@@ -321,7 +351,7 @@ def add_counters(
     loaded_rows: int = 0,
     loaded_bytes: int = 0,
 ) -> None:
-    _require_lease(run, lease_token)
+    _refresh_and_require_lease(db, run, lease_token)
     run.source_rows += source_rows
     run.source_bytes += source_bytes
     run.loaded_rows += loaded_rows
@@ -338,7 +368,7 @@ def complete_run(
     destination_manifest: dict | None = None,
     verification: dict | None = None,
 ) -> None:
-    _require_lease(run, lease_token)
+    _refresh_and_require_lease(db, run, lease_token)
     run.source_manifest_json = json.dumps(
         redact_mapping(source_manifest or {}), separators=(",", ":")
     )
@@ -362,7 +392,7 @@ def fail_run(
     lease_token: str | None = None,
 ) -> None:
     if lease_token:
-        _require_lease(run, lease_token)
+        _refresh_and_require_lease(db, run, lease_token)
     run.error_code = str(code)
     run.error_summary = redact_text(summary)[:500]
     run.retryable = retryable and not needs_reconciliation
@@ -379,7 +409,7 @@ def fail_run(
 
 
 def cancel_claimed_run(db: Session, run: PipelineRun, *, lease_token: str) -> None:
-    _require_lease(run, lease_token)
+    _refresh_and_require_lease(db, run, lease_token)
     _set_status(run, PipelineRunStatus.CANCELLED.value, lease_token=lease_token)
     append_event(db, run, "Run cancelled.", stage="cancelled")
     db.commit()
@@ -404,6 +434,15 @@ def snapshot_from_definition(pipeline: PipelineDefinition) -> DefinitionSnapshot
 
 def _require_lease(run: PipelineRun, lease_token: str) -> None:
     _STATE_MACHINE.require_lease(run, lease_token)
+
+
+def _refresh_and_require_lease(db: Session, run: PipelineRun, lease_token: str) -> None:
+    """Validate ownership against current database state, not the identity map."""
+
+    db.refresh(run)
+    _require_lease(run, lease_token)
+    if run.lease_expires_at is not None and run.lease_expires_at <= utcnow():
+        raise RunConflictError("This worker's run lease has expired.")
 
 
 def _transition(run: PipelineRun, status: str, *, lease_token: str | None) -> None:

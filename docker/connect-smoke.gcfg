@@ -2,10 +2,12 @@
 
 [Server]
 DataDir = /data
-Address = http://127.0.0.1:39391
+Address = https://127.0.0.1:39443
 
-[HTTP]
-Listen = :3939
+[HTTPS]
+Listen = :443
+Certificate = /run/secrets/connect-smoke.crt
+Key = /run/secrets/connect-smoke.key
 
 [Authentication]
 Provider = password

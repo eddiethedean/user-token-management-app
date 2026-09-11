@@ -16,6 +16,7 @@ from app.connectors.registry import connector_for, writer_enabled
 from app.models import PipelineRun, utcnow
 from app.services import pipeline_runs
 from app.services.pipeline_metadata import manifest_metadata
+from app.services.pipeline_state import RunConflictError
 
 CancelCheck = Callable[[], bool]
 
@@ -74,6 +75,7 @@ def execute_transfer(
     destination_credentials: dict[str, str],
     settings: Settings,
     cancel_requested: CancelCheck,
+    lease_lost: CancelCheck = lambda: False,
 ) -> None:
     source = connector_for(snapshot.source_provider)
     destination = connector_for(snapshot.destination_provider)
@@ -83,6 +85,8 @@ def execute_transfer(
             "This destination writer is not enabled.",
             retryable=False,
         )
+    if lease_lost():
+        raise RunConflictError("This worker no longer holds the run lease.")
     if cancel_requested():
         pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
         return
@@ -122,6 +126,7 @@ def execute_transfer(
     )
     schema = source_schema
     session = None
+    destination_committed = False
     try:
         # Fetch only the first batch before preparing the destination so a
         # source without portable schema metadata can still define its table.
@@ -130,6 +135,8 @@ def execute_transfer(
         # exceed the application's bounded-batch contract.
         first_batch = next(source_iterator, None)
         if first_batch is not None:
+            if lease_lost():
+                raise RunConflictError("This worker no longer holds the run lease.")
             if cancel_requested():
                 pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
                 return
@@ -161,6 +168,8 @@ def execute_transfer(
         )
         loaded_bytes = 0
         for batch in chain((first_batch,) if first_batch is not None else (), source_iterator):
+            if lease_lost():
+                raise RunConflictError("This worker no longer holds the run lease.")
             if cancel_requested():
                 destination.abort(session)
                 pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
@@ -229,7 +238,10 @@ def execute_transfer(
             message="Finalizing destination write.",
         )
         _demo_stage_pause(settings)
+        if lease_lost():
+            raise RunConflictError("This worker no longer holds the run lease.")
         manifest = destination.finalize(session)
+        destination_committed = True
         destination_rows_after = _destination_row_count(
             destination, destination_credentials, snapshot.destination
         )
@@ -289,9 +301,15 @@ def execute_transfer(
             },
             verification=verification,
         )
-    except Exception:
+    except Exception as exc:
         if session is not None:
             destination.abort(session)
+        if destination_committed and not isinstance(exc, ConnectorError):
+            raise ConnectorError(
+                TransferErrorCode.PUBLISH_UNCERTAIN,
+                "The destination committed, but final run-state persistence was not confirmed.",
+                retryable=False,
+            ) from exc
         raise
     finally:
         close = getattr(source_iterator, "close", None)
