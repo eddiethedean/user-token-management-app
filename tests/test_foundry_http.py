@@ -11,7 +11,7 @@ import polars as pl
 import pytest
 
 from app.config import Settings
-from app.connectors.base import ObjectSchema, TransferBatch
+from app.connectors.base import ColumnSchema, ObjectSchema, TransferBatch
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.foundry import (
     FoundryClient,
@@ -251,6 +251,26 @@ def test_foundry_writer_finalize_streams_committed_upload(foundry_sim, tmp_path)
     assert manifest.remote_id == "readiness.snappy.parquet"
     assert manifest.rows == 2
     assert manifest.details["publication"] == "committed_upload"
+
+
+def test_foundry_writer_publishes_typed_empty_schema(foundry_sim, tmp_path) -> None:
+    connector = FoundryConnector(_settings(tmp_path))
+    credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
+    locator = FoundryUploadLocator(
+        dataset_rid=DATASET, branch="master", file_name="empty.snappy.parquet"
+    )
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(ColumnSchema(name="event_id", data_type="Int64"),),
+    )
+    session = connector.prepare_destination(
+        credentials, locator, schema, FoundryReplaceFilePolicy(), run_id="empty-run"
+    )
+
+    manifest = connector.finalize(session)
+
+    assert manifest.rows == 0
+    assert manifest.remote_id == "empty.snappy.parquet"
 
 
 def test_foundry_writer_uses_local_manifest_after_malformed_success_metadata(

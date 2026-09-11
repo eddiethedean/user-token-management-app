@@ -47,6 +47,21 @@ def test_csv_source_rejects_missing_content() -> None:
     assert excinfo.value.code == TransferErrorCode.SOURCE_NOT_FOUND
 
 
+def test_csv_source_reuses_inspection_delimiter_and_normalized_headers() -> None:
+    connector = CsvSourceConnector()
+    locator = CsvUploadLocator(
+        upload_id="11111111-1111-1111-1111-111111111111", checksum_sha256="c" * 64
+    )
+    credentials = {
+        "content": " id ; value\n001;ok\ntext;still text\n",
+        "delimiter": ";",
+        "columns": ["id", "value"],
+    }
+    frame = connector.inspect_object(credentials, locator)
+    assert [column.name for column in frame.columns] == ["id", "value"]
+    assert frame.columns[0].data_type == "String"
+
+
 def test_shared_batch_boundary_enforces_rows_and_bytes() -> None:
     frame = pl.DataFrame({"value": ["x" * 100 for _ in range(10)]})
     batches = list(bounded_frame_batches(frame, batch_rows=10, batch_bytes=250))

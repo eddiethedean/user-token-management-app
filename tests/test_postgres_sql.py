@@ -23,3 +23,5 @@ def test_postgres_type_mapping_covers_common_polars_names() -> None:
     assert _pg_type("Utf8") == "TEXT"
     assert _pg_type("Boolean") == "BOOLEAN"
     assert _pg_type("mystery") == "TEXT"
+    assert _pg_type("Decimal(precision=20, scale=4)") == "NUMERIC(20, 4)"
+    assert _pg_type("numeric") == "NUMERIC"

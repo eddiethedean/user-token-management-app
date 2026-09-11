@@ -40,7 +40,9 @@ def validate_preauth_csrf(
     *,
     now: int | None = None,
 ) -> bool:
-    if not submitted or not cookie_value or not hmac.compare_digest(submitted, cookie_value):
+    if not submitted or not cookie_value or not hmac.compare_digest(
+        submitted.encode("utf-8"), cookie_value.encode("utf-8")
+    ):
         return False
     try:
         timestamp_text, nonce, signature = submitted.split(".", 2)
@@ -62,7 +64,7 @@ def validate_preauth_csrf(
         .decode()
         .rstrip("=")
     )
-    return hmac.compare_digest(signature, expected)
+    return hmac.compare_digest(signature.encode("utf-8"), expected.encode("utf-8"))
 
 
 def require_preauth_csrf(request: Request, submitted: str, settings: Settings) -> None:
@@ -142,5 +144,7 @@ def clear_preauth_csrf_cookie(response: Response, request: Request, settings: Se
 
 def assert_csrf(submitted: str, expected: str) -> None:
     """Raise 403 unless ``submitted`` matches the session CSRF token."""
-    if not submitted or not hmac.compare_digest(submitted, expected):
+    if not submitted or not hmac.compare_digest(
+        submitted.encode("utf-8"), expected.encode("utf-8")
+    ):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid CSRF token")

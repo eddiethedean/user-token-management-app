@@ -300,7 +300,9 @@ def claim_run(
         conditions.append(PipelineRun.id == run_id)
     statement = (
         select(PipelineRun)
+        .join(User, User.id == PipelineRun.user_id)
         .where(*conditions)
+        .where(User.status == "active")
         .order_by(PipelineRun.queued_at, PipelineRun.id)
         .limit(1)
     )

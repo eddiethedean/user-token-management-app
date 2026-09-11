@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -66,8 +67,9 @@ from app.connectors.locators import (
     postgres_table,
 )
 from app.connectors.registry import capabilities_for, route_allowed, writer_enabled
+from app.database import SessionLocal
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
-from app.models import PipelineDefinition, PipelineUpload
+from app.models import PipelineDefinition, PipelineUpload, User
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
     CSV_SOURCE_CATALOG,
@@ -2548,31 +2550,34 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 key=lambda item: item.created_at,
                 default=None,
             )
+        body = await asyncio.to_thread(
+            _pipeline_body_in_thread,
+            request,
+            settings,
+            auth.user.id,
+            connections,
+            pipelines,
+            auth.session.csrf_token,
+            notice,
+            loaded_pipeline,
+            loaded_source_upload,
+            loaded_source_inspection,
+            latest_runs,
+            (
+                _run_status_fragment(
+                    request,
+                    db,
+                    displayed_run,
+                    csrf_token=auth.session.csrf_token,
+                )
+                if displayed_run is not None
+                else None
+            ),
+            settings.is_demo_mode,
+        )
         return await render_authenticated_view(
             request,
-            body=_pipeline_body(
-                request,
-                UserCatalog(db, settings, auth.user, request=request),
-                connections,
-                pipelines,
-                csrf_token=auth.session.csrf_token,
-                notice=notice,
-                loaded_pipeline=loaded_pipeline,
-                loaded_source_upload=loaded_source_upload,
-                loaded_source_inspection=loaded_source_inspection,
-                latest_runs=latest_runs,
-                run_monitor=(
-                    _run_status_fragment(
-                        request,
-                        db,
-                        displayed_run,
-                        csrf_token=auth.session.csrf_token,
-                    )
-                    if displayed_run is not None
-                    else None
-                ),
-                demo_mode=settings.is_demo_mode,
-            ),
+            body=body,
             auth=auth,
             settings=settings,
             page_title="Pipeline",
@@ -2580,6 +2585,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
             push_path="/pipeline",
             headers={"Cache-Control": "no-store"},
         )
+
 
     @app.action(
         "/pipeline/csv/inspect",
@@ -3261,6 +3267,43 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 action_state=action_state,
                 action_trace=action_trace,
             ),
+        )
+
+
+def _pipeline_body_in_thread(
+    request,
+    settings,
+    user_id,
+    connections,
+    pipelines,
+    csrf_token,
+    notice,
+    loaded_pipeline,
+    loaded_source_upload,
+    loaded_source_inspection,
+    latest_runs,
+    run_monitor,
+    demo_mode,
+):
+    """Build the provider-backed pipeline body with a thread-owned session."""
+
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        return _pipeline_body(
+            request,
+            UserCatalog(db, settings, user, request=request),
+            connections,
+            pipelines,
+            csrf_token=csrf_token,
+            notice=notice,
+            loaded_pipeline=loaded_pipeline,
+            loaded_source_upload=loaded_source_upload,
+            loaded_source_inspection=loaded_source_inspection,
+            latest_runs=latest_runs,
+            run_monitor=run_monitor,
+            demo_mode=demo_mode,
         )
 
 

@@ -100,8 +100,15 @@ class CsvSourceConnector:
                 TransferErrorCode.SOURCE_NOT_FOUND, "The CSV upload is no longer available."
             )
         payload = content.encode("utf-8") if isinstance(content, str) else content
+        options: dict[str, object] = {
+            "infer_schema_length": None,
+            "separator": str((credentials or {}).get("delimiter") or ",")[:1],
+        }
+        columns = (credentials or {}).get("columns")
+        if columns:
+            options["new_columns"] = list(columns)
         try:
-            return pl.read_csv(BytesIO(payload), infer_schema_length=10_000)
+            return pl.read_csv(BytesIO(payload), **options)
         except Exception as exc:
             raise ConnectorError(
                 TransferErrorCode.UNSUPPORTED_TYPE, "The CSV file could not be parsed."

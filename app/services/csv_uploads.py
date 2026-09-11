@@ -39,6 +39,7 @@ class CsvInspection:
     size_bytes: int
     row_count: int
     columns: tuple[CsvColumnProfile, ...]
+    delimiter: str = ","
 
 
 def inspect_csv(filename: str, content: bytes) -> CsvInspection:
@@ -120,6 +121,7 @@ def inspect_csv(filename: str, content: bytes) -> CsvInspection:
         size_bytes=len(content),
         row_count=row_count,
         columns=columns,
+        delimiter=dialect.delimiter,
     )
 
 
@@ -142,7 +144,11 @@ def store_csv_upload(
         row_count=inspection.row_count,
         column_count=len(inspection.columns),
         columns_json=json.dumps(
-            [asdict(column) for column in inspection.columns], separators=(",", ":")
+            {
+                "delimiter": inspection.delimiter,
+                "columns": [asdict(column) for column in inspection.columns],
+            },
+            separators=(",", ":"),
         ),
         checksum_sha256=hashlib.sha256(content).hexdigest(),
         content=content,
@@ -170,6 +176,11 @@ def store_csv_upload(
 def inspection_from_upload(upload: PipelineUpload) -> CsvInspection:
     try:
         raw_columns = json.loads(upload.columns_json)
+        if isinstance(raw_columns, dict):
+            delimiter = str(raw_columns.get("delimiter") or ",")
+            raw_columns = raw_columns.get("columns", [])
+        else:
+            delimiter = ","
         columns = tuple(CsvColumnProfile(**column) for column in raw_columns)
     except (json.JSONDecodeError, TypeError, KeyError) as exc:
         raise ValueError("The stored CSV profile is invalid.") from exc
@@ -178,6 +189,7 @@ def inspection_from_upload(upload: PipelineUpload) -> CsvInspection:
         size_bytes=upload.size_bytes,
         row_count=upload.row_count,
         columns=columns,
+        delimiter=delimiter,
     )
 
 
@@ -195,7 +207,10 @@ def _value_type(value: str) -> str:
     lowered = value.casefold()
     if lowered in {"true", "false"}:
         return "boolean"
-    if _INTEGER_PATTERN.fullmatch(value):
+    integer_value = value.lstrip("+-")
+    if _INTEGER_PATTERN.fullmatch(value) and not (
+        len(integer_value) > 1 and integer_value.startswith("0")
+    ):
         return "integer"
     if _DECIMAL_PATTERN.fullmatch(value):
         return "decimal"

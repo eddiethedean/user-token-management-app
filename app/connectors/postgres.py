@@ -40,6 +40,10 @@ from app.connectors.locators import (
 from app.connectors.registry import register_connector
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+_DECIMAL = re.compile(
+    r"decimal\(precision=(?P<precision>\d+),\s*scale=(?P<scale>\d+|None)\)",
+    re.IGNORECASE,
+)
 log = logging.getLogger(__name__)
 _POLARS_TO_PG = {
     pl.Int8: "SMALLINT",
@@ -209,7 +213,8 @@ class PostgresConnector:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT column_name, data_type, is_nullable
+                    SELECT column_name, data_type, is_nullable,
+                           numeric_precision, numeric_scale
                     FROM information_schema.columns
                     WHERE table_schema = %s AND table_name = %s
                     ORDER BY ordinal_position
@@ -217,7 +222,15 @@ class PostgresConnector:
                     (locator.schema_name, locator.table),
                 )
                 columns = tuple(
-                    ColumnSchema(name=row[0], data_type=row[1], nullable=row[2] == "YES")
+                    ColumnSchema(
+                        name=row[0],
+                        data_type=(
+                            f"Decimal(precision={row[3]}, scale={row[4]})"
+                            if row[1] in {"numeric", "decimal"} and row[3] is not None
+                            else row[1]
+                        ),
+                        nullable=row[2] == "YES",
+                    )
                     for row in cursor.fetchall()
                 )
                 if not columns:
@@ -229,10 +242,12 @@ class PostgresConnector:
                     SELECT a.attname
                     FROM pg_index i
                     JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                    WHERE i.indrelid = %s::regclass AND i.indisprimary
+                    JOIN pg_class c ON c.oid = i.indrelid
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = %s AND c.relname = %s AND i.indisprimary
                     ORDER BY a.attnum
                     """,
-                    (f"{locator.schema_name}.{locator.table}",),
+                    (locator.schema_name, locator.table),
                 )
                 primary_key = tuple(row[0] for row in cursor.fetchall())
                 cursor.execute(
@@ -240,9 +255,11 @@ class PostgresConnector:
                     SELECT tc.constraint_name, kcu.column_name
                     FROM information_schema.table_constraints AS tc
                     JOIN information_schema.key_column_usage AS kcu
-                      ON tc.constraint_catalog = kcu.constraint_catalog
+                     ON tc.constraint_catalog = kcu.constraint_catalog
                      AND tc.constraint_schema = kcu.constraint_schema
                      AND tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema = kcu.table_schema
+                     AND tc.table_name = kcu.table_name
                     WHERE tc.table_schema = %s
                       AND tc.table_name = %s
                       AND tc.constraint_type = 'UNIQUE'
@@ -304,6 +321,9 @@ class PostgresConnector:
             )
         schema = self.inspect_object(credentials, locator)
         names = [column.name for column in schema.columns]
+        polars_schema = {
+            column.name: _polars_type(column.data_type) for column in schema.columns
+        }
         conn = connect(credentials, self.settings)
         try:
             conn.autocommit = False
@@ -318,7 +338,7 @@ class PostgresConnector:
                     rows = cursor.fetchmany(batch_rows)
                     if not rows:
                         break
-                    frame = pl.DataFrame(rows, schema=names, orient="row")
+                    frame = pl.DataFrame(rows, schema=polars_schema, orient="row")
                     batches = tuple(
                         bounded_frame_batches(
                             frame,
@@ -381,11 +401,18 @@ class PostgresConnector:
                         )
                     )
                     cursor.execute(
-                        sql.SQL("CREATE TABLE {} (LIKE {} INCLUDING ALL)").format(
+                        sql.SQL("CREATE TABLE {} (LIKE {} INCLUDING DEFAULTS INCLUDING GENERATED)").format(
                             sql.Identifier(locator.schema_name, staging),
                             sql.Identifier(locator.schema_name, locator.table),
                         )
                     )
+                    if isinstance(write_policy, PostgresUpsertPolicy):
+                        cursor.execute(
+                            sql.SQL("ALTER TABLE {} ADD COLUMN {} BIGSERIAL").format(
+                                sql.Identifier(locator.schema_name, staging),
+                                sql.Identifier("dm_row_number"),
+                            )
+                        )
         except Exception:
             try:
                 conn.rollback()
@@ -405,6 +432,11 @@ class PostgresConnector:
             write_policy=write_policy,
             staging_name=staging,
             columns=tuple(columns),
+            metadata={
+                "staging_sequence": "dm_row_number"
+                if isinstance(write_policy, PostgresUpsertPolicy)
+                else ""
+            },
         )
 
     def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
@@ -417,9 +449,18 @@ class PostgresConnector:
         assert isinstance(locator, PostgresTableLocator)
         buffer = io.StringIO()
         frame: pl.DataFrame = batch.frame.select(list(load_session.columns))
-        writer = csv.writer(buffer, quoting=csv.QUOTE_MINIMAL)
         for row in frame.iter_rows():
-            writer.writerow([r"\N" if value is None else value for value in row])
+            fields = []
+            for value in row:
+                if value is None:
+                    fields.append(r"\N")
+                    continue
+                if isinstance(value, bytes):
+                    value = r"\x" + value.hex()
+                field = io.StringIO()
+                csv.writer(field, quoting=csv.QUOTE_ALL, lineterminator="").writerow([value])
+                fields.append(field.getvalue())
+            buffer.write(",".join(fields) + "\n")
         buffer.seek(0)
         copy_sql = sql.SQL("COPY {} ({}) FROM STDIN WITH (FORMAT CSV, NULL '\\N')").format(
             sql.Identifier(locator.schema_name, load_session.staging_name),
@@ -456,11 +497,22 @@ class PostgresConnector:
                 conflict = sql.SQL(", ").join(
                     sql.Identifier(name) for name in policy.conflict_columns
                 )
+                source = sql.SQL("SELECT {} FROM {}").format(columns, stage)
+                if load_session.metadata.get("staging_sequence"):
+                    source = sql.SQL(
+                        "SELECT DISTINCT ON ({conflict}) {columns} FROM {stage} "
+                        "ORDER BY {conflict}, {sequence} DESC"
+                    ).format(
+                        conflict=conflict,
+                        columns=columns,
+                        stage=stage,
+                        sequence=sql.Identifier("dm_row_number"),
+                    )
                 if policy.action == "ignore":
                     cursor.execute(
                         sql.SQL(
-                            "INSERT INTO {} ({}) SELECT {} FROM {} ON CONFLICT ({}) DO NOTHING"
-                        ).format(dest, columns, columns, stage, conflict)
+                            "INSERT INTO {} ({}) {} ON CONFLICT ({}) DO NOTHING"
+                        ).format(dest, columns, source, conflict)
                     )
                 else:
                     update_columns = [
@@ -473,8 +525,8 @@ class PostgresConnector:
                         )
                         cursor.execute(
                             sql.SQL(
-                                "INSERT INTO {} ({}) SELECT {} FROM {} ON CONFLICT ({}) DO UPDATE SET {}"
-                            ).format(dest, columns, columns, stage, conflict, assignments)
+                                "INSERT INTO {} ({}) {} ON CONFLICT ({}) DO UPDATE SET {}"
+                            ).format(dest, columns, source, conflict, assignments)
                         )
                     else:
                         # An upsert whose conflict key contains every column
@@ -482,8 +534,8 @@ class PostgresConnector:
                         # SET clause, so treat it as an idempotent no-op.
                         cursor.execute(
                             sql.SQL(
-                                "INSERT INTO {} ({}) SELECT {} FROM {} ON CONFLICT ({}) DO NOTHING"
-                            ).format(dest, columns, columns, stage, conflict)
+                                "INSERT INTO {} ({}) {} ON CONFLICT ({}) DO NOTHING"
+                            ).format(dest, columns, source, conflict)
                         )
                 loaded = cursor.rowcount
             elif isinstance(policy, PostgresReplacePolicy) and policy.schema_policy == "recreate":
@@ -554,13 +606,24 @@ class PostgresConnector:
 
 def _pg_type(data_type: str) -> str:
     folded = data_type.casefold()
+    decimal = _DECIMAL.fullmatch(folded)
+    if decimal:
+        precision = int(decimal.group("precision"))
+        scale_text = decimal.group("scale")
+        return (
+            f"NUMERIC({precision}, {int(scale_text)})"
+            if scale_text != "None"
+            else f"NUMERIC({precision})"
+        )
     for dtype, mapped in _POLARS_TO_PG.items():
         if str(dtype).casefold() == folded:
             return mapped
     if "int" in folded:
         return "BIGINT"
-    if "float" in folded or "double" in folded or "decimal" in folded:
+    if "float" in folded or "double" in folded:
         return "DOUBLE PRECISION"
+    if "decimal" in folded or folded == "numeric":
+        return "NUMERIC"
     if "bool" in folded:
         return "BOOLEAN"
     if folded in {"date"}:
@@ -568,6 +631,39 @@ def _pg_type(data_type: str) -> str:
     if "time" in folded:
         return "TIMESTAMP"
     return "TEXT"
+
+
+def _polars_type(data_type: str) -> pl.DataType:
+    """Return a stable Polars dtype so all-null batches keep their schema."""
+
+    folded = data_type.casefold()
+    if "smallint" in folded:
+        return pl.Int16
+    if folded in {"integer", "int"}:
+        return pl.Int32
+    if "bigint" in folded:
+        return pl.Int64
+    if folded in {"real"}:
+        return pl.Float32
+    if "double" in folded or "float" in folded:
+        return pl.Float64
+    if folded in {"boolean", "bool"}:
+        return pl.Boolean
+    if folded == "date":
+        return pl.Date
+    if folded.startswith("time"):
+        return pl.Time
+    if folded.startswith("timestamp"):
+        return pl.Datetime("us")
+    if folded == "bytea":
+        return pl.Binary
+    decimal = _DECIMAL.fullmatch(folded)
+    if decimal:
+        precision = min(38, int(decimal.group("precision")))
+        scale_text = decimal.group("scale")
+        if scale_text != "None":
+            return pl.Decimal(precision=precision, scale=min(precision, int(scale_text)))
+    return pl.String
 
 
 def drop_abandoned_staging(credentials: Mapping[str, str], *, keep: set[str] | None = None) -> int:

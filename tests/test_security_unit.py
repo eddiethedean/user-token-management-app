@@ -14,7 +14,7 @@ from hedron_posit import browser_mount_from_request, local_href
 from app.config import Settings
 from app.models import Role, User
 from app.security.client import client_ip
-from app.security.csrf import issue_preauth_csrf, validate_preauth_csrf
+from app.security.csrf import assert_csrf, issue_preauth_csrf, validate_preauth_csrf
 from app.security.email import EmailPolicyError, normalize_email
 from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
 from app.security.tokens import (
@@ -158,6 +158,13 @@ def test_preauth_csrf_is_signed_bound_and_short_lived() -> None:
     assert not validate_preauth_csrf(f"{token}x", token, token_settings, now=1_001)
     assert not validate_preauth_csrf(token, token, settings(csrf_secret="x" * 32), now=1_001)
     assert not validate_preauth_csrf(token, token, token_settings, now=4_601)
+    assert not validate_preauth_csrf("é", token, token_settings, now=1_001)
+
+
+def test_session_csrf_rejects_non_ascii_without_raising_type_error() -> None:
+    with pytest.raises(Exception) as excinfo:
+        assert_csrf("é", "a" * 32)
+    assert getattr(excinfo.value, "status_code", None) == 403
 
 
 def test_jwt_round_trip_and_required_claims() -> None:
