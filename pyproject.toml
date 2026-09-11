@@ -60,6 +60,8 @@ dev = [
   "pytest-cov>=5",
   "ruff>=0.12",
   "semblance>=0.6.1",
+  # Remove this pinned upstream fix after Starlette releases Kludex/starlette#3498.
+  "starlette @ git+https://github.com/Kludex/starlette.git@bbee894422c6cc1306327335ae385b901ccfec13",
   "testing.postgresql>=1.3.0",
   "pytest-mongo>=4.0.0",
 ]
