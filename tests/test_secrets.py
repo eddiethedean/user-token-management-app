@@ -143,7 +143,7 @@ def test_postgres_credentials_are_validated_encrypted_and_available_at_run_bound
         )
 
 
-def test_mss_connection_can_be_tested(client, make_user) -> None:
+def test_mss_connection_without_dataset_remains_untested(client, make_user) -> None:
     user = make_user("mss.cluster@example.gov")
     web_login(client, user.email, USER_PASSWORD)
     page = client.get("/security")
@@ -172,7 +172,8 @@ def test_mss_connection_can_be_tested(client, make_user) -> None:
         },
     )
     assert retested.status_code == 200
-    assert "Connected" in retested.text or "Demo handshake" in retested.text
+    assert "Untested" in retested.text
+    assert "connection check is incomplete" in retested.text
     assert 'id="security-activity"' not in retested.text
 
     with SessionLocal() as db:
@@ -183,7 +184,7 @@ def test_mss_connection_can_be_tested(client, make_user) -> None:
             )
         )
         assert stored is not None
-        assert stored.validation_status == "connected"
+        assert stored.validation_status == "untested"
 
 
 def test_mcscop_credentials_are_validated_encrypted_and_available_at_run_boundary(

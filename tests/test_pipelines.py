@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 from sqlalchemy import select
 
+from app.connectors.base import ColumnSchema, ObjectSchema
+from app.connectors.locators import (
+    FoundryDatasetFilesLocator,
+    FoundryUploadLocator,
+    PostgresUpsertPolicy,
+    parse_locator,
+    parse_write_policy,
+)
 from app.database import SessionLocal
 from app.models import AuditEvent, PipelineCatalogCache, PipelineDefinition, PipelineUpload
+from app.services.catalogs import UserCatalog
 from app.services.csv_uploads import inspect_csv
 from tests.helpers import csrf_from, web_login
 
@@ -248,6 +258,138 @@ def test_pipeline_can_be_saved_with_postgres_destination(client, demo_connection
         )
         assert pipeline is not None
         assert pipeline.destination_provider == "postgres"
+        assert pipeline.definition_version == 3
+        policy = parse_write_policy(json.loads(pipeline.write_policy_json))
+        assert isinstance(policy, PostgresUpsertPolicy)
+        assert policy.conflict_columns == ["event_id"]
+
+
+def test_pipeline_save_uses_connected_foundry_branches(
+    client, demo_connections, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        "app.ui.routes.pipeline.UserCatalog.default_branch",
+        lambda _self, provider: "release" if provider in {"mss", "mcscop"} else "",
+    )
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    source_saved = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Release branch source",
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "mission_orders",
+            "write_mode": "append",
+        },
+    )
+    assert source_saved.status_code == 303
+
+    page = client.get("/pipeline")
+    destination_saved = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Release branch destination",
+            "source_provider": "postgres",
+            "source_schema": "public",
+            "source_table": "mission_orders",
+            "destination_provider": "mss",
+            "destination_schema": MSS_DEST_DATASET,
+            "destination_table": "readiness_rollup.parquet",
+            "write_mode": "replace",
+        },
+    )
+    assert destination_saved.status_code == 303
+
+    with SessionLocal() as db:
+        source_pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Release branch source")
+        )
+        destination_pipeline = db.scalar(
+            select(PipelineDefinition).where(
+                PipelineDefinition.name == "Release branch destination"
+            )
+        )
+        assert source_pipeline is not None and destination_pipeline is not None
+        source_locator = parse_locator(json.loads(source_pipeline.source_locator_json))
+        destination_locator = parse_locator(
+            json.loads(destination_pipeline.destination_locator_json)
+        )
+        assert isinstance(source_locator, FoundryDatasetFilesLocator)
+        assert isinstance(destination_locator, FoundryUploadLocator)
+        assert source_locator.branch == "release"
+        assert destination_locator.branch == "release"
+
+
+def test_pipeline_save_persists_selected_unique_upsert_key(
+    client, demo_connections, monkeypatch
+) -> None:
+    original_inspect = UserCatalog.inspect_object
+
+    def inspect_with_unique(self, provider, locator):
+        if provider == "postgres":
+            return ObjectSchema(
+                locator=locator,
+                columns=(
+                    ColumnSchema(name="event_id", data_type="Int64"),
+                    ColumnSchema(name="unit_name", data_type="Utf8"),
+                ),
+                primary_key=("event_id",),
+                unique_constraints=(("unit_name",),),
+            )
+        return original_inspect(self, provider, locator)
+
+    monkeypatch.setattr("app.ui.routes.pipeline.UserCatalog.inspect_object", inspect_with_unique)
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    preview = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "upsert",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+    assert preview.status_code == 200
+    assert 'name="conflict_columns"' in preview.text
+    assert '<option value="unit_name">unit_name</option>' in preview.text
+
+    response = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Unique key upsert",
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "upsert",
+            "conflict_columns": "unit_name",
+        },
+    )
+    assert response.status_code == 303
+
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Unique key upsert")
+        )
+        assert pipeline is not None
+        policy = parse_write_policy(json.loads(pipeline.write_policy_json))
+        assert isinstance(policy, PostgresUpsertPolicy)
+        assert policy.conflict_columns == ["unit_name"]
 
 
 def test_pipeline_can_move_between_mss_and_postgres(client, demo_connections) -> None:

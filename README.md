@@ -206,8 +206,11 @@ After signing in:
 4. Select a write mode, save the route, and run it. Use **Live transfer** to follow persisted run
    events and **Saved routes** to load a reusable pipeline.
 
-Demo mode does not contact remote systems. Use only non-sensitive test values and data. The complete
-workflow is in the [Data Mover user guide](docs/user-guide.md).
+Demo mode does not contact remote systems. Its health result is explicitly labeled **Emulated
+connection only** and cannot validate a hostname or credential. The process-local emulator does
+exercise branch-aware catalogs, bounded batches, transactional write modes, uniqueness conflicts,
+abort behavior, and cross-instance destination state. Use only non-sensitive test values and data.
+The complete workflow is in the [Data Mover user guide](docs/user-guide.md).
 
 ## CLI reference
 

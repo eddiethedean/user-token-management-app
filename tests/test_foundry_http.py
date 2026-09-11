@@ -107,6 +107,48 @@ def test_foundry_client_lists_downloads_and_uploads(foundry_sim, tmp_path) -> No
     client.close()
 
 
+def test_foundry_client_follows_every_catalog_page(foundry_sim, tmp_path, monkeypatch) -> None:
+    client = FoundryClient(
+        {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+    responses = {
+        None: {"data": [{"path": "first.parquet"}], "nextPageToken": "page-2"},
+        "page-2": {"data": [{"path": "second.csv"}]},
+    }
+    monkeypatch.setattr(
+        client,
+        "list_files",
+        lambda dataset_rid, branch, cursor=None: responses[cursor],
+    )
+
+    files = client.list_all_files(DATASET, "master")
+
+    assert [item["path"] for item in files] == ["first.parquet", "second.csv"]
+    client.close()
+
+
+def test_foundry_client_rejects_repeated_catalog_cursor(foundry_sim, tmp_path, monkeypatch) -> None:
+    client = FoundryClient(
+        {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+    monkeypatch.setattr(
+        client,
+        "list_files",
+        lambda dataset_rid, branch, cursor=None: {
+            "data": [{"path": "first.parquet"}],
+            "nextPageToken": "same-page",
+        },
+    )
+
+    with pytest.raises(ConnectorError) as excinfo:
+        client.list_all_files(DATASET, "master")
+
+    assert excinfo.value.code == TransferErrorCode.PROVIDER_UNAVAILABLE
+    client.close()
+
+
 def test_foundry_writer_finalize_streams_preview_upload(foundry_sim, tmp_path) -> None:
     settings = _settings(tmp_path)
     connector = FoundryConnector(settings)
@@ -125,6 +167,36 @@ def test_foundry_writer_finalize_streams_preview_upload(foundry_sim, tmp_path) -
     manifest = connector.finalize(session)
     assert manifest.remote_id == "readiness.snappy.parquet"
     assert manifest.rows == 2
+
+
+def test_foundry_writer_uses_local_manifest_after_malformed_success_metadata(
+    foundry_sim, tmp_path, monkeypatch
+) -> None:
+    connector = FoundryConnector(_settings(tmp_path))
+    credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
+    locator = FoundryUploadLocator(
+        dataset_rid=DATASET, branch="master", file_name="readiness.snappy.parquet"
+    )
+    session = connector.prepare_destination(
+        credentials,
+        locator,
+        ObjectSchema(locator=locator, columns=()),
+        FoundryReplaceFilePolicy(),
+        run_id="run-malformed-metadata",
+    )
+    frame = pl.DataFrame({"event_id": [1, 2]})
+    connector.write_batch(
+        session, TransferBatch(frame=frame, row_count=2, byte_count=16, sequence=1)
+    )
+    monkeypatch.setattr(
+        "app.connectors.foundry.FoundryClient.upload_file",
+        lambda *_args, **_kwargs: {"filePath": "readiness.snappy.parquet", "sizeBytes": "bad"},
+    )
+
+    manifest = connector.finalize(session)
+
+    assert manifest.rows == 2
+    assert manifest.bytes > 0
 
 
 def test_foundry_writer_rejects_branch_mismatch(foundry_sim, tmp_path) -> None:

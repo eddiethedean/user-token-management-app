@@ -440,12 +440,19 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
     ) -> Response:
         try:
             specification = require_secret_provider(provider)
-            test_user_connection(
+            checked = test_user_connection(
                 db, settings=settings, user=auth.user, provider=provider, request=request
             )
         except (ValueError, SecretStorageError) as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         values = security_page_values(db, auth.user, settings)
+        toast = (
+            f"{specification.label} connection passed its health check."
+            if checked.validation_status == "connected"
+            else f"{specification.label} connection check is incomplete."
+            if checked.validation_status == "untested"
+            else f"{specification.label} connection failed its health check."
+        )
         return await mutation_response(
             request,
             redirect=redirect_path(request, "/security"),
@@ -455,6 +462,6 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                     values["secret_slots"],
                     csrf_token=auth.session.csrf_token,
                 ),
-                toast=f"{specification.label} connection passed its health check.",
+                toast=toast,
             ),
         )

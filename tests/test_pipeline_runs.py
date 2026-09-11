@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
@@ -21,6 +23,7 @@ from app.models import (
 )
 from app.services.pipeline_runs import (
     ALLOWED_TRANSITIONS,
+    append_event,
     claim_run,
     enqueue_run,
     heartbeat,
@@ -31,6 +34,7 @@ from app.services.pipeline_runs import (
     snapshot_from_definition,
 )
 from app.services.pipeline_state import RunConflictError
+from app.services.pipelines import save_pipeline
 from app.worker import _cancel_flag, process_one
 from tests.helpers import csrf_from, web_login
 
@@ -327,3 +331,92 @@ def test_janitor_purges_expired_events_and_terminal_runs(access_app, tmp_path) -
 def test_process_one_is_idle_when_queue_is_empty(access_app) -> None:
     with SessionLocal() as db:
         assert process_one(db, get_settings()) is False
+
+
+def test_event_sequences_are_atomic_across_sessions(access_app) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        run = PipelineRun(
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            status=PipelineRunStatus.QUEUED.value,
+            stage="queued",
+        )
+        db.add(run)
+        db.commit()
+        run_id = run.id
+
+    barrier = threading.Barrier(2)
+
+    def record(message: str) -> int:
+        with SessionLocal() as db:
+            current = db.get(PipelineRun, run_id)
+            assert current is not None
+            barrier.wait()
+            event = append_event(db, current, message)
+            db.commit()
+            return event.sequence
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        sequences = list(executor.map(record, ("worker event", "cancel event")))
+
+    assert sorted(sequences) == [1, 2]
+    with SessionLocal() as db:
+        current = db.get(PipelineRun, run_id)
+        assert current is not None
+        assert current.next_event_sequence == 2
+
+
+def test_idempotent_enqueue_is_atomic_across_sessions(access_app, demo_connections) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        pipeline = save_pipeline(
+            db,
+            user=user,
+            name="Concurrent enqueue",
+            source_provider="mss",
+            destination_provider="postgres",
+            write_mode="append",
+            available_providers={"mss", "postgres"},
+            source_schema="ri.foundry.main.dataset.demo-operations",
+            source_table="mission_orders.parquet",
+            destination_schema="public",
+            destination_table="mission_orders",
+        )
+        user_id = user.id
+        pipeline_id = pipeline.id
+
+    barrier = threading.Barrier(2)
+
+    def enqueue() -> str:
+        with SessionLocal() as db:
+            user = db.get(User, user_id)
+            pipeline = db.get(PipelineDefinition, pipeline_id)
+            assert user is not None and pipeline is not None
+            snapshot = snapshot_from_definition(pipeline)
+            barrier.wait()
+            return enqueue_run(
+                db,
+                user=user,
+                pipeline=pipeline,
+                snapshot=snapshot,
+                idempotency_token="same-request",
+            ).id
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        run_ids = list(executor.map(lambda _index: enqueue(), range(2)))
+
+    assert len(set(run_ids)) == 1
+    with SessionLocal() as db:
+        runs = list(
+            db.scalars(
+                select(PipelineRun).where(PipelineRun.idempotency_token == "same-request")
+            ).all()
+        )
+        events = list(
+            db.scalars(select(PipelineRunEvent).where(PipelineRunEvent.run_id == run_ids[0])).all()
+        )
+        assert len(runs) == 1
+        assert [event.message for event in events] == ["Run queued."]

@@ -45,10 +45,13 @@ entering real credentials.
 6. Select **Run transfer** to enqueue a durable run, then open **Live transfer** to follow persisted
    status and in-process task events.
 
-In demo mode, connectors never contact the hostnames you type. In real mode, the app decrypts only
-the signed-in owner's selected bundle while browsing a catalog or testing a connection, and only the
-route's required bundles after a background task claims a run. Plaintext credentials are not stored
-in pipeline definitions, run snapshots, catalog caches, or browser responses.
+In demo mode, connectors never contact the hostnames you type. A demo health result says
+**Emulated connection only**, reports no network latency, and proves only that the saved fields can
+exercise the local emulator—not that the hostname is reachable or the credential is valid. In real
+mode, the app decrypts only the signed-in owner's selected bundle while browsing a catalog or
+testing a connection, and only the route's required bundles after a background task claims a run.
+Plaintext credentials are not stored in pipeline definitions, run snapshots, catalog caches, or
+browser responses.
 
 ### What you can see and change
 
@@ -87,8 +90,11 @@ Open **Connections → Status** to see every provider in one place.
 - **Connected** means the latest connector health check succeeded.
 - **Test connection** runs or repeats the health check.
 
-In demo mode the handshake is local. In real mode it is a live `SELECT 1` or Foundry file list using
-the default dataset RID.
+In demo mode the check is local emulation, not a handshake. PostgreSQL requires a complete bundle;
+Foundry without a default dataset RID remains **Untested**, matching the live connector's inability
+to verify dataset access. With a RID, **Connected** means ready for the emulator only and the status
+message says that no network request occurred. In real mode the check is a live `SELECT 1` or
+Foundry file list using the default dataset RID.
 
 If a status check fails, correct the complete credential bundle and choose **Test connection**.
 Data Mover does not reveal which saved value was previously entered. For a production credential
@@ -128,17 +134,23 @@ PostgreSQL/MSS/MCS-COP. Other combinations—including MSS → MCS-COP and same-
 offered or accepted. PostgreSQL uses schema/table names; Foundry uses dataset RID, branch, and a
 destination file name (Snappy Parquet). New PostgreSQL table names must:
 
-- contain 2–63 characters;
+- contain 1–63 characters;
 - start with a letter; and
 - use only letters, numbers, and underscores.
 
 ### Choose a write mode
 
-PostgreSQL supports **append**, **upsert** (conflict columns + update or ignore), and **replace**.
+PostgreSQL supports **append**, **upsert** on a selected destination primary or unique key, and
+**replace**. The route editor lists the eligible keys reported by PostgreSQL. Upsert is rejected if
+no eligible key exists or if the source no longer contains every key column. The worker rechecks
+that constraint immediately before loading.
 Replace/recreate loads stage and swap the table in one PostgreSQL transaction, so a failure before
 commit preserves the prior table. Foundry destinations replace a named file via the documented
-preview upload. The frozen upload endpoint does not accept a branch parameter, so the destination
-branch saved on the route must match the branch in the credential; a mismatch fails before staging.
+preview upload. Foundry source and destination locators inherit the default branch from the validated
+connection when the pipeline is saved. The frozen upload endpoint does not accept a branch parameter,
+so a later credential/route branch mismatch fails before staging. File catalogs and
+`all_supported` extraction follow every provider page; configured safety limits fail explicitly
+instead of returning partial results.
 Timed-out Foundry uploads are recorded as `publish_uncertain` and are not auto-retried.
 
 ## Upload and inspect a CSV

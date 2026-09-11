@@ -356,6 +356,7 @@ class PipelineRun(Base):
     source_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     loaded_rows: Mapped[int] = mapped_column(BigInteger, default=0)
     loaded_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    next_event_sequence: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     source_manifest_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     destination_manifest_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     verification_json: Mapped[str | None] = mapped_column(Text, nullable=True)

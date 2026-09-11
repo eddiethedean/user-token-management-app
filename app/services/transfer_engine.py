@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from itertools import chain
@@ -11,14 +12,15 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.connectors.base import ColumnSchema, ObjectSchema, TransferBatch
 from app.connectors.errors import ConnectorError, TransferErrorCode
-from app.connectors.locators import DefinitionSnapshot
-from app.connectors.registry import connector_for, writer_enabled
+from app.connectors.locators import DefinitionSnapshot, PostgresUpsertPolicy
+from app.connectors.registry import connector_for, route_allowed, writer_enabled
 from app.models import PipelineRun, utcnow
 from app.services import pipeline_runs
 from app.services.pipeline_metadata import manifest_metadata
 from app.services.pipeline_state import RunConflictError
 
 CancelCheck = Callable[[], bool]
+log = logging.getLogger(__name__)
 
 
 def _destination_row_count(destination, credentials, locator) -> int | None:
@@ -65,6 +67,43 @@ def _demo_stage_pause(settings: Settings) -> None:
         time.sleep(0.7)
 
 
+def _abort_quietly(destination, session) -> None:
+    try:
+        destination.abort(session)
+    except Exception:
+        log.warning("Destination cleanup failed", exc_info=True)
+
+
+def _validate_upsert_policy(
+    destination,
+    credentials,
+    snapshot: DefinitionSnapshot,
+    source_schema: ObjectSchema,
+    destination_schema: ObjectSchema | None,
+) -> ObjectSchema | None:
+    policy = snapshot.write_policy
+    if not isinstance(policy, PostgresUpsertPolicy):
+        return destination_schema
+    inspected = destination_schema or destination.inspect_object(credentials, snapshot.destination)
+    conflict_columns = tuple(policy.conflict_columns)
+    eligible = {tuple(inspected.primary_key), *map(tuple, inspected.unique_constraints)}
+    eligible.discard(())
+    if conflict_columns not in eligible:
+        raise ConnectorError(
+            TransferErrorCode.SCHEMA_DRIFT,
+            "The saved upsert key is no longer a primary or unique destination constraint.",
+            retryable=False,
+        )
+    source_columns = {column.name for column in source_schema.columns}
+    if not set(conflict_columns).issubset(source_columns):
+        raise ConnectorError(
+            TransferErrorCode.SCHEMA_DRIFT,
+            "The source does not contain every column required by the destination upsert key.",
+            retryable=False,
+        )
+    return inspected
+
+
 def execute_transfer(
     db: Session,
     *,
@@ -77,6 +116,12 @@ def execute_transfer(
     cancel_requested: CancelCheck,
     lease_lost: CancelCheck = lambda: False,
 ) -> None:
+    if not route_allowed(snapshot.source_provider, snapshot.destination_provider):
+        raise ConnectorError(
+            TransferErrorCode.PERMISSION_DENIED,
+            "This source and destination route is not approved for execution.",
+            retryable=False,
+        )
     source = connector_for(snapshot.source_provider)
     destination = connector_for(snapshot.destination_provider)
     if not writer_enabled(snapshot.destination_provider) and not settings.is_demo_mode:
@@ -151,6 +196,14 @@ def execute_transfer(
                 unique_constraints=source_schema.unique_constraints,
             )
 
+        destination_schema_before = _validate_upsert_policy(
+            destination,
+            destination_credentials,
+            snapshot,
+            schema,
+            destination_schema_before,
+        )
+
         pipeline_runs.transition(
             db,
             run,
@@ -171,7 +224,7 @@ def execute_transfer(
             if lease_lost():
                 raise RunConflictError("This worker no longer holds the run lease.")
             if cancel_requested():
-                destination.abort(session)
+                _abort_quietly(destination, session)
                 pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
                 return
             if (utcnow() - started).total_seconds() > settings.pipeline_max_run_seconds:
@@ -303,7 +356,7 @@ def execute_transfer(
         )
     except Exception as exc:
         if session is not None:
-            destination.abort(session)
+            _abort_quietly(destination, session)
         if destination_committed and not isinstance(exc, ConnectorError):
             raise ConnectorError(
                 TransferErrorCode.PUBLISH_UNCERTAIN,

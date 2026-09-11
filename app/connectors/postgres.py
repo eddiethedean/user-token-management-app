@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import re
 from collections.abc import Iterator, Mapping
 
@@ -39,6 +40,7 @@ from app.connectors.locators import (
 from app.connectors.registry import register_connector
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+log = logging.getLogger(__name__)
 _POLARS_TO_PG = {
     pl.Int8: "SMALLINT",
     pl.Int16: "SMALLINT",
@@ -233,7 +235,30 @@ class PostgresConnector:
                     (f"{locator.schema_name}.{locator.table}",),
                 )
                 primary_key = tuple(row[0] for row in cursor.fetchall())
-            return ObjectSchema(locator=locator, columns=columns, primary_key=primary_key)
+                cursor.execute(
+                    """
+                    SELECT tc.constraint_name, kcu.column_name
+                    FROM information_schema.table_constraints AS tc
+                    JOIN information_schema.key_column_usage AS kcu
+                      ON tc.constraint_catalog = kcu.constraint_catalog
+                     AND tc.constraint_schema = kcu.constraint_schema
+                     AND tc.constraint_name = kcu.constraint_name
+                    WHERE tc.table_schema = %s
+                      AND tc.table_name = %s
+                      AND tc.constraint_type = 'UNIQUE'
+                    ORDER BY tc.constraint_name, kcu.ordinal_position
+                    """,
+                    (locator.schema_name, locator.table),
+                )
+                unique_columns: dict[str, list[str]] = {}
+                for constraint_name, column_name in cursor.fetchall():
+                    unique_columns.setdefault(str(constraint_name), []).append(str(column_name))
+            return ObjectSchema(
+                locator=locator,
+                columns=columns,
+                primary_key=primary_key,
+                unique_constraints=tuple(tuple(items) for items in unique_columns.values()),
+            )
         finally:
             conn.close()
 
@@ -322,8 +347,6 @@ class PostgresConnector:
             )
         staging = f"dm_stage_{run_id.replace('-', '')[:12]}"
         conn = connect(credentials, self.settings)
-        self._load_conn = conn
-        self._load_credentials = dict(credentials)
         columns = [column.name for column in schema.columns]
         col_defs = sql.SQL(", ").join(
             sql.SQL("{} {}").format(
@@ -332,36 +355,51 @@ class PostgresConnector:
             )
             for column in schema.columns
         )
-        with conn.cursor() as cursor:
-            cursor.execute(
-                sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
-                    sql.Identifier(locator.schema_name)
-                )
-            )
-            recreate = (
-                isinstance(write_policy, PostgresReplacePolicy)
-                and write_policy.schema_policy == "recreate"
-            )
-            if recreate:
-                # Build the complete replacement without touching the live
-                # table. finalize() performs the destructive swap atomically.
+        try:
+            with conn.cursor() as cursor:
                 cursor.execute(
-                    sql.SQL("CREATE TABLE {} ({})").format(
-                        sql.Identifier(locator.schema_name, staging), col_defs
+                    sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
+                        sql.Identifier(locator.schema_name)
                     )
                 )
-            else:
-                cursor.execute(
-                    sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
-                        sql.Identifier(locator.schema_name, locator.table), col_defs
-                    )
+                recreate = (
+                    isinstance(write_policy, PostgresReplacePolicy)
+                    and write_policy.schema_policy == "recreate"
                 )
-                cursor.execute(
-                    sql.SQL("CREATE TABLE {} (LIKE {} INCLUDING ALL)").format(
-                        sql.Identifier(locator.schema_name, staging),
-                        sql.Identifier(locator.schema_name, locator.table),
+                if recreate:
+                    # Build the complete replacement without touching the live
+                    # table. finalize() performs the destructive swap atomically.
+                    cursor.execute(
+                        sql.SQL("CREATE TABLE {} ({})").format(
+                            sql.Identifier(locator.schema_name, staging), col_defs
+                        )
                     )
+                else:
+                    cursor.execute(
+                        sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
+                            sql.Identifier(locator.schema_name, locator.table), col_defs
+                        )
+                    )
+                    cursor.execute(
+                        sql.SQL("CREATE TABLE {} (LIKE {} INCLUDING ALL)").format(
+                            sql.Identifier(locator.schema_name, staging),
+                            sql.Identifier(locator.schema_name, locator.table),
+                        )
+                    )
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                log.warning(
+                    "PostgreSQL destination rollback failed during preparation", exc_info=True
                 )
+            try:
+                conn.close()
+            except Exception:
+                log.warning("PostgreSQL destination close failed during preparation", exc_info=True)
+            raise
+        self._load_conn = conn
+        self._load_credentials = dict(credentials)
         return LoadSession(
             locator=locator,
             write_policy=write_policy,
@@ -470,10 +508,30 @@ class PostgresConnector:
                 isinstance(policy, PostgresReplacePolicy) and policy.schema_policy == "recreate"
             ):
                 cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(stage))
-        conn.commit()
-        conn.close()
+        manifest = DestinationManifest(locator=locator, rows=int(loaded or 0), bytes=0)
+        try:
+            conn.commit()
+        except psycopg.Error as exc:
+            self._load_conn = None
+            try:
+                conn.close()
+            except Exception:
+                log.warning(
+                    "PostgreSQL destination close failed after uncertain commit", exc_info=True
+                )
+            raise ConnectorError(
+                TransferErrorCode.PUBLISH_UNCERTAIN,
+                "PostgreSQL did not confirm whether the destination transaction committed.",
+                retryable=False,
+            ) from exc
         self._load_conn = None
-        return DestinationManifest(locator=locator, rows=int(loaded or 0), bytes=0)
+        try:
+            conn.close()
+        except Exception:
+            # COMMIT was confirmed. A cleanup failure must not turn a completed
+            # destination write into a retryable or ambiguous publication.
+            log.warning("PostgreSQL destination close failed after commit", exc_info=True)
+        return manifest
 
     def abort(self, load_session: LoadSession) -> None:
         conn = self._load_conn
@@ -482,10 +540,16 @@ class PostgresConnector:
         try:
             # Destination preparation and staging remain in one transaction;
             # rollback removes uncommitted staging and preserves live data.
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception:
+                log.warning("PostgreSQL destination rollback failed", exc_info=True)
         finally:
-            conn.close()
             self._load_conn = None
+            try:
+                conn.close()
+            except Exception:
+                log.warning("PostgreSQL destination close failed", exc_info=True)
 
 
 def _pg_type(data_type: str) -> str:

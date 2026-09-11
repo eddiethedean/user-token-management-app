@@ -73,6 +73,10 @@ async def lifespan(app: HedronPosit) -> AsyncIterator[None]:
             apply_internal_ca_fix()
     with SessionLocal() as db:
         ensure_default_roles(db)
+        if cfg.is_demo_mode:
+            from app.services.catalogs import clear_demo_catalog_cache
+
+            clear_demo_catalog_cache(db)
     app.state.ready = True
     pipeline_stop_event = threading.Event()
     app.state.pipeline_stop_event = pipeline_stop_event

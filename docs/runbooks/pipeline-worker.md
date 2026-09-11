@@ -28,7 +28,8 @@ retention cleanup.
 - Foundry writers remain off until `PIPELINE_ENABLE_MSS_WRITER` / `PIPELINE_ENABLE_MCSCOP_WRITER`
 
 The route allowlist is fixed to MSS → PostgreSQL, PostgreSQL → MSS/MCS-COP, and CSV →
-PostgreSQL/MSS/MCS-COP. Provider role capability alone does not authorize another pairing.
+PostgreSQL/MSS/MCS-COP. Provider role capability alone does not authorize another pairing. The
+worker rechecks this allowlist from the frozen snapshot before opening either connector.
 
 Production refuses `DATA_MOVER_MODE=demo` and refuses SQLite. For Workbench SQLite/live mode, run
 one app process; its in-process background runtime serializes SQLite transfer and retention work.
@@ -46,7 +47,8 @@ expired token. An expired lease before destination writes requeues the run. An e
 load/verify marks `failed_needs_reconciliation` so operators can inspect the destination instead of
 blindly retrying.
 
-Timed-out Foundry uploads are `publish_uncertain` and are not auto-retried. The same reconciliation
+Timed-out Foundry uploads and lost PostgreSQL commit acknowledgements are `publish_uncertain` and
+are not auto-retried. The same reconciliation
 block applies when a connector has committed the destination but the app cannot persist the final
 successful run state.
 
@@ -55,6 +57,10 @@ dedicated connection until finalization. Abort or connection loss rolls the tran
 preserves the live table. The `drop_abandoned_staging` helper exists for manual cleanup of legacy
 `dm_stage_*` tables; the current transactional path does not rely on the periodic janitor to remove
 PostgreSQL staging tables.
+
+Run-event sequences come from an atomic counter on `pipeline_runs`. Enqueue uses the database's
+owner/token uniqueness constraint directly, so simultaneous submissions with one idempotency token
+return the same run and create only one queued event.
 
 ## Reconciliation review
 

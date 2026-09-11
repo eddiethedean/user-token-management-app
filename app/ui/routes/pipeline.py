@@ -52,12 +52,16 @@ from hedron_core import NodeLike
 from starlette.responses import Response
 
 from app.config import get_settings
+from app.connectors.errors import ConnectorError
 from app.connectors.locators import (
     FoundryDatasetFilesLocator,
     FoundryUploadLocator,
     PostgresTableLocator,
+    PostgresUpsertPolicy,
     parse_locator,
     parse_snapshot,
+    parse_write_policy,
+    postgres_table,
 )
 from app.connectors.registry import capabilities_for, route_allowed, writer_enabled
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
@@ -103,6 +107,7 @@ from app.ui.layout import INDICATOR, alert_box
 from app.ui.params import (
     CsvUploadForm,
     NoticeQuery,
+    PipelineConflictColumnsForm,
     PipelineIdForm,
     PipelineNameForm,
     PipelineOptionalTableForm,
@@ -166,8 +171,14 @@ _WRITE_MODE_LABELS = {
 }
 
 
-def _resolved_write_mode(catalog: ProviderCatalog | None, selected: str) -> str:
-    supported = catalog.write_modes if catalog is not None else ()
+def _resolved_write_mode(
+    catalog: ProviderCatalog | None, selected: str, *, upsert_available: bool = True
+) -> str:
+    supported = tuple(
+        mode
+        for mode in (catalog.write_modes if catalog is not None else ())
+        if mode != "upsert" or upsert_available
+    )
     if selected in supported:
         return selected
     return supported[0] if supported else ""
@@ -177,10 +188,15 @@ def _write_mode_select(
     catalog: ProviderCatalog | None,
     *,
     selected: str,
+    upsert_available: bool = True,
     oob: bool = False,
 ) -> NodeLike:
-    resolved = _resolved_write_mode(catalog, selected)
-    supported = catalog.write_modes if catalog is not None else ()
+    resolved = _resolved_write_mode(catalog, selected, upsert_available=upsert_available)
+    supported = tuple(
+        mode
+        for mode in (catalog.write_modes if catalog is not None else ())
+        if mode != "upsert" or upsert_available
+    )
     options = [
         _option(mode, _WRITE_MODE_LABELS[mode], selected=mode == resolved) for mode in supported
     ]
@@ -193,6 +209,48 @@ def _write_mode_select(
     }
     if oob:
         attrs["hx-swap-oob"] = "outerHTML:#pipeline-mode-select"
+    return html.select(*options, **attrs)
+
+
+def _upsert_keys(
+    catalog_access: UserCatalog, provider: str, namespace: str, object_name: str
+) -> tuple[tuple[str, ...], ...]:
+    if (
+        provider != "postgres"
+        or not namespace
+        or not object_name
+        or object_name == CREATE_TABLE_VALUE
+    ):
+        return ()
+    try:
+        schema = catalog_access.inspect_object("postgres", postgres_table(namespace, object_name))
+    except Exception:
+        return ()
+    keys = [tuple(schema.primary_key), *map(tuple, schema.unique_constraints)]
+    return tuple(dict.fromkeys(key for key in keys if key))
+
+
+def _upsert_key_select(
+    keys: tuple[tuple[str, ...], ...], *, selected: str = "", oob: bool = False
+) -> NodeLike:
+    selected_key = tuple(item.strip() for item in selected.split(",") if item.strip())
+    options = [
+        _option(
+            ",".join(key),
+            ", ".join(key),
+            selected=key == selected_key or (not selected_key and index == 0),
+        )
+        for index, key in enumerate(keys)
+    ]
+    if not options:
+        options = [_option("", "No primary or unique key", selected=True, disabled=True)]
+    attrs: dict[str, Any] = {
+        "id": "pipeline-upsert-key-select",
+        "name": "conflict_columns",
+        "disabled": not keys,
+    }
+    if oob:
+        attrs["hx-swap-oob"] = "outerHTML:#pipeline-upsert-key-select"
     return html.select(*options, **attrs)
 
 
@@ -413,7 +471,7 @@ def _created_destination_tables(
 
 
 def _pipeline_form_locations(pipeline: PipelineDefinition) -> tuple[str, str, str, str]:
-    """Return catalog namespace/object values, preferring canonical v2 locators."""
+    """Return catalog namespace/object values, preferring canonical versioned locators."""
     source_namespace = pipeline.source_schema
     source_object = pipeline.source_table
     destination_namespace = pipeline.destination_schema
@@ -860,7 +918,7 @@ def _schema_preview_surface(
         ),
         StateView(
             "Provider limitation" if limitation else "Preview facts",
-            kind="info" if limitation else "empty",
+            kind="empty",
             description=limitation
             or "These facts will be captured again by the worker during the run.",
         )
@@ -1289,6 +1347,7 @@ def _pipeline_preview_fragment(
     destination_table_new: str = "",
     source_upload_id: str = "",
     write_mode: str = "",
+    conflict_columns: str = "",
     csv_inspection: CsvInspection | None = None,
     csv_upload: PipelineUpload | None = None,
     connections: dict[str, dict[str, str | bool]],
@@ -1369,6 +1428,12 @@ def _pipeline_preview_fragment(
             additional_tables=_created_destination_tables([], target_provider, target_schema),
         )
     )
+    upsert_keys = _upsert_keys(
+        catalog_access,
+        target_provider,
+        target_schema,
+        table_name if target_table != CREATE_TABLE_VALUE else CREATE_TABLE_VALUE,
+    )
     return html.div(
         _select_fragment(
             "pipeline-source-schema-select", source_schema_options, name="source_schema"
@@ -1386,7 +1451,13 @@ def _pipeline_preview_fragment(
             name="destination_table",
             disabled=target_catalog is None,
         ),
-        _write_mode_select(target_catalog, selected=write_mode, oob=True),
+        _write_mode_select(
+            target_catalog,
+            selected=write_mode,
+            upsert_available=bool(upsert_keys),
+            oob=True,
+        ),
+        _upsert_key_select(upsert_keys, selected=conflict_columns, oob=True),
         html.p(
             source_schema + "." + source_object_name
             if source_provider != "csv"
@@ -1500,7 +1571,6 @@ def _pipeline_body(
     pipeline_id = loaded_pipeline.id if loaded_pipeline is not None else ""
     pipeline_name = loaded_pipeline.name if loaded_pipeline is not None else "Daily readiness sync"
     requested_write_mode = loaded_pipeline.write_mode if loaded_pipeline is not None else ""
-    write_mode = _resolved_write_mode(target_catalog, requested_write_mode)
     new_target_table_name = (
         loaded_pipeline.destination_table
         if loaded_pipeline is not None and loaded_pipeline.destination_create
@@ -1538,6 +1608,23 @@ def _pipeline_body(
         target_table_name or _first_object(catalog_access, target_provider, target_schema_name)
         if target_provider
         else ""
+    )
+    upsert_keys = _upsert_keys(
+        catalog_access,
+        target_provider,
+        target_schema_name,
+        target_object_name if target_table_name != CREATE_TABLE_VALUE else CREATE_TABLE_VALUE,
+    )
+    saved_conflict_columns = ""
+    if loaded_pipeline is not None:
+        try:
+            loaded_policy = parse_write_policy(json.loads(loaded_pipeline.write_policy_json))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            loaded_policy = None
+        if isinstance(loaded_policy, PostgresUpsertPolicy):
+            saved_conflict_columns = ",".join(loaded_policy.conflict_columns)
+    write_mode = _resolved_write_mode(
+        target_catalog, requested_write_mode, upsert_available=bool(upsert_keys)
     )
     csv_source_ready = source_provider == "csv" and loaded_source_upload is not None
     source_runtime_ready = (
@@ -1719,9 +1806,19 @@ def _pipeline_body(
                                 control=_write_mode_select(
                                     target_catalog,
                                     selected=write_mode,
+                                    upsert_available=bool(upsert_keys),
                                 ),
                             ),
-                            columns=2,
+                            FormField(
+                                name="conflict_columns",
+                                label="Upsert key",
+                                id="pipeline-upsert-key-select",
+                                control=_upsert_key_select(
+                                    upsert_keys,
+                                    selected=saved_conflict_columns,
+                                ),
+                            ),
+                            columns=3,
                             gap="md",
                         ),
                         Grid(
@@ -1761,7 +1858,7 @@ def _pipeline_body(
                                                     swap="none",
                                                     include="#pipeline-form",
                                                     trigger="change",
-                                                    select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                                    select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-mode-select, #pipeline-upsert-key-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                                 ),
                                             ),
                                         ),
@@ -1798,7 +1895,7 @@ def _pipeline_body(
                                                         swap="none",
                                                         include="#pipeline-form",
                                                         trigger="change",
-                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-mode-select, #pipeline-upsert-key-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                                     ),
                                                 ),
                                             ),
@@ -1835,7 +1932,7 @@ def _pipeline_body(
                                                         swap="none",
                                                         include="#pipeline-form",
                                                         trigger="change",
-                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-mode-select, #pipeline-upsert-key-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                                     ),
                                                 ),
                                             ),
@@ -1925,7 +2022,7 @@ def _pipeline_body(
                                                     swap="none",
                                                     include="#pipeline-form",
                                                     trigger="change",
-                                                    select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                                    select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-mode-select, #pipeline-upsert-key-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                                 ),
                                             ),
                                         ),
@@ -1963,7 +2060,7 @@ def _pipeline_body(
                                                         swap="none",
                                                         include="#pipeline-form",
                                                         trigger="change",
-                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
+                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-mode-select, #pipeline-upsert-key-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                                     ),
                                                 ),
                                             ),
@@ -2360,6 +2457,7 @@ def register_pipeline_routes(app: Hedron) -> None:
         destination_table_new: PipelineOptionalTableForm = "",
         source_upload_id: PipelineIdForm = "",
         write_mode: PipelineWriteModeForm = "replace",
+        conflict_columns: PipelineConflictColumnsForm = "",
     ) -> Response:
         csv_upload = None
         csv_inspection = None
@@ -2421,6 +2519,7 @@ def register_pipeline_routes(app: Hedron) -> None:
             destination_table_new=destination_table_new,
             source_upload_id=source_upload_id,
             write_mode=write_mode,
+            conflict_columns=conflict_columns,
             csv_inspection=csv_inspection,
             csv_upload=csv_upload,
             connections=connections,
@@ -2549,6 +2648,7 @@ def register_pipeline_routes(app: Hedron) -> None:
         request: Request,
         auth: Auth,
         db: DbSession,
+        settings: SettingsDep,
         _csrf: RequireCsrf,
         pipeline_name: PipelineNameForm,
         source_provider: PipelineSourceProviderForm,
@@ -2559,6 +2659,7 @@ def register_pipeline_routes(app: Hedron) -> None:
         destination_table: PipelineTableForm,
         write_mode: PipelineWriteModeForm,
         destination_table_new: PipelineOptionalTableForm = "",
+        conflict_columns: PipelineConflictColumnsForm = "",
         source_upload_id: PipelineIdForm = "",
         pipeline_id: PipelineIdForm = "",
     ) -> Response:
@@ -2568,6 +2669,42 @@ def register_pipeline_routes(app: Hedron) -> None:
             if secret is not None and secret.validation_status == "connected"
         }
         try:
+            catalog_access = UserCatalog(db, settings, auth.user, request=request)
+            source_branch = (
+                catalog_access.default_branch(source_provider)
+                if source_provider != "csv" and source_provider in available_providers
+                else ""
+            )
+            destination_branch = (
+                catalog_access.default_branch(destination_provider)
+                if destination_provider in available_providers
+                else ""
+            )
+            if (
+                destination_provider == "postgres"
+                and destination_provider in available_providers
+                and write_mode == "upsert"
+            ):
+                if destination_table == CREATE_TABLE_VALUE:
+                    raise ValueError("Create the PostgreSQL table before configuring an upsert.")
+                destination_schema_details = catalog_access.inspect_object(
+                    "postgres", postgres_table(destination_schema, destination_table)
+                )
+                eligible_keys = {
+                    tuple(destination_schema_details.primary_key),
+                    *map(tuple, destination_schema_details.unique_constraints),
+                }
+                eligible_keys.discard(())
+                selected_key = tuple(
+                    item.strip() for item in conflict_columns.split(",") if item.strip()
+                )
+                if not selected_key and destination_schema_details.primary_key:
+                    selected_key = tuple(destination_schema_details.primary_key)
+                if not selected_key or selected_key not in eligible_keys:
+                    raise ValueError(
+                        "Select a current primary or unique key for the PostgreSQL upsert."
+                    )
+                conflict_columns = ",".join(selected_key)
             saved_pipeline = save_pipeline(
                 db,
                 user=auth.user,
@@ -2575,17 +2712,20 @@ def register_pipeline_routes(app: Hedron) -> None:
                 source_provider=source_provider,
                 source_schema=source_schema,
                 source_table=source_table,
+                source_branch=source_branch,
                 destination_provider=destination_provider,
                 destination_schema=destination_schema,
                 destination_table=destination_table,
+                destination_branch=destination_branch,
                 destination_table_new=destination_table_new,
                 source_upload_id=source_upload_id,
                 write_mode=write_mode,
+                conflict_columns=conflict_columns,
                 available_providers=available_providers,
                 pipeline_id=pipeline_id,
                 request=request,
             )
-        except ValueError as exc:
+        except (ConnectorError, ValueError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc

@@ -58,3 +58,54 @@ def test_dark_default_migration_preserves_existing_user_choice(tmp_path) -> None
 
     assert choices == {"existing-user": "light", "new-user": "dark"}
     assert str(color_column["default"]).strip("()'\"") == "dark"
+
+
+def test_event_sequence_migration_backfills_existing_runs(tmp_path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pipeline-events.db'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "0012_dark_color_mode_default")
+    engine = create_engine(database_url)
+
+    with engine.begin() as connection:
+        _insert_user(
+            connection,
+            user_id="pipeline-user",
+            email="pipeline@example.gov",
+            include_color_mode=False,
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO pipeline_runs (
+                    id, user_id, definition_snapshot_json, status, stage, attempt, queued_at,
+                    source_rows, source_bytes, loaded_rows, loaded_bytes, retryable, created_at,
+                    updated_at
+                ) VALUES (
+                    'run-1', 'pipeline-user', '{}', 'failed', 'failed', 1,
+                    '2026-08-26 00:00:00', 0, 0, 0, 0, 0,
+                    '2026-08-26 00:00:00', '2026-08-26 00:00:00'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO pipeline_run_events (
+                    id, run_id, sequence, occurred_at, level, stage, message, detail_json
+                ) VALUES (
+                    'event-1', 'run-1', 7, '2026-08-26 00:00:00', 'info', 'failed', 'old', ''
+                )
+                """
+            )
+        )
+
+    command.upgrade(config, "head")
+
+    with engine.begin() as connection:
+        next_sequence = connection.scalar(
+            text("SELECT next_event_sequence FROM pipeline_runs WHERE id = 'run-1'")
+        )
+    engine.dispose()
+
+    assert next_sequence == 7

@@ -40,6 +40,8 @@ from app.connectors.tls import ssl_context_for_bundle
 
 SUPPORTED_SUFFIXES = (".csv", ".parquet")
 DEFAULT_BRANCHES = ("master", "main")
+MAX_FOUNDRY_CATALOG_PAGES = 1_000
+MAX_FOUNDRY_CATALOG_FILES = 100_000
 
 
 def normalize_foundry_base(endpoint: str) -> str:
@@ -164,6 +166,48 @@ class FoundryClient:
         url = f"{self.base_url}/api/v1/datasets/{dataset_rid}/files"
         return self.request("GET", url, params=params).json()
 
+    def list_all_files(self, dataset_rid: str, branch: str) -> list[dict]:
+        """Collect a complete, bounded Foundry file listing without silent truncation."""
+
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        files: list[dict] = []
+        for _page_number in range(MAX_FOUNDRY_CATALOG_PAGES):
+            payload = self.list_files(dataset_rid, branch, cursor=cursor)
+            if not isinstance(payload, dict):
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned an invalid file listing.",
+                )
+            page = payload.get("data") or []
+            if not isinstance(page, list):
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned an invalid file listing.",
+                )
+            files.extend(item for item in page if isinstance(item, dict))
+            if len(files) > MAX_FOUNDRY_CATALOG_FILES:
+                raise ConnectorError(
+                    TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
+                    "The Foundry dataset contains too many files to enumerate safely.",
+                    retryable=False,
+                )
+            next_cursor = payload.get("nextPageToken")
+            if not next_cursor:
+                return files
+            cursor = str(next_cursor)
+            if cursor in seen_cursors:
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned a repeated catalog cursor.",
+                )
+            seen_cursors.add(cursor)
+        raise ConnectorError(
+            TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
+            "The Foundry dataset exceeded the catalog page limit.",
+            retryable=False,
+        )
+
     def resolve_branch(
         self, dataset_rid: str, preferred_branch: str | None = None
     ) -> tuple[str, list[dict]]:
@@ -175,8 +219,7 @@ class FoundryClient:
         last_error: ConnectorError | None = None
         for branch in branches:
             try:
-                payload = self.list_files(dataset_rid, branch)
-                files = list(payload.get("data") or [])
+                files = self.list_all_files(dataset_rid, branch)
                 return branch, files
             except ConnectorError as exc:
                 last_error = exc
@@ -235,12 +278,14 @@ class FoundryClient:
                 headers={**self.headers, "content-type": "application/octet-stream"},
                 content=handle,
             )
+        fallback = {"filePath": file_name, "sizeBytes": path.stat().st_size}
         if response.content:
             try:
-                return response.json()
-            except json.JSONDecodeError:
-                return {"filePath": file_name, "sizeBytes": path.stat().st_size}
-        return {"filePath": file_name, "sizeBytes": path.stat().st_size}
+                payload = response.json()
+            except (json.JSONDecodeError, ValueError):
+                return fallback
+            return payload if isinstance(payload, dict) else fallback
+        return fallback
 
 
 def supported_files(entries: list[dict]) -> list[dict]:
@@ -300,8 +345,7 @@ class FoundryConnector:
         client = self._client(credentials)
         try:
             branch = client.default_branch
-            payload = client.list_files(namespace, branch, cursor=cursor)
-            files = supported_files(list(payload.get("data") or []))
+            files = supported_files(client.list_all_files(namespace, branch))
             items = []
             for entry in files:
                 path = str(entry.get("path") or "")
@@ -324,7 +368,7 @@ class FoundryConnector:
                         format="parquet" if path.casefold().endswith(".parquet") else "csv",
                     )
                 )
-            return CatalogPage(items=tuple(items), cursor=payload.get("nextPageToken"))
+            return CatalogPage(items=tuple(items))
         finally:
             client.close()
 
@@ -404,14 +448,19 @@ class FoundryConnector:
         *,
         run_id: str,
     ) -> LoadSession:
-        if isinstance(locator, FoundryUploadLocator):
-            configured_branch = credentials.get("branch", "") or "master"
-            if locator.branch != configured_branch:
-                raise ConnectorError(
-                    TransferErrorCode.UNSUPPORTED_TYPE,
-                    "The saved destination branch does not match the configured Foundry branch.",
-                    retryable=False,
-                )
+        if not isinstance(locator, FoundryUploadLocator):
+            raise ConnectorError(
+                TransferErrorCode.DESTINATION_NOT_FOUND,
+                "Foundry destination locator is invalid.",
+                retryable=False,
+            )
+        configured_branch = credentials.get("branch", "") or "master"
+        if locator.branch != configured_branch:
+            raise ConnectorError(
+                TransferErrorCode.UNSUPPORTED_TYPE,
+                "The saved destination branch does not match the configured Foundry branch.",
+                retryable=False,
+            )
         self._load_credentials = dict(credentials)
         spool_root = Path(self.settings.pipeline_spool_root or "/tmp")
         spool_root.mkdir(parents=True, exist_ok=True)
@@ -496,13 +545,17 @@ class FoundryConnector:
                     TransferErrorCode.DESTINATION_NOT_FOUND,
                     "Foundry destination locator is invalid.",
                 )
+            local_size = path.stat().st_size
+            rows = int(load_session.metadata.get("rows", "0")) or int(pl.read_parquet(path).height)
             client = FoundryClient(getattr(self, "_load_credentials", {}), self.settings)
             payload = client.upload_file(locator.dataset_rid, locator.file_name, path)
-            size = int(payload.get("sizeBytes") or path.stat().st_size)
+            try:
+                size = int(payload.get("sizeBytes") or local_size)
+            except (TypeError, ValueError):
+                size = local_size
             return DestinationManifest(
                 locator=locator,
-                rows=int(load_session.metadata.get("rows", "0"))
-                or int(pl.read_parquet(path).height),
+                rows=rows,
                 bytes=size,
                 remote_id=str(payload.get("filePath") or locator.file_name),
                 details={"publication": locator.publication},

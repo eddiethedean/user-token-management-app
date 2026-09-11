@@ -17,7 +17,7 @@ The two runtime modes have intentionally different guarantees:
 
 | Mode | Use | External side effects |
 |---|---|---|
-| `demo` | Local exploration and confidence checks | Fake connectors only; no remote calls |
+| `demo` | Local exploration and behavioral confidence checks | Stateful emulator only; no remote calls or credential validation |
 | `real` | Approved operational deployments | Live connector calls from the app's in-process background runtime |
 
 Production rejects demo mode. CSV uploads, saved pipeline definitions, and audit data are still real
@@ -93,6 +93,27 @@ Never put real credentials in `.env.example`, fixtures, demo seeds, or screensho
 Keep the virtual environment activated in this shell while running the commands below. Make targets
 prefer `.venv/bin/python` when that repository virtual environment exists, and otherwise use the
 `python` available on `PATH`; set `PYTHON=/path/to/python` to override that selection explicitly.
+
+### Emulator fidelity rules
+
+`app/connectors/fake.py` is a behavioral emulator, not a mock health service. Keep these invariants:
+
+- health text must identify emulation, report zero network latency, and never claim remote
+  authentication or reachability;
+- provider capabilities and metadata limitations must match the live adapters, except demo writers
+  are intentionally enabled;
+- catalogs and frozen locators use the saved endpoint/database identity and Foundry branch;
+- destination state persists across connector instances for the lifetime of one registry load;
+- demo startup clears catalog-cache rows because emulated remote state does not survive a process
+  restart;
+- PostgreSQL writes apply the selected policy and constraints atomically, while abort leaves the
+  destination unchanged;
+- Foundry replacement uploads become discoverable/extractable, but portable schema and exact remote
+  row counts remain unavailable; and
+- CSV uses the production local parser and fails when the owner-scoped upload is missing.
+
+Add parity coverage in `tests/test_connection_emulation.py` whenever a live connector contract or
+write policy changes. Passing emulator tests is not a substitute for the opt-in live-provider tests.
 
 ### Configuration ownership
 

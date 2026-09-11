@@ -61,18 +61,31 @@ compatibility). The UI is write/replace oriented after save. Treat decrypted val
 credentials; lifecycle and revocation at the remote provider remain operator responsibility.
 
 Save stores credentials as `untested`. **Test connection** is a distinct action that calls the
-connector. Demo mode uses fake connectors on reserved `.demo.invalid` hosts. In real mode,
+connector. Demo mode uses a process-local emulator on reserved `.demo.invalid` hosts; its result is
+explicitly labeled as emulated, reports zero network latency, and is not evidence that a remote
+host or credential is valid. In real mode,
 credential decryption is limited to an owner-authorized catalog browse or connection test in the
 request process and to the bundles required by a claimed transfer. Plaintext is request/run scoped
 and is never stored in catalog cache rows, definitions, run snapshots, or events.
 
+The emulator receives the same saved credential bundle as the live adapter so endpoint/database
+identity and Foundry branch selection are exercised. It shares isolated remote state across
+connector instances, applies PostgreSQL append/upsert/replace and uniqueness rules atomically,
+persists Foundry replacement uploads, honors batch and spool limits, and exposes the same Foundry
+schema/row-count limitations as live mode. Its state lasts only for the current process/connector
+registry load; startup clears demo catalog-cache rows so stale emulated uploads cannot survive that
+reset in the UI. CSV processing uses the real local adapter and never substitutes sample rows for a
+missing upload.
+
 ## Pipeline definitions and runs
 
 Saved pipeline definitions are owner-scoped rows in `pipeline_definitions` with versioned locators
-and write policies. The Hedron app enqueues runs and attaches an in-process FastAPI background task;
+and write policies. Version 3 definitions preserve the validated Foundry connection branch and an
+explicit PostgreSQL primary/unique-key policy for upserts. The Hedron app enqueues runs with atomic
+owner-scoped idempotency and event sequencing, then attaches an in-process FastAPI background task;
 the app claims a lease, renews it from an independent database session, decrypts only the provider
 credential bundles required by the route, streams row- and byte-bounded Polars batches, and persists
-status and events. Lease-guarded mutations refresh ownership from the database so a stale task cannot
+status and events. The worker rechecks the route allowlist before connector access. Lease-guarded mutations refresh ownership from the database so a stale task cannot
 continue from its SQLAlchemy identity map. A lightweight in-process supervisor also recovers queued
 or expired runs after restart and runs retention cleanup. CSV sources do not require a source
 credential. The browser polls HTMX fragments that render only those persisted facts.

@@ -21,6 +21,7 @@ from app.connectors.locators import (
     DefinitionSnapshot,
     FoundryDatasetFilesLocator,
     PostgresAppendPolicy,
+    PostgresUpsertPolicy,
     postgres_table,
 )
 from app.services import transfer_engine
@@ -76,6 +77,7 @@ def test_failure_after_destination_commit_requires_reconciliation(monkeypatch) -
         "connector_for",
         lambda provider: source if provider == "mss" else destination,
     )
+    monkeypatch.setattr(transfer_engine, "route_allowed", lambda *_args: True)
     monkeypatch.setattr(transfer_engine, "writer_enabled", lambda provider: True)
     monkeypatch.setattr(transfer_engine.pipeline_runs, "heartbeat", lambda *args, **kwargs: None)
     monkeypatch.setattr(transfer_engine.pipeline_runs, "transition", lambda *args, **kwargs: None)
@@ -123,3 +125,88 @@ def test_failure_after_destination_commit_requires_reconciliation(monkeypatch) -
     assert destination.committed is True
     assert destination.aborted is True
     assert excinfo.value.code == TransferErrorCode.PUBLISH_UNCERTAIN
+
+
+def test_execution_rechecks_route_policy_before_connector_access(monkeypatch) -> None:
+    connector_for = Mock(side_effect=AssertionError("connectors must not be opened"))
+    monkeypatch.setattr(transfer_engine, "route_allowed", lambda *_args: False)
+    monkeypatch.setattr(transfer_engine, "connector_for", connector_for)
+    snapshot = DefinitionSnapshot(
+        name="disabled route",
+        source_provider="mss",
+        destination_provider="postgres",
+        source=FoundryDatasetFilesLocator(
+            dataset_rid="ri.foundry.main.dataset.example",
+            branch="master",
+            file_paths=["source.parquet"],
+        ),
+        destination=postgres_table("public", "events"),
+        write_policy=PostgresAppendPolicy(),
+    )
+
+    with pytest.raises(ConnectorError) as excinfo:
+        transfer_engine.execute_transfer(
+            Mock(),
+            run=SimpleNamespace(id="run-disabled"),
+            lease_token="lease-disabled",
+            snapshot=snapshot,
+            source_credentials={},
+            destination_credentials={},
+            settings=SimpleNamespace(is_demo_mode=False),
+            cancel_requested=lambda: False,
+        )
+
+    assert excinfo.value.code == TransferErrorCode.PERMISSION_DENIED
+    connector_for.assert_not_called()
+
+
+def test_upsert_policy_requires_a_current_destination_key_and_source_columns() -> None:
+    locator = postgres_table("public", "events")
+    destination_schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="event_id", data_type="Int64"),
+            ColumnSchema(name="unit_name", data_type="Utf8"),
+        ),
+        primary_key=("event_id",),
+        unique_constraints=(("unit_name",),),
+    )
+    source_schema = ObjectSchema(locator=locator, columns=destination_schema.columns)
+    snapshot = DefinitionSnapshot(
+        name="unique-key upsert",
+        source_provider="mss",
+        destination_provider="postgres",
+        source=FoundryDatasetFilesLocator(
+            dataset_rid="ri.foundry.main.dataset.example",
+            branch="master",
+            file_paths=["source.parquet"],
+        ),
+        destination=locator,
+        write_policy=PostgresUpsertPolicy(conflict_columns=["unit_name"]),
+    )
+
+    assert (
+        transfer_engine._validate_upsert_policy(
+            Mock(), {}, snapshot, source_schema, destination_schema
+        )
+        is destination_schema
+    )
+
+    stale_snapshot = snapshot.model_copy(
+        update={"write_policy": PostgresUpsertPolicy(conflict_columns=["missing_key"])}
+    )
+    with pytest.raises(ConnectorError) as stale:
+        transfer_engine._validate_upsert_policy(
+            Mock(), {}, stale_snapshot, source_schema, destination_schema
+        )
+    assert stale.value.code == TransferErrorCode.SCHEMA_DRIFT
+
+    incomplete_source = ObjectSchema(
+        locator=locator,
+        columns=(ColumnSchema(name="event_id", data_type="Int64"),),
+    )
+    with pytest.raises(ConnectorError) as missing:
+        transfer_engine._validate_upsert_policy(
+            Mock(), {}, snapshot, incomplete_source, destination_schema
+        )
+    assert missing.value.code == TransferErrorCode.SCHEMA_DRIFT

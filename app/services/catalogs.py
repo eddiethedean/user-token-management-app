@@ -8,7 +8,7 @@ from datetime import timedelta
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -98,23 +98,29 @@ class UserCatalog:
     def count_rows(self, provider: str, locator) -> int | None:
         return connector_for(provider).count_rows(self._credentials_for(provider), locator)
 
+    def default_branch(self, provider: str) -> str:
+        """Return the branch bound to this user's validated Foundry connection."""
+
+        if provider.casefold() in {"mss", "mcscop"}:
+            return self._credentials_for(provider).get("branch", "") or "master"
+        return ""
+
     def _credentials_for(self, provider: str) -> dict[str, str]:
         provider_id = provider.casefold()
         if provider_id not in self._credentials:
-            if self.settings.is_demo_mode:
-                # Demo discovery is deterministic and performs no external I/O.
-                self._credentials[provider_id] = {}
-            else:
-                from app.services.secrets import decrypt_user_credentials_for_run
+            from app.services.secrets import decrypt_user_credentials_for_run
 
-                self._credentials[provider_id] = decrypt_user_credentials_for_run(
-                    self.db,
-                    self.settings,
-                    user=self.user,
-                    provider=provider_id,
-                    request=self.request,
-                    purpose="catalog",
-                )
+            # Demo adapters still receive the saved bundle. They use its
+            # endpoint/database as an isolation key and its Foundry branch when
+            # producing locators, but never perform network I/O.
+            self._credentials[provider_id] = decrypt_user_credentials_for_run(
+                self.db,
+                self.settings,
+                user=self.user,
+                provider=provider_id,
+                request=self.request,
+                purpose="catalog",
+            )
         return self._credentials[provider_id]
 
     def _read_cache(self, provider: str, namespace: str) -> dict[str, Any] | None:
@@ -182,6 +188,14 @@ class UserCatalog:
             updated_at=str(payload.get("updated_at") or ""),
             format=str(payload.get("format") or ""),
         )
+
+
+def clear_demo_catalog_cache(db: Session) -> int:
+    """Discard cached remote state when the process-local emulator restarts."""
+
+    result = db.execute(delete(PipelineCatalogCache))
+    db.commit()
+    return max(0, int(getattr(result, "rowcount", 0) or 0))
 
 
 def _ensure_registry() -> None:

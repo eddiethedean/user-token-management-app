@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import Request
 from sqlalchemy import and_, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.connectors.errors import TransferErrorCode
@@ -69,15 +70,6 @@ def enqueue_run(
         raise ValueError("That saved pipeline uses an unsupported transfer route.")
     if not writer_enabled(snapshot.destination_provider):
         raise ValueError("That saved pipeline's destination writer is not enabled.")
-    if idempotency_token:
-        existing = db.scalar(
-            select(PipelineRun).where(
-                PipelineRun.user_id == user.id,
-                PipelineRun.idempotency_token == idempotency_token,
-            )
-        )
-        if existing is not None:
-            return existing
     run = PipelineRun(
         id=new_id(),
         pipeline_definition_id=pipeline.id,
@@ -89,8 +81,65 @@ def enqueue_run(
         parent_run_id=parent_run_id,
         idempotency_token=idempotency_token,
     )
-    db.add(run)
-    db.flush()
+    if idempotency_token:
+        dialect_name = db.get_bind().dialect.name
+        values = {
+            "id": run.id,
+            "pipeline_definition_id": run.pipeline_definition_id,
+            "user_id": run.user_id,
+            "definition_snapshot_json": run.definition_snapshot_json,
+            "status": run.status,
+            "stage": run.stage,
+            "attempt": run.attempt,
+            "parent_run_id": run.parent_run_id,
+            "idempotency_token": run.idempotency_token,
+        }
+        if dialect_name == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert
+        elif dialect_name == "sqlite":
+            from sqlalchemy.dialects.sqlite import insert
+        else:
+            insert = None
+        if insert is not None:
+            inserted_id = db.scalar(
+                insert(PipelineRun)
+                .values(**values)
+                .on_conflict_do_nothing(
+                    index_elements=[PipelineRun.user_id, PipelineRun.idempotency_token]
+                )
+                .returning(PipelineRun.id)
+            )
+            if inserted_id is None:
+                existing = db.scalar(
+                    select(PipelineRun).where(
+                        PipelineRun.user_id == user.id,
+                        PipelineRun.idempotency_token == idempotency_token,
+                    )
+                )
+                if existing is None:
+                    raise RunConflictError("The idempotent pipeline run could not be resolved.")
+                return existing
+            run = db.get(PipelineRun, inserted_id)
+            if run is None:
+                raise RunConflictError("The queued pipeline run could not be loaded.")
+        else:
+            try:
+                with db.begin_nested():
+                    db.add(run)
+                    db.flush()
+            except IntegrityError:
+                existing = db.scalar(
+                    select(PipelineRun).where(
+                        PipelineRun.user_id == user.id,
+                        PipelineRun.idempotency_token == idempotency_token,
+                    )
+                )
+                if existing is None:
+                    raise
+                return existing
+    else:
+        db.add(run)
+        db.flush()
     append_event(db, run, "Run queued.", stage="queued")
     record_event(
         db,
@@ -207,15 +256,19 @@ def append_event(
     level: str = "info",
     detail: dict | None = None,
 ) -> PipelineRunEvent:
-    last = db.scalar(
-        select(PipelineRunEvent.sequence)
-        .where(PipelineRunEvent.run_id == run.id)
-        .order_by(PipelineRunEvent.sequence.desc())
-        .limit(1)
+    sequence = db.scalar(
+        update(PipelineRun)
+        .where(PipelineRun.id == run.id)
+        .values(next_event_sequence=PipelineRun.next_event_sequence + 1)
+        .returning(PipelineRun.next_event_sequence)
+        .execution_options(synchronize_session=False)
     )
+    if sequence is None:
+        raise RunConflictError("The pipeline run no longer exists.")
+    run.next_event_sequence = int(sequence)
     event = PipelineRunEvent(
         run_id=run.id,
-        sequence=(last or 0) + 1,
+        sequence=int(sequence),
         level=level,
         stage=stage or run.stage,
         message=redact_text(message)[:500],

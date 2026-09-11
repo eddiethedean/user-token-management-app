@@ -38,3 +38,36 @@ def test_real_catalog_decrypts_owner_credentials_for_connector(monkeypatch) -> N
     connector.list_namespaces.assert_called_once_with(credentials)
     db.add.assert_called_once()
     db.commit.assert_called_once()
+
+
+def test_demo_catalog_passes_saved_credentials_to_the_emulator(monkeypatch) -> None:
+    db = Mock()
+    db.scalar.side_effect = [None, None]
+    credentials = {
+        "endpoint": "https://mss.demo.invalid",
+        "token": "demo-token",
+        "branch": "release",
+    }
+    decrypt = Mock(return_value=credentials)
+    connector = Mock()
+    connector.list_namespaces.return_value = []
+    monkeypatch.setattr(secrets, "decrypt_user_credentials_for_run", decrypt)
+    monkeypatch.setattr(catalogs, "connector_for", lambda provider: connector)
+    user = SimpleNamespace(id="user-1")
+    settings = SimpleNamespace(is_demo_mode=True, pipeline_catalog_ttl_seconds=300)
+
+    access = catalogs.UserCatalog(db, settings, user)
+    access.list_namespaces("mss")
+
+    connector.list_namespaces.assert_called_once_with(credentials)
+    assert access.default_branch("mss") == "release"
+    decrypt.assert_called_once()
+
+
+def test_demo_catalog_cache_reset_is_committed() -> None:
+    db = Mock()
+    db.execute.return_value.rowcount = 2
+
+    assert catalogs.clear_demo_catalog_cache(db) == 2
+    db.execute.assert_called_once()
+    db.commit.assert_called_once()

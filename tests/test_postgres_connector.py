@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import date
 
 import polars as pl
+import psycopg
 import pytest
 
-from app.connectors.base import ColumnSchema, ObjectSchema, TransferBatch
+from app.connectors.base import ColumnSchema, LoadSession, ObjectSchema, TransferBatch
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
     PostgresAppendPolicy,
@@ -105,7 +106,13 @@ def test_postgres_health_and_catalog(postgres_credentials) -> None:
     assert "public" in namespaces
     _execute(
         postgres_credentials,
-        "CREATE TABLE public.readiness_events (event_id BIGINT PRIMARY KEY, unit_name TEXT)",
+        """
+        CREATE TABLE public.readiness_events (
+            event_id BIGINT PRIMARY KEY,
+            unit_name TEXT,
+            UNIQUE (unit_name)
+        )
+        """,
     )
     page = connector.list_objects(postgres_credentials, "public")
     names = [item.name for item in page.items]
@@ -113,6 +120,7 @@ def test_postgres_health_and_catalog(postgres_credentials) -> None:
     locator = postgres_table("public", "readiness_events")
     inspected = connector.inspect_object(postgres_credentials, locator)
     assert inspected.primary_key == ("event_id",)
+    assert inspected.unique_constraints == (("unit_name",),)
     assert {column.name for column in inspected.columns} == {"event_id", "unit_name"}
 
 
@@ -326,3 +334,77 @@ def test_postgres_unavailable_port_maps_error(postgres_credentials) -> None:
         TransferErrorCode.PROVIDER_UNAVAILABLE,
         TransferErrorCode.CONNECTION_TIMEOUT,
     }
+
+
+class _CursorStub:
+    rowcount = 1
+
+    def __init__(self, *, fail_execute: bool = False) -> None:
+        self.fail_execute = fail_execute
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, *_args, **_kwargs) -> None:
+        if self.fail_execute:
+            raise psycopg.ProgrammingError("forced DDL failure")
+
+
+class _ConnectionStub:
+    def __init__(self, *, fail_execute: bool = False, fail_commit: bool = False) -> None:
+        self.fail_execute = fail_execute
+        self.fail_commit = fail_commit
+        self.rolled_back = False
+        self.closed = False
+
+    def cursor(self):
+        return _CursorStub(fail_execute=self.fail_execute)
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+    def commit(self) -> None:
+        if self.fail_commit:
+            raise psycopg.OperationalError("commit acknowledgement lost")
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_postgres_prepare_failure_rolls_back_and_closes(monkeypatch) -> None:
+    connection = _ConnectionStub(fail_execute=True)
+    monkeypatch.setattr("app.connectors.postgres.connect", lambda *_args, **_kwargs: connection)
+    connector = PostgresConnector(connector_settings())
+    locator = postgres_table("public", "events")
+
+    with pytest.raises(psycopg.ProgrammingError):
+        connector.prepare_destination(
+            {}, locator, _schema(locator), PostgresAppendPolicy(), run_id="prepare-failure"
+        )
+
+    assert connection.rolled_back is True
+    assert connection.closed is True
+    assert connector._load_conn is None
+
+
+def test_postgres_commit_acknowledgement_loss_requires_reconciliation() -> None:
+    connection = _ConnectionStub(fail_commit=True)
+    connector = PostgresConnector(connector_settings())
+    connector._load_conn = connection  # type: ignore[assignment]
+    locator = postgres_table("public", "events")
+    session = LoadSession(
+        locator=locator,
+        write_policy=PostgresAppendPolicy(),
+        staging_name="dm_stage_commit",
+        columns=("event_id",),
+    )
+
+    with pytest.raises(ConnectorError) as excinfo:
+        connector.finalize(session)
+
+    assert excinfo.value.code == TransferErrorCode.PUBLISH_UNCERTAIN
+    assert connection.closed is True
+    assert connector._load_conn is None

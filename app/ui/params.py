@@ -59,6 +59,7 @@ PipelineSourceProviderForm = Annotated[Literal["mss", "mcscop", "postgres", "csv
 PipelineSchemaForm = Annotated[str, Form(min_length=1, max_length=80)]
 PipelineTableForm = Annotated[str, Form(min_length=1, max_length=80)]
 PipelineOptionalTableForm = Annotated[str, Form(max_length=80)]
+PipelineConflictColumnsForm = Annotated[str, Form(max_length=1000)]
 PipelineWriteModeForm = Annotated[Literal["upsert", "append", "replace"], Form()]
 ThemeNameForm = Annotated[str, Form(max_length=64)]
 DarkModeForm = Annotated[bool, Form()]

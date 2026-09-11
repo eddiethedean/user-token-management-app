@@ -30,8 +30,10 @@ No. Data Mover encrypts complete credential bundles at rest and provides replace
 plaintext reveal. Deleting Data Mover's copy does not revoke the credential at its provider.
 
 **What does connection “Connected” mean?**
-The latest connector health check succeeded. In demo mode that handshake is local. In real mode it
-is a live PostgreSQL or Foundry call.
+In real mode, the latest live PostgreSQL or Foundry health check succeeded. In demo mode it means
+only that the saved fields are ready for the process-local emulator; the message explicitly says no
+network request occurred. Demo status never proves that a hostname is reachable or a credential is
+valid. Foundry without a default dataset RID remains **Untested**.
 
 **How do I wake Databricks?**
 Advana/Databricks is not a first-class provider in this release. There is no wake action.

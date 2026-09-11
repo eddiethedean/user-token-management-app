@@ -158,9 +158,9 @@ def save_pipeline(
         if write_mode == "upsert":
             columns = [item.strip() for item in conflict_columns.split(",") if item.strip()]
             if not columns:
-                columns = ["event_id"] if source_provider != "postgres" else [source_object]
-                # Prefer an explicit column; default to first identifier-like token.
-                columns = [item for item in columns if _NEW_TABLE_PATTERN.fullmatch(item)] or ["id"]
+                raise ValueError(
+                    "The selected PostgreSQL table needs a primary or unique key for upsert."
+                )
             write_policy = PostgresUpsertPolicy(
                 conflict_columns=columns, action="ignore" if upsert_action != "update" else "update"
             )
@@ -216,7 +216,7 @@ def save_pipeline(
     pipeline.destination_table = final_destination_table
     pipeline.destination_create = destination_create
     pipeline.write_mode = write_mode
-    pipeline.definition_version = 2
+    pipeline.definition_version = 3
     pipeline.source_locator_json = source_locator.model_dump_json(by_alias=True)
     pipeline.destination_locator_json = destination_locator.model_dump_json(by_alias=True)
     pipeline.write_policy_json = write_policy.model_dump_json()

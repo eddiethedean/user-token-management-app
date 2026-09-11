@@ -104,7 +104,7 @@ flowchart LR
     S --> V[Save validation]
     D --> V
     W --> V
-    V -->|valid| PD[(Pipeline definition v2)]
+    V -->|valid| PD[(Pipeline definition v3)]
     V -->|invalid| E[Field or route error]
     PD --> A[(Audit event)]
 ```
@@ -116,8 +116,10 @@ normalizes and validates the submitted route, including:
 2. supported source-to-destination pairing from the connector registry;
 3. a connected credential slot for each remote provider;
 4. ownership and checksum metadata for a CSV upload, when used;
-5. provider-specific locator syntax and destination naming; and
-6. a write policy supported by the destination.
+5. provider-specific locator syntax, the Foundry branch bound to the validated connection, and
+   destination naming;
+6. a write policy supported by the destination; and
+7. the actual PostgreSQL primary key when upsert is selected.
 
 The service then creates or updates an owner-scoped `pipeline_definitions` row and records a
 sanitized `pipeline.created` or `pipeline.updated` audit event. Schema and row-count previews help
@@ -127,9 +129,10 @@ frozen copy of previewed records.
 ## Current state: running a pipeline
 
 Starting a run and executing the transfer are separate transactions. The request reloads the saved
-definition with an ownership check, converts it to a typed, immutable snapshot, creates a durable
-queued run, and returns. A response-attached task normally starts the run promptly; the in-process
-supervisor also recovers queued or expired work after a restart.
+definition with an ownership check, converts it to a typed, immutable snapshot, rechecks the route
+allowlist, creates a durable queued run, and returns. Concurrent submissions with the same
+owner-scoped idempotency token resolve to one run. A response-attached task normally starts the run
+promptly; the in-process supervisor also recovers queued or expired work after a restart.
 
 ```mermaid
 flowchart TD
@@ -153,7 +156,8 @@ flowchart TD
 
 The persisted run snapshot isolates a run from later edits to the reusable definition. Run events,
 status, row and byte counters, manifests, and sanitized failures remain in the application database;
-the browser only polls those persisted facts.
+the browser only polls those persisted facts. Event numbers are allocated atomically on the run row,
+so worker and cancellation transactions cannot publish the same sequence.
 
 ### Execution stages
 
@@ -173,12 +177,16 @@ in-memory object. Cancellation is checked at safe boundaries. An expired lease b
 writes can be requeued; a lost lease during load or verification is treated as an uncertain
 destination and requires reconciliation rather than a blind retry.
 
+Foundry catalog and extraction requests follow every provider page. Listings are bounded at 1,000
+pages and 100,000 files; exceeding either limit fails explicitly rather than silently transferring a
+partial dataset.
+
 PostgreSQL replacement keeps destination preparation, staged COPY, and the final drop/rename in one
 database transaction. Until finalization commits, the live destination remains intact; abort or a
 closed/crashed connection rolls the staging work back. After any connector reports a successful
 destination commit, a later failure to persist final run state is converted to `publish_uncertain`
-and requires reconciliation. Foundry timeouts during the preview upload use the same conservative
-outcome because the remote publish result cannot be proven.
+and requires reconciliation. A lost PostgreSQL commit acknowledgement and a Foundry timeout during
+preview upload use the same conservative outcome because the remote publish result cannot be proven.
 
 ### What “validation” means today
 
@@ -335,7 +343,7 @@ This design expands the acceptance criteria recorded under **DM-6 — schedule a
 The future diagrams establish boundaries, not every product policy. Implementation still requires:
 
 - selection and approval of an ETL framework package/version and supported extras;
-- a versioning and migration contract for existing version 2 definitions;
+- a versioning and migration contract for the existing saved definitions when graph plans arrive;
 - a precise transformation allowlist, expression syntax, and schema-propagation rules;
 - validation severity, threshold, sampling, and eventual quarantine semantics;
 - deterministic behavior and resource limits for operations such as sort, join, and deduplication;
