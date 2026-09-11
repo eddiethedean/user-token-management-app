@@ -186,15 +186,16 @@ def execute_transfer(
                 pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
                 return
             frame = first_batch.frame
-            schema = ObjectSchema(
-                locator=snapshot.source,
-                columns=tuple(
-                    ColumnSchema(name=name, data_type=str(dtype), nullable=True)
-                    for name, dtype in frame.schema.items()
-                ),
-                primary_key=source_schema.primary_key,
-                unique_constraints=source_schema.unique_constraints,
-            )
+            if not source_schema.columns:
+                schema = ObjectSchema(
+                    locator=snapshot.source,
+                    columns=tuple(
+                        ColumnSchema(name=name, data_type=str(dtype), nullable=True)
+                        for name, dtype in frame.schema.items()
+                    ),
+                    primary_key=source_schema.primary_key,
+                    unique_constraints=source_schema.unique_constraints,
+                )
 
         destination_schema_before = _validate_upsert_policy(
             destination,

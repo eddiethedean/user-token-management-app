@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from app.connectors.errors import ConnectorError, TransferErrorCode
-from app.connectors.postgres import _ident, _pg_type
+from app.connectors.postgres import _ident, _pg_type, _polars_type
 
 
 def test_postgres_identifiers_reject_injection() -> None:
@@ -24,4 +24,9 @@ def test_postgres_type_mapping_covers_common_polars_names() -> None:
     assert _pg_type("Boolean") == "BOOLEAN"
     assert _pg_type("mystery") == "TEXT"
     assert _pg_type("Decimal(precision=20, scale=4)") == "NUMERIC(20, 4)"
+    assert _pg_type("Decimal(precision=38, scale=None)") == "NUMERIC"
     assert _pg_type("numeric") == "NUMERIC"
+    assert (
+        str(_polars_type("timestamp without time zone"))
+        == "Datetime(time_unit='us', time_zone=None)"
+    )

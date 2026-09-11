@@ -2586,7 +2586,6 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
             headers={"Cache-Control": "no-store"},
         )
 
-
     @app.action(
         "/pipeline/csv/inspect",
         fragment_regions=(CSV_INSPECTION, CSV_UPLOAD_STATE, TOAST_HOST),
@@ -2721,50 +2720,73 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Select an approved source and destination route.",
             )
-        catalog_access = UserCatalog(db, settings, auth.user, request=request)
         if source_provider != "csv":
-            source_schema, source_table = _normalized_selection(
-                catalog_access, source_provider, source_schema, source_table
+            source_schema, source_table = await asyncio.to_thread(
+                _with_user_catalog,
+                settings,
+                auth.user.id,
+                request,
+                lambda catalog: _normalized_selection(
+                    catalog, source_provider, source_schema, source_table
+                ),
             )
         if destination_provider:
-            destination_schema, destination_table = _normalized_selection(
-                catalog_access,
-                destination_provider,
-                destination_schema,
-                destination_table,
-                preserve_create=True,
+            destination_schema, destination_table = await asyncio.to_thread(
+                _with_user_catalog,
+                settings,
+                auth.user.id,
+                request,
+                lambda catalog: _normalized_selection(
+                    catalog,
+                    destination_provider,
+                    destination_schema,
+                    destination_table,
+                    preserve_create=True,
+                ),
             )
-        preview_fragment = _pipeline_preview_fragment(
-            request=request,
-            catalog_access=catalog_access,
-            source_provider=source_provider,
-            source_schema=source_schema,
-            source_table=source_table,
-            target_provider=destination_provider,
-            target_schema=destination_schema,
-            target_table=destination_table,
-            destination_table_new=destination_table_new,
-            source_upload_id=source_upload_id,
-            write_mode=write_mode,
-            conflict_columns=conflict_columns,
-            csv_inspection=csv_inspection,
-            csv_upload=csv_upload,
-            connections=connections,
+        preview_fragment = await asyncio.to_thread(
+            _with_user_catalog,
+            settings,
+            auth.user.id,
+            request,
+            lambda catalog: _pipeline_preview_fragment(
+                request=request,
+                catalog_access=catalog,
+                source_provider=source_provider,
+                source_schema=source_schema,
+                source_table=source_table,
+                target_provider=destination_provider,
+                target_schema=destination_schema,
+                target_table=destination_table,
+                destination_table_new=destination_table_new,
+                source_upload_id=source_upload_id,
+                write_mode=write_mode,
+                conflict_columns=conflict_columns,
+                csv_inspection=csv_inspection,
+                csv_upload=csv_upload,
+                connections=connections,
+            ),
         )
         source_object = source_table
         destination_object = _committed_new_table_name(destination_table_new) or destination_table
         if destination_table == CREATE_TABLE_VALUE:
             destination_object = _committed_new_table_name(destination_table_new) or "new_table"
-        schema_preview = _pipeline_schema_preview_panel(
-            catalog_access=catalog_access,
-            source_provider=source_provider,
-            source_schema=source_schema,
-            source_object=source_object,
-            destination_provider=destination_provider,
-            destination_schema=destination_schema,
-            destination_object=destination_object,
-            destination_create=destination_table == CREATE_TABLE_VALUE,
-            csv_inspection=csv_inspection if csv_upload is not None else None,
+        schema_preview = await asyncio.to_thread(
+            _with_user_catalog,
+            settings,
+            auth.user.id,
+            request,
+            lambda catalog: _pipeline_schema_preview_panel(
+                catalog_access=catalog,
+                source_provider=source_provider,
+                source_schema=source_schema,
+                source_object=source_object,
+                destination_provider=destination_provider,
+                destination_schema=destination_schema,
+                destination_object=destination_object,
+                destination_create=destination_table == CREATE_TABLE_VALUE,
+                csv_inspection=csv_inspection if csv_upload is not None else None,
+            ),
         )
         source_catalog = (
             CSV_SOURCE_CATALOG
@@ -2892,14 +2914,19 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
     ) -> Response:
         catalog = require_catalog_provider(destination_provider)
         try:
-            created = create_foundry_dataset(
-                db,
+            created = await asyncio.to_thread(
+                _with_user_session,
                 settings,
-                user=auth.user,
-                provider=destination_provider,
-                parent_folder_rid=parent_folder_rid,
-                name=dataset_name,
-                request=request,
+                auth.user.id,
+                lambda thread_db, user: create_foundry_dataset(
+                    thread_db,
+                    settings,
+                    user=user,
+                    provider=destination_provider,
+                    parent_folder_rid=parent_folder_rid,
+                    name=dataset_name,
+                    request=request,
+                ),
             )
         except (ConnectorError, ValueError) as exc:
             return await interaction_response(
@@ -2911,12 +2938,17 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 ),
             )
 
-        catalog_access = UserCatalog(db, settings, auth.user, request=request)
         namespace_select = html.select(
-            *_schema_options(
-                catalog_access,
-                destination_provider,
-                preferred_schema=created.dataset_rid,
+            *await asyncio.to_thread(
+                _with_user_catalog,
+                settings,
+                auth.user.id,
+                request,
+                lambda catalog_access: _schema_options(
+                    catalog_access,
+                    destination_provider,
+                    preferred_schema=created.dataset_rid,
+                ),
             ),
             id="pipeline-target-schema-select",
             name="destination_schema",
@@ -2932,13 +2964,19 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
             ),
         )
         file_select = html.select(
-            *_table_options(
-                catalog_access,
-                destination_provider,
-                created.dataset_rid,
-                allow_create=True,
-                preferred_table=CREATE_TABLE_VALUE,
-                create_label="file",
+            *await asyncio.to_thread(
+                _with_user_catalog,
+                settings,
+                auth.user.id,
+                request,
+                lambda catalog_access: _table_options(
+                    catalog_access,
+                    destination_provider,
+                    created.dataset_rid,
+                    allow_create=True,
+                    preferred_table=CREATE_TABLE_VALUE,
+                    create_label="file",
+                ),
             ),
             id="pipeline-target-table-select",
             name="destination_table",
@@ -2995,67 +3033,24 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
         source_upload_id: PipelineIdForm = "",
         pipeline_id: PipelineIdForm = "",
     ) -> Response:
-        available_providers = {
-            provider.name
-            for provider, secret in list_user_secrets(db, auth.user)
-            if secret is not None and secret.validation_status == "connected"
-        }
         try:
-            catalog_access = UserCatalog(db, settings, auth.user, request=request)
-            source_branch = (
-                catalog_access.default_branch(source_provider)
-                if source_provider != "csv" and source_provider in available_providers
-                else ""
-            )
-            destination_branch = (
-                catalog_access.branch_for_namespace(destination_provider, destination_schema)
-                if destination_provider in available_providers
-                else ""
-            )
-            if (
-                destination_provider == "postgres"
-                and destination_provider in available_providers
-                and write_mode == "upsert"
-            ):
-                if destination_table == CREATE_TABLE_VALUE:
-                    raise ValueError("Create the PostgreSQL table before configuring an upsert.")
-                destination_schema_details = catalog_access.inspect_object(
-                    "postgres", postgres_table(destination_schema, destination_table)
-                )
-                eligible_keys = {
-                    tuple(destination_schema_details.primary_key),
-                    *map(tuple, destination_schema_details.unique_constraints),
-                }
-                eligible_keys.discard(())
-                selected_key = tuple(
-                    item.strip() for item in conflict_columns.split(",") if item.strip()
-                )
-                if not selected_key and destination_schema_details.primary_key:
-                    selected_key = tuple(destination_schema_details.primary_key)
-                if not selected_key or selected_key not in eligible_keys:
-                    raise ValueError(
-                        "Select a current primary or unique key for the PostgreSQL upsert."
-                    )
-                conflict_columns = ",".join(selected_key)
-            saved_pipeline = save_pipeline(
-                db,
-                user=auth.user,
-                name=pipeline_name,
-                source_provider=source_provider,
-                source_schema=source_schema,
-                source_table=source_table,
-                source_branch=source_branch,
-                destination_provider=destination_provider,
-                destination_schema=destination_schema,
-                destination_table=destination_table,
-                destination_branch=destination_branch,
-                destination_table_new=destination_table_new,
-                source_upload_id=source_upload_id,
-                write_mode=write_mode,
-                conflict_columns=conflict_columns,
-                available_providers=available_providers,
-                pipeline_id=pipeline_id,
-                request=request,
+            saved_pipeline_id = await asyncio.to_thread(
+                _save_pipeline_in_thread,
+                settings,
+                auth.user.id,
+                request,
+                pipeline_name,
+                source_provider,
+                source_schema,
+                source_table,
+                destination_provider,
+                destination_schema,
+                destination_table,
+                write_mode,
+                destination_table_new,
+                conflict_columns,
+                source_upload_id,
+                pipeline_id,
             )
         except (ConnectorError, ValueError) as exc:
             raise HTTPException(
@@ -3064,7 +3059,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
         return RedirectResponse(
             redirect_path(
                 request,
-                f"/pipeline?notice=saved&pipeline_id={saved_pipeline.id}",
+                f"/pipeline?notice=saved&pipeline_id={saved_pipeline_id}",
             ),
             status_code=status.HTTP_303_SEE_OTHER,
         )
@@ -3305,6 +3300,109 @@ def _pipeline_body_in_thread(
             run_monitor=run_monitor,
             demo_mode=demo_mode,
         )
+
+
+def _with_user_session(settings, user_id, operation):
+    """Run synchronous pipeline work with a session created in the calling thread."""
+
+    with SessionLocal() as db:
+        user = db.get(User, user_id)
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        return operation(db, user)
+
+
+def _with_user_catalog(settings, user_id, request, operation):
+    return _with_user_session(
+        settings,
+        user_id,
+        lambda db, user: operation(UserCatalog(db, settings, user, request=request)),
+    )
+
+
+def _save_pipeline_in_thread(
+    settings,
+    user_id,
+    request,
+    pipeline_name,
+    source_provider,
+    source_schema,
+    source_table,
+    destination_provider,
+    destination_schema,
+    destination_table,
+    write_mode,
+    destination_table_new,
+    conflict_columns,
+    source_upload_id,
+    pipeline_id,
+):
+    def save(thread_db, user):
+        available_providers = {
+            provider.name
+            for provider, secret in list_user_secrets(thread_db, user)
+            if secret is not None and secret.validation_status == "connected"
+        }
+        catalog_access = UserCatalog(thread_db, settings, user, request=request)
+        source_branch = (
+            catalog_access.default_branch(source_provider)
+            if source_provider != "csv" and source_provider in available_providers
+            else ""
+        )
+        destination_branch = (
+            catalog_access.branch_for_namespace(destination_provider, destination_schema)
+            if destination_provider in available_providers
+            else ""
+        )
+        selected_conflict_columns = conflict_columns
+        if (
+            destination_provider == "postgres"
+            and destination_provider in available_providers
+            and write_mode == "upsert"
+        ):
+            if destination_table == CREATE_TABLE_VALUE:
+                raise ValueError("Create the PostgreSQL table before configuring an upsert.")
+            destination_schema_details = catalog_access.inspect_object(
+                "postgres", postgres_table(destination_schema, destination_table)
+            )
+            eligible_keys = {
+                tuple(destination_schema_details.primary_key),
+                *map(tuple, destination_schema_details.unique_constraints),
+            }
+            eligible_keys.discard(())
+            selected_key = tuple(
+                item.strip() for item in conflict_columns.split(",") if item.strip()
+            )
+            if not selected_key and destination_schema_details.primary_key:
+                selected_key = tuple(destination_schema_details.primary_key)
+            if not selected_key or selected_key not in eligible_keys:
+                raise ValueError(
+                    "Select a current primary or unique key for the PostgreSQL upsert."
+                )
+            selected_conflict_columns = ",".join(selected_key)
+        saved_pipeline = save_pipeline(
+            thread_db,
+            user=user,
+            name=pipeline_name,
+            source_provider=source_provider,
+            source_schema=source_schema,
+            source_table=source_table,
+            source_branch=source_branch,
+            destination_provider=destination_provider,
+            destination_schema=destination_schema,
+            destination_table=destination_table,
+            destination_branch=destination_branch,
+            destination_table_new=destination_table_new,
+            source_upload_id=source_upload_id,
+            write_mode=write_mode,
+            conflict_columns=selected_conflict_columns,
+            available_providers=available_providers,
+            pipeline_id=pipeline_id,
+            request=request,
+        )
+        return saved_pipeline.id
+
+    return _with_user_session(settings, user_id, save)
 
 
 def _run_status_toasts(run):

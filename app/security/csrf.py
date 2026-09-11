@@ -40,8 +40,10 @@ def validate_preauth_csrf(
     *,
     now: int | None = None,
 ) -> bool:
-    if not submitted or not cookie_value or not hmac.compare_digest(
-        submitted.encode("utf-8"), cookie_value.encode("utf-8")
+    if (
+        not submitted
+        or not cookie_value
+        or not hmac.compare_digest(submitted.encode("utf-8"), cookie_value.encode("utf-8"))
     ):
         return False
     try:

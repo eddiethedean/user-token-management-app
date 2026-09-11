@@ -266,6 +266,7 @@ def test_foundry_writer_publishes_typed_empty_schema(foundry_sim, tmp_path) -> N
     session = connector.prepare_destination(
         credentials, locator, schema, FoundryReplaceFilePolicy(), run_id="empty-run"
     )
+    assert not Path(session.staging_name).exists()
 
     manifest = connector.finalize(session)
 

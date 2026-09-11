@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -203,7 +204,8 @@ def _credentials_for(db, settings, *, user, provider, snapshot) -> dict[str, str
         return {
             "content": upload.content.decode("utf-8") if isinstance(upload.content, bytes) else "",
             "delimiter": inspection.delimiter,
-            "columns": [column.name for column in inspection.columns],
+            "columns": json.dumps([column.name for column in inspection.columns]),
+            "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
         }
     return decrypt_user_credentials_for_run(db, settings, user=user, provider=provider)
 

@@ -321,9 +321,7 @@ class PostgresConnector:
             )
         schema = self.inspect_object(credentials, locator)
         names = [column.name for column in schema.columns]
-        polars_schema = {
-            column.name: _polars_type(column.data_type) for column in schema.columns
-        }
+        polars_schema = {column.name: _polars_type(column.data_type) for column in schema.columns}
         conn = connect(credentials, self.settings)
         try:
             conn.autocommit = False
@@ -401,7 +399,9 @@ class PostgresConnector:
                         )
                     )
                     cursor.execute(
-                        sql.SQL("CREATE TABLE {} (LIKE {} INCLUDING DEFAULTS INCLUDING GENERATED)").format(
+                        sql.SQL(
+                            "CREATE TABLE {} (LIKE {} INCLUDING DEFAULTS INCLUDING GENERATED)"
+                        ).format(
                             sql.Identifier(locator.schema_name, staging),
                             sql.Identifier(locator.schema_name, locator.table),
                         )
@@ -510,9 +510,9 @@ class PostgresConnector:
                     )
                 if policy.action == "ignore":
                     cursor.execute(
-                        sql.SQL(
-                            "INSERT INTO {} ({}) {} ON CONFLICT ({}) DO NOTHING"
-                        ).format(dest, columns, source, conflict)
+                        sql.SQL("INSERT INTO {} ({}) {} ON CONFLICT ({}) DO NOTHING").format(
+                            dest, columns, source, conflict
+                        )
                     )
                 else:
                     update_columns = [
@@ -533,9 +533,9 @@ class PostgresConnector:
                         # has nothing to update. PostgreSQL rejects an empty
                         # SET clause, so treat it as an idempotent no-op.
                         cursor.execute(
-                            sql.SQL(
-                                "INSERT INTO {} ({}) {} ON CONFLICT ({}) DO NOTHING"
-                            ).format(dest, columns, source, conflict)
+                            sql.SQL("INSERT INTO {} ({}) {} ON CONFLICT ({}) DO NOTHING").format(
+                                dest, columns, source, conflict
+                            )
                         )
                 loaded = cursor.rowcount
             elif isinstance(policy, PostgresReplacePolicy) and policy.schema_policy == "recreate":
@@ -612,8 +612,8 @@ def _pg_type(data_type: str) -> str:
         scale_text = decimal.group("scale")
         return (
             f"NUMERIC({precision}, {int(scale_text)})"
-            if scale_text != "None"
-            else f"NUMERIC({precision})"
+            if scale_text.casefold() != "none"
+            else "NUMERIC"
         )
     for dtype, mapped in _POLARS_TO_PG.items():
         if str(dtype).casefold() == folded:
@@ -628,12 +628,14 @@ def _pg_type(data_type: str) -> str:
         return "BOOLEAN"
     if folded in {"date"}:
         return "DATE"
-    if "time" in folded:
+    if folded.startswith("timestamp"):
         return "TIMESTAMP"
+    if folded.startswith("time"):
+        return "TIME"
     return "TEXT"
 
 
-def _polars_type(data_type: str) -> pl.DataType:
+def _polars_type(data_type: str):
     """Return a stable Polars dtype so all-null batches keep their schema."""
 
     folded = data_type.casefold()
@@ -651,17 +653,17 @@ def _polars_type(data_type: str) -> pl.DataType:
         return pl.Boolean
     if folded == "date":
         return pl.Date
-    if folded.startswith("time"):
-        return pl.Time
     if folded.startswith("timestamp"):
         return pl.Datetime("us")
+    if folded.startswith("time"):
+        return pl.Time
     if folded == "bytea":
         return pl.Binary
     decimal = _DECIMAL.fullmatch(folded)
     if decimal:
         precision = min(38, int(decimal.group("precision")))
         scale_text = decimal.group("scale")
-        if scale_text != "None":
+        if scale_text.casefold() != "none":
             return pl.Decimal(precision=precision, scale=min(precision, int(scale_text)))
     return pl.String
 

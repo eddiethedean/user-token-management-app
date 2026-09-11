@@ -45,7 +45,7 @@ MAX_FOUNDRY_CATALOG_PAGES = 1_000
 MAX_FOUNDRY_CATALOG_FILES = 100_000
 
 
-def _polars_dtype(data_type: str) -> pl.DataType:
+def _polars_dtype(data_type: str):
     folded = data_type.casefold()
     if "bool" in folded:
         return pl.Boolean
@@ -55,16 +55,16 @@ def _polars_dtype(data_type: str) -> pl.DataType:
         return pl.Float64
     if folded == "date":
         return pl.Date
-    if folded.startswith("time"):
-        return pl.Time
     if folded.startswith("datetime") or folded.startswith("timestamp"):
         return pl.Datetime("us")
+    if folded.startswith("time"):
+        return pl.Time
     decimal = re.search(r"precision=(\d+),\s*scale=(\d+)", folded)
     if decimal:
         precision = min(38, int(decimal.group(1)))
         return pl.Decimal(precision=precision, scale=min(precision, int(decimal.group(2))))
     if "decimal" in folded or "numeric" in folded:
-        return pl.Decimal(precision=38, scale=18)
+        return pl.String
     if "binary" in folded or "bytea" in folded:
         return pl.Binary
     return pl.String
@@ -712,19 +712,21 @@ class FoundryConnector:
         spool = spool_root / f"{run_id}.snappy.parquet"
         chunk_root = spool_root / f"{run_id}.chunks"
         chunk_root.mkdir(exist_ok=True)
-        # Materialize a typed empty Parquet file up front. This gives a valid
-        # replacement even when the source has a schema but yields no rows.
-        if schema.columns:
-            empty = pl.DataFrame(
-                schema={column.name: _polars_dtype(column.data_type) for column in schema.columns}
-            )
-            empty.write_parquet(spool, compression="snappy")
         return LoadSession(
             locator=locator,
             write_policy=write_policy,
             staging_name=str(spool),
             columns=tuple(column.name for column in schema.columns),
-            metadata={"chunk_root": str(chunk_root)},
+            metadata={
+                "chunk_root": str(chunk_root),
+                "schema": json.dumps(
+                    [
+                        {"name": column.name, "data_type": column.data_type}
+                        for column in schema.columns
+                    ],
+                    separators=(",", ":"),
+                ),
+            },
         )
 
     def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
@@ -781,6 +783,19 @@ class FoundryConnector:
                     pl.concat(
                         [pl.scan_parquet(chunk) for chunk in chunks], how="vertical_relaxed"
                     ).sink_parquet(path, compression="snappy")
+            if not path.exists():
+                try:
+                    stored_schema = json.loads(load_session.metadata.get("schema", "[]"))
+                except (TypeError, ValueError):
+                    stored_schema = []
+                if stored_schema:
+                    empty = pl.DataFrame(
+                        schema={
+                            str(column["name"]): _polars_dtype(str(column["data_type"]))
+                            for column in stored_schema
+                        }
+                    )
+                    empty.write_parquet(path, compression="snappy")
             if not path.exists():
                 raise ConnectorError(
                     TransferErrorCode.PARTIAL_WRITE, "No Parquet spool was produced."
