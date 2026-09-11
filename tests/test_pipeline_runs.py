@@ -219,7 +219,7 @@ def test_lease_renewal_is_atomic_and_stale_identity_map_is_rejected(access_app) 
             )
 
 
-def test_active_run_monitor_exposes_cancel_control(client, demo_connections) -> None:
+def test_active_run_monitor_exposes_cancel_control(client, demo_connections, monkeypatch) -> None:
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
     saved = client.post(
@@ -247,6 +247,16 @@ def test_active_run_monitor_exposes_cancel_control(client, demo_connections) -> 
             db, user=user, pipeline=pipeline, snapshot=snapshot_from_definition(pipeline)
         )
         run_id = run.id
+    from app.ui.routes import pipeline as pipeline_routes
+
+    real_events_after = pipeline_routes.events_after
+    event_queries: list[int] = []
+
+    def counted_events_after(db, *, run, after_sequence=0):
+        event_queries.append(after_sequence)
+        return real_events_after(db, run=run, after_sequence=after_sequence)
+
+    monkeypatch.setattr(pipeline_routes, "events_after", counted_events_after)
     response = client.get(
         f"/pipeline/runs/{run_id}/status",
         headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor"},
@@ -255,6 +265,12 @@ def test_active_run_monitor_exposes_cancel_control(client, demo_connections) -> 
     assert "Cancel run" in response.text
     assert f'hx-post="/pipeline/runs/{run_id}/cancel"' in response.text
     assert 'data-hedron-action-phase="pending"' in response.text
+    assert f'hx-get="/pipeline/runs/{run_id}/status"' in response.text
+    assert event_queries == [0]
+
+    direct = client.get(f"/pipeline/runs/{run_id}/status")
+    assert direct.status_code == 303
+    assert direct.headers["location"] == f"/pipeline?run_id={run_id}"
 
 
 def test_reconciliation_review_is_recorded_without_clearing_safety_state(access_app) -> None:

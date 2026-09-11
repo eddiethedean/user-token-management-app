@@ -9,7 +9,7 @@ subsystems.
 
 | Hedron capability | Data Mover use |
 |---|---|
-| Page/action/view routing | Browser GETs use `@app.page`, mutations use `@app.action`, and multi-region interaction endpoints use `HedronRouter.view` with explicit target allowlists. |
+| Page/action/view routing | Navigable browser GETs use `@app.page`, mutations use `@app.action`, and fragment-only GETs use `HedronRouter.view` with explicit target allowlists and full-page redirect fallbacks. |
 | Typed UI primitives | Forms, fields, CSRF fields, inputs, tables, tabs, dialogs, alerts, badges, pagination, loading states, and errors are Hedron components. |
 | HTMX interactions | `InteractionResult`, declared `FragmentRegion` values, target authorization, OOB updates, push URLs, indicators, lazy loading, and refresh controls. |
 | Polling + long-running run UX | Pipeline monitor responses now emit Hedron-safe `hx-` polling hints (`hx-get`/`hx-trigger`) so live updates use declarative HTMX cycles instead of ad-hoc polling clients. |
@@ -175,9 +175,10 @@ The 0.60 beginner facades were evaluated against Data Mover's existing authoriti
 - `page`, `view`, and `action` are the canonical 1.0 route roles; the
   current routes intentionally remain explicit because they return custom responses, use multiple
   application-owned dependencies, or expose closed HTMX target policies.
-- The two multi-region interaction endpoints use `HedronRouter.view` rather than the composable
-  `@app.view` facade: security activity and audit results each authorize multiple regions,
-  emit OOB updates, and retain application-owned error/redirect handling.
+- Fragment-only interaction endpoints use `HedronRouter.view` rather than the composable
+  `@app.view` facade. Security activity and audit results authorize multiple regions and retain
+  application-owned error/redirect handling; pipeline run status is a single-region polling view
+  that redirects ordinary browser requests back to the complete pipeline page.
 - `SessionAuthFlow` is not enabled because refresh-session rotation, revocation, pre-auth CSRF,
   and security-version invalidation are application-owned security boundaries.
 - `UploadFlow` is not enabled because CSV uploads are persisted, inspected, and associated with
@@ -236,8 +237,9 @@ HTML.
 4. Exercise sign-in, Pipeline, Connections credentials/status, CSV inspection, saved pipelines,
    main-panel navigation, tabs, dialogs, lazy regions, OOB toasts, and browser back/forward behavior
    at wide and medium desktop widths in both light and dark modes, with no console errors.
-5. Verify that `app.js` remains limited to application-owned progressive enhancement (dialog close
-   and navigation affordances); Hedron owns HTMX loading, history, and lazy-region behavior.
+5. Verify that `app.js` remains limited to application-owned progressive enhancement (navigation,
+   optimistic color-mode feedback, pipeline field visibility, and transfer-tab selection); Hedron
+   owns HTMX loading, history, lazy-region behavior, and toast lifecycle.
 
 The normal `make check` target also runs `make posit-check`, which evaluates HedronPosit's
 root, Workbench, proxy, Connect, and external-base deployment matrix without requiring a live

@@ -81,7 +81,7 @@ def register_routes(app: Hedron) -> None:
         return response
 
     register_auth_routes(app)
-    register_pipeline_routes(app)
+    register_pipeline_routes(app, fragment_router)
     register_profile_routes(app)
     register_security_routes(app, fragment_router)
     register_admin_routes(app, fragment_router)

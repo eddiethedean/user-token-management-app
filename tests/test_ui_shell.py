@@ -771,12 +771,27 @@ def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
         route for route in get_registry().routes() if route.module.startswith("app.ui.routes")
     ]
     assert Counter(route.kind for route in routes) == {
-        "page": 13,
+        "page": 12,
         "action": 27,
-        "view": 2,
+        "view": 3,
     }
     assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)
     assert all("csrf" in route.htmx_inference for route in routes if route.kind == "action")
+
+
+def test_every_unsafe_ui_route_declares_an_application_csrf_boundary(access_app) -> None:
+    """Keep Hedron's disabled CSRF middleware from becoming an unguarded route."""
+    import inspect
+
+    protected_parameter_names = {"_csrf", "preauth_csrf_token", "token"}
+    missing: list[str] = []
+    for route in access_app.routes:
+        if "POST" not in getattr(route, "methods", set()):
+            continue
+        parameters = set(inspect.signature(route.endpoint).parameters)
+        if parameters.isdisjoint(protected_parameter_names):
+            missing.append(route.path)
+    assert missing == []
 
 
 def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:

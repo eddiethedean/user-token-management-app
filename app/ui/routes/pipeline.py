@@ -29,7 +29,9 @@ from hedron import (
     FormGrid,
     Grid,
     Hedron,
+    HedronRouter,
     Inline,
+    InteractionResult,
     Metric,
     OobUpdate,
     OperationIdentity,
@@ -2489,7 +2491,7 @@ def _pipeline_body(
     ]
 
 
-def register_pipeline_routes(app: Hedron) -> None:
+def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None:
     @app.page(
         "/pipeline",
         fragment_regions=(MAIN_PANEL, SIDE_NAV),
@@ -3102,11 +3104,18 @@ def register_pipeline_routes(app: Hedron) -> None:
                 getattr(request.app.state, "pipeline_stop_event", None),
             )
         if is_htmx_request(request):
-            action_state, action_trace = _run_action_metadata(db, run)
+            run_events = events_after(db, run=run, after_sequence=0)
+            action_state, action_trace = _run_action_metadata(run, run_events)
             response = await interaction_response(
                 request,
                 ok_fragment(
-                    _run_status_fragment(request, db, run, csrf_token=auth.session.csrf_token),
+                    _run_status_fragment(
+                        request,
+                        db,
+                        run,
+                        csrf_token=auth.session.csrf_token,
+                        events=run_events,
+                    ),
                     status_code=status.HTTP_202_ACCEPTED,
                     action_state=action_state,
                     action_trace=action_trace,
@@ -3150,7 +3159,7 @@ def register_pipeline_routes(app: Hedron) -> None:
             idempotency_token=idempotency_token,
         )
 
-    @app.page(
+    @fragment_router.view(
         "/pipeline/runs/{run_id}/status",
         fragment_regions=(PIPELINE_RUN_MONITOR,),
         include_in_schema=False,
@@ -3160,27 +3169,30 @@ def register_pipeline_routes(app: Hedron) -> None:
         auth: Auth,
         db: DbSession,
         run_id: str,
-        after_sequence: int = 0,
-    ) -> Response:
+    ) -> Response | InteractionResult:
+        request.state.hedron_authenticated = True
         try:
             run = owned_run(db, user=auth.user, run_id=run_id)
         except LookupError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        action_state, action_trace = _run_action_metadata(db, run)
-        return await interaction_response(
-            request,
-            ok_fragment(
-                _run_status_fragment(
-                    request,
-                    db,
-                    run,
-                    after_sequence=after_sequence,
-                    csrf_token=auth.session.csrf_token,
-                ),
-                **_run_status_toasts(run),
-                action_state=action_state,
-                action_trace=action_trace,
+        if not is_htmx_request(request):
+            return RedirectResponse(
+                redirect_path(request, f"/pipeline?run_id={run.id}"),
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+        run_events = events_after(db, run=run, after_sequence=0)
+        action_state, action_trace = _run_action_metadata(run, run_events)
+        return ok_fragment(
+            _run_status_fragment(
+                request,
+                db,
+                run,
+                csrf_token=auth.session.csrf_token,
+                events=run_events,
             ),
+            **_run_status_toasts(run),
+            action_state=action_state,
+            action_trace=action_trace,
         )
 
     @app.action(
@@ -3199,11 +3211,18 @@ def register_pipeline_routes(app: Hedron) -> None:
             run = request_cancel(db, user=auth.user, run_id=run_id)
         except LookupError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        action_state, action_trace = _run_action_metadata(db, run)
+        run_events = events_after(db, run=run, after_sequence=0)
+        action_state, action_trace = _run_action_metadata(run, run_events)
         return await interaction_response(
             request,
             ok_fragment(
-                _run_status_fragment(request, db, run, csrf_token=auth.session.csrf_token),
+                _run_status_fragment(
+                    request,
+                    db,
+                    run,
+                    csrf_token=auth.session.csrf_token,
+                    events=run_events,
+                ),
                 **_run_status_toasts(run),
                 action_state=action_state,
                 action_trace=action_trace,
@@ -3226,11 +3245,18 @@ def register_pipeline_routes(app: Hedron) -> None:
             run = record_reconciliation_review(db, user=auth.user, run_id=run_id)
         except LookupError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        action_state, action_trace = _run_action_metadata(db, run)
+        run_events = events_after(db, run=run, after_sequence=0)
+        action_state, action_trace = _run_action_metadata(run, run_events)
         return await interaction_response(
             request,
             ok_fragment(
-                _run_status_fragment(request, db, run, csrf_token=auth.session.csrf_token),
+                _run_status_fragment(
+                    request,
+                    db,
+                    run,
+                    csrf_token=auth.session.csrf_token,
+                    events=run_events,
+                ),
                 toast="Reconciliation review recorded.",
                 toast_tone="info",
                 action_state=action_state,
@@ -3309,8 +3335,7 @@ def _run_action_trace(run, events, state: ActionState) -> ActionTrace:
     return trace.append(state.phase, operation=state.operation, facts={"status": run.status})
 
 
-def _run_action_metadata(db, run) -> tuple[ActionState, ActionTrace]:
-    events = events_after(db, run=run, after_sequence=0)
+def _run_action_metadata(run, events) -> tuple[ActionState, ActionTrace]:
     revision = events[-1].sequence if events else None
     status = str(run.status or "idle").lower()
     state = _run_action_state(run, progress=_RUN_PROGRESS.get(status), revision=revision)
@@ -3688,11 +3713,11 @@ def _run_status_fragment(
     request: Request,
     db,
     run,
-    after_sequence: int = 0,
     csrf_token: str = "",
+    events=None,
 ):
-    lines = events_after(db, run=run, after_sequence=0)
-    next_sequence = lines[-1].sequence if lines else after_sequence
+    lines = events if events is not None else events_after(db, run=run, after_sequence=0)
+    next_sequence = lines[-1].sequence if lines else None
     monitor_active = run.status not in {
         "succeeded",
         "failed",
@@ -3756,7 +3781,7 @@ def _run_status_fragment(
     )
     hx_poll = hx_attrs(
         request,
-        path=f"/pipeline/runs/{run.id}/status?after_sequence={next_sequence}",
+        path=f"/pipeline/runs/{run.id}/status",
         method="get",
         target="#pipeline-run-monitor",
         swap="outerHTML",
