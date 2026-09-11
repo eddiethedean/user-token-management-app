@@ -7,7 +7,7 @@ maintainer review but an external publication gate remains.
 | Release note | Status | Scope |
 |---|---|---|
 | [Data Mover 0.1.0](data-mover-0.1.0.md) | Published repository baseline | First packaged app and security foundations |
-| [Data Mover Unreleased / Hedron 0.60](data-mover-hedron-0.60.md) | Repository release note | Current UI/runtime upgrade and pipeline UX |
+| [Data Mover Hedron 0.60 repository note](data-mover-hedron-0.60.md) | Historical / superseded by the Hedron 1.0 train | UI/runtime upgrade and pipeline UX at the 0.60 snapshot |
 | [HTMX Framework 0.16.0](hedron-0.16.0.md) | Draft / external PyPI gate | Extras, composition UI, workbenches |
 | [ETL Pipeline Framework Beta review](etl-beta-review.md) | Ongoing review template | Streaming, SQL/PySpark, compatibility |
 

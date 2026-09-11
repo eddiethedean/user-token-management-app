@@ -17,7 +17,7 @@
   tokens, glass surfaces, typed elevation, and bounded active navigation/workflow treatments.
 - Persisted each user's light or dark preference and restore it on password and federated sign-in.
 
-## [Unreleased / Hedron 0.60.0] — 2026-08-23
+## Hedron 0.60.0 repository milestone — 2026-08-23
 
 - Upgraded the runtime and Posit integration to Hedron 0.60.0.
 - Added validated 0.60 ThemeSpec authoring with modern color input, accessibility modes, aliases,
@@ -60,7 +60,18 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ### Fixed
 
 - PostgreSQL session timeouts are set with literals (utility `SET` does not accept parameters), and
-  COPY treats empty CSV fields as NULL so numeric/date nulls load.
+  COPY uses an explicit `\\N` null marker so SQL NULL remains distinct from an empty string.
+- PostgreSQL replace/recreate loads now keep staging and the final table swap in one transaction, so
+  aborts and failed loads preserve the live table without leaving committed staging tables.
+- Pipeline workers renew leases from an independent database session and reject stale in-memory
+  owners; failures after a destination commit are held for reconciliation instead of being reported
+  as ordinary retryable failures.
+- Real provider catalogs now use the signed-in owner's credentials, cache only credential-free metadata,
+  and invalidate cached metadata when the corresponding credential is replaced or deleted.
+- Batch extraction enforces both configured row and byte ceilings, including an explicit failure for
+  a single row that exceeds the byte ceiling.
+- Foundry reads honor the branch saved in the source locator. Destination branch overrides that the
+  frozen preview-upload protocol cannot express now fail closed.
 
 ### Changed
 
@@ -71,6 +82,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Save stores credentials as untested; Test is a distinct connector health check. Wake cluster is
   removed.
 - Pipeline runs enqueue to the worker instead of using a browser-side simulator.
+- The product-approved route allowlist is enforced in the Pipeline UI, persistence, enqueue, and
+  execution boundaries; disabled destination writers are neither offered nor accepted.
 - Reframed the product UI and documentation around Data Mover data movement rather than token
   management.
 - Moved Password, Sessions, and user Activity from Connections into Account, leaving Connections

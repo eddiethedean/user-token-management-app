@@ -6,7 +6,7 @@ support design review and preparation of an organization-specific system securit
 
 It is **not** an authorization to operate, a claim of FedRAMP or DoD compliance, or a substitute for
 the system owner's risk assessment. Repository implementation facts and deployment instructions were
-last reviewed on 2026-09-03; the linked standards and guidance remain reference material and must be
+last reviewed on 2026-09-11; the linked standards and guidance remain reference material and must be
 rechecked when a release or authorization baseline changes. Standards use their own normative terms
 (`SHALL`, `SHOULD`, and so on); an application decision citing a standard does not by itself establish
 conformance with the whole standard.
@@ -19,10 +19,11 @@ boundary.
 **Operator surface:** Data Mover is a **browser HTMX UI** with cookie sessions — not a public
 REST/OpenAPI resource API. MSS, MCS-COP, and PostgreSQL credential bundles are stored
 encrypted for authorized users; they are not how the application authenticates HTTP callers.
-Demo mode uses fake connectors. In real mode, an explicit **Test connection** action decrypts the
-current user's selected bundle in the web process, while transfer execution decrypts only the
-bundles required by a claimed in-process pipeline run. Foundry outbound hosts are allowlisted, source
-and staging data are bounded, and persisted run facts are redaction-filtered. CSV uploads and saved
+Demo mode uses fake connectors. In real mode, owner-authorized catalog browsing and an explicit
+**Test connection** action decrypt only the current user's selected bundle in the web process, while
+transfer execution decrypts only the bundles required by a claimed in-process pipeline run. Foundry
+outbound hosts are allowlisted, source and staging data are bounded, and persisted run facts are
+redaction-filtered while catalog-cache payloads exclude credential fields. CSV uploads and saved
 pipeline definitions are real owner-scoped database content. Day-to-day setup lives in the
 [README](README.md) and [docs/](docs/); use this file for the decision register and production gate.
 
@@ -997,24 +998,29 @@ Storage and connector health checks do not prove that a credential is minimally 
 unexpired, or unrevoked at its provider.
 
 Pipeline catalogs expose only the current user's stored bundles whose validation status is `connected`.
-Pipeline persistence repeats that provider-availability check on the server, so hidden or stale
-browser options cannot be submitted directly. The explicit **Test connection** action decrypts only
-the selected owner's bundle in the web process and closes the provider client after the health check.
+`UserCatalog` decrypts a selected bundle into request-scoped memory, closes connector clients after
+each operation, and caches only credential-free locator/metadata payloads by owner/provider/namespace;
+credential replacement or deletion invalidates those rows. Pipeline persistence repeats the
+provider-availability check on the server, so hidden or stale browser options cannot be submitted
+directly. The explicit **Test connection** action decrypts only the selected owner's bundle in the
+web process and closes the provider client after the health check.
 Real transfers are enqueued and run by the Hedron app's in-process background runtime; after claiming
 a lease, the task decrypts only the credential bundles required by the saved snapshot (none for a CSV
 source, one for a CSV-to-provider run, or two for a provider-to-provider run). Built-in connectors
 receive those values as in-process mappings; this is trusted application code, not an arbitrary-code
-sandbox. Foundry hosts must be on the operator allowlist and real-mode writers must be explicitly
-enabled. The local `seed-demo-connections` helper uses reserved `.demo.invalid` hosts and explicit
+sandbox. Foundry hosts must be on the operator allowlist, the exact source/destination pair must
+appear in the product route allowlist, and real-mode writers must be explicitly enabled. The local
+`seed-demo-connections` helper uses reserved `.demo.invalid` hosts and explicit
 fake values, does not overwrite by default, and refuses to run when `APP_ENV=production` or
 `DATA_MOVER_MODE=real`.
 
 Real transfer execution also uses server-reloaded, owner-scoped pipeline snapshots, an idempotency
-token when supplied by the browser, a single lease token for task ownership, heartbeats, cooperative
-cancellation, bounded batches, maximum source/run/spool sizes, and redaction before run events and
-verification facts are persisted. These controls limit accidental duplication, concurrent ownership,
-resource exhaustion, and secret leakage; they do not make a provider credential least-privileged or
-revoke it at the provider.
+token when supplied by the browser, a single lease token for task ownership, independent-session
+compare-and-set lease renewal, database-refreshed ownership checks, cooperative cancellation, batches
+bounded by rows and estimated bytes, maximum source/run/spool sizes, and redaction before run events
+and verification facts are persisted. These controls limit accidental duplication, concurrent
+ownership, resource exhaustion, and secret leakage; they do not make a provider credential
+least-privileged or revoke it at the provider.
 
 Foundry requests use bounded connect/read/write timeouts, certificate verification through the system
 trust store or an explicitly configured CA bundle, no automatic redirects, encoded dataset/file path
@@ -1026,15 +1032,17 @@ protected spool root, use per-run names and bounded chunk files, enforce
 `PIPELINE_MAX_SPOOL_BYTES`, and remove the final and chunk staging artifacts on completion or abort;
 the janitor removes stale files and chunk directories. PostgreSQL identifiers are validated or passed
 through `psycopg.sql.Identifier`, provider values use parameterized queries/COPY, and the configured
-`sslmode` plus connection/statement/idle timeouts apply to each connection.
+`sslmode` plus connection/statement/idle timeouts apply to each connection. PostgreSQL destination
+preparation, staging, and final application stay in one transaction; abort or connection loss rolls
+back staging, and replace/recreate changes the live table only immediately before the final commit.
 
 Each credential bundle is encrypted with a random 256-bit data-encryption key using AES-256-GCM and fresh nonces.
 The data key is independently wrapped with the active key from `API_TOKEN_ENCRYPTION_KEYS`. Additional
 authenticated data binds both ciphertexts to the environment-independent format version, owner,
 secret record, and provider. The database stores the ciphertexts, nonces, and non-secret master-key
 identifier. Old master keys remain in the configured key ring while records reference them. Creation,
-replacement, deletion, and run-boundary use are audited without credential material. Authenticated
-credential pages and fragments set `Cache-Control: no-store`. Each data-key wrap atomically increments a
+replacement, deletion, catalog/test use, and run-boundary use are audited without credential
+material. Authenticated credential pages and fragments set `Cache-Control: no-store`. Each data-key wrap atomically increments a
 database counter for its master-key ID. The operation fails closed at
 `API_TOKEN_MAX_WRAPS_PER_KEY` (one million by default). Because historical replacements cannot be
 reliably attributed to a key, migration marks every key with pre-counter ciphertext above the
@@ -1051,7 +1059,7 @@ operators must configure a fresh active key after upgrade.
 | Envelope encryption and a versioned key ring separate from the database and auth keys | [NIST SP 800-57 Part 1 Rev. 5](https://doi.org/10.6028/NIST.SP.800-57pt1r5) covers protection, lifecycle, cryptoperiods, backup, and recovery of keying material. [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-management) recommends storing keys separately from encrypted data and designing for rotation. The active key protects new data while retained key identifiers permit controlled migration and recovery. | The key ring is available to the FastAPI process. Database-only theft does not disclose plaintext, but application-host or key-ring compromise can. Loss of an old referenced key permanently loses the associated tokens. |
 | No plaintext read endpoint or UI reveal | GitHub's [Actions secrets REST API](https://docs.github.com/en/rest/actions/secrets) lists secret metadata without returning encrypted values. Following that pattern reduces routine exposure in browsers, support workflows, and admin tooling. | This is product-level non-disclosure, not end-to-end encryption. Privileged host operators and trusted application code remain in the security boundary. |
 | Metadata-only audit events and no-store responses | [OWASP Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#23-logging) says secrets must not be logged and recommends auditing who requested or used them. GitHub warns that [automatic redaction is not guaranteed](https://docs.github.com/en/actions/reference/security/secure-use#using-secrets), so correctness cannot depend on a masking heuristic. | Application, proxy, runner, artifact, exception, and crash-dump paths all require deployment testing. `no-store` controls caching; it cannot prevent a compromised browser or endpoint from reading a token while it is entered. |
-| Explicit delivery only at an authorized action or run boundary | OWASP describes controlled [secret consumption](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#25-secret-consumption) and warns that environment variables may leak through logs or dumps. The web process decrypts only for the user's explicit connection test; the in-process runtime decrypts only after it claims the corresponding run lease. Posit documents that local content processes [inherit Connect server environment variables by default](https://docs.posit.co/connect/admin/appendix/configuration/#inherit-system-env-vars). | The Hedron process is a trusted application-code boundary and receives the master-key ring. `Applications.InheritSystemEnvVars=false` does not sanitize subprocesses created by the application. If arbitrary code is ever granted a bearer value, it can copy or transmit it; an explicit child environment and process/filesystem/network isolation must then be added. |
+| Explicit delivery only at an authorized action or run boundary | OWASP describes controlled [secret consumption](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#25-secret-consumption) and warns that environment variables may leak through logs or dumps. The web process decrypts only for the user's selected catalog browse or explicit connection test; the in-process runtime decrypts only after it claims the corresponding run lease. Posit documents that local content processes [inherit Connect server environment variables by default](https://docs.posit.co/connect/admin/appendix/configuration/#inherit-system-env-vars). | The Hedron process is a trusted application-code boundary and receives the master-key ring. `Applications.InheritSystemEnvVars=false` does not sanitize subprocesses created by the application. If arbitrary code is ever granted a bearer value, it can copy or transmit it; an explicit child environment and process/filesystem/network isolation must then be added. |
 | Prefer short-lived credentials when providers support them | OWASP recommends limiting secret lifetime and automating rotation. GitHub's [OIDC guidance](https://docs.github.com/en/actions/concepts/security/openid-connect) uses short-lived, job-specific credentials instead of stored long-lived secrets; Posit similarly documents [process-lifetime API keys](https://docs.posit.co/connect/admin/content-management/api-keys/#automatic-provisioning). | Data Mover currently accepts static user-supplied connection bundles. Provider-side OAuth, federation, scope, expiration, and revocation remain future integration work. |
 
 **Limitations and deployment controls:** The FastAPI process receives the master-key ring and can
@@ -1061,8 +1069,8 @@ simulation: the Hedron app enqueues and its in-process background runtime contac
 Foundry/PostgreSQL connectors. The task passes credentials in memory to trusted connector methods and
 does not launch arbitrary user code or provide a child-process sandbox. Credential
 references are released at the end of the action/run, but the application does not promise secure
-memory wiping. The explicit connection-test action is an additional, intentional web-process
-decryption boundary.
+memory wiping. Catalog browsing and the explicit connection-test action are additional, intentional
+web-process decryption boundaries.
 
 Before connecting arbitrary run code, launch each run with an explicit minimal environment that
 excludes the master-key ring, inject only the selected user's selected provider values, prohibit

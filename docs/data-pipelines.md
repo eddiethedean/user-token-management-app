@@ -42,8 +42,9 @@ flowchart TB
 ```
 
 The core safety model stays the same in both versions: definitions and runs belong to a user,
-credentials are resolved only inside the runtime, every run uses an immutable snapshot, and the
-application persists status and sanitized evidence for monitoring and review.
+credentials are resolved only within an explicit owner-authorized connector action, every run uses
+an immutable snapshot, and the application persists status and sanitized evidence for monitoring
+and review.
 
 ## What a pipeline means today
 
@@ -60,7 +61,9 @@ The saved definition contains:
 - a typed write policy, such as PostgreSQL append, upsert, or replace, or Foundry file replace.
 
 Credentials are deliberately absent. The definition refers to the owner's provider slots, and the
-runtime decrypts the necessary credential bundles only after it claims a run.
+runtime decrypts the necessary credential bundles only after it claims a run. The separate catalog
+and connection-test actions may also decrypt the signed-in owner's selected bundle for that bounded
+request; no plaintext credential is written to the definition, run snapshot, catalog cache, or UI.
 
 ## Current state: creating a pipeline
 
@@ -68,6 +71,26 @@ The browser builds a route from connector capabilities, configured provider slot
 catalogs. Saving a route that uses a remote provider requires that provider's most recent connection
 test to have succeeded. CSV is a source-only option; its upload is scanned and stored before the
 route can be saved.
+
+The product-approved route matrix is intentionally narrower than the cross-product of connector
+capabilities:
+
+| Source | Approved destinations |
+|---|---|
+| MSS | PostgreSQL |
+| PostgreSQL | MSS, MCS-COP |
+| CSV upload | PostgreSQL, MSS, MCS-COP |
+
+MCS-COP is destination-only. A destination also remains unavailable unless its writer flag is
+enabled (`PIPELINE_ENABLE_POSTGRES_WRITER`, `PIPELINE_ENABLE_MSS_WRITER`, or
+`PIPELINE_ENABLE_MCSCOP_WRITER`). The UI filters the choices, and save/enqueue/runtime boundaries
+repeat the same checks.
+
+In real mode, catalog discovery calls the provider connector with the signed-in owner's decrypted
+credential. Namespace and object results are reduced to credential-free metadata and cached by
+user/provider/namespace for `PIPELINE_CATALOG_TTL_SECONDS` (300 seconds by default). Replacing or
+deleting that provider credential invalidates its cache. Schema inspection and row counts are live,
+best-effort connector calls rather than persisted row samples.
 
 ```mermaid
 flowchart LR
@@ -113,7 +136,7 @@ flowchart TD
     R[Run transfer] --> O[Reload owner-scoped definition]
     O --> S[Freeze immutable definition snapshot]
     S --> Q[(Persist queued run and event)]
-    Q --> L[In-process runtime claims lease]
+    Q --> L[In-process runtime claims and renews lease]
     L --> K[Parse snapshot and decrypt required credentials]
     K --> V[Validate connections and inspect source]
     V --> X[Extract next bounded Polars batch]
@@ -138,14 +161,24 @@ the browser only polls those persisted facts.
 |---|---|
 | `queued` | Persist the snapshot and wait for the app runtime to claim a lease. |
 | `validating` | Parse the snapshot, resolve the owner's credentials, test both connections, inspect the source schema, and collect best-effort destination metadata. |
-| `extracting` | Open the source iterator and read bounded Polars batches. The first batch can supply portable schema metadata. |
+| `extracting` | Open the source iterator and read Polars batches bounded by both configured rows and estimated in-memory bytes. A single row larger than the byte ceiling fails explicitly. The first batch can supply portable schema metadata. |
 | `loading` | Prepare the destination, enforce run size/time limits and stable batch columns, write each batch, and persist acknowledged counters. |
 | `verifying` | Finalize the destination and capture provider-appropriate manifests, counts, checksums, remote IDs, and schema metadata when available. |
 | terminal | Persist `succeeded`, `failed`, `cancelled`, or `failed_needs_reconciliation` and release the lease. |
 
-Cancellation is checked at safe boundaries. An expired lease before destination writes can be
-requeued; a lost lease during load or verification is treated as an uncertain destination and
-requires reconciliation rather than a blind retry.
+The worker renews its lease approximately every one-third of the configured lease duration from a
+dedicated database session. Every lease-guarded state/counter mutation refreshes the run and verifies
+the token and unexpired timestamp in the database, so a stale worker cannot continue based on an
+in-memory object. Cancellation is checked at safe boundaries. An expired lease before destination
+writes can be requeued; a lost lease during load or verification is treated as an uncertain
+destination and requires reconciliation rather than a blind retry.
+
+PostgreSQL replacement keeps destination preparation, staged COPY, and the final drop/rename in one
+database transaction. Until finalization commits, the live destination remains intact; abort or a
+closed/crashed connection rolls the staging work back. After any connector reports a successful
+destination commit, a later failure to persist final run state is converted to `publish_uncertain`
+and requires reconciliation. Foundry timeouts during the preview upload use the same conservative
+outcome because the remote publish result cannot be proven.
 
 ### What “validation” means today
 
@@ -157,7 +190,7 @@ yet execute user-defined data-quality rules:
 | Credential field validation and connection test | Connection setup | Confirm that a credential bundle is well formed and can reach its provider. |
 | Route, capability, locator, ownership, and write-policy validation | Save | Prevent unsupported or cross-owner definitions. |
 | Connection retest and source inspection | Run, before extraction | Fail before writes when the route can no longer be opened safely. |
-| Batch column-set and limit checks | During extraction/load | Detect column drift and enforce bounded execution. |
+| Batch column-set and row/byte limit checks | During extraction/load | Detect column drift and enforce bounded execution, including rejecting one indivisible oversized row. |
 | Destination finalization and manifest capture | After load | Record provider-appropriate evidence about what the destination acknowledged. |
 
 The current system does **not** provide rules such as “`event_id` must be unique,” “reject null

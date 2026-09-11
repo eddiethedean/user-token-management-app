@@ -1,7 +1,9 @@
 # MCS-COP protocol notes
 
-Status: frozen for the first real-transfer release  
-Evidence: `transfer_code/pg_mcs.py` and operator-confirmed non-production checks  
+Status: frozen for the first real-transfer release
+
+Evidence: `docs/archive/transfer_code/pg_mcs.py` and operator-confirmed non-production checks
+
 Secrets: none. Dataset RIDs, tokens, and operational hostnames from reference scripts are omitted.
 
 ## Role in this release
@@ -31,6 +33,8 @@ Content-Type: application/octet-stream
 Stream Snappy Parquet bytes. HTTP 2xx is success. No separate publish API is documented for this release. Timed-out uploads are `publish_uncertain`.
 
 Optional default RID/branch on the credential may be used to validate access during Test connection.
+Because the frozen upload request has no branch parameter, the destination locator branch must match
+the credential branch (default `master`) or the run fails before staging.
 
 ## Errors and TLS
 

@@ -93,14 +93,15 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| Source and destination selection is rejected | The same remote provider was selected on both ends | Choose different remote systems. CSV is source-only and may target any supported remote provider |
+| Source and destination selection is rejected | The pair is outside the approved route matrix | Use MSS → PostgreSQL, PostgreSQL → MSS/MCS-COP, or CSV → PostgreSQL/MSS/MCS-COP. Connector roles do not approve MSS → MCS-COP or same-provider routes |
 | A connection is missing from Pipeline | It is not saved for the current user or its latest validation is not Connected | Save or replace it under **Connections → Credentials**, then use **Test connection** under **Connections → Status**. Pipeline intentionally hides unavailable connections |
-| Save or Run is disabled | A required connection is missing, the CSV has not been scanned, or the same remote system is selected twice | Follow the availability message above the route. Restore and test the connection, scan the CSV, or choose distinct systems |
+| Save or Run is disabled | A required connection is missing, the CSV has not been scanned, the route is unsupported, or the destination writer is disabled | Follow the availability message above the route. Restore and test the connection, scan the CSV, choose an approved route, or ask the operator to review the writer flag |
 | Cannot save a pipeline | Short name, unavailable connection, invalid catalog object, missing CSV scan, or invalid new-table name | Confirm both remote connections are Connected. Use a name with at least 3 characters and catalog values from the UI. New names must be 2–63 characters, start with a letter, and contain only letters, numbers, or underscores |
 | A saved pipeline is missing | Saved definitions are owner-scoped, or it is older than the 12 most recently updated entries shown | Sign in as the owner; update or recreate the route if it is outside the current list |
 | Run stays queued | The in-process runtime is paused or failed | Check the app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; restart the app after correcting the configuration |
 | Run completes but destination is unchanged | Demo connectors, or a Foundry writer flag is off | Demo mode does not write remotely. Real Foundry writers require `PIPELINE_ENABLE_MSS_WRITER` / `PIPELINE_ENABLE_MCSCOP_WRITER` |
 | Run button says transfer is running | A run is already active | Wait for a terminal status or cancel |
+| Foundry destination branch is rejected | The saved route branch differs from the credential branch, but the frozen preview-upload API has no branch parameter | Select the configured credential branch or replace/test the credential with the intended default branch before saving the route |
 
 ## CSV sources
 

@@ -9,7 +9,8 @@ Implemented in the current Data Mover app:
 - Durable enqueue/runtime state machine with validation, extraction, loading, verification, and
   persisted events (`app/services/pipeline_runs.py`, `app/worker.py`).
 - Hedron/HTMX run monitor with progress, diagnostics, and event feed.
-- Automated evidence in `tests/test_pipelines.py` and `tests/test_pipeline_runs.py`.
+- Automated evidence in `tests/test_pipelines.py`, `tests/test_pipeline_runs.py`,
+  `tests/test_transfer_engine.py`, and `tests/test_user_catalog.py`.
 
 The current connectors are Data Mover connectors, not ETL Pipeline Framework nodes. ETL integration
 must follow [etl-integration-note.md](etl-integration-note.md) after a release train is approved.

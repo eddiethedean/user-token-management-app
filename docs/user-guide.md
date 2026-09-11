@@ -45,8 +45,10 @@ entering real credentials.
 6. Select **Run transfer** to enqueue a durable run, then open **Live transfer** to follow persisted
    status and in-process task events.
 
-In demo mode, connectors never contact the hostnames you type. In real mode, the app decrypts
-credentials only for the claimed run's in-process background task.
+In demo mode, connectors never contact the hostnames you type. In real mode, the app decrypts only
+the signed-in owner's selected bundle while browsing a catalog or testing a connection, and only the
+route's required bundles after a background task claims a run. Plaintext credentials are not stored
+in pipeline definitions, run snapshots, catalog caches, or browser responses.
 
 ### What you can see and change
 
@@ -108,8 +110,9 @@ The tabs and the route's save/run actions appear before the detailed provider ca
 the next task remains visible in the main desktop workspace.
 
 A remote provider appears in a source or destination menu only after the signed-in user has saved it
-and its validation status is **Connected**. MCS-COP is destination-only. If no remote connection is
-ready, the source menu offers CSV only.
+and its validation status is **Connected**. The menu also removes destinations whose writer is
+disabled and providers that do not form an approved route with the selected opposite end. MCS-COP is
+destination-only. If no remote connection is ready, the source menu offers CSV only.
 
 ### Choose the source
 
@@ -120,9 +123,10 @@ You may also choose **CSV file** and upload a local file. CSV is source-only.
 
 ### Choose the destination
 
-Destinations are MSS, MCS-COP, and PostgreSQL. A remote system cannot be both the source and
-destination of the same pipeline. PostgreSQL uses schema/table names; Foundry uses dataset RID,
-branch, and a destination file name (Snappy Parquet). New PostgreSQL table names must:
+The approved routes are MSS → PostgreSQL, PostgreSQL → MSS, PostgreSQL → MCS-COP, and CSV →
+PostgreSQL/MSS/MCS-COP. Other combinations—including MSS → MCS-COP and same-provider routes—are not
+offered or accepted. PostgreSQL uses schema/table names; Foundry uses dataset RID, branch, and a
+destination file name (Snappy Parquet). New PostgreSQL table names must:
 
 - contain 2–63 characters;
 - start with a letter; and
@@ -131,8 +135,11 @@ branch, and a destination file name (Snappy Parquet). New PostgreSQL table names
 ### Choose a write mode
 
 PostgreSQL supports **append**, **upsert** (conflict columns + update or ignore), and **replace**.
-Foundry destinations replace a named file via the documented preview upload. Timed-out Foundry
-uploads are recorded as `publish_uncertain` and are not auto-retried.
+Replace/recreate loads stage and swap the table in one PostgreSQL transaction, so a failure before
+commit preserves the prior table. Foundry destinations replace a named file via the documented
+preview upload. The frozen upload endpoint does not accept a branch parameter, so the destination
+branch saved on the route must match the branch in the credential; a mismatch fails before staging.
+Timed-out Foundry uploads are recorded as `publish_uncertain` and are not auto-retried.
 
 ## Upload and inspect a CSV
 
@@ -178,9 +185,10 @@ destination count, and Foundry file routes may only provide a local manifest aft
 
 Use **Cancel run** in the live monitor to request a safe stop. The monitor stays active until the
 background task records a terminal state. Retry is shown only for failures marked safe to retry. If a
-task stops after destination work begins, the run enters **Failed / reconciliation needed** and the
-monitor provides **Record reconciliation review**. Inspect the destination first; recording the
-review does not clear the safety block or make an uncertain write safe automatically.
+task loses its lease after destination work begins, a Foundry upload outcome is uncertain, or final
+run-state persistence fails after the destination commits, the run enters **Failed / reconciliation
+needed** and the monitor provides **Record reconciliation review**. Inspect the destination first;
+recording the review does not clear the safety block or make an uncertain write safe automatically.
 
 ### Transfer lifecycle
 
@@ -194,7 +202,7 @@ review does not clear the safety block or make an uncertain write safe automatic
 | **Succeeded** | The run completed and persisted its final counts. | Review the destination and keep the run for audit history. |
 | **Failed** | The run stopped before a successful final state. | Read the error summary; correct the pipeline or connection before retrying. |
 | **Cancelled** | A cancellation request was honored. | Start a new run when the source and destination are ready. |
-| **Failed / reconciliation needed** | An in-process task lease expired during destination work. | Do not blindly retry; have an operator inspect the destination first. |
+| **Failed / reconciliation needed** | Destination effects may exist but the app could not prove a safe terminal result—for example a lease loss during loading/verifying, an uncertain Foundry upload, or failure after destination commit. | Do not blindly retry; have an operator inspect the destination first. |
 
 The terminal recovery panel shows the sanitized error code and summary. A retry action appears only
 when the connector marks the failure retryable. Reconciliation-required runs remain blocked from
@@ -251,7 +259,7 @@ the identity-proxy administrator according to your organization's incident proce
 ## Safety and limitations
 
 - Demo mode does not contact remote APIs.
-- Real mode contacts only allowlisted Foundry hosts and the PostgreSQL destinations you configure.
+- Real mode contacts only allowlisted Foundry hosts and the PostgreSQL servers you configure.
 - Saved credentials are encrypted at rest, but a demo deployment is not an approved secret manager.
 - CSV content, spool files, and saved pipelines are real application data.
 - Data Mover does not itself provide an ATO, FedRAMP package, FIPS validation, identity proofing, or

@@ -1,8 +1,9 @@
 # Secret-reference contract (ETL-3 / DM-7)
 
-Pipeline plans and reports carry references to secrets, never secret values. The application may
-decrypt a selected credential only inside the claimed worker boundary and only for the provider slot
-that the run authorized.
+Pipeline plans and reports carry references to secrets, never secret values. For transfer execution,
+the application may decrypt a selected credential only inside the claimed worker boundary and only
+for the provider slot that the run authorized. Owner-authorized catalog browsing and connection tests
+are separate bounded request actions; they also must not persist or return plaintext.
 
 ## Payload shape
 

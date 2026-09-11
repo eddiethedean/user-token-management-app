@@ -210,11 +210,14 @@ Provider work spans several contracts. Complete all of these before calling the 
 2. Add or update pure validation rules in `app/services/secret_validation.py`.
 3. Implement the `Connector` protocol in `app/connectors/`; keep a fake adapter for demo mode.
 4. Register the factory through `app/connectors/registry.py` and add capability metadata.
-5. Add provider-specific catalog behavior in `app/services/catalogs.py` if the UI needs it.
+5. Add provider-specific catalog behavior in `app/services/catalogs.py` if the UI needs it. Real
+   discovery must use `UserCatalog` so credential use is owner-authorized/request-scoped and only
+   credential-free metadata enters `pipeline_catalog_cache`.
 6. Update typed form allowlists in `app/ui/params.py` and persistence validation in
    `app/services/pipelines.py`.
-7. Keep Connections credentials/status and Pipeline selectors consistent. UI filtering is not an
-   authorization boundary; the save service must validate availability again.
+7. Add the exact approved pair to `ALLOWED_ROUTES` only after product/provider approval, and define
+   the destination writer flag. Keep Connections status, Pipeline selectors, save, enqueue, and
+   execution consistent. UI filtering is not an authorization boundary.
 8. Add tests for encryption/non-reveal behavior, owner scoping, health checks, catalog selection,
    save/load, enqueue/cancel/poll, and source/destination capability rules.
 9. Use Semblance fixtures for Foundry/HTTP contracts. Do not call live hosts from default tests.
@@ -254,11 +257,25 @@ Use `python -m app send-email` only as an optional one-shot email recovery comma
 transfers and retention are owned by the app runtime; restart the app after correcting an
 operational failure.
 
-The in-process transfer task claims a lease, decrypts credentials only for the claimed run, streams
-connector batches, and persists status/events. An expired lease before destination writes is requeued;
-expired lease during load or verification becomes `failed_needs_reconciliation`. Foundry upload
-timeouts are recorded as `publish_uncertain` and are not automatically retried. See the
-[pipeline runtime runbook](runbooks/pipeline-worker.md).
+The in-process transfer task claims a lease, starts an independent-session lease keeper, decrypts
+credentials only for the claimed run, streams row- and byte-bounded connector batches, and persists
+status/events. Lease renewal is a database compare-and-set, and every lease-guarded mutation refreshes
+the row before accepting the token. An expired lease before destination writes is requeued; expired
+lease during load or verification becomes `failed_needs_reconciliation`. Foundry upload timeouts and
+failures to persist terminal state after a confirmed destination commit are recorded as
+`publish_uncertain` and are not automatically retried. See the [pipeline runtime
+runbook](runbooks/pipeline-worker.md).
+
+Real Pipeline catalog browsing is another intentional credential-use boundary: `UserCatalog`
+decrypts only the signed-in owner's selected provider bundle for the request, retains it only in the
+request-scoped object, and caches credential-free namespace/object metadata for
+`PIPELINE_CATALOG_TTL_SECONDS`. Credential replacement/deletion invalidates provider cache rows.
+
+PostgreSQL destination preparation and loading use one uncommitted connector transaction through
+finalization. Replace/recreate drops and renames only immediately before commit; abort or connection
+loss rolls back staging and preserves the live table. Do not add an intermediate commit to make
+staging visible. `drop_abandoned_staging` is a manual legacy-cleanup helper, not part of the periodic
+janitor path.
 
 Run verification also records the captured column schema in both run manifests and best-effort
 destination row snapshots in `verification_json`: `destination_rows_before`,

@@ -205,7 +205,9 @@ Have these ready:
 - PostgreSQL and a least-privileged application role;
 - an approved SMTP relay with STARTTLS;
 - an approved password blocklist and protected spool directory;
-- approved provider routes and HTTPS host allowlists; and
+- approval for the exact implemented provider routes (MSS → PostgreSQL, PostgreSQL → MSS/MCS-COP,
+  or CSV → PostgreSQL/MSS/MCS-COP), the corresponding destination writer flags, and HTTPS host
+  allowlists; and
 - a Connect process sized for the expected transfer workload.
 
 Choose `local_password` (with explicit production risk acceptance) or `trusted_header` behind an

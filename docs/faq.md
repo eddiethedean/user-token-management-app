@@ -6,12 +6,14 @@ encrypted per-user credentials for MSS, MCS-COP, and PostgreSQL.
 
 **Does Data Mover move real data today?**
 In `DATA_MOVER_MODE=demo`, connectors are fake and stay on this host. In `DATA_MOVER_MODE=real`, the
-the app's in-process background runtime performs live transfers. CSV uploads and saved pipeline
+app's in-process background runtime performs live transfers. CSV uploads and saved pipeline
 definitions are always real data in Data Mover's database.
 
 **Which systems can be sources and destinations?**
-PostgreSQL and MSS can be either. MCS-COP is destination-only. CSV files are source-only. The same
-remote system cannot be both ends of one pipeline.
+The approved routes are MSS → PostgreSQL, PostgreSQL → MSS, PostgreSQL → MCS-COP, and CSV →
+PostgreSQL/MSS/MCS-COP. MCS-COP is destination-only and CSV is source-only. Connector roles do not
+implicitly approve other combinations such as MSS → MCS-COP. Real MSS and MCS-COP destinations also
+remain hidden until their deployment writer flags are enabled.
 
 **Why is a connection missing from the Pipeline page?**
 Pipeline only lists remote connections that the signed-in user has saved and whose latest

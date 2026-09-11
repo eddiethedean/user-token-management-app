@@ -83,6 +83,7 @@ CSRF-bearing mutations, owner-scoped runs, persisted events, and terminal status
 
 - Domain validation stays in services.
 - Fragment targets are allowlisted.
-- Credentials are decrypted only in the worker boundary.
+- Transfer credentials are decrypted only in the claimed worker boundary. Catalog browsing and
+  connection tests are separate owner-authorized, request-scoped decryption boundaries.
 - Plans, reports, audit events, and UI fragments contain references/metadata, never plaintext
   credentials.

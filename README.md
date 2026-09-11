@@ -46,7 +46,7 @@ in-process FastAPI background tasks:
 |---|---|
 | Hedron app (`serve`) | Render the UI, validate requests, enqueue and execute runs, retain state, and expose `/health` |
 | In-process email delivery | Drain verification, invitation, registration, password-reset, and account-security messages after email-producing requests |
-| In-process transfer task | Claim a lease, decrypt only the selected credentials, execute the transfer, and persist progress/events |
+| In-process transfer task | Claim and continuously renew a lease, decrypt only the selected run credentials, execute the transfer, and persist progress/events |
 | In-process maintenance task | Recover queued/expired runs and periodically retain run history, events, catalogs, and spool files |
 
 Email delivery does not use a separate worker process. If the web process restarts before a task
@@ -109,7 +109,9 @@ log during routine review or incident investigation.
 
 - Not a public JSON/OpenAPI resource API (cookie-session HTMX UI only)
 - Not identity proofing, clearance verification, or CAC replacement by itself
-- Demo mode does not contact remote endpoints; real mode requires PostgreSQL, a spool directory, and an HTTPS host allowlist
+- Demo mode does not contact remote endpoints; production real mode requires PostgreSQL, a spool
+  directory, and an HTTPS host allowlist. A single-process, session-scoped Workbench real-mode
+  deployment may use SQLite
 - CSV uploads are limited to UTF-8 files of 5 MB or less until streaming quotas exist
 - Not a general-purpose run supervisor for arbitrary workloads (see SD-24)
 - Advana and MongoDB are not first-class transfer providers in this release
@@ -130,7 +132,9 @@ log during routine review or incident investigation.
 | [docs/data-pipelines.md](docs/data-pipelines.md) | Current pipeline lifecycle and future scheduling, validation, and transformation architecture |
 | [docs/maintainer-guide.md](docs/maintainer-guide.md) | Developer workflow, extension points, testing, and operations |
 | [docs/runbooks/pipeline-worker.md](docs/runbooks/pipeline-worker.md) | In-process transfer runtime operations |
-| [docs/providers/mss.md](docs/providers/mss.md) | Frozen Foundry/Postgres protocol notes |
+| [docs/providers/mss.md](docs/providers/mss.md) | Frozen MSS/Foundry protocol notes |
+| [docs/providers/mcscop.md](docs/providers/mcscop.md) | Frozen MCS-COP/Foundry protocol notes |
+| [docs/providers/postgres.md](docs/providers/postgres.md) | PostgreSQL connector and transactional load semantics |
 | [docs/hedron.md](docs/hedron.md) | Hedron integration and feature coverage |
 | [docs/plans/README.md](docs/plans/README.md) | Roadmap artifacts, ETL/security contracts, ADE learning path, and delivery evidence |
 | [examples/no_node_data_app/README.md](examples/no_node_data_app/README.md) | Runnable FastAPI + Hedron + HTMX example without Node.js or Streamlit |

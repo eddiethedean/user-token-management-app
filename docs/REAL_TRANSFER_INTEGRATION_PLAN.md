@@ -1,9 +1,18 @@
 # Real Transfer Integration Plan
 
-Status: implementation specification — revision 2  
-Audience: Cursor or another implementation agent  
+Status: implemented baseline / historical implementation specification — revision 2
+
+Audience: maintainers reviewing the original delivery contract
+
 Scope: replace Data Mover's synthetic connection/catalog/run behavior with real MSS, MCS-COP,
 PostgreSQL, and local CSV transfers, using Polars as the dataframe and file-processing engine.
+
+The baseline described here has been implemented. For current runtime behavior, use
+[Data pipeline lifecycle](data-pipelines.md), the [maintainer guide](maintainer-guide.md), and the
+[pipeline runtime runbook](runbooks/pipeline-worker.md). Requirements below preserve the original
+delivery intent; they are not a substitute for the current code and operational docs.
+The original `transfer_code/` evidence referenced below is now preserved under
+[`docs/archive/transfer_code/`](archive/transfer_code/).
 
 ## 0. Cursor execution contract
 
@@ -49,7 +58,8 @@ Cursor may implement these without further product input:
 - MSS/MCS-COP locators use dataset/branch/file terminology.
 - production cannot enable demo connectors.
 - the initial provider/route matrix in section 2.1 is authoritative.
-- secrets are decrypted only inside the claimed transfer execution.
+- transfer secrets are decrypted only inside the claimed transfer execution; owner-authorized
+  catalog browsing and connection testing are separate bounded web-process actions.
 - status, metrics, and logs shown in the UI must be persisted facts.
 
 These require evidence from Phase 0 and must not be guessed:

@@ -1,7 +1,8 @@
-# Data Mover — Unreleased / Hedron 0.60
+# Data Mover — Hedron 0.60 repository note
 
-**Status:** Repository release note  
-**Runtime:** `hedron>=0.60.0,<0.61`, `hedron-posit>=0.60.0,<0.61`
+**Status:** Historical repository note; superseded by the Hedron 1.0 train
+
+**Runtime at this snapshot:** `hedron>=0.60.0,<0.61`, `hedron-posit>=0.60.0,<0.61`
 
 ## Added
 

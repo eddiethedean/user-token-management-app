@@ -1,7 +1,10 @@
 # MSS protocol notes
 
-Status: frozen for the first real-transfer release  
-Evidence: `transfer_code/mss_pg.py`, `transfer_code/pg_mss.py`, and operator-confirmed non-production checks  
+Status: frozen for the first real-transfer release
+
+Evidence: `docs/archive/transfer_code/mss_pg.py`, `docs/archive/transfer_code/pg_mss.py`, and
+operator-confirmed non-production checks
+
 Secrets: none. Dataset RIDs, tokens, and operational hostnames from reference scripts are omitted.
 
 ## Endpoint and authentication
@@ -17,7 +20,10 @@ MSS is a Palantir Foundry dataset, not a relational catalog.
 
 - Locator: dataset RID, branch, and file path(s).
 - There is no verified dataset-discovery API in the reference scripts. The RID is supplied on the credential (optional default) or the pipeline definition.
-- Branch resolution for reads: try `master`, then `main`. Persist the resolved branch on the run snapshot.
+- Branch resolution for a saved read locator is strict: list and download from that exact branch and
+  fail if it is unavailable. Health checks without a saved locator try the credential's configured
+  branch (default `master`), then the distinct `master`/`main` fallbacks. Catalog objects record the
+  configured branch in their locator.
 
 ## Read contract
 
@@ -56,6 +62,10 @@ Content-Type: application/octet-stream
 The request body is the file bytes, streamed. The reference scripts treat HTTP 2xx as success and do not call a separate publish API. This release therefore uses write policy `foundry_replace_file` with `publication=preview_upload`.
 
 Overwrite of the same `{file_name}` is treated as replace. A timed-out upload is `publish_uncertain` and is not automatically retried.
+
+The frozen upload request has no branch query parameter. A destination locator must therefore use
+the same branch as the credential's configured branch (default `master`); a mismatch fails before
+staging rather than silently publishing to an unspecified branch.
 
 ## Errors
 

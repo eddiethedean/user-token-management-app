@@ -332,7 +332,7 @@ def decrypt_user_credentials_for_run(
     request: Request | None = None,
     purpose: str = "run",
 ) -> dict[str, str]:
-    """Return credentials at the authorized run boundary; never expose them through a route."""
+    """Return credentials at an authorized connector boundary; never expose them in a response."""
     specification = require_secret_provider(provider)
     stored = db.scalar(
         select(UserSecret).where(

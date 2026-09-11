@@ -101,8 +101,19 @@ operations require them:
   `SESSION_IDLE_MINUTES` control session lifetime.
 - `PIPELINE_BACKGROUND_POLL_SECONDS` controls how often the in-process runtime looks for queued or
   expired runs. `PIPELINE_JANITOR_INTERVAL_SECONDS` controls retention cleanup frequency.
-- `PIPELINE_BATCH_*`, `PIPELINE_HTTP_*`, lease, retention, and size settings
-  control throughput, retry behavior, cleanup, and resource ceilings.
+- `PIPELINE_BATCH_ROWS` and `PIPELINE_BATCH_TARGET_BYTES` bound emitted real-connector batches by
+  rows and estimated in-memory bytes (defaults: 25,000 rows and 64 MiB). A single indivisible row
+  above the byte ceiling fails the run.
+- `PIPELINE_LEASE_SECONDS` controls task ownership (default: 120 seconds); a claimed task renews from
+  an independent database session at roughly one-third of that interval.
+- `PIPELINE_CATALOG_TTL_SECONDS` controls the owner/provider/namespace metadata cache (default: 300
+  seconds). Credential replacement or deletion invalidates that provider's cache rows.
+- `PIPELINE_HTTP_CONNECT_SECONDS`, `PIPELINE_HTTP_READ_SECONDS`, and
+  `PIPELINE_HTTP_WRITE_SECONDS` set connector timeouts. `PIPELINE_HTTP_RETRY_ATTEMPTS` is retained as
+  a reserved compatibility setting; current connectors do not automatically retry requests.
+- `PIPELINE_CONNECTION_MAX_AGE_SECONDS` is also reserved and is not currently used to expire a
+  **Connected** result. Retest a connection explicitly after credential or network changes.
+- Retention, source, run, and spool settings control cleanup and resource ceilings.
 
 Leave these at their defaults unless measurements or an approved operational
 requirement justify a change.

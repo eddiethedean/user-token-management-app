@@ -30,7 +30,7 @@ There is **no public REST API**. Mutations are form/HTMX POSTs; GETs render HTML
 | Identity-aware proxy (`trusted_header`) | Only trusted component that may set the identity header |
 | Application process | Holds JWT/session/CSRF secrets and connection-credential master keys; least privilege DB role |
 | Database | Stores password hashes, HMAC digests of capability tokens, encrypted credential blobs, CSV uploads, saved pipelines, and audit rows |
-| SMTP / in-process background runtime | The Connect process's FastAPI background tasks see plaintext capability URLs and selected provider credentials only for their authorized task |
+| Authorized connector actions / in-process background runtime | The FastAPI process decrypts only the current user's selected credentials for a catalog browse, connection test, or claimed transfer; plaintext never enters browser responses, run snapshots, or catalog-cache rows |
 | Downstream “run” workloads | Must not inherit master-key env; receive only explicitly granted provider tokens (deployment control) |
 
 ## Sessions
@@ -61,16 +61,20 @@ compatibility). The UI is write/replace oriented after save. Treat decrypted val
 credentials; lifecycle and revocation at the remote provider remain operator responsibility.
 
 Save stores credentials as `untested`. **Test connection** is a distinct action that calls the
-connector. Demo mode uses fake connectors on reserved `.demo.invalid` hosts. Real mode decrypts
-credentials only inside a claimed in-process transfer task.
+connector. Demo mode uses fake connectors on reserved `.demo.invalid` hosts. In real mode,
+credential decryption is limited to an owner-authorized catalog browse or connection test in the
+request process and to the bundles required by a claimed transfer. Plaintext is request/run scoped
+and is never stored in catalog cache rows, definitions, run snapshots, or events.
 
 ## Pipeline definitions and runs
 
 Saved pipeline definitions are owner-scoped rows in `pipeline_definitions` with versioned locators
 and write policies. The Hedron app enqueues runs and attaches an in-process FastAPI background task;
-the app claims a lease, decrypts only the provider credential bundles required by the route, streams
-Polars batches, and persists status and events. A lightweight in-process supervisor also recovers
-queued or expired runs after restart and runs retention cleanup. CSV sources do not require a source
+the app claims a lease, renews it from an independent database session, decrypts only the provider
+credential bundles required by the route, streams row- and byte-bounded Polars batches, and persists
+status and events. Lease-guarded mutations refresh ownership from the database so a stale task cannot
+continue from its SQLAlchemy identity map. A lightweight in-process supervisor also recovers queued
+or expired runs after restart and runs retention cleanup. CSV sources do not require a source
 credential. The browser polls HTMX fragments that render only those persisted facts.
 
 ```text
@@ -79,7 +83,7 @@ Browser HTMX
    ▼
 app/ui routes ──► pipeline + catalog services ──► application DB
    │                         ▲
-   └─ in-process task ───────┘ claims lease and decrypts two bundles only
+   └─ in-process task ───────┘ claims lease and decrypts required bundle(s) only
                               │
                               ▼
                  connector registry ──► postgres / foundry / csv
@@ -101,9 +105,13 @@ upload by foreign key so the source remains available when the pipeline is loade
 Connector capability metadata in `app/connectors/registry.py` is the source of truth for provider
 labels, source/destination eligibility, object models, write modes, schema inspection, row-count
 precision, and verification limits. `app/services/catalogs.py` projects that metadata into the UI,
-while each connector owns its namespace and object discovery. Connections status, Pipeline
-selectors, persistence validation, and the transfer engine must all enforce the same registry
-capabilities; hiding an option in the browser is not an authorization boundary.
+while each connector owns its namespace and object discovery. Real catalog requests use the current
+owner's connected credential and persist only credential-free locator/metadata payloads in an owner-scoped
+cache for `PIPELINE_CATALOG_TTL_SECONDS`; credential replacement or deletion invalidates that
+provider's rows. The explicit route allowlist is MSS → PostgreSQL, PostgreSQL → MSS, PostgreSQL →
+MCS-COP, and CSV → PostgreSQL/MSS/MCS-COP. Connections status, Pipeline selectors, persistence,
+enqueue, and transfer execution enforce capabilities, route approval, and writer flags independently;
+hiding an option in the browser is not an authorization boundary.
 
 ## Related
 

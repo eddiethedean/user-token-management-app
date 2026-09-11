@@ -1,7 +1,9 @@
 # PostgreSQL protocol notes
 
-Status: frozen for the first real-transfer release  
-Evidence: `transfer_code/mss_pg.py`, `transfer_code/pg_mss.py`, `transfer_code/pg_mcs.py`, and the application's existing psycopg 3 driver
+Status: frozen for the first real-transfer release
+
+Evidence: `docs/archive/transfer_code/mss_pg.py`, `docs/archive/transfer_code/pg_mss.py`,
+`docs/archive/transfer_code/pg_mcs.py`, and the application's existing psycopg 3 driver
 
 ## Driver and identifiers
 
@@ -33,13 +35,18 @@ Read namespaces and tables from `information_schema` / `pg_catalog`. Inspect col
 ## Destination load
 
 - Create a uniquely named staging table per run (`dm_stage_{short_run_id}`), never a shared `temp_upload_table`.
-- COPY with an explicit column list from bounded CSV/row blocks generated from each Polars frame.
+- COPY with an explicit column list from bounded CSV/row blocks generated from each Polars frame;
+  `\\N` is the null marker, so an empty string remains distinct from SQL NULL.
 - Write modes:
   - `postgres_append`: insert every staged row.
   - `postgres_upsert`: require one or more conflict columns from a real unique/primary constraint; `action=update|ignore`.
   - `postgres_replace`: load staging completely, then swap/replace according to `schema_policy=require_compatible|recreate`.
 - Create the destination schema/table only when the pipeline explicitly requests it and the credential can.
-- Drop staging artifacts on success, failure, and cancellation. A janitor reaps abandoned staging tables.
+- Keep preparation, staged COPY, and final application in one transaction on a dedicated connection.
+  For recreate, the live table is dropped and staging is renamed only during finalization immediately
+  before commit. Abort or connection loss rolls back staging and preserves live data.
+- The maintenance helper `drop_abandoned_staging` can remove legacy `dm_stage_*` tables manually;
+  current loads do not commit intermediate staging or depend on the periodic app janitor for cleanup.
 
 ## Verification
 
