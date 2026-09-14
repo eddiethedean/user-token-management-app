@@ -109,6 +109,11 @@ PIPELINE_SOURCE_TABLE_SELECT = FragmentRegion(
     selector="#pipeline-source-table-select",
     description="Pipeline source table select",
 )
+PIPELINE_TARGET_SELECT = FragmentRegion(
+    id="pipeline-target-select",
+    selector="#pipeline-target-select",
+    description="Pipeline destination connection select",
+)
 PIPELINE_TARGET_SCHEMA_SELECT = FragmentRegion(
     id="pipeline-target-schema-select",
     selector="#pipeline-target-schema-select",

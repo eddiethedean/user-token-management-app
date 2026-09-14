@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 
+import pytest
 from sqlalchemy import select
 
 from app.connectors.base import ColumnSchema, ObjectSchema
@@ -291,7 +292,12 @@ def test_pipeline_ui_creates_and_uses_a_new_foundry_dataset(client, demo_connect
 
     assert created.status_code == 201
     assert "Dataset ready" in created.text
+    assert created.headers["HX-Trigger-After-Settle"] == "pipelineDatasetCreated"
     assert "Create another dataset" in created.text
+    for select_id in ("pipeline-target-schema-select", "pipeline-target-table-select"):
+        assert created.text.count(f'id="{select_id}"') == 1
+        control = _pipeline_select(created.text, select_id)
+        assert f'hx-swap-oob="outerHTML:#{select_id}"' in control
     assert "Daily readiness landing" in created.text
     assert "pipeline-target-schema-select" in created.text
     rid_match = re.search(
@@ -731,8 +737,6 @@ def test_uploaded_csv_can_be_scanned_saved_and_reloaded(client, demo_connections
             "pipeline_id": "",
             "pipeline_name": "Uploaded readiness feed",
             "source_provider": "csv",
-            "source_schema": "uploaded",
-            "source_table": "unit_readiness.csv",
             "source_upload_id": upload_id,
             "destination_provider": "postgres",
             "destination_schema": "staging",
@@ -764,6 +768,9 @@ def test_uploaded_csv_can_be_scanned_saved_and_reloaded(client, demo_connections
     assert "CSV file" in reloaded.text
     assert f'data-pipeline-source-upload-id="{upload_id}"' in reloaded.text
     assert "unit_readiness.csv" in reloaded.text
+    assert "unit_readiness.csv" in _pipeline_select(reloaded.text, "pipeline-source-table-select")
+    assert "Scanned CSV" in _pipeline_select(reloaded.text, "pipeline-source-schema-select")
+    assert "Source · Scanned CSV" in reloaded.text
 
 
 def test_csv_scan_rejects_duplicate_headers(client) -> None:
@@ -778,3 +785,239 @@ def test_csv_scan_rejects_duplicate_headers(client) -> None:
 
     assert response.status_code == 422
     assert "column names must be unique" in response.text
+
+
+def _pipeline_select(markup: str, element_id: str) -> str:
+    match = re.search(rf'<select[^>]+id="{element_id}"[^>]*>.*?</select>', markup)
+    assert match is not None
+    return match.group(0)
+
+
+def test_pipeline_live_writer_flags_select_a_valid_initial_route(
+    client, demo_connections, monkeypatch
+) -> None:
+    from app.config import get_settings
+
+    # Keep fixture connectors while exercising the real live-mode writer policy.
+    settings = get_settings()
+    monkeypatch.setattr(settings, "data_mover_mode", "real")
+    monkeypatch.setattr(settings, "pipeline_enable_postgres_writer", True)
+    monkeypatch.setattr(settings, "pipeline_enable_mss_writer", False)
+    monkeypatch.setattr(settings, "pipeline_enable_mcscop_writer", False)
+    web_login(client, next_path="/pipeline")
+    response = client.get("/pipeline")
+    assert response.status_code == 200
+    source = _pipeline_select(response.text, "pipeline-source-select")
+    target = _pipeline_select(response.text, "pipeline-target-select")
+    assert 'value="mss" selected' in source
+    assert 'value="postgres"' in source  # Can switch direction without a circular filter.
+    assert 'value="postgres" selected' in target
+    assert 'value="mss"' not in target
+
+
+@pytest.mark.parametrize(
+    ("source", "old_target", "expected_targets"),
+    [
+        ("mss", "mss", {"postgres"}),
+        ("postgres", "postgres", {"mss", "mcscop"}),
+        ("csv", "postgres", {"postgres", "mss", "mcscop"}),
+    ],
+)
+def test_pipeline_source_change_refreshes_destination_options(
+    client, demo_connections, source, old_target, expected_targets
+) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": source,
+            "destination_provider": old_target,
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+        },
+        headers={
+            "HX-Request": "true",
+            "HX-Target": "pipeline-preview-region",
+            "HX-Trigger": "pipeline-source-select",
+        },
+    )
+    assert response.status_code == 200
+    target = _pipeline_select(response.text, "pipeline-target-select")
+    assert set(re.findall(r'<option value="([^"]+)"', target)) == expected_targets
+    assert 'hx-swap-oob="outerHTML:#pipeline-target-select"' in target
+    assert 'hx-post="/pipeline/preview"' in target
+    assert 'hx-include="#pipeline-form"' in target
+    assert "disabled" not in target.split(">")[0]
+    for element_id in (
+        "pipeline-source-schema-select",
+        "pipeline-source-table-select",
+        "pipeline-target-schema-select",
+        "pipeline-target-table-select",
+    ):
+        assert 'hx-post="/pipeline/preview"' in _pipeline_select(response.text, element_id)
+
+
+def test_pipeline_empty_destination_explains_disabled_writes_and_recovers(
+    client, demo_connections, monkeypatch
+) -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "data_mover_mode", "real")
+    monkeypatch.setattr(settings, "pipeline_enable_postgres_writer", True)
+    monkeypatch.setattr(settings, "pipeline_enable_mss_writer", False)
+    monkeypatch.setattr(settings, "pipeline_enable_mcscop_writer", False)
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    headers = {
+        "HX-Request": "true",
+        "HX-Target": "pipeline-preview-region",
+        "HX-Trigger": "pipeline-source-select",
+    }
+    data = {
+        "csrf_token": csrf_from(page.text),
+        "source_provider": "postgres",
+        "destination_provider": "postgres",
+    }
+    empty = client.post("/pipeline/preview", data=data, headers=headers)
+    assert empty.status_code == 200
+    assert "disabled by the administrator" in empty.text
+    assert "A successful connection check does not enable writes" in empty.text
+    target = _pipeline_select(empty.text, "pipeline-target-select")
+    assert "No writable destination for this source" in target
+    assert "disabled" in target.split(">")[0]
+
+    # Disabled destination controls are omitted by the browser on the next change.
+    recovered = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "mss",
+        },
+        headers=headers,
+    )
+    assert recovered.status_code == 200
+    target = _pipeline_select(recovered.text, "pipeline-target-select")
+    assert 'value="postgres" selected' in target
+    assert "disabled" not in target.split(">")[0]
+    schema = _pipeline_select(recovered.text, "pipeline-target-schema-select")
+    assert "disabled" not in schema.split(">")[0]
+
+
+def test_pipeline_preview_still_rejects_disallowed_route_without_source_change(
+    client, demo_connections
+) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "mss",
+            "destination_provider": "mss",
+            "destination_schema": MSS_DEST_DATASET,
+            "destination_table": "orders.parquet",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+    assert response.status_code == 422
+
+
+def test_preview_updates_route_facts_without_duplicate_control_ids(
+    client, demo_connections
+) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "mss",
+            "destination_provider": "postgres",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+    assert response.status_code == 200
+    for element_id in (
+        "pipeline-source-node",
+        "pipeline-target-node",
+        "pipeline-schema-preview",
+        "pipeline-csv-file",
+        "pipeline-csv-inspection",
+        "pipeline-capabilities",
+    ):
+        assert response.text.count(f'id="{element_id}"') == 1
+    assert "MSS to PostgreSQL" in response.text
+    assert 'data-field-label="Dataset"' in _pipeline_select(
+        response.text, "pipeline-source-schema-select"
+    )
+    assert 'data-field-label="Schema"' in _pipeline_select(
+        response.text, "pipeline-target-schema-select"
+    )
+    assert "14 fields" not in response.text
+
+
+@pytest.mark.parametrize("provider", ["mss", "mcscop"])
+def test_created_foundry_file_can_be_saved_again_after_reload(
+    client, demo_connections, provider
+) -> None:
+    from html.parser import HTMLParser
+
+    class NewNameParser(HTMLParser):
+        value = ""
+        pattern = ""
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "input" and attrs.get("name") == "destination_table_new":
+                self.value = attrs["value"]
+                self.pattern = attrs["pattern"]
+
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    fields = {
+        "csrf_token": csrf_from(page.text),
+        "pipeline_name": "Reusable Foundry export",
+        "source_provider": "postgres",
+        "source_schema": "public",
+        "source_table": "readiness_events",
+        "destination_provider": provider,
+        "destination_schema": MSS_DEST_DATASET if provider == "mcscop" else MSS_DATASET,
+        "destination_table": "__new__",
+        "destination_table_new": "a",
+        "write_mode": "replace",
+    }
+    saved = client.post("/pipeline/save", data=fields)
+    assert saved.status_code == 303
+    reloaded = client.get(saved.headers["location"])
+    parser = NewNameParser()
+    parser.feed(reloaded.text)
+    assert parser.value == "a"
+    assert re.fullmatch(parser.pattern, parser.value)
+    pipeline_id = re.search(r'name="pipeline_id" value="([^"]+)"', reloaded.text).group(1)
+    fields.update(pipeline_id=pipeline_id, destination_table_new=parser.value)
+    saved_again = client.post("/pipeline/save", data=fields)
+    assert saved_again.status_code == 303
+    with SessionLocal() as db:
+        pipeline = db.get(PipelineDefinition, pipeline_id)
+        assert pipeline.destination_table == "a.snappy.parquet"
+
+
+def test_remote_pipeline_save_still_requires_source_location(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Missing source object",
+            "source_provider": "postgres",
+            "destination_provider": "mss",
+            "destination_schema": MSS_DATASET,
+            "destination_table": "orders.parquet",
+            "write_mode": "replace",
+        },
+    )
+    assert response.status_code == 422

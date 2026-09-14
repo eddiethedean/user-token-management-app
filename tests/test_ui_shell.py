@@ -83,8 +83,8 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=3"')
     assert_html_contains(response, 'href="/assets/theme.css?v=17"')
     assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=12"')
-    assert_html_contains(response, 'src="/assets/app.js?v=10"')
-    assert response.body.count('src="/assets/app.js?v=10"') == 1
+    assert_html_contains(response, 'src="/assets/app.js?v=11"')
+    assert response.body.count('src="/assets/app.js?v=11"') == 1
     assert_html_contains(
         response,
         'type="image/png" href="/assets/brand/data-mover-mark.png?v=1" rel="icon"',
@@ -103,8 +103,9 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Continue to workspace")
     assert_html_contains(response, "Test demo workspace")
     assert_html_contains(response, "Test environment · Transfers are simulated")
-    assert_html_contains(response, "Version 140926.0")
+    assert_html_contains(response, "Version 140926.1")
     assert_html_contains(response, "Demo mode")
+    assert response.body.index('name="password"') < response.body.index("Forgot password?")
     assert "Sandbox" not in response.body
 
     dark = fixture.get("/login", cookies={"data_mover_color_mode": "dark"})
@@ -136,7 +137,7 @@ def test_live_production_shell_reports_effective_runtime_mode() -> None:
     assert "Transfers use configured endpoints and may change remote systems" in rendered
     assert "Production environment · Remote systems may be changed" in rendered
     assert "Live transfers" in rendered
-    assert "Version 140926.0" in rendered
+    assert "Version 140926.1" in rendered
     assert "Demo" not in rendered
     assert "Sandbox" not in rendered
 

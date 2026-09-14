@@ -231,14 +231,15 @@ def render_login_page(
                     ),
                 ),
                 Stack(
-                    ActionGroup(
-                        html.label("Password", for_="password"),
-                        Link("Forgot password?", href=page_href(request, "password/forgot")),
-                        align="between",
-                        collapse="never",
-                    ),
+                    html.label("Password", for_="password"),
                     password_control,
+                    Link(
+                        "Forgot password?",
+                        href=page_href(request, "password/forgot"),
+                        class_="data-mover-login-forgot-link",
+                    ),
                     gap="xs",
+                    class_="data-mover-login-password-field",
                 ),
                 submit_button("Continue to workspace", width="full", size="lg"),
                 action=form_action(request, "login"),

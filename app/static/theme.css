@@ -216,6 +216,18 @@
   text-decoration: none;
 }
 
+.data-mover-login-password-field {
+  position: relative;
+}
+
+/* Keep the help link beside the label visually, while placing it after the
+ * password control in the DOM so email → password is the natural tab order. */
+.data-mover-login-forgot-link {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-start: 0;
+}
+
 .data-mover-login-card a:hover {
   text-decoration: underline;
 }

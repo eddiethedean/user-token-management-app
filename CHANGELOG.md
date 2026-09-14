@@ -1,8 +1,9 @@
 # Changelog
 
-## [140926.0] — 2026-09-14
+## [140926.1] — 2026-09-14
 
 - Added the user-visible application release version to the Data Mover shell and package metadata.
+- Corrected login keyboard order so email tabs directly to password before the recovery link.
 - Redesigned desktop sign-in with a focused access panel, an illustrated transfer workflow,
   clearer hierarchy, and deployment-aware demo/live messaging.
 - Upgraded the desktop workspace with compact Hedron shell chrome, quieter native surfaces,

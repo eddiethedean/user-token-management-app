@@ -48,6 +48,7 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.PIPELINE_CSV_FILE,
     region_defs.PIPELINE_SOURCE_SCHEMA_SELECT,
     region_defs.PIPELINE_SOURCE_TABLE_SELECT,
+    region_defs.PIPELINE_TARGET_SELECT,
     region_defs.PIPELINE_TARGET_SCHEMA_SELECT,
     region_defs.PIPELINE_TARGET_TABLE_SELECT,
     region_defs.PIPELINE_DATASET_CREATOR,

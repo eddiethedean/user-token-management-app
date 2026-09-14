@@ -118,11 +118,76 @@ document.addEventListener("htmx:sendError", (event) => {
   restoreColorMode(event.detail.elt.closest(colorModeFormSelector));
 });
 
+function markPipelineDirty(event) {
+  const form = event.target.closest?.("#pipeline-form");
+  if (!form || !event.target.matches("input, select, textarea")) return;
+  if (!form.querySelector('[name="pipeline_id"]')?.value) return;
+  form.dataset.pipelineDirty = "true";
+  syncPipelineEditor();
+}
+
+function syncPipelineEditor() {
+  const form = document.getElementById("pipeline-form");
+  if (!form) return;
+  form.querySelectorAll("select[data-field-label]").forEach((select) => {
+    const label = form.querySelector(`label[for="${select.id}"]`);
+    if (label && select.dataset.fieldLabel) label.textContent = select.dataset.fieldLabel;
+  });
+  const dirty = form.dataset.pipelineDirty === "true";
+  const note = document.getElementById("pipeline-unsaved-note");
+  if (note) note.hidden = !dirty;
+  if (dirty) {
+    const run = form.querySelector("[data-pipeline-start]");
+    if (run) {
+      run.disabled = true;
+      run.setAttribute("aria-describedby", "pipeline-unsaved-note");
+    }
+  }
+}
+
+// A run uses the persisted definition. Edits must be saved before it can run.
+document.addEventListener("input", markPipelineDirty, true);
+document.addEventListener("change", markPipelineDirty, true);
+document.addEventListener("htmx:configRequest", (event) => {
+  if (
+    event.detail.elt.matches?.("[data-pipeline-start]") &&
+    event.detail.elt.closest("#pipeline-form")?.dataset.pipelineDirty === "true"
+  ) {
+    event.preventDefault();
+  }
+});
+
+document.addEventListener("change", (event) => {
+  if (!event.target.matches('#pipeline-csv-file input[type="file"]')) return;
+  // Never keep a previous upload active while its replacement is being scanned.
+  const upload = document.getElementById("pipeline-source-upload-id");
+  if (upload) upload.value = "";
+}, true);
+
+document.addEventListener("htmx:afterRequest", (event) => {
+  if (!event.detail.elt.closest?.("#pipeline-csv-file")) return;
+  const source = document.getElementById("pipeline-source-select");
+  const upload = document.getElementById("pipeline-source-upload-id");
+  if (event.detail.successful && source && upload?.value) {
+    source.value = "csv";
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+});
+
+document.addEventListener("pipelineDatasetCreated", () => {
+  document.getElementById("pipeline-target-schema-select")
+    ?.dispatchEvent(new Event("change", { bubbles: true }));
+});
+
 function syncNewDestinationName() {
   const destinationSelect = document.querySelector("select#pipeline-target-table-select");
   const field = document.querySelector(".data-mover-new-destination-name");
   if (!destinationSelect || !field) return;
 
+  const fileDestination =
+    document.getElementById("pipeline-target-select")?.dataset.fileDestination === "true";
+  const label = field.querySelector('label[for="pipeline-target-table-new"]');
+  if (label) label.textContent = fileDestination ? "New file name" : "New table name";
   const creatingNew = destinationSelect.value === "__new__";
   field.hidden = !creatingNew;
   const input = field.querySelector('input[name="destination_table_new"]');
@@ -134,10 +199,12 @@ function syncNewDestinationName() {
 document.addEventListener("htmx:afterSettle", () => {
   initializeNavCollapse();
   syncNewDestinationName();
+  syncPipelineEditor();
 });
 
 document.addEventListener("htmx:oobAfterSwap", () => {
   syncNewDestinationName();
+  syncPipelineEditor();
 });
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -197,3 +264,4 @@ document.addEventListener("change", (event) => {
 
 initializeNavCollapse();
 syncNewDestinationName();
+syncPipelineEditor();

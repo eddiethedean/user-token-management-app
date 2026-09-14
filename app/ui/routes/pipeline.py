@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, cast
 
 from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
@@ -28,6 +28,7 @@ from hedron import (
     FlowStep,
     FormField,
     FormGrid,
+    Fragment,
     Grid,
     Hedron,
     HedronRouter,
@@ -117,6 +118,7 @@ from app.ui.params import (
     PipelineConflictColumnsForm,
     PipelineIdForm,
     PipelineNameForm,
+    PipelineOptionalProviderForm,
     PipelineOptionalTableForm,
     PipelineProviderForm,
     PipelineSchemaForm,
@@ -140,6 +142,7 @@ from app.ui.regions import (
     PIPELINE_TARGET_NODE,
     PIPELINE_TARGET_PROVIDER_LABEL,
     PIPELINE_TARGET_SCHEMA_SELECT,
+    PIPELINE_TARGET_SELECT,
     PIPELINE_TARGET_TABLE_SELECT,
     SIDE_NAV,
     TOAST_HOST,
@@ -349,7 +352,6 @@ def _source_provider_options(
             connections,
             selected=selected,
             role="source",
-            counterpart=target_provider,
         ),
         *(
             [
@@ -368,6 +370,76 @@ def _source_provider_options(
             else []
         ),
     ]
+
+
+def _eligible_destinations(connections, source_provider: str) -> tuple[ProviderCatalog, ...]:
+    return tuple(
+        catalog
+        for catalog in _configured_catalogs(connections, role="destination")
+        if route_allowed(source_provider, catalog.name)
+    )
+
+
+def _destination_unavailable_message(connections, source_provider: str) -> str:
+    if not any(details["configured"] for details in connections.values()):
+        return "Set up at least one connection before building or running a pipeline."
+    disabled = [
+        catalog.label
+        for catalog in all_provider_catalogs()
+        if catalog.name in connections
+        and catalog.destination
+        and _connection_configured(connections[catalog.name])
+        and route_allowed(source_provider, catalog.name)
+        and not writer_enabled(catalog.name)
+    ]
+    if disabled:
+        return (
+            f"Writing to {', '.join(disabled)} is disabled by the administrator. "
+            "A successful connection check does not enable writes."
+        )
+    return (
+        "No writable destination is available for this source. "
+        "Choose another source or configure and validate a supported destination in Connections."
+    )
+
+
+def _destination_provider_select(
+    request, connections, *, source_provider: str, selected: str, oob=False
+):
+    options = _provider_options(
+        connections, selected=selected, role="destination", counterpart=source_provider
+    )
+    if not options:
+        options = [
+            _option(
+                "",
+                "No writable destination for this source"
+                if any(details["configured"] for details in connections.values())
+                else "Set up a connection first",
+                selected=True,
+                disabled=True,
+            )
+        ]
+    return html.select(
+        *options,
+        id="pipeline-target-select",
+        name="destination_provider",
+        data={
+            "pipeline-control": "target-provider",
+            "file-destination": str(selected in {"mss", "mcscop"}).lower(),
+        },
+        disabled=not selected,
+        **({"hx-swap-oob": "outerHTML:#pipeline-target-select"} if oob else {}),
+        **hx_attrs(
+            request,
+            path="/pipeline/preview",
+            method="post",
+            target="#pipeline-preview-region",
+            swap="none",
+            include="#pipeline-form",
+            trigger="change",
+        ),
+    )
 
 
 def _namespace_entries(catalog_access: UserCatalog, provider: str) -> list[tuple[str, str]]:
@@ -609,17 +681,29 @@ def _dataset_creator(
 
 
 def _select_fragment(
+    request: Request,
     select_id: str,
     options,
     *,
     name: str,
     disabled: bool = False,
+    label: str = "",
 ):
     attrs = {
         "id": select_id,
+        "data": {"field-label": label},
         "name": name,
         **({"disabled": True} if disabled else {}),
         **{"hx-swap-oob": f"outerHTML:#{select_id}"},
+        **hx_attrs(
+            request,
+            path="/pipeline/preview",
+            method="post",
+            target="#pipeline-preview-region",
+            swap="none",
+            include="#pipeline-form",
+            trigger="change",
+        ),
     }
     return html.select(*options, **attrs)
 
@@ -702,7 +786,9 @@ def _capability_surface(
                 elevation="sm",
             )
         count_label = (
-            "Exact counts"
+            "Scanned locally"
+            if catalog.name == "csv"
+            else "Exact counts"
             if destination and catalog.exact_row_counts
             else "Catalog estimates"
             if catalog.exact_row_counts
@@ -1110,6 +1196,7 @@ def _pipeline_schema_preview_panel(
     destination_object: str,
     destination_create: bool,
     csv_inspection: CsvInspection | None,
+    include_id: bool = True,
 ):
     source = _route_schema_preview(
         catalog_access,
@@ -1142,7 +1229,7 @@ def _pipeline_schema_preview_panel(
                 columns=2,
                 gap="sm",
             ),
-            id="pipeline-schema-preview",
+            id="pipeline-schema-preview" if include_id else None,
             appearance="plain",
             padding="sm",
             elevation="none",
@@ -1155,6 +1242,7 @@ def _csv_inspection(
     inspection: CsvInspection | None = None,
     *,
     error: str = "",
+    include_id: bool = True,
 ):
     if error:
         content = StateView(
@@ -1232,7 +1320,7 @@ def _csv_inspection(
             id="pipeline-source-upload-id",
         ),
         content,
-        id="pipeline-csv-inspection",
+        id="pipeline-csv-inspection" if include_id else None,
         data=(
             {
                 "csv-ready": "true",
@@ -1248,7 +1336,7 @@ def _csv_inspection(
     )
 
 
-def _csv_upload_control(request: Request) -> NodeLike:
+def _csv_upload_control(request: Request, *, oob: bool = False) -> NodeLike:
     attrs = hx_attrs(
         request,
         path="/pipeline/csv/inspect",
@@ -1258,6 +1346,8 @@ def _csv_upload_control(request: Request) -> NodeLike:
         indicator="#pipeline-csv-upload-state",
     )
     attrs["hx-encoding"] = "multipart/form-data"
+    if oob:
+        attrs["hx-swap-oob"] = "outerHTML:#pipeline-csv-file"
     return AttrHost(
         FileUpload(
             name="csv_file",
@@ -1281,6 +1371,7 @@ def _provider_node(
     detail: str,
     configured: bool,
     runtime: str = "",
+    include_id: bool = True,
 ):
     if catalog is None:
         mark = "—"
@@ -1294,7 +1385,7 @@ def _provider_node(
         technology = catalog.technology
         region = catalog.region
         connection_label = (
-            "Upload required"
+            ("Scanned CSV" if configured else "Upload required")
             if catalog.name == "csv"
             else "Stored credentials"
             if configured
@@ -1328,8 +1419,15 @@ def _provider_node(
             density="compact",
             layout="inline",
         ),
-        id=f"pipeline-{kind}-node",
+        id=f"pipeline-{kind}-node" if include_id else None,
     )
+
+
+def _new_destination_basename(pipeline: PipelineDefinition) -> str:
+    name = pipeline.destination_table
+    if pipeline.destination_provider in {"mss", "mcscop"}:
+        name = name.removesuffix(".snappy.parquet").removesuffix(".parquet")
+    return name
 
 
 def _saved_pipeline_data(pipeline: PipelineDefinition, *, run: bool = False) -> dict[str, str]:
@@ -1348,7 +1446,9 @@ def _saved_pipeline_data(pipeline: PipelineDefinition, *, run: bool = False) -> 
         "pipeline-target-table": (
             CREATE_TABLE_VALUE if pipeline.destination_create else destination_object
         ),
-        "pipeline-target-table-new": (destination_object if pipeline.destination_create else ""),
+        "pipeline-target-table-new": (
+            _new_destination_basename(pipeline) if pipeline.destination_create else ""
+        ),
         "pipeline-mode": pipeline.write_mode,
     }
     if run:
@@ -1547,7 +1647,7 @@ def _pipeline_preview_fragment(
         connections[target_provider]
     )
     availability_message = (
-        "Set up at least one connection before building or running a pipeline."
+        _destination_unavailable_message(connections, source_provider)
         if target_catalog is None
         else "Upload and scan a CSV source."
         if source_provider == "csv" and not csv_ready
@@ -1565,14 +1665,30 @@ def _pipeline_preview_fragment(
     )
     if target_table == CREATE_TABLE_VALUE:
         table_name = _committed_new_table_name(destination_table_new) or "new_table"
-    field_count = len(csv_inspection.columns) if csv_ready and csv_inspection is not None else 14
+    field_count = len(csv_inspection.columns) if csv_ready and csv_inspection is not None else 0
     source_schema_options = (
-        [_option("uploaded", "Upload a CSV to inspect its schema", selected=True, disabled=True)]
+        [
+            _option(
+                "uploaded",
+                "Scanned CSV" if csv_ready else "Upload a CSV to inspect its schema",
+                selected=True,
+                disabled=True,
+            )
+        ]
         if source_provider == "csv"
         else _schema_options(catalog_access, source_provider, preferred_schema=source_schema)
     )
     source_table_options = (
-        [_option("", "Upload required", selected=True, disabled=True)]
+        [
+            _option(
+                "",
+                csv_inspection.filename
+                if csv_ready and csv_inspection is not None
+                else "Upload required",
+                selected=True,
+                disabled=True,
+            )
+        ]
         if source_provider == "csv"
         else _table_options(
             catalog_access, source_provider, source_schema, preferred_table=source_table
@@ -1609,20 +1725,65 @@ def _pipeline_preview_fragment(
         table_name if target_table != CREATE_TABLE_VALUE else CREATE_TABLE_VALUE,
     )
     return html.div(
-        _select_fragment(
-            "pipeline-source-schema-select", source_schema_options, name="source_schema"
+        html.span(
+            f"{source_catalog.label} to "
+            f"{target_catalog.label if target_catalog else 'destination not selected'}",
+            id="pipeline-route-description",
+            **{"hx-swap-oob": "outerHTML:#pipeline-route-description"},
         ),
-        _select_fragment("pipeline-source-table-select", source_table_options, name="source_table"),
+        html.div(
+            _capability_surface(source_catalog, target_catalog),
+            id="pipeline-capabilities",
+            **{"hx-swap-oob": "outerHTML:#pipeline-capabilities"},
+        ),
+        html.span(
+            Status(
+                "Ready to transfer"
+                if source_runtime_ready and target_runtime_ready
+                else "Setup required",
+                tone="success" if source_runtime_ready and target_runtime_ready else "warning",
+                live=False,
+                variant="compact",
+            ),
+            id="pipeline-route-readiness",
+            **{"hx-swap-oob": "outerHTML:#pipeline-route-readiness"},
+        ),
+        _csv_upload_control(request, oob=True) if source_provider != "csv" else None,
+        _destination_provider_select(
+            request,
+            connections,
+            source_provider=source_provider,
+            selected=target_provider,
+            oob=True,
+        ),
         _select_fragment(
+            request,
+            "pipeline-source-schema-select",
+            source_schema_options,
+            name="source_schema",
+            label=source_catalog.namespaces_label,
+        ),
+        _select_fragment(
+            request,
+            "pipeline-source-table-select",
+            source_table_options,
+            name="source_table",
+            label=source_catalog.objects_label,
+        ),
+        _select_fragment(
+            request,
             "pipeline-target-schema-select",
             target_schema_options,
             name="destination_schema",
+            label=target_catalog.namespaces_label if target_catalog else "Schema",
             disabled=target_catalog is None,
         ),
         _select_fragment(
+            request,
             "pipeline-target-table-select",
             target_table_options,
             name="destination_table",
+            label=target_catalog.objects_label if target_catalog else "Table",
             disabled=target_catalog is None,
         ),
         _write_mode_select(
@@ -1657,7 +1818,7 @@ def _pipeline_preview_fragment(
             **{"hx-swap-oob": "outerHTML:#pipeline-target-detail"},
         ),
         html.span(
-            f"{field_count} fields" if field_count else "Choose source",
+            f"{field_count} fields" if field_count else "See schema preview",
             id="pipeline-field-map-label",
             class_="hedron-process-flow-description",
             **{"hx-swap-oob": "outerHTML:#pipeline-field-map-label"},
@@ -1692,22 +1853,17 @@ def _pipeline_body(
     destination_catalogs = _configured_catalogs(connections, role="destination")
     catalogs = tuple(dict.fromkeys((*source_catalogs, *destination_catalogs)))
     ready_count = sum(1 for details in connections.values() if _connection_runnable(details))
-    if source_catalogs and destination_catalogs:
-        source_catalog = source_catalogs[0]
-        target_catalog = next(
-            (
-                item
-                for item in destination_catalogs
-                if route_allowed(source_catalog.name, item.name)
-            ),
-            destination_catalogs[0],
-        )
-    elif destination_catalogs:
-        source_catalog = CSV_SOURCE_CATALOG
-        target_catalog = destination_catalogs[0]
-    else:
-        source_catalog = CSV_SOURCE_CATALOG
-        target_catalog = None
+    source_catalog, target_catalog = next(
+        (
+            (source, target)
+            for source in source_catalogs
+            for target in destination_catalogs
+            if route_allowed(source.name, target.name)
+        ),
+        (CSV_SOURCE_CATALOG, destination_catalogs[0])
+        if destination_catalogs
+        else (source_catalogs[0] if source_catalogs else CSV_SOURCE_CATALOG, None),
+    )
     source_provider = source_catalog.name
     target_provider = target_catalog.name if target_catalog is not None else ""
     configured_providers = {catalog.name for catalog in catalogs}
@@ -1720,6 +1876,9 @@ def _pipeline_body(
             source_provider = loaded_pipeline.source_provider
         if loaded_pipeline.destination_provider in configured_providers:
             target_provider = loaded_pipeline.destination_provider
+    destinations = _eligible_destinations(connections, source_provider)
+    if target_provider not in {catalog.name for catalog in destinations}:
+        target_provider = destinations[0].name if destinations else ""
     source_catalog = (
         CSV_SOURCE_CATALOG
         if source_provider == "csv"
@@ -1729,7 +1888,7 @@ def _pipeline_body(
     field_count = (
         len(loaded_source_inspection.columns)
         if source_provider == "csv" and loaded_source_inspection is not None
-        else 14
+        else 0
     )
     source_schema_name = (
         _first_namespace(catalog_access, source_provider)
@@ -1754,7 +1913,7 @@ def _pipeline_body(
     pipeline_name = loaded_pipeline.name if loaded_pipeline is not None else "Daily readiness sync"
     requested_write_mode = loaded_pipeline.write_mode if loaded_pipeline is not None else ""
     new_target_table_name = (
-        loaded_pipeline.destination_table
+        _new_destination_basename(loaded_pipeline)
         if loaded_pipeline is not None and loaded_pipeline.destination_create
         else ""
     )
@@ -1819,9 +1978,7 @@ def _pipeline_body(
     )
     initial_run_ready = source_runtime_ready and target_runtime_ready
     if target_catalog is None:
-        availability_message = (
-            "Set up at least one connection before building or running a pipeline."
-        )
+        availability_message = _destination_unavailable_message(connections, source_provider)
     elif source_provider == "csv":
         availability_message = (
             "Upload and scan a CSV source."
@@ -1931,9 +2088,10 @@ def _pipeline_body(
                         PageHeader(
                             pipeline_name if pipeline_id else "Create a pipeline",
                             eyebrow="Current route" if pipeline_id else "New route",
-                            description=(
+                            meta=html.span(
                                 f"{source_catalog.label} to "
-                                f"{target_catalog.label if target_catalog is not None else 'destination not selected'}"
+                                f"{target_catalog.label if target_catalog is not None else 'destination not selected'}",
+                                id="pipeline-route-description",
                             ),
                             level=2,
                             density="compact",
@@ -1966,6 +2124,12 @@ def _pipeline_body(
                                 tone="success" if initial_run_ready else "warning",
                             ),
                             id="pipeline-availability-note",
+                        ),
+                        html.p(
+                            "Save your changes before running this pipeline.",
+                            id="pipeline-unsaved-note",
+                            hidden=True,
+                            role="status",
                         ),
                         FormGrid(
                             FormField(
@@ -2040,14 +2204,13 @@ def _pipeline_body(
                                                     swap="none",
                                                     include="#pipeline-form",
                                                     trigger="change",
-                                                    select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-mode-select, #pipeline-upsert-key-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                                 ),
                                             ),
                                         ),
                                         FormGrid(
                                             FormField(
                                                 name="source_schema",
-                                                label="Schema",
+                                                label=source_catalog.namespaces_label,
                                                 id="pipeline-source-schema-select",
                                                 control=html.select(
                                                     *(
@@ -2060,7 +2223,9 @@ def _pipeline_body(
                                                         else [
                                                             _option(
                                                                 "uploaded",
-                                                                "Detected from CSV",
+                                                                "Scanned CSV"
+                                                                if csv_source_ready
+                                                                else "Upload required",
                                                                 selected=True,
                                                                 disabled=True,
                                                             )
@@ -2077,13 +2242,12 @@ def _pipeline_body(
                                                         swap="none",
                                                         include="#pipeline-form",
                                                         trigger="change",
-                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-mode-select, #pipeline-upsert-key-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                                     ),
                                                 ),
                                             ),
                                             FormField(
                                                 name="source_table",
-                                                label="Table",
+                                                label=source_catalog.objects_label,
                                                 id="pipeline-source-table-select",
                                                 control=html.select(
                                                     *(
@@ -2097,7 +2261,11 @@ def _pipeline_body(
                                                         else [
                                                             _option(
                                                                 "",
-                                                                "Upload required",
+                                                                loaded_source_inspection.filename
+                                                                if csv_source_ready
+                                                                and loaded_source_inspection
+                                                                is not None
+                                                                else "Upload required",
                                                                 selected=True,
                                                                 disabled=True,
                                                             )
@@ -2114,7 +2282,6 @@ def _pipeline_body(
                                                         swap="none",
                                                         include="#pipeline-form",
                                                         trigger="change",
-                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-mode-select, #pipeline-upsert-key-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                                     ),
                                                 ),
                                             ),
@@ -2174,38 +2341,11 @@ def _pipeline_body(
                                             name="destination_provider",
                                             label="Connection",
                                             id="pipeline-target-select",
-                                            control=html.select(
-                                                *(
-                                                    _provider_options(
-                                                        connections,
-                                                        selected=target_provider,
-                                                        role="destination",
-                                                        counterpart=source_provider,
-                                                    )
-                                                    if target_catalog is not None
-                                                    else [
-                                                        _option(
-                                                            "",
-                                                            "Set up a connection first",
-                                                            selected=True,
-                                                            disabled=True,
-                                                        )
-                                                    ]
-                                                ),
-                                                id="pipeline-target-select",
-                                                name="destination_provider",
-                                                data={"pipeline-control": "target-provider"},
-                                                disabled=target_catalog is None,
-                                                **hx_attrs(
-                                                    request,
-                                                    path="/pipeline/preview",
-                                                    method="post",
-                                                    target="#pipeline-preview-region",
-                                                    swap="none",
-                                                    include="#pipeline-form",
-                                                    trigger="change",
-                                                    select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-mode-select, #pipeline-upsert-key-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
-                                                ),
+                                            control=_destination_provider_select(
+                                                request,
+                                                connections,
+                                                source_provider=source_provider,
+                                                selected=target_provider,
                                             ),
                                         ),
                                         _dataset_creator(
@@ -2256,7 +2396,6 @@ def _pipeline_body(
                                                         swap="none",
                                                         include="#pipeline-form",
                                                         trigger="change",
-                                                        select_oob="#pipeline-source-schema-select, #pipeline-source-table-select, #pipeline-target-schema-select, #pipeline-target-table-select, #pipeline-mode-select, #pipeline-upsert-key-select, #pipeline-source-detail, #pipeline-target-detail, #pipeline-field-map-label, #pipeline-availability-note",
                                                     ),
                                                 ),
                                             ),
@@ -2337,7 +2476,7 @@ def _pipeline_body(
                                                         and target_catalog.dataset_creation
                                                         else "readiness_events_copy"
                                                     ),
-                                                    pattern="[A-Za-z][A-Za-z0-9_]{1,62}",
+                                                    pattern="[A-Za-z][A-Za-z0-9_]{0,62}",
                                                     disabled=target_table_name
                                                     != CREATE_TABLE_VALUE,
                                                 ),
@@ -2359,9 +2498,11 @@ def _pipeline_body(
                                 detail=(
                                     f"{source_schema_name}.{source_object_name}"
                                     if source_provider != "csv"
+                                    else loaded_source_inspection.filename
+                                    if loaded_source_inspection is not None
                                     else "Choose a CSV file"
                                 ),
-                                configured=source_provider != "csv",
+                                configured=source_runtime_ready,
                                 runtime=(
                                     str(connections[source_provider]["runtime"])
                                     if source_provider != "csv"
@@ -2372,17 +2513,24 @@ def _pipeline_body(
                                 Inline(
                                     Badge("Encrypted", tone="success"),
                                     html.span(
-                                        f"{field_count} fields" if field_count else "Choose source",
+                                        f"{field_count} fields"
+                                        if field_count
+                                        else "See schema preview",
                                         id="pipeline-field-map-label",
                                         class_="hedron-process-flow-description",
                                     ),
                                     gap="sm",
                                 ),
-                                Status(
-                                    "Ready to transfer" if initial_run_ready else "Setup required",
-                                    tone="success" if initial_run_ready else "warning",
-                                    live=False,
-                                    variant="compact",
+                                html.span(
+                                    Status(
+                                        "Ready to transfer"
+                                        if initial_run_ready
+                                        else "Setup required",
+                                        tone="success" if initial_run_ready else "warning",
+                                        live=False,
+                                        variant="compact",
+                                    ),
+                                    id="pipeline-route-readiness",
                                 ),
                                 label="Encrypted transfer route",
                             ),
@@ -2394,7 +2542,7 @@ def _pipeline_body(
                                     if target_catalog is not None
                                     else "Configure a connection"
                                 ),
-                                configured=target_catalog is not None,
+                                configured=target_runtime_ready,
                                 runtime=(
                                     str(connections[target_provider]["runtime"])
                                     if target_catalog is not None
@@ -2422,7 +2570,10 @@ def _pipeline_body(
                                 loaded_source_inspection if source_provider == "csv" else None
                             ),
                         ),
-                        _capability_surface(source_catalog, target_catalog),
+                        html.div(
+                            _capability_surface(source_catalog, target_catalog),
+                            id="pipeline-capabilities",
+                        ),
                         html.div(id="pipeline-preview-region", hidden=True),
                         action=form_action(request, "/pipeline/save"),
                         method="post",
@@ -2655,6 +2806,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
             PIPELINE_DATASET_CREATOR,
             PIPELINE_SOURCE_SCHEMA_SELECT,
             PIPELINE_SOURCE_TABLE_SELECT,
+            PIPELINE_TARGET_SELECT,
             PIPELINE_TARGET_SCHEMA_SELECT,
             PIPELINE_TARGET_TABLE_SELECT,
             PIPELINE_PREVIEW_REGION,
@@ -2674,9 +2826,9 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
         settings: SettingsDep,
         _csrf: RequireCsrf,
         source_provider: PipelineSourceProviderForm,
-        destination_provider: PipelineProviderForm,
-        destination_schema: PipelineSchemaForm,
-        destination_table: PipelineTableForm,
+        destination_provider: PipelineOptionalProviderForm = "",
+        destination_schema: PipelineOptionalTableForm = "",
+        destination_table: PipelineOptionalTableForm = "",
         source_schema: PipelineOptionalTableForm = "",
         source_table: PipelineOptionalTableForm = "",
         destination_table_new: PipelineOptionalTableForm = "",
@@ -2707,6 +2859,22 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Configure and validate the selected source connection first.",
             )
+        # A source change can invalidate the previous destination. Resolve a
+        # compatible selection before inspecting its schema; save/run still
+        # enforce the route and writer policy independently.
+        if (
+            request.headers.get("HX-Trigger") == "pipeline-source-select"
+            or not destination_provider
+        ):
+            destinations = _eligible_destinations(connections, source_provider)
+            if destination_provider not in {catalog.name for catalog in destinations}:
+                destination_provider = cast(
+                    PipelineOptionalProviderForm, destinations[0].name if destinations else ""
+                )
+                destination_schema = ""
+                destination_table = ""
+                destination_table_new = ""
+                conflict_columns = ""
         if destination_provider and (
             not _connection_configured(connections[destination_provider])
             or not writer_enabled(destination_provider)
@@ -2786,6 +2954,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 destination_object=destination_object,
                 destination_create=destination_table == CREATE_TABLE_VALUE,
                 csv_inspection=csv_inspection if csv_upload is not None else None,
+                include_id=False,
             ),
         )
         source_catalog = (
@@ -2832,6 +3001,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
             OobUpdate(
                 _provider_node(
                     kind="source",
+                    include_id=False,
                     catalog=source_catalog,
                     detail=source_detail,
                     configured=source_ready,
@@ -2847,6 +3017,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
             OobUpdate(
                 _provider_node(
                     kind="target",
+                    include_id=False,
                     catalog=target_catalog,
                     detail=(
                         f"{destination_schema}.{target_object}"
@@ -2868,12 +3039,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
             oob_updates.extend(
                 [
                     OobUpdate(
-                        _csv_upload_control(request),
-                        element_id="pipeline-csv-file",
-                        swap="outerHTML",
-                    ),
-                    OobUpdate(
-                        _csv_inspection(),
+                        _csv_inspection(include_id=False),
                         element_id="pipeline-csv-inspection",
                         swap="outerHTML",
                     ),
@@ -2951,6 +3117,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 ),
             ),
             id="pipeline-target-schema-select",
+            **{"hx-swap-oob": "outerHTML:#pipeline-target-schema-select"},
             name="destination_schema",
             data={"pipeline-control": "target-schema"},
             **hx_attrs(
@@ -2979,6 +3146,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 ),
             ),
             id="pipeline-target-table-select",
+            **{"hx-swap-oob": "outerHTML:#pipeline-target-table-select"},
             name="destination_table",
             data={"pipeline-control": "target-table"},
             **hx_attrs(
@@ -2991,27 +3159,21 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 trigger="change",
             ),
         )
-        return await interaction_response(
+        response = await interaction_response(
             request,
             ok_fragment(
-                _dataset_creator(request, catalog, created_name=created.name),
-                oob=(
-                    OobUpdate(
-                        namespace_select,
-                        element_id=PIPELINE_TARGET_SCHEMA_SELECT.id,
-                        swap="outerHTML",
-                    ),
-                    OobUpdate(
-                        file_select,
-                        element_id=PIPELINE_TARGET_TABLE_SELECT.id,
-                        swap="outerHTML",
-                    ),
+                Fragment(
+                    _dataset_creator(request, catalog, created_name=created.name),
+                    namespace_select,
+                    file_select,
                 ),
                 toast=f'Dataset "{created.name}" was created.',
                 status_code=status.HTTP_201_CREATED,
                 region_id=PIPELINE_DATASET_CREATOR.id,
             ),
         )
+        response.headers["HX-Trigger-After-Settle"] = "pipelineDatasetCreated"
+        return response
 
     @app.action("/pipeline/save", include_in_schema=False)
     async def pipeline_save(
@@ -3022,17 +3184,22 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
         _csrf: RequireCsrf,
         pipeline_name: PipelineNameForm,
         source_provider: PipelineSourceProviderForm,
-        source_schema: PipelineSchemaForm,
-        source_table: PipelineTableForm,
         destination_provider: PipelineProviderForm,
         destination_schema: PipelineSchemaForm,
         destination_table: PipelineTableForm,
         write_mode: PipelineWriteModeForm,
+        source_schema: PipelineOptionalTableForm = "",
+        source_table: PipelineOptionalTableForm = "",
         destination_table_new: PipelineOptionalTableForm = "",
         conflict_columns: PipelineConflictColumnsForm = "",
         source_upload_id: PipelineIdForm = "",
         pipeline_id: PipelineIdForm = "",
     ) -> Response:
+        if source_provider != "csv" and (not source_schema or not source_table):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Select a source schema and object before saving.",
+            )
         try:
             saved_pipeline_id = await asyncio.to_thread(
                 _save_pipeline_in_thread,

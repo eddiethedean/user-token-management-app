@@ -87,6 +87,17 @@ enabled (`PIPELINE_ENABLE_POSTGRES_WRITER`, `PIPELINE_ENABLE_MSS_WRITER`, or
 `PIPELINE_ENABLE_MCSCOP_WRITER`). The UI filters the choices, and save/enqueue/runtime boundaries
 repeat the same checks.
 
+In real mode, PostgreSQL writes default to enabled; MSS and MCS-COP writes default to disabled.
+A successful connection check verifies connectivity, but does not enable a writer. To make MSS
+available as a destination, select PostgreSQL or CSV as the source and configure
+`PIPELINE_ENABLE_MSS_WRITER=true` in the deployment environment, then restart the app. The same
+applies to MCS-COP with `PIPELINE_ENABLE_MCSCOP_WRITER=true`.
+
+The source selector lists every validated source connection. Changing the source refreshes the
+destination choices and selects a compatible destination if the previous one is no longer valid.
+If no writable destination is available, the editor explains the missing setup or disabled writer
+and keeps the source selector available so another route can be chosen.
+
 In real mode, catalog discovery calls the provider connector with the signed-in owner's decrypted
 credential. Namespace and object results are reduced to credential-free metadata and cached by
 user/provider/namespace for `PIPELINE_CATALOG_TTL_SECONDS` (300 seconds by default). Replacing or
