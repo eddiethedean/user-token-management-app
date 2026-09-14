@@ -22,6 +22,12 @@ def test_connect_requirements_match_project_runtime_dependencies() -> None:
     )
 
 
+def test_project_version_uses_date_release_format() -> None:
+    configuration = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
+
+    assert configuration["project"]["version"] == "140926.0"
+
+
 def test_connect_requirements_exclude_development_tools() -> None:
     requirements = _requirements(PROJECT_ROOT / "requirements.txt")
 

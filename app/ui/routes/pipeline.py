@@ -2349,7 +2349,7 @@ def _pipeline_body(
                                     ),
                                 ),
                             ),
-                            columns={"base": 1, "xl": 2},
+                            columns={"base": 1, "lg": 2},
                             gap="md",
                         ),
                         ConnectorFlow(
@@ -3697,7 +3697,7 @@ def _run_schema_results(run):
                 Grid(
                     _run_schema_surface("Source", source_manifest, f"{int(source_rows):,}"),
                     _run_schema_surface("Destination", destination_manifest, destination_rows),
-                    columns={"base": 1, "xl": 2},
+                    columns={"base": 1, "lg": 2},
                     gap="sm",
                 ),
                 open=False,

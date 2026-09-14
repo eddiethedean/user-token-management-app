@@ -24,3 +24,4 @@ class SecretProvider:
     mark: str
     environment_variable: str
     fields: tuple[CredentialField, ...]
+    setup_hint: str = ""

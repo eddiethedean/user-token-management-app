@@ -53,6 +53,11 @@ SECRET_PROVIDERS = (
                 options=("system", "nipr"),
             ),
         ),
+        setup_hint=(
+            "Need help finding these values? Your platform administrator can provide the MSS "
+            "API endpoint and token. In Foundry, the dataset page provides the dataset RID and "
+            "available branches."
+        ),
     ),
     SecretProvider(
         "mcscop",
@@ -84,6 +89,11 @@ SECRET_PROVIDERS = (
                 default="system",
                 options=("system", "nipr"),
             ),
+        ),
+        setup_hint=(
+            "Need help finding these values? Your platform administrator can provide the "
+            "MCS-COP API endpoint and token. In Foundry, the dataset page provides the dataset "
+            "RID and available branches."
         ),
     ),
     SecretProvider(
@@ -122,6 +132,12 @@ SECRET_PROVIDERS = (
             CredentialField(
                 "application_name", "Application name", "data-mover", default="data-mover"
             ),
+        ),
+        setup_hint=(
+            "Find these values in pgAdmin: server Properties → Connection has the host and port; "
+            "the Databases list has the database name; Login/Group Roles has the username. "
+            "pgAdmin cannot reveal an existing role password, so use the password issued by your "
+            "database administrator."
         ),
     ),
 )

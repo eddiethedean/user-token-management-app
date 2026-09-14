@@ -25,20 +25,25 @@ from fastapi.staticfiles import StaticFiles
 from hedron import Heading, RenderMode, html
 from hedron.htmx import is_htmx_request
 from hedron.responses import render_component_response
-from hedron_core import compile_style_bundle
 from hedron_core.request_budget import RequestBudget, reset_request_budget, set_request_budget
 from hedron_posit import ConnectConfig, HedronPosit, PositConfig
 from pydantic import BaseModel
 from sqlalchemy import text
 from starlette._utils import get_route_path
 
+from app import APP_VERSION
 from app.config import get_settings
 from app.dependencies import clear_auth_cookies, set_auth_cookies
 from app.logging_config import bind_request_id, clear_request_id, configure_logging
 from app.schema import assert_schema_current
 from app.security.cookies import APPLICATION_COOKIE_NAMES
 from app.services.auth import ensure_default_roles
-from app.ui.design_system import DATA_MOVER_DESIGN, DATA_MOVER_SCOPED_STYLES, surface_card
+from app.ui.design_system import (
+    DATA_MOVER_DESIGN,
+    DATA_MOVER_SCOPED_STYLES,
+    DATA_MOVER_THEME_EXPORT,
+    surface_card,
+)
 from app.ui.hedron_styles import desktop_default_styles
 from app.ui.interactions import (
     ERROR_RESPONSE_POLICY,
@@ -104,7 +109,7 @@ async def lifespan(app: HedronPosit) -> AsyncIterator[None]:
 
 app = HedronPosit(
     title=settings.app_name,
-    version="0.1.0",
+    version=APP_VERSION,
     docs_url=None if settings.is_production else "/docs",
     redoc_url=None,
     lifespan=lifespan,
@@ -139,7 +144,7 @@ app.styles(
 
 @app.get("/app-assets/hedron-desktop.css", include_in_schema=False)
 def hedron_desktop_styles() -> Response:
-    """Serve native Hedron styling with viewport-specific rules removed."""
+    """Serve Hedron's native stylesheet, including responsive viewport rules."""
 
     return Response(
         desktop_default_styles(),
@@ -150,14 +155,13 @@ def hedron_desktop_styles() -> Response:
 
 @app.get("/app-assets/data-mover-components.css", include_in_schema=False)
 def data_mover_component_styles() -> Response:
-    """Serve the Hedron 1.0.0 component bundle used by product surface classes."""
+    """Layer brand tokens over native CSS without resetting component appearances."""
 
-    bundle = compile_style_bundle(
-        theme=DATA_MOVER_DESIGN.to_theme(),
-        components=("app-shell", "button", "card", "form", "popover", "surface"),
-    )
+    # Hedron's complete native stylesheet already defines every component.
+    # The minimal component bundle's generic rules override native secondary,
+    # danger, ghost and surface appearances because its layer takes precedence.
     return Response(
-        bundle.css + DATA_MOVER_SCOPED_STYLES.css,
+        DATA_MOVER_THEME_EXPORT.css + DATA_MOVER_SCOPED_STYLES.css,
         media_type="text/css",
         headers={"Cache-Control": "public, max-age=3600"},
     )

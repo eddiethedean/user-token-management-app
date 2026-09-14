@@ -18,6 +18,7 @@ from hedron import (
     Form,
     FormField,
     FormGrid,
+    Grid,
     Heading,
     Inline,
     Lazy,
@@ -208,6 +209,13 @@ def secret_slot(
             ),
             gap="sm",
         )
+    elif provider.name == "postgres":
+        credential_layout = Stack(
+            FormGrid(*credential_fields[:3], columns=3, gap="sm"),
+            FormGrid(*credential_fields[3:5], columns=2, gap="sm"),
+            FormGrid(*credential_fields[5:], columns=3, gap="sm"),
+            gap="md",
+        )
     else:
         credential_layout = FormGrid(
             *credential_fields,
@@ -242,7 +250,15 @@ def secret_slot(
             ),
             alert_box(error),
             alert_box(success, kind="success"),
-            Text(metadata, overflow="wrap"),
+            Surface(
+                Text(provider.setup_hint, role="caption", effect="none"),
+                appearance="plain",
+                padding="sm",
+                elevation="none",
+            )
+            if provider.setup_hint
+            else None,
+            Text(metadata, role="caption", overflow="wrap", effect="none"),
             Form(
                 csrf_hidden(csrf_token),
                 credential_layout,
@@ -257,6 +273,7 @@ def secret_slot(
                             "Delete connection",
                             type="button",
                             variant="danger",
+                            appearance="outline",
                             size="sm",
                             attrs={"data-hedron-dialog-open": f"#delete-secret-{provider.name}"},
                         )
@@ -632,7 +649,20 @@ def security_tabs(
                     meta=Badge(f"{len(secret_slots)} providers", tone="neutral"),
                 ),
                 Stack(
-                    *[secret_slot(request, p, s, csrf_token=csrf_token) for p, s in secret_slots],
+                    Grid(
+                        *[
+                            secret_slot(request, p, s, csrf_token=csrf_token)
+                            for p, s in secret_slots
+                            if p.name != "postgres"
+                        ],
+                        columns={"base": 1, "lg": 2},
+                        gap="md",
+                    ),
+                    *[
+                        secret_slot(request, p, s, csrf_token=csrf_token)
+                        for p, s in secret_slots
+                        if p.name == "postgres"
+                    ],
                     gap="md",
                 ),
             ),

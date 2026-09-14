@@ -53,6 +53,7 @@ from hedron_core.builtins import (
 from starlette._utils import get_route_path
 from starlette.responses import Response
 
+from app import APP_VERSION
 from app.config import Settings
 from app.dependencies import AuthContext
 from app.security.cookies import COLOR_MODE_COOKIE, THEME_COOKIE, set_application_cookie
@@ -214,20 +215,20 @@ def document_head(
         ),
         html.link(
             rel="stylesheet",
-            href=asset_href(request, "/app-assets/hedron-desktop.css?v=2"),
+            href=asset_href(request, "/app-assets/hedron-desktop.css?v=3"),
         ),
     ]
     if custom_theme_enabled:
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=14"),
+                href=asset_href(request, "/assets/theme.css?v=17"),
             )
         )
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/app-assets/data-mover-components.css?v=10"),
+                href=asset_href(request, "/app-assets/data-mover-components.css?v=12"),
             )
         )
     return Fragment(*nodes)
@@ -436,6 +437,7 @@ def app_shell(
     page_title: str,
     csrf_token: str = "",
     default_color_mode: str = "light",
+    auth_presentation: Literal["standard", "login"] = "standard",
 ) -> Page:
     preference = theme_preference_for_request(
         request,
@@ -500,7 +502,6 @@ def app_shell(
                         env_badge=cdao_identity,
                         account=(
                             Inline(
-                                environment_badge,
                                 transfer_mode_badge,
                                 color_mode_toggle(request, csrf_token=csrf_token),
                                 account_summary(request, auth),
@@ -512,29 +513,29 @@ def app_shell(
                         ),
                         nav_footer=shell_nav_footer(settings),
                         chrome=AppShellChrome(
-                            preset="editorial",
+                            preset="compact",
                             header_behavior="sticky",
                             nav_behavior="sticky",
                             nav_offset="header",
                             shell_gap="standard",
-                            content_inset="wide",
-                            banner_spacing="standard",
-                            header_density="standard",
+                            content_inset="compact",
+                            banner_spacing="tight",
+                            header_density="compact",
                             footer_density="compact",
                         ),
                         app_footer=AppFooter(
                             settings.app_name,
-                            html.span(runtime.footer),
+                            html.span(f"{runtime.footer} · Version {APP_VERSION}"),
                         ),
                         content_width="wide",
-                        mobile_collapse=False,
+                        mobile_collapse=True,
                         class_="data-mover-app-shell",
                     ),
                     layers=(
                         AmbientLayer(
-                            pattern="mesh",
+                            pattern="radial",
                             tone="accent",
-                            intensity="soft",
+                            intensity="subtle",
                             scale="lg",
                             order=0,
                         ),
@@ -564,7 +565,7 @@ def app_shell(
                         brand,
                         Inline(
                             cdao_identity,
-                            environment_badge,
+                            environment_badge if auth_presentation != "login" else None,
                             transfer_mode_badge,
                             gap="sm",
                         ),
@@ -572,11 +573,15 @@ def app_shell(
                         gap="sm",
                         collapse="never",
                     ),
-                    appearance="raised",
+                    appearance="plain" if auth_presentation == "login" else "raised",
                     density="comfortable",
                     padding="sm",
-                    elevation="sm",
-                    class_="hedron-surface--glass",
+                    elevation="none" if auth_presentation == "login" else "sm",
+                    class_=(
+                        "data-mover-login-header"
+                        if auth_presentation == "login"
+                        else "hedron-surface--glass"
+                    ),
                 ),
                 max_width="xl",
             ),
@@ -593,14 +598,14 @@ def app_shell(
                                 query="inline-size",
                                 name="auth",
                                 max_width="xl",
-                                padding="lg",
+                                padding="none" if auth_presentation == "login" else "lg",
                             ),
                             id="main-content",
                             tabindex="-1",
                         ),
                         AppFooter(
                             settings.app_name,
-                            html.span(runtime.footer),
+                            html.span(f"{runtime.footer} · Version {APP_VERSION}"),
                         ),
                         gap="md",
                     ),
@@ -631,6 +636,7 @@ def app_shell(
                 },
             ),
             max_width="xl",
+            class_="data-mover-login-shell" if auth_presentation == "login" else None,
         )
     page_nodes: list[NodeLike] = [skip, indicator, toast_host(), dialog_host()]
     page_nodes.append(content)
@@ -657,11 +663,11 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> PageH
         eyebrow=eyebrow,
         description=lead,
         meta=extra[0] if len(extra) == 1 else None,
-        density="spacious",
-        title_measure="narrow",
+        density="compact",
+        title_measure="wide",
         description_measure="default",
-        title_effect="display",
-        description_effect="subtle",
+        title_effect="none",
+        description_effect="none",
     )
 
 
@@ -679,7 +685,7 @@ def main_panel(
                     query="inline-size",
                     name="workspace",
                     max_width="full",
-                    padding="lg",
+                    padding="none",
                 ),
                 theme=theme,
                 color_mode=color_mode,

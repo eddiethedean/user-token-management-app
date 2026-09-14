@@ -9,7 +9,6 @@ from hedron import (
     ActionGroup,
     Badge,
     Button,
-    Card,
     Component,
     Dialog,
     Form,
@@ -95,6 +94,7 @@ def user_table(
                     action_label,
                     size="sm",
                     type="submit",
+                    variant="danger" if is_active else "primary",
                 ),
                 action=form_action(request, f"admin/users/{user.id}/toggle"),
                 method="post",
@@ -197,7 +197,7 @@ def user_table(
                 description="Adjust the search or status filter to broaden the directory.",
             ),
         )
-    return Card(
+    return Stack(
         table,
         hedron_pagination(
             page=page,
@@ -207,6 +207,7 @@ def user_table(
             target="#user-directory-body",
         ),
         id="user-directory-body",
+        gap="md",
     )
 
 

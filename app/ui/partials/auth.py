@@ -6,13 +6,15 @@ from fastapi import Request
 from hedron import (
     ActionGroup,
     Alert,
+    Badge,
     Container,
     Divider,
     FormField,
+    Grid,
+    Icon,
+    Inline,
     Link,
     LinkButton,
-    ResourceList,
-    ResourceRow,
     SplitView,
     Stack,
     Text,
@@ -34,6 +36,7 @@ from app.ui.design_system import (
 from app.ui.design_system import surface_card
 from app.ui.forms import compact_password_input, hidden_field, submit_button
 from app.ui.http import auth_card, render_page
+from app.ui.icons import NAV_ICONS
 from app.ui.layout import alert_box, app_shell
 from app.ui.urls import form_action, page_href
 
@@ -111,64 +114,78 @@ def render_login_page(
     )
 
     intro = Stack(
-        PageHeader(
-            "Move data without moving secrets.",
-            eyebrow="Secure transfer workspace",
-            description=(
-                "Build dependable routes between approved systems while credentials remain "
-                "encrypted, access-controlled, and out of every run log."
-            ),
-            level=2,
-            density="compact",
-            title_measure="narrow",
-            description_measure="default",
-            title_effect="display",
-            description_effect="subtle",
+        Badge("SECURE TRANSFER WORKSPACE", tone="info"),
+        html.h2(
+            "Move data.",
+            html.br(),
+            html.span("Keep control.", class_="data-mover-login-accent"),
+            class_="data-mover-login-headline",
         ),
-        ResourceList(
-            ResourceRow(
-                "Credentials stay protected",
-                description="Secrets remain encrypted and never appear in run logs.",
-                density="compact",
-            ),
-            ResourceRow(
-                "Every transfer is observable",
-                description="Preview schemas, monitor progress, and retain audit history.",
-                density="compact",
-            ),
-            ResourceRow(
-                "Approved systems only",
-                description="Routes stay inside your organization's configured connections.",
-                density="compact",
-            ),
-            label="Workspace protections",
-            density="compact",
+        Text(
+            "Connect your systems. Build your route. Move forward with a clear view of every transfer.",
+            role="body",
+            effect="none",
+            class_="data-mover-login-lead",
         ),
-        Alert(
-            "Explore the complete workflow without contacting external systems.",
-            title="Safe demo environment",
-            tone="warning",
-            appearance="soft",
+        html.figure(
+            Grid(
+                *[
+                    Stack(
+                        html.div(
+                            Icon(NAV_ICONS[icon], size="lg", decorative=True),
+                            class_="data-mover-login-node-icon",
+                        ),
+                        Text(label, role="label", effect="none"),
+                        Text(detail, role="caption", effect="none"),
+                        gap="xs",
+                        class_=f"data-mover-login-node data-mover-login-node-{kind}",
+                    )
+                    for icon, label, detail, kind in (
+                        ("connections", "Connect", "Approved systems", "source"),
+                        ("pipeline", "Transfer", "Your configured route", "transfer"),
+                        ("activity", "Verify", "A clear audit trail", "destination"),
+                    )
+                ],
+                columns=3,
+                gap="sm",
+                class_="data-mover-login-flow",
+            ),
+            html.figcaption("From source to destination. One controlled workflow."),
+            class_="data-mover-login-illustration",
         ),
-        gap="md",
+        Inline(
+            Icon(NAV_ICONS["account"], size="sm", decorative=True),
+            Text(
+                "Encrypted credentials. Approved access. Traceable transfers.",
+                role="caption",
+                effect="none",
+            ),
+            gap="sm",
+            class_="data-mover-login-assurance",
+        ),
+        gap="lg",
+        class_="data-mover-login-intro",
     )
 
     card_children: list[NodeLike] = [
+        html.div(
+            Icon(NAV_ICONS["account"], size="lg", decorative=True),
+            class_="data-mover-login-access-icon",
+        ),
         PageHeader(
             "Welcome back",
-            eyebrow="Account access",
             description=(
                 "Continue through the approved identity-aware proxy using your CAC or "
                 "federated credential."
                 if federated
-                else "Sign in with the email associated with your approved workspace."
+                else "Sign in to your approved workspace."
             ),
             level=1,
             density="compact",
-            title_measure="narrow",
+            title_measure="wide",
             description_measure="default",
-            title_effect="display",
-            description_effect="subtle",
+            title_effect="none",
+            description_effect="none",
         ),
     ]
     if success:
@@ -214,14 +231,14 @@ def render_login_page(
                     ),
                 ),
                 Stack(
-                    html.label("Password", for_="password"),
+                    ActionGroup(
+                        html.label("Password", for_="password"),
+                        Link("Forgot password?", href=page_href(request, "password/forgot")),
+                        align="between",
+                        collapse="never",
+                    ),
                     password_control,
                     gap="xs",
-                ),
-                ActionGroup(
-                    Link("Forgot password?", href=page_href(request, "password/forgot")),
-                    align="end",
-                    collapse="never",
                 ),
                 submit_button("Continue to workspace", width="full", size="lg"),
                 action=form_action(request, "login"),
@@ -236,27 +253,42 @@ def render_login_page(
                     Link("Request access", href=page_href(request, "register")),
                 ),
                 Text(
-                    "Access requires a verified address and administrator approval.",
+                    "A verified email and administrator approval are required.",
                     role="caption",
                     overflow="wrap",
                 ),
                 gap="xs",
+                class_="data-mover-login-access-note",
             )
         )
 
     login_card = surface_card(
         Stack(*card_children, gap="md"),
         recipe="data-mover-auth-panel",
+        class_="data-mover-login-card",
     )
     layout = Container(
         SplitView(
             primary=intro,
-            secondary=login_card,
-            ratio="3:2",
+            secondary=Stack(
+                login_card,
+                Text(
+                    "Demo workspace · No external systems are contacted."
+                    if settings.is_demo_mode
+                    else "Live workspace · Transfers may change remote systems.",
+                    role="caption",
+                    effect="none",
+                    class_="data-mover-login-mode-note",
+                ),
+                gap="md",
+            ),
+            ratio="1:1",
             gap="xl",
             collapse="never",
+            class_="data-mover-login-split",
         ),
         max_width="lg",
+        class_="data-mover-login",
     )
     page = app_shell(
         layout,
@@ -265,6 +297,7 @@ def render_login_page(
         auth=None,
         page_title="Sign in",
         default_color_mode="dark",
+        auth_presentation="login",
     )
     response = render_page(page, request=request, status_code=status_code)
     set_preauth_csrf_cookie(response, request, preauth, settings)

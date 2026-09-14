@@ -1,4 +1,4 @@
-"""Desktop-only derivative of Hedron's native default stylesheet."""
+"""Hedron's native default stylesheet for desktop and mobile layouts."""
 
 from __future__ import annotations
 
@@ -65,14 +65,13 @@ def _without_viewport_media(stylesheet: str) -> str:
 
 @lru_cache(maxsize=1)
 def desktop_default_styles() -> str:
-    """Return Hedron's default styles without mobile viewport media rules."""
+    """Return Hedron's complete default stylesheet, including responsive rules."""
 
-    stylesheet = (
+    return (
         resources.files("hedron_core")
         .joinpath("static/hedron-default.css")
         .read_text(encoding="utf-8")
     )
-    return _without_viewport_media(stylesheet)
 
 
 __all__ = ["desktop_default_styles"]

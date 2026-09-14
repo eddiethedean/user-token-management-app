@@ -189,11 +189,11 @@ Keep routes thin and make domain rules testable without a browser or database wh
 
 Use current Hedron primitives, recipes, component bundles, and named spacing tokens for new
 presentation. Keep only product-level art direction in `app/static/theme.css`; component behavior
-and interaction states remain owned by Hedron. Data Mover intentionally loads a desktop-only
-derivative of Hedron's native stylesheet, so the supported visual pass is wide desktop and medium
-desktop, including expanded and collapsed navigation. Exercise both light and dark modes, keyboard
-focus, forced-colors behavior, and browser console output. Do not add isolated mobile overrides
-without an explicit product decision to expand the supported layout contract.
+and interaction states remain owned by Hedron. Data Mover loads Hedron's responsive native
+stylesheet, so the supported visual pass includes wide and medium desktop plus narrow mobile
+layouts, including expanded and collapsed navigation. Exercise both light and dark modes, keyboard
+focus, forced-colors behavior, and browser console output. Keep mobile overrides scoped to genuine
+product-specific behavior rather than reimplementing Hedron components.
 
 Run `make demo` for the browser pass. Use the seeded account and fake providers; never put real
 credentials into a visual test. Reload after server-side changes when the server is not running in

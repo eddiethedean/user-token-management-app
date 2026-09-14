@@ -1,5 +1,16 @@
 # Changelog
 
+## [140926.0] — 2026-09-14
+
+- Added the user-visible application release version to the Data Mover shell and package metadata.
+- Redesigned desktop sign-in with a focused access panel, an illustrated transfer workflow,
+  clearer hierarchy, and deployment-aware demo/live messaging.
+- Upgraded the desktop workspace with compact Hedron shell chrome, quieter native surfaces,
+  readable headings, and side-by-side pipeline and connection panels.
+- Restored native button appearances by removing conflicting generic component-bundle rules.
+- Added connection setup guidance, including pgAdmin locations for PostgreSQL settings, and
+  improved credential-field grouping, password widths, and confirmation-dialog alignment.
+
 ## [Unreleased / Hedron 1.0 train] — 2026-08-30
 
 - Upgraded the runtime and Posit integration to the compatible Hedron 1.0.0 train.

@@ -100,7 +100,7 @@ class CompactPasswordInput(Component[CompactPasswordInputProps]):
                 ),
                 variant="secondary",
             ),
-            class_="hedron-password-field",
+            class_="hedron-password-field data-mover-password-field",
             data={"hedron-password": "true"},
         )
 

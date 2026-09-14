@@ -73,6 +73,19 @@ cannot reveal another user's saved values.
 | MCS-COP (Palantir Foundry) | API endpoint, API token | Default dataset RID, branch, TLS CA profile |
 | PostgreSQL | Host, port, database, username, password, SSL mode | Connect timeout, application name |
 
+### Finding connection values
+
+For PostgreSQL, pgAdmin can provide most of the connection details. Right-click the server and
+open **Properties → Connection** for the host and port; expand the server's **Databases** list for
+the database name; and check **Login/Group Roles** for the username. pgAdmin does not display an
+existing role password, so obtain that value from your database administrator. Select the SSL mode
+required by your database policy; `verify-ca` and `verify-full` also require trusted CA
+configuration.
+
+For MSS and MCS-COP, ask your platform administrator for the HTTPS API endpoint and a
+least-privileged API token. In Foundry, open the dataset details to find its dataset RID and
+available branches.
+
 Saving a connection validates its field shape and stores an encrypted bundle as **untested**. Saved
 values cannot be displayed again. To change them, enter a complete replacement bundle. Deleting a
 connection removes Data Mover's encrypted copy; it does not revoke or rotate the credential at the

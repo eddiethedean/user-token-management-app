@@ -35,10 +35,13 @@ class DataMoverPageHeader(PageHeader):
     """PageHeader with product typography expressed through native Hedron props."""
 
     def __init__(self, title: str, **kwargs: Any) -> None:
-        kwargs.setdefault("title_measure", "narrow")
+        kwargs.setdefault("title_measure", "wide")
         kwargs.setdefault("description_measure", "default")
-        kwargs.setdefault("title_effect", "display")
-        kwargs.setdefault("description_effect", "subtle")
+        kwargs.setdefault("title_effect", "none")
+        kwargs.setdefault("description_effect", "none")
+        kwargs.setdefault("title_tracking", "tight")
+        kwargs.setdefault("title_wrap", "balance")
+        kwargs["class_"] = " ".join(filter(None, ("data-mover-page-heading", kwargs.get("class_"))))
         super().__init__(title, **kwargs)
 
 
@@ -83,7 +86,7 @@ DATA_MOVER_SCOPED_STYLE_RECIPES = (
         declarations={
             "background-color": "var(--hedron-color-accent-soft)",
             "border-color": "var(--hedron-color-accent)",
-            "box-shadow": "var(--hedron-elevation-focus)",
+            "box-shadow": "none",
         },
         motion="elevate",
     ),
@@ -93,9 +96,9 @@ DATA_MOVER_SCOPED_STYLE_RECIPES = (
         states=("current",),
         declarations={
             "background-color": "var(--hedron-color-accent-soft)",
-            "box-shadow": "var(--hedron-elevation-focus)",
+            "box-shadow": "none",
             "color": "var(--hedron-color-accent)",
-            "font-weight": "750",
+            "font-weight": "650",
             "letter-spacing": "0.01em",
         },
         motion="elevate",
@@ -174,8 +177,8 @@ DATA_MOVER_THEME_SPEC = (
             "motion.elevate": "180ms",
             "motion.crossfade": "200ms",
             "motion.easing.standard": "cubic-bezier(0.2, 0, 0, 1)",
-            "ambient.opacity.soft": "0.88",
-            "ambient.opacity.subtle": "0.42",
+            "ambient.opacity.soft": "0.28",
+            "ambient.opacity.subtle": "0.10",
             "data.row.hover": "rgba(141, 156, 255, 0.08)",
             "data.row.selected": "rgba(111, 112, 255, 0.16)",
             "control.appearance": "auto",
@@ -297,6 +300,7 @@ _DATA_MOVER_DARK_MODE = {
 
 DATA_MOVER_THEME: Theme = replace(
     _BRAND_DESIGN.to_theme(),
+    nav_width="14rem",
     tokens=_DATA_MOVER_THEME_TOKENS,
     modes={**_RESOLVED_THEME.modes, "dark": _DATA_MOVER_DARK_MODE},
     accessibility_modes=_RESOLVED_THEME.accessibility_modes,
@@ -314,7 +318,7 @@ DATA_MOVER_THEME: Theme = replace(
     },
     elevation={
         "focus": "0 12px 32px rgb(2 8 23 / 14%)",
-        "raised": "0 1px 2px rgb(2 8 23 / 8%), 0 18px 46px rgb(2 8 23 / 16%)",
+        "raised": "0 1px 3px rgb(2 8 23 / 5%), 0 6px 18px rgb(2 8 23 / 6%)",
     },
 )
 
@@ -348,8 +352,8 @@ DATA_MOVER_DESIGN = DesignSystem.from_theme(DATA_MOVER_THEME).with_recipes(
         "data-mover-panel",
         appearance="raised",
         density="comfortable",
-        padding="none",
-        elevation="md",
+        padding="md",
+        elevation="sm",
     ),
     StyleRecipe.surface(
         "data-mover-auth-panel",
@@ -427,10 +431,9 @@ def surface_card(
 ) -> Card:
     """Build a Card with a named Data Mover surface recipe."""
 
-    class_name = class_ or "hedron-card--glass"
     return DATA_MOVER_DESIGN.apply(
         recipe,
-        Card(*nodes, class_=class_name, **kwargs),
+        Card(*nodes, class_=class_, **kwargs),
     )
 
 
