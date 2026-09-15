@@ -997,7 +997,9 @@ fields, surrounding whitespace, bounded lengths, ports, URLs, and displayed tran
 Storage and connector health checks do not prove that a credential is minimally scoped,
 unexpired, or unrevoked at its provider.
 
-Pipeline catalogs expose only the current user's stored bundles whose validation status is `connected`.
+Pipeline catalogs expose the current user's stored bundles whose validation status is `connected`;
+an MSS/MCS-COP bundle without a default dataset RID may appear as an explicitly provisionable
+destination so its first dataset can be created and validated.
 `UserCatalog` decrypts a selected bundle into request-scoped memory, closes connector clients after
 each operation, and caches only credential-free locator/metadata payloads by owner/provider/namespace;
 credential replacement or deletion invalidates those rows. Pipeline persistence repeats the
@@ -1008,11 +1010,12 @@ Real transfers are enqueued and run by the Hedron app's in-process background ru
 a lease, the task decrypts only the credential bundles required by the saved snapshot (none for a CSV
 source, one for a CSV-to-provider run, or two for a provider-to-provider run). Built-in connectors
 receive those values as in-process mappings; this is trusted application code, not an arbitrary-code
-sandbox. Foundry hosts must be on the operator allowlist, the exact source/destination pair must
-appear in the product route allowlist, and real-mode writers must be explicitly enabled. The local
-`seed-demo-connections` helper uses reserved `.demo.invalid` hosts and explicit
-fake values, does not overwrite by default, and refuses to run when `APP_ENV=production` or
-`DATA_MOVER_MODE=real`.
+sandbox. Foundry hosts must be on the operator allowlist, registered source/destination capabilities
+must permit the route, same-system source/destination objects must not overlap, and real-mode writers
+must be explicitly enabled. The local `seed-demo-connections` helper uses reserved `.demo.invalid`
+hosts and explicit fake values. It creates missing bundles, repairs recognized legacy demo bundles,
+revalidates stale current demo bundles, preserves unknown or real bundles, and refuses to run when
+`APP_ENV=production` or `DATA_MOVER_MODE=real`.
 
 Real transfer execution also uses server-reloaded, owner-scoped pipeline snapshots, an idempotency
 token when supplied by the browser, a single lease token for task ownership, independent-session
@@ -1053,7 +1056,7 @@ operators must configure a fresh active key after upgrade.
 
 | Design choice | Security justification | Residual boundary |
 | --- | --- | --- |
-| Treat saved values as high-value capabilities | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-5) explains that any party possessing a bearer token can use it and identifies disclosure and replay as threats. This directly applies to Advana/MSS tokens and supports the same conservative handling for database passwords: TLS, encrypted storage, non-reveal responses, and never placing values in URLs. | These controls do not narrow the privileges encoded by a token or database account. Users must issue the least-privileged credential at the provider. |
+| Treat saved values as high-value capabilities | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-5) explains that any party possessing a bearer token can use it and identifies disclosure and replay as threats. This directly applies to MSS/MCS-COP tokens and supports the same conservative handling for database passwords: TLS, encrypted storage, non-reveal responses, and never placing values in URLs. | These controls do not narrow the privileges encoded by a token or database account. Users must issue the least-privileged credential at the provider. |
 | Three encrypted credential slots, fixed environment-variable names, and owner-scoped queries | [OWASP Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#enforce-least-privileges) recommends least privilege, deny-by-default behavior, and permission checks on every request. An allowlist prevents users from inventing environment-variable names that could alter runner behavior; owner predicates prevent cross-user object access. CSV is a separate local source type and is not an encrypted provider credential slot. | A compromised owner account can replace or delete that owner's credentials. The current AAL1-style authentication boundary may be insufficient for high-value credentials. |
 | Per-record AES-256-GCM with fresh 96-bit nonces and context-bound AAD | [NIST SP 800-38D](https://doi.org/10.6028/NIST.SP.800-38D) specifies GCM as authenticated encryption with associated data, and the [`cryptography` AES-GCM API](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM) requires a nonce never be reused with a key. Random per-record data keys and fresh nonces protect confidentiality and detect modification; AAD causes decryption to fail if ciphertext is moved to a different owner, record, provider, or purpose. | Randomness depends on the operating-system CSPRNG. An atomic aggregate counter fails closed at a conservative configured wrap limit, but the organization must approve that ceiling, monitor it, and rotate early. The deployed module and environment still need required FIPS evidence. |
 | Envelope encryption and a versioned key ring separate from the database and auth keys | [NIST SP 800-57 Part 1 Rev. 5](https://doi.org/10.6028/NIST.SP.800-57pt1r5) covers protection, lifecycle, cryptoperiods, backup, and recovery of keying material. [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-management) recommends storing keys separately from encrypted data and designing for rotation. The active key protects new data while retained key identifiers permit controlled migration and recovery. | The key ring is available to the FastAPI process. Database-only theft does not disclose plaintext, but application-host or key-ring compromise can. Loss of an old referenced key permanently loses the associated tokens. |

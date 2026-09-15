@@ -116,8 +116,10 @@ schema status must show the same revision for `Current` and `Head`. The demo see
 deliberately fake MSS, MCS-COP, and PostgreSQL bundles under reserved `.demo.invalid` hosts,
 so the deployed Pipeline page is immediately explorable.
 
-The seeder does not overwrite an existing provider bundle by default. Add `--replace` only when you
-intend to reset that demo account's connection values. It refuses to run with
+The seeder preserves unknown or real provider bundles by default. It refreshes recognized legacy
+demo bundles and revalidates stale current demo bundles, so rerunning the setup keeps the demo
+connections ready. Add `--replace` only when you intend to reset that demo account's connection
+values. It refuses to run with
 `APP_ENV=production`; do not add it to the production Connect sequence in [deploy.md](deploy.md).
 
 If `deployment/connect-demo.db` already exists, these commands upgrade it and update or promote the

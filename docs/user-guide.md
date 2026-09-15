@@ -103,7 +103,7 @@ Open **Connections → Status** to see every provider in one place.
 - **Connected** means the latest connector health check succeeded.
 - **Test connection** runs or repeats the health check.
 
-In demo mode the check is local emulation, not a handshake. PostgreSQL requires a complete bundle;
+In demo mode the check is local emulation, not a network check. PostgreSQL requires a complete bundle;
 Foundry without a default dataset RID remains **Untested**, matching the live connector's inability
 to verify dataset access. With a RID, **Connected** means ready for the emulator only and the status
 message says that no network request occurred. In real mode the check is a live `SELECT 1` or

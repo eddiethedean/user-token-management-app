@@ -27,9 +27,11 @@ retention cleanup.
 - `PIPELINE_ALLOWED_HTTPS_HOSTS` listing every Foundry hostname
 - Foundry writers remain off until `PIPELINE_ENABLE_MSS_WRITER` / `PIPELINE_ENABLE_MCSCOP_WRITER`
 
-The route allowlist is fixed to MSS → PostgreSQL, PostgreSQL → MSS/MCS-COP, and CSV →
-PostgreSQL/MSS/MCS-COP. Provider role capability alone does not authorize another pairing. The
-worker rechecks this allowlist from the frozen snapshot before opening either connector.
+Route compatibility is derived from registered connector capabilities: MSS and PostgreSQL are
+source-capable, CSV is source-only, and MCS-COP is destination-only. Same-system source and
+destination objects must not overlap, and destination writers must be enabled explicitly. The
+worker rechecks capabilities, object overlap, and writer policy from the frozen snapshot before
+opening either connector.
 
 Production refuses `DATA_MOVER_MODE=demo` and refuses SQLite. For Workbench SQLite/live mode, run
 one app process; its in-process background runtime serializes SQLite transfer and retention work.

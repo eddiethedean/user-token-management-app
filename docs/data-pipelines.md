@@ -152,7 +152,7 @@ normalizes and validates the submitted route, including:
 5. provider-specific locator syntax, the Foundry branch bound to the validated connection, and
    destination naming;
 6. a write policy supported by the destination; and
-7. the actual PostgreSQL primary key when upsert is selected.
+7. the selected PostgreSQL primary or unique key when upsert is selected.
 
 The service then creates or updates an owner-scoped `pipeline_definitions` row and records a
 sanitized `pipeline.created` or `pipeline.updated` audit event. Schema and row-count previews help

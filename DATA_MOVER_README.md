@@ -44,20 +44,19 @@ without being able to reveal users' saved credentials.
 
 ## Supported movement paths
 
-The initial project scope supports the following routes:
+The current project supports these capability-compatible route families. Route compatibility is
+capability-driven rather than a fixed pair-by-pair allowlist:
 
 | Source | Destination | Availability |
 |---|---|---|
-| MSS | PostgreSQL | Supported |
-| PostgreSQL | MSS | Supported |
-| PostgreSQL | MCS-COP | Supported |
-| CSV upload | PostgreSQL | Supported |
-| CSV upload | MSS | Supported |
-| CSV upload | MCS-COP | Supported |
+| MSS | MSS, PostgreSQL, MCS-COP | Supported when the destination writer is enabled |
+| PostgreSQL | PostgreSQL, MSS, MCS-COP | Supported when the destination writer is enabled |
+| CSV upload | PostgreSQL, MSS, MCS-COP | Supported when the destination writer is enabled |
 
-MCS-COP is destination-only in the current scope. CSV is a source-only option. A route is shown to
-a user only when the exact source/destination pair is approved, the required connection is ready,
-and the destination writer is enabled.
+MCS-COP is destination-only and CSV is source-only. Same-system routes must use different objects;
+the builder rejects a PostgreSQL table-to-itself route and Foundry outputs that overlap their source
+files. A route is shown only when the source/destination capabilities are compatible, the required
+connection is ready, and the destination writer is enabled.
 
 “Supported” describes an implemented route, not its deployment state. PostgreSQL writing is enabled
 by default; real MSS and MCS-COP writers remain opt-in through `PIPELINE_ENABLE_MSS_WRITER` and

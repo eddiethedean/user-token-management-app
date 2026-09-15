@@ -19,8 +19,9 @@ make serve
 Default `make create-admin` uses `ADMIN_EMAIL=admin@example.gov` unless you override it.
 For an explorable local instance with all three fake provider connections already validated, run
 `make demo`.
-The helper seeds only development environments and does not overwrite existing bundles unless the
-CLI is given `--replace`.
+The helper seeds only development environments. It refreshes recognized legacy demo bundles and
+revalidates stale current demo bundles while preserving unknown or real bundles; use `--replace`
+only when an explicitly disposable database should be reset to the fake values.
 
 ## Quality checks
 
@@ -28,8 +29,9 @@ CLI is given `--replace`.
 make check
 ```
 
-This runs Ruff (lint + format check), basedpyright on `app/`, and pytest with an 80% coverage gate.
-CI runs the same on Python 3.11 for pushes and PRs to `main`.
+This runs Ruff (lint + format check), basedpyright on `app/`, Hedron and HedronPosit checks, pytest
+with an 80% coverage gate, and the demo-app tests. CI runs the same on Python 3.11 for pushes and
+PRs to `main`, followed by the production Hedron manifest build.
 
 ## Architecture for contributors
 

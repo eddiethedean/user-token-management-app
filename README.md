@@ -67,7 +67,7 @@ controls, status details, and footer.
 
 ### Sign in
 
-![Full-page Data Mover sign-in screen showing the dark desktop theme, Data Mover and CDAO branding, workspace protections, and account access form](docs/screenshots/login.jpg)
+![Full-page Data Mover sign-in screen showing the light desktop theme, Data Mover and CDAO branding, demo protections, and account access form](docs/screenshots/login.jpg)
 
 The sign-in screen introduces the secure transfer workspace before requesting credentials. It keeps
 the Data Mover and CDAO identities visible, explains the protections applied to transfers, and
@@ -224,8 +224,8 @@ All of these are available as `python -m app …` or `access-registry …`.
 | `schema-status` | Show current vs expected revision |
 | `create-admin --email …` | Create or promote an administrator |
 | `create-admin … --password-env VAR` | Non-interactive password from env |
-| `seed-demo-connections --email … [--replace]` | Add fake encrypted credentials to a development account; refused in production |
-| `serve [--host] [--port] [--reload]` | Local / Workbench-aware server |
+| `seed-demo-connections --email … [--replace]` | Create or refresh recognized fake credentials in a development account; refused in production and real mode |
+| `serve [--host] [--port] [--reload] [--discover]` | Local / Workbench-aware server; `--discover` requests bind-then-discover when supported |
 | `send-email` | One-shot drain of queued email (manual recovery) |
 | `retry-email [--message-id ID] [--limit N]` | Requeue dead-lettered messages |
 
@@ -241,13 +241,17 @@ Schema must be current before `create-admin` or `serve` (startup checks).
 | `make serve` | `python -m app serve --reload` |
 | `make demo` | Create/refresh a local demo account, seed three fake provider connections, and serve on port 8765 |
 | `make create-admin` | Uses `ADMIN_EMAIL` (default `admin@example.gov`); set `ADMIN_BOOTSTRAP_PASSWORD` for non-interactive local mode |
-| `make check` | ruff + basedpyright + pytest (80% coverage gate) |
+| `make check` | ruff + basedpyright + Hedron/Posit checks + pytest (80% coverage gate) + demo-app tests |
 | `make hedron-check` | Validate Hedron routes and interaction contracts |
+| `make hedron-security-check` | Write the strict Hedron security posture report |
 | `make posit-check` | Validate HedronPosit deployment and cookie-path matrix |
 | `make hedron-build` | Build the production Hedron asset manifest |
+| `make demo-check` | Run the dependency-isolated demo-app tests |
 | `make workbench-up` | Start licensed Posit Workbench + app Docker stack (needs `POSIT_WORKBENCH_KEY`) |
 | `make workbench-test` | Opt-in Workbench Docker integration tests |
+| `make workbench-logs` | Show recent Workbench/app container logs |
 | `make workbench-down` | Graceful stop (important for license-key deactivation) |
+| `make connect-smoke` | Run the optional licensed Posit Connect smoke test |
 
 ## Configuration
 
@@ -283,8 +287,10 @@ make demo
 Workbench email configuration (the root `.env`, console versus SMTP, and in-process delivery) is
 documented in [the deployment guide](docs/deploy.md#configure-env-and-email).
 
-The seed step is development-only, preserves existing connection bundles by default, and makes the
-three demo providers immediately available on Pipeline. The disposable Connect SQLite guide
+The seed step is development-only. It creates missing bundles, refreshes recognized legacy demo
+bundles, revalidates stale current demo bundles, and preserves unknown or real credentials unless
+`--replace` is explicitly supplied. This makes the three demo providers immediately available on
+Pipeline across repeated runs. The disposable Connect SQLite guide
 uses the same step before bundling its database; production Connect explicitly omits it.
 
 For live connector checks, transfers, and SMTP invitations from Workbench, follow the

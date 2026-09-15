@@ -1,10 +1,10 @@
 # Hedron Enhancement Issue Drafts (Data Mover App)
 
 This file is a historical record of Hedron enhancement proposals and migration notes. It is
-not a list of current application workarounds: as of the Hedron 0.58.1 pass, `app/static/app.js`
-contains only application-owned dialog-close and navigation-scroll behavior. The detailed issue
-descriptions below are retained for upstream context and should not be read as evidence that the
-described legacy handlers still exist locally.
+not a list of current application workarounds. The descriptions below are time-bound migration
+notes from the Hedron 0.58.1-era review and are retained for upstream context; they should not be
+read as evidence that the described legacy handlers still exist locally. Consult the current
+[Hedron integration guide](hedron.md) and `app/static/app.js` for the present implementation.
 
 ## Base-theme parity issue set
 

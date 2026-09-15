@@ -86,8 +86,9 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 | Saved values appear blank | Expected non-reveal behavior | Enter a complete replacement bundle only when rotating or correcting the connection; Data Mover never repopulates plaintext credentials |
 | Status says `Not configured` | No encrypted credential bundle exists for that user/provider | Save the connection under **Connections → Credentials**; connections are owner-scoped |
 | Status says `Untested` | Credentials were saved without a connection test | Use **Test connection** under **Connections → Status** |
-| Status says `Connected`, but the real service is unavailable | Demo handshake, stale real check, or network change | In demo mode this is expected. In real mode run **Test connection** again and inspect app/connector logs |
+| Status says `Connected`, but the real service is unavailable | Demo emulation, stale real check, or network change | In demo mode this is expected and does not prove remote reachability. In real mode run **Test connection** again and inspect app/connector logs |
 | I need a fully populated local demo | The normal app starts without user-owned connections | Run `make demo`; it creates the printed local account and seeds fake `.demo.invalid` credentials for MSS, MCS-COP, and PostgreSQL |
+| A repeated demo run shows fewer than 3/3 connections ready | A reused database contains a recognized legacy bundle, a stale current fake bundle, or an intentionally preserved unknown/real bundle | Run the current `make demo` again. Recognized legacy bundles are refreshed and stale current demo bundles are revalidated. Unknown or real bundles are preserved; use `seed-demo-connections --replace` only for a disposable demo database |
 
 ## Pipelines and saved routes
 

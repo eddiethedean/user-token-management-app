@@ -85,7 +85,8 @@ explicit PostgreSQL primary/unique-key policy for upserts. The Hedron app enqueu
 owner-scoped idempotency and event sequencing, then attaches an in-process FastAPI background task;
 the app claims a lease, renews it from an independent database session, decrypts only the provider
 credential bundles required by the route, streams row- and byte-bounded Polars batches, and persists
-status and events. The worker rechecks the route allowlist before connector access. Lease-guarded mutations refresh ownership from the database so a stale task cannot
+status and events. The worker rechecks connector capabilities and destination writer policy before
+connector access. Lease-guarded mutations refresh ownership from the database so a stale task cannot
 continue from its SQLAlchemy identity map. A lightweight in-process supervisor also recovers queued
 or expired runs after restart and runs retention cleanup. CSV sources do not require a source
 credential. The browser polls HTMX fragments that render only those persisted facts.
@@ -121,10 +122,11 @@ precision, and verification limits. `app/services/catalogs.py` projects that met
 while each connector owns its namespace and object discovery. Real catalog requests use the current
 owner's connected credential and persist only credential-free locator/metadata payloads in an owner-scoped
 cache for `PIPELINE_CATALOG_TTL_SECONDS`; credential replacement or deletion invalidates that
-provider's rows. The explicit route allowlist is MSS → PostgreSQL, PostgreSQL → MSS, PostgreSQL →
-MCS-COP, and CSV → PostgreSQL/MSS/MCS-COP. Connections status, Pipeline selectors, persistence,
-enqueue, and transfer execution enforce capabilities, route approval, and writer flags independently;
-hiding an option in the browser is not an authorization boundary.
+provider's rows. Route compatibility is derived from registered source/destination capabilities:
+MSS and PostgreSQL are source-capable, MCS-COP is destination-only, and CSV is source-only.
+Connections status, Pipeline selectors, persistence, enqueue, and transfer execution enforce
+capabilities, route safety, and writer flags independently; hiding an option in the browser is not
+an authorization boundary.
 
 ## Related
 

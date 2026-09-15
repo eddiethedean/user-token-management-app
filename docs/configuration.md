@@ -118,6 +118,24 @@ operations require them:
 Leave these at their defaults unless measurements or an approved operational
 requirement justify a change.
 
+### Complete override inventory
+
+The following supported settings are grouped above but are listed here explicitly so the
+configuration reference and `.env.example` can be checked against `app/config.py`:
+
+| Area | Variables |
+| --- | --- |
+| Application identity and browser policy | `APP_NAME`, `CUSTOM_THEME_ENABLED`, `JWT_ISSUER`, `JWT_AUDIENCE`, `TRUSTED_IDENTITY_HEADER`, `HSTS_INCLUDE_SUBDOMAINS` |
+| Database pool | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE` |
+| Rate limits | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_WINDOW_SECONDS`, `RATE_LIMIT_LOGIN_PER_SOURCE`, `RATE_LIMIT_LOGIN_PER_ACCOUNT`, `RATE_LIMIT_REGISTRATION_PER_SOURCE`, `RATE_LIMIT_REGISTRATION_PER_ACCOUNT`, `RATE_LIMIT_RESET_PER_SOURCE`, `RATE_LIMIT_RESET_PER_ACCOUNT` |
+| Email retry and claims | `EMAIL_MAX_ATTEMPTS`, `EMAIL_RETRY_BASE_SECONDS`, `EMAIL_RETRY_MAX_SECONDS`, `EMAIL_CLAIM_TIMEOUT_SECONDS`, `SMTP_ALLOW_LEGACY_PORT25_FALLBACK` |
+| Password hashing | `PASSWORD_HASH_SCHEME`, `PBKDF2_ITERATIONS` |
+| Pipeline worker and limits | `PIPELINE_WORKER_ID`, `PIPELINE_MAX_RUN_SECONDS`, `PIPELINE_MAX_SOURCE_BYTES`, `PIPELINE_MAX_SPOOL_BYTES`, `PIPELINE_RUN_RETENTION_DAYS`, `PIPELINE_EVENT_RETENTION_DAYS` |
+
+These settings are deployment overrides, not user-editable application fields. Their defaults,
+allowed ranges, production restrictions, and compatibility aliases remain authoritative in
+`app/config.py`; update this table when a setting is added or renamed.
+
 ## Naming and precedence notes
 
 - Canonical names are preferred: `EMAIL_FROM`, `SMTP_STARTTLS`,

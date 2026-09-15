@@ -6,6 +6,8 @@
 - [ ] Confirm the printed demo credentials are used only in the local demo.
 - [ ] Confirm the banner says remote endpoints are untouched.
 - [ ] Confirm the three fake connections report ready.
+- [ ] Run the demo seeding step a second time against the same database and confirm it still reports
+      3/3 connections ready; note any refreshed or revalidated bundles.
 
 ## Happy path
 

@@ -1,12 +1,15 @@
 # Release notes
 
-This index separates published product history from release drafts and platform review notes.
-Published means the repository/tag/package evidence exists. Draft means the notes are ready for
-maintainer review but an external publication gate remains.
+This index separates product history from release drafts and platform review notes. Product version
+history is maintained in [CHANGELOG.md](../../CHANGELOG.md); the repository currently has no Git
+tags, so entries below describe repository milestones rather than asserting external publication.
 
 | Release note | Status | Scope |
 |---|---|---|
-| [Data Mover 0.1.0](data-mover-0.1.0.md) | Published repository baseline | First packaged app and security foundations |
+| [Data Mover 150926.0](../../CHANGELOG.md#1509260) | Current repository release | Flexible capability-driven pipelines, repeatable demos, and aligned controls |
+| [Data Mover 140926.1](../../CHANGELOG.md#1409261) | Historical repository release | Pipeline workflow and login interaction fixes |
+| [Data Mover 140926.0](../../CHANGELOG.md#1409260) | Historical repository release | Desktop workspace and connection setup redesign |
+| [Data Mover 0.1.0](data-mover-0.1.0.md) | Historical repository baseline | First packaged app and security foundations |
 | [Data Mover Hedron 0.60 repository note](data-mover-hedron-0.60.md) | Historical / superseded by the Hedron 1.0 train | UI/runtime upgrade and pipeline UX at the 0.60 snapshot |
 | [HTMX Framework 0.16.0](hedron-0.16.0.md) | Draft / external PyPI gate | Extras, composition UI, workbenches |
 | [ETL Pipeline Framework Beta review](etl-beta-review.md) | Ongoing review template | Streaming, SQL/PySpark, compatibility |

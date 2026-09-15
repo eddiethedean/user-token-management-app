@@ -1,6 +1,6 @@
 # Data Mover 0.1.0
 
-**Status:** Published repository baseline  
+**Status:** Historical repository baseline (no Git tag or external package publication asserted)
 **Date:** 2026-08-06  
 **Package:** `access-registry==0.1.0`
 

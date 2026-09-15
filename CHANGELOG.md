@@ -1,13 +1,47 @@
 # Changelog
 
+## [Unreleased]
+
+No unreleased changes.
+
 ## [150926.0] — 2026-09-15
 
-- Bumped the Data Mover application and package version.
+### Added
+
+- Capability-driven pipeline routing now supports every registered source/destination combination,
+  including same-system copies between different objects.
+- Foundry source routes accept a manually entered dataset RID and one or more file paths, while
+  retaining catalog suggestions for known files.
+
+### Fixed
+
+- Demo seeding now repairs recognized legacy demo bundles and revalidates stale current demo
+  bundles, so repeated `make demo` runs keep all three demo connections ready without replacing
+  unknown or real credentials.
+- PostgreSQL credential examples use the username-shaped `user.name.ctr` placeholder.
+- PostgreSQL option fields and adjacent controls use consistent heights and aligned label tracks.
+
+### Changed
+
+- Pipeline source and destination choices are derived from connector capabilities; exact source /
+  destination overlaps are rejected.
+- PostgreSQL upsert selection supports the available primary or unique keys from the destination
+  catalog.
+- The demo CLI reports seeded, refreshed, revalidated, and preserved connections separately.
 
 ## [140926.1] — 2026-09-14
 
-- Added the user-visible application release version to the Data Mover shell and package metadata.
+### Fixed
+
 - Corrected login keyboard order so email tabs directly to password before the recovery link.
+- Repaired pipeline source/destination refresh behavior and route readiness transitions.
+
+### Changed
+
+- Added the user-visible application release version to the Data Mover shell and package metadata.
+
+## [140926.0] — 2026-09-14
+
 - Redesigned desktop sign-in with a focused access panel, an illustrated transfer workflow,
   clearer hierarchy, and deployment-aware demo/live messaging.
 - Upgraded the desktop workspace with compact Hedron shell chrome, quieter native surfaces,
@@ -16,7 +50,21 @@
 - Added connection setup guidance, including pgAdmin locations for PostgreSQL settings, and
   improved credential-field grouping, password widths, and confirmation-dialog alignment.
 
-## [Unreleased / Hedron 1.0 train] — 2026-08-30
+## Data Mover pre-calendar release train — 2026-08-06 to 2026-09-11
+
+- Added real MSS, MCS-COP, PostgreSQL, and CSV connectors with Polars batches, durable runs,
+  leases, cancellation, retention, persisted events, and feature-gated Foundry writers.
+- Added provider protocol notes, sanitized HTTP fixtures, Semblance simulators, ephemeral
+  PostgreSQL tests, and opt-in MongoDB contract tests.
+- Replaced the separate email worker with in-process FastAPI background delivery while retaining
+  `send-email` and `retry-email` for operator recovery.
+- Removed unsupported Advana, MongoDB, and ADE product connection flows while preserving existing
+  encrypted legacy rows.
+- Added transactional PostgreSQL append/upsert/replace behavior, bounded extraction, reconciliation
+  states, owner-scoped catalogs, and encrypted credential handling.
+- Added offline fake-connector demo mode; production refuses `DATA_MOVER_MODE=demo`.
+
+## Hedron 1.0.0 repository milestone — 2026-08-30
 
 - Upgraded the runtime and Posit integration to the compatible Hedron 1.0.0 train.
 - Aligned with Hedron's coding-agent guidance: scripts are declared on `Page`, interaction
@@ -28,7 +76,7 @@
   compatible `fastapi-workbench` dependency to 1.0.10.
 - Added a narrow Workbench middleware compatibility bridge for the published 1.0 Posit adapter.
 - Documented session-scoped operational Workbench deployment with SQLite/live and PostgreSQL/live
-  modes, in-process email delivery, and a supervised pipeline worker.
+  modes, in-process email delivery, and an in-process pipeline runtime.
 - Added bounded 0.65 scoped motion/style registration and 0.66 typography presentation profiles.
 - Restored the wide desktop canvas and aligned nested auth/workspace surfaces with the selected
   light or dark color mode.
@@ -59,60 +107,10 @@ Release-note detail is split into the [release-notes index](docs/releases/README
 [HTMX Framework 0.16 draft](docs/releases/hedron-0.16.0.md), and the
 [ETL Beta review](docs/releases/etl-beta-review.md).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
-
-### Added
-
-- Semblance simulators for Foundry (MSS/MCS-COP) and Advana/Databricks HTTP contracts in tests.
-- Ephemeral PostgreSQL connector tests via [testing.postgresql](https://pypi.org/project/testing.postgresql/).
-- Ephemeral MongoDB contract tests via [pytest-mongo](https://pypi.org/project/pytest-mongo/) (not a product connector).
-- Real MSS, MCS-COP, PostgreSQL, and CSV connectors with Polars batches, a durable pipeline worker,
-  and HTMX polling against persisted run events.
-- Versioned locators/write policies, run leases, cancellation, retention janitor, and feature flags
-  for Foundry writers.
-- Provider protocol notes and sanitized fixtures under `docs/providers/` and `tests/fixtures/providers/`.
-- Offline demo mode with fake connectors; production refuses `DATA_MOVER_MODE=demo`.
-
-### Fixed
-
-- PostgreSQL session timeouts are set with literals (utility `SET` does not accept parameters), and
-  COPY uses an explicit `\\N` null marker so SQL NULL remains distinct from an empty string.
-- PostgreSQL replace/recreate loads now keep staging and the final table swap in one transaction, so
-  aborts and failed loads preserve the live table without leaving committed staging tables.
-- Pipeline workers renew leases from an independent database session and reject stale in-memory
-  owners; failures after a destination commit are held for reconciliation instead of being reported
-  as ordinary retryable failures.
-- Real provider catalogs now use the signed-in owner's credentials, cache only credential-free metadata,
-  and invalidate cached metadata when the corresponding credential is replaced or deleted.
-- Batch extraction enforces both configured row and byte ceilings, including an explicit failure for
-  a single row that exceeds the byte ceiling.
-- Foundry reads honor the branch saved in the source locator. Destination branch overrides that the
-  frozen preview-upload protocol cannot express now fail closed.
-
-### Changed
-
-- Pipeline route compatibility now follows registered source/destination capabilities, enabling
-  same-system copies between different objects and all currently implemented provider combinations.
-  Foundry source routes can accept multiple manually entered file paths, retain catalog suggestions,
-  and show multi-file preview metadata where available. Exact source-to-destination overlaps are
-  rejected.
-- Replaced the separate email worker CLI with in-process FastAPI background delivery; retained
-  `send-email` and `retry-email` for operator recovery.
-- Connections are limited to MSS, MCS-COP, and PostgreSQL. Advana and MongoDB leave the UI; existing
-  encrypted rows are preserved.
-- Save stores credentials as untested; Test is a distinct connector health check. Wake cluster is
-  removed.
-- Pipeline runs enqueue to the worker instead of using a browser-side simulator.
-- Destination writer flags are enforced in the Pipeline UI, persistence, enqueue, and execution
-  boundaries; disabled destination writers are neither offered nor accepted.
-- Reframed the product UI and documentation around Data Mover data movement rather than token
-  management.
-- Moved Password, Sessions, and user Activity from Connections into Account, leaving Connections
-  focused on remote credentials and status.
-- Removed the ADE connection type.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Product releases use `DDMMYY.X`: the first six digits are the release date and `X` increments for
+additional releases on the same date. Historical Hedron and framework milestones retain their
+original names and are not product-version releases.
 
 ## [0.1.0] — 2026-08-06
 
