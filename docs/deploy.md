@@ -266,7 +266,8 @@ file in its own process. It also includes the configured blocklist and CA bundle
 the Connect bundle. Absolute paths or missing configured files fail the publish preflight instead of
 producing a content bundle that cannot start. An absolute `PIPELINE_SPOOL_ROOT` must already be a
 writable directory on the publishing host; the helper does not change permissions on external
-mounts.
+mounts. Optional blocklist and CA-path variables omitted from `.env` are explicitly cleared in the
+Connect deployment so a stale value from an earlier bundle cannot be retained.
 
 `schema-status` must show `Current` equal to `Head`. Do not run `seed-demo-connections` in
 production.

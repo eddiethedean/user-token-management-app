@@ -40,6 +40,15 @@ if [[ -z "${DIRECTORY_LOOKUP_VERIFY_TLS:-}" && -n "${DIRECTORY_LOOKUP_VERIFY_SSL
     export DIRECTORY_LOOKUP_VERIFY_TLS="$DIRECTORY_LOOKUP_VERIFY_SSL"
 fi
 
+# Connect retains environment variables across redeployments when a name is omitted. Clear
+# optional local file settings that are no longer present in .env so an old path cannot reappear in
+# a new content bundle.
+for name in PASSWORD_BLOCKLIST_PATH DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PIPELINE_CA_BUNDLE; do
+    if [[ ! ${!name+x} ]]; then
+        export "$name="
+    fi
+done
+
 python_bin="${PYTHON_BIN:-$repo_root/.venv/bin/python}"
 if [[ ! -x "$python_bin" ]]; then
     printf 'Python interpreter not found or not executable: %s\n' "$python_bin" >&2
@@ -139,6 +148,7 @@ printf 'Validating production configuration from %s\n' "$env_file"
 "$python_bin" -m pip check
 "$python_bin" -m app schema-status
 "$python_bin" -c "from app.config import get_settings; get_settings(); print('Production configuration validates')"
+"$python_bin" -c "import app.main; print('Application import validates')"
 
 environment_names=(
     APP_ENV

@@ -106,6 +106,14 @@ def test_connect_deploy_prepares_bundle_relative_spool_directory() -> None:
     assert "Absolute PIPELINE_SPOOL_ROOT must already be a writable directory" in script
 
 
+def test_connect_deploy_clears_stale_optional_file_settings() -> None:
+    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    assert "Connect retains environment variables across redeployments" in script
+    assert 'export "$name="' in script
+    assert "import app.main; print('Application import validates')" in script
+
+
 def test_readme_operational_commands_use_one_in_process_app() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     introduction = "Its commands are:"

@@ -9,6 +9,8 @@
   Git-ignored `deployment/` directory.
 - Production startup no longer depends on the optional password blocklist; unavailable configured
   lists fall back to the built-in password checks.
+- Connect redeployments clear omitted optional file settings so stale blocklist or CA paths are not
+  retained by the content environment.
 
 ## [150926.0] — 2026-09-15
 
