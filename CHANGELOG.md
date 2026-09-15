@@ -16,8 +16,9 @@
   separate Connect content item.
 - Connect deployment supports `CONNECT_NO_VERIFY=true` for Connect environments where the upload
   succeeds but the client cannot reach the deployed URL for verification.
-- Connect runtime dependencies cap `setuptools` below 82 for compatibility with the
-  `pkg_resources` import used by the Connect 2025.06.0 FastAPI launcher.
+- Connect runtime dependencies include `standard-pkg-resources` for the `pkg_resources` import
+  used by the Connect 2025.06.0 FastAPI launcher, without requiring an unavailable older
+  `setuptools` release.
 
 ## [150926.0] — 2026-09-15
 
