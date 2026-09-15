@@ -114,6 +114,14 @@ def test_connect_deploy_clears_stale_optional_file_settings() -> None:
     assert "import app.main; print('Application import validates')" in script
 
 
+def test_connect_deploy_bundles_the_current_checkout() -> None:
+    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'source_dir="${DATA_MOVER_SOURCE_DIR:-$PWD}"' in script
+    assert 'printf \'Bundling source directory: %s (revision %s, %s)\\n\'' in script
+    assert "Source directory does not look like a Data Mover checkout" in script
+
+
 def test_readme_operational_commands_use_one_in_process_app() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     introduction = "Its commands are:"

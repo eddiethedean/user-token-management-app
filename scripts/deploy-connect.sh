@@ -5,8 +5,30 @@
 
 set -Eeuo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Bundle the checkout in which the command is run. DATA_MOVER_SOURCE_DIR is available when the
+# script is launched from elsewhere, or when the script itself came from a different checkout.
+source_dir="${DATA_MOVER_SOURCE_DIR:-$PWD}"
+if ! repo_root="$(cd "$source_dir" && pwd)"; then
+    printf 'Source directory is not accessible: %s\n' "$source_dir" >&2
+    exit 2
+fi
+if [[ ! -f "$repo_root/app/main.py" ]]; then
+    printf 'Source directory does not look like a Data Mover checkout: %s\n' "$repo_root" >&2
+    printf 'Run this from the repository root or set DATA_MOVER_SOURCE_DIR.\n' >&2
+    exit 2
+fi
 cd "$repo_root"
+
+source_revision="unknown"
+source_state="not a Git checkout"
+if source_revision="$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null)"; then
+    if [[ -n "$(git -C "$repo_root" status --short 2>/dev/null)" ]]; then
+        source_state="with uncommitted changes"
+    else
+        source_state="clean"
+    fi
+fi
+printf 'Bundling source directory: %s (revision %s, %s)\n' "$repo_root" "$source_revision" "$source_state"
 
 env_file="${DATA_MOVER_ENV_FILE:-.env}"
 if [[ "$env_file" != /* ]]; then

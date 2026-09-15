@@ -282,18 +282,22 @@ rsconnect add --server https://connect.example.gov/ --name my-connect --api-key 
 unset CONNECT_API_KEY
 ```
 
-Then publish with the repository helper:
+Then publish with the repository helper from the checkout you want to bundle:
 
 ```bash
+cd /path/to/user-token-management-app
 ./scripts/deploy-connect.sh
 ```
 
-The helper loads `.env`, validates production settings, checks the schema, builds Hedron assets, and
-excludes `.env`, `.venv`, databases, tests, and demo files. It forwards only set environment-variable
+The helper defaults to the current directory, prints the source path and Git revision it is
+bundling, then loads `.env`, validates production settings, checks the schema, builds Hedron assets,
+and excludes `.env`, `.venv`, databases, tests, and demo files. It forwards only set environment-variable
 names to Connect; secret values are not command-line arguments. The defaults are `.env`,
 `my-connect`, and `Data Mover`; override them only when needed, for example
-`DATA_MOVER_ENV_FILE=prod.env CONNECT_NAME=prod-connect ./scripts/deploy-connect.sh`. If the final
-content URL changes, update `PUBLIC_BASE_URL` in `.env` and publish again before inviting users.
+`DATA_MOVER_ENV_FILE=prod.env CONNECT_NAME=prod-connect ./scripts/deploy-connect.sh`. To invoke a
+script copied from elsewhere while bundling a specific checkout, set
+`DATA_MOVER_SOURCE_DIR=/path/to/user-token-management-app`. If the final content URL changes,
+update `PUBLIC_BASE_URL` in `.env` and publish again before inviting users.
 
 If you need to publish without the helper, run the equivalent command from the repository root.
 The `--environment` option takes a variable name; `rsconnect-python` reads that variable from the
