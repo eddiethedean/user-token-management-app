@@ -68,6 +68,10 @@ if [[ ! -r "$requirements_file" ]]; then
     printf 'Requirements file is not readable: %s\n' "$requirements_file" >&2
     exit 2
 fi
+if ! chmod u+r "$requirements_file"; then
+    printf 'Could not make requirements file readable: %s\n' "$requirements_file" >&2
+    exit 2
+fi
 
 # Files under deployment/ are intentionally ignored by Git. Pass every configured local
 # trust/policy file explicitly so rsconnect includes it even when the source directory excludes
@@ -86,10 +90,45 @@ for name in PASSWORD_BLOCKLIST_PATH DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PI
         printf '%s must identify a readable file before Connect deployment: %s\n' "$name" "$value" >&2
         exit 2
     fi
+    if ! chmod u+r "$value"; then
+        printf 'Could not make %s readable: %s\n' "$name" "$value" >&2
+        exit 2
+    fi
     bundle_files+=("$value")
 done
 if [[ "${APP_ENV:-}" == "production" && -z "${PASSWORD_BLOCKLIST_PATH:-}" ]]; then
     printf 'PASSWORD_BLOCKLIST_PATH must be set for Connect production deployment.\n' >&2
+    exit 2
+fi
+
+spool_root="${PIPELINE_SPOOL_ROOT:-}"
+if [[ -z "$spool_root" ]]; then
+    printf 'PIPELINE_SPOOL_ROOT must be set for Connect production deployment.\n' >&2
+    exit 2
+fi
+if [[ "$spool_root" == .. || "$spool_root" == ../* || "$spool_root" == */../* || "$spool_root" == */.. ]]; then
+    printf 'PIPELINE_SPOOL_ROOT must not escape the repository for Connect deployment: %s\n' "$spool_root" >&2
+    exit 2
+fi
+if [[ "$spool_root" != /* ]]; then
+    if ! mkdir -p "$spool_root"; then
+        printf 'Could not create pipeline spool directory: %s\n' "$spool_root" >&2
+        exit 2
+    fi
+    if ! chmod u+rwx "$spool_root" || [[ ! -w "$spool_root" ]]; then
+        printf 'Could not make pipeline spool directory writable: %s\n' "$spool_root" >&2
+        exit 2
+    fi
+    if [[ "$spool_root" != "." && "$spool_root" != "./" ]]; then
+        spool_marker="$spool_root/.keep"
+        if ! touch "$spool_marker" || ! chmod u+rw "$spool_marker"; then
+            printf 'Could not retain writable pipeline spool directory in the Connect bundle: %s\n' "$spool_root" >&2
+            exit 2
+        fi
+        bundle_files+=("$spool_marker")
+    fi
+elif [[ ! -d "$spool_root" || ! -w "$spool_root" ]]; then
+    printf 'Absolute PIPELINE_SPOOL_ROOT must already be a writable directory: %s\n' "$spool_root" >&2
     exit 2
 fi
 

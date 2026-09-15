@@ -96,6 +96,16 @@ def test_connect_deploy_includes_configured_bundle_files() -> None:
     assert "must be a bundle-relative path for Connect deployment" in script
 
 
+def test_connect_deploy_prepares_bundle_relative_spool_directory() -> None:
+    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'mkdir -p "$spool_root"' in script
+    assert 'chmod u+rwx "$spool_root"' in script
+    assert 'spool_marker="$spool_root/.keep"' in script
+    assert 'bundle_files+=("$spool_marker")' in script
+    assert "Absolute PIPELINE_SPOOL_ROOT must already be a writable directory" in script
+
+
 def test_readme_operational_commands_use_one_in_process_app() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     introduction = "Its commands are:"

@@ -236,10 +236,11 @@ Create `.env` from the production section of [.env.example](../.env.example). Se
 - the selected authentication, blocklist, and optional directory settings.
 
 For Connect, use bundle-relative paths for the password blocklist and any configured CA bundles.
-The publishing helper validates these files and passes them as explicit extra files, so they remain
-available in the bundle even though `deployment/` is ignored by Git. Use a bundle-relative spool
-directory so the published content has the directory it validates at startup. The spool is
-temporary working storage owned by the app process.
+The publishing helper makes these files owner-readable and passes them as explicit extra files, so
+they remain available in the bundle even though `deployment/` is ignored by Git. Use a
+bundle-relative spool directory; the helper creates it with owner read/write/execute permission and
+adds a `.keep` marker so the directory survives bundling. The spool is temporary working storage
+owned by the app process.
 
 Load the reviewed file, create the protected files, then validate and migrate:
 
@@ -261,7 +262,9 @@ python -m app create-admin --email admin@example.gov
 Keep `PIPELINE_SPOOL_ROOT='deployment/spool'` in `.env` as well; the publishing helper reloads that
 file in its own process. It also includes the configured blocklist and CA bundle files explicitly in
 the Connect bundle. Absolute paths or missing configured files fail the publish preflight instead of
-producing a content bundle that cannot start.
+producing a content bundle that cannot start. An absolute `PIPELINE_SPOOL_ROOT` must already be a
+writable directory on the publishing host; the helper does not change permissions on external
+mounts.
 
 `schema-status` must show `Current` equal to `Head`. Do not run `seed-demo-connections` in
 production.
