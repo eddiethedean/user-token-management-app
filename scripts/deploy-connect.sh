@@ -83,10 +83,18 @@ for name in PASSWORD_BLOCKLIST_PATH DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PI
         continue
     fi
     if [[ "$value" = /* || "$value" == .. || "$value" == ../* || "$value" == */../* || "$value" == */.. ]]; then
+        if [[ "$name" == "PASSWORD_BLOCKLIST_PATH" ]]; then
+            printf 'Warning: optional %s is not bundle-relative and will not be included: %s\n' "$name" "$value" >&2
+            continue
+        fi
         printf '%s must be a bundle-relative path for Connect deployment: %s\n' "$name" "$value" >&2
         exit 2
     fi
     if [[ ! -f "$value" || ! -r "$value" ]]; then
+        if [[ "$name" == "PASSWORD_BLOCKLIST_PATH" ]]; then
+            printf 'Warning: optional %s is unavailable; deployment will use baseline password checks: %s\n' "$name" "$value" >&2
+            continue
+        fi
         printf '%s must identify a readable file before Connect deployment: %s\n' "$name" "$value" >&2
         exit 2
     fi
@@ -96,11 +104,6 @@ for name in PASSWORD_BLOCKLIST_PATH DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PI
     fi
     bundle_files+=("$value")
 done
-if [[ "${APP_ENV:-}" == "production" && -z "${PASSWORD_BLOCKLIST_PATH:-}" ]]; then
-    printf 'PASSWORD_BLOCKLIST_PATH must be set for Connect production deployment.\n' >&2
-    exit 2
-fi
-
 spool_root="${PIPELINE_SPOOL_ROOT:-}"
 if [[ -z "$spool_root" ]]; then
     printf 'PIPELINE_SPOOL_ROOT must be set for Connect production deployment.\n' >&2

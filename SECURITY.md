@@ -54,8 +54,7 @@ authorization evidence.
       SMTP relays, logs, backups, and pipelines are separate and documented.
 - [ ] `APP_ENV=production`, `COOKIE_SECURE=true`, the stable HTTPS `PUBLIC_BASE_URL`, PostgreSQL
       `DATABASE_URL`, exact `ALLOWED_EMAIL_DOMAINS`, approved issuer/audience values, SMTP with
-      STARTTLS, sent-body redaction, and the approved offline password blocklist are set. Production
-      startup validation passes.
+      STARTTLS, and sent-body redaction are set. Production startup validation passes.
 - [ ] If directory validation is enabled, the source's authority, attribute currency, privacy use,
       exact URL/response contract, CA trust, bearer-secret handling, fail-open/fail-closed policy,
       DNS behavior, and network egress allowlist are approved and monitored. It is not represented as
@@ -83,8 +82,8 @@ authorization evidence.
 - [ ] Connection-management authentication strength and any step-up/reauthentication requirement are
       approved for the value of the stored credentials; provider-side issuance uses the minimum
       possible scope and lifetime, and revocation/rotation procedures are tested.
-- [ ] The configured offline common/compromised-password blocklist is approved, versioned, updated,
-      and tested without disclosing candidate passwords outside the enclave.
+- [ ] If an offline common/compromised-password blocklist is used, it is approved, versioned,
+      updated, and tested without disclosing candidate passwords outside the enclave.
 - [ ] The selected Argon2 parameters are recorded and benchmarked, or the exact FIPS-validated
       PBKDF2 module/configuration/operational environment is evidenced.
 - [ ] TLS is approved end to end; HTTP is unavailable or redirected appropriately; Secure cookies,
@@ -342,12 +341,13 @@ replace network-layer egress policy or protect against a compromised directory.
 
 ### SD-03 — Use length-first passwords without composition or periodic rotation
 
-**Status:** Implemented with a deployment-supplied offline blocklist.
+**Status:** Implemented with an optional deployment-supplied offline blocklist.
 
 **Decision:** Passwords are 15–128 Unicode code points. Account creation and password-change paths
 normalize them with NFC before hashing. The validator imposes no upper/lower/digit/symbol composition
 rules and no periodic password expiration. Passwords matching a small local list, a configured
-offline blocklist, or the email local part are rejected. Production requires a readable blocklist.
+offline blocklist, or the email local part are rejected. The offline blocklist is optional; when it
+is unavailable, the built-in local list and email-context checks remain active.
 The same NFC normalization is used for hashing and verification. Forms use standard
 password-manager autocomplete values, allow paste, and provide a visibility control.
 
@@ -738,8 +738,8 @@ affects descendant hosts.
 
 **Decision:** Production configuration refuses to start with insecure cookies, a non-HTTPS or
 malformed public URL, SQLite, console email, SMTP without a host and STARTTLS, missing domain
-allowlists, weak placeholder application secrets, retained delivered email bodies, a missing
-offline password blocklist, disabled application rate limits, or `DIRECTORY_LOOKUP_REQUIRED` without
+allowlists, weak placeholder application secrets, retained delivered email bodies, disabled
+application rate limits, or `DIRECTORY_LOOKUP_REQUIRED` without
 a configured HTTPS directory URL. PostgreSQL must use the installed `psycopg` driver. Invalid ports,
 unsafe header-bearing configuration values, malformed routing paths, and missing configured CA
 bundle files also fail validation. Interactive API documentation is disabled in production. TLS is

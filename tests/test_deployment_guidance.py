@@ -14,7 +14,7 @@ def _section(source: str, heading: str, next_heading: str) -> str:
     return source[start:end]
 
 
-def test_postgres_workbench_instructions_create_required_password_blocklist() -> None:
+def test_postgres_workbench_instructions_document_optional_password_blocklist() -> None:
     deploy = DEPLOY_DOC.read_text(encoding="utf-8")
     workbench = _section(
         deploy,
@@ -30,7 +30,7 @@ def test_postgres_workbench_instructions_create_required_password_blocklist() ->
     missing = [command for command in required_commands if command not in workbench]
 
     assert not missing, (
-        "PostgreSQL/live Workbench setup must create the configured password blocklist; "
+        "PostgreSQL/live Workbench setup should document the optional password blocklist; "
         f"missing commands: {missing}"
     )
 

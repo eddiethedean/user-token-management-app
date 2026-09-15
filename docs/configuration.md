@@ -79,6 +79,8 @@ Set or confirm all of the following:
 9. Set `DATA_MOVER_MODE=real`, a writable `PIPELINE_SPOOL_ROOT`, and an
    explicit `PIPELINE_ALLOWED_HTTPS_HOSTS` allowlist. Writers for MSS and
    MCSCOP remain opt-in until their integrations are approved and tested.
+10. Optionally set `PASSWORD_BLOCKLIST_PATH` to a readable offline list. If it is unset or the
+    configured file is unavailable, production keeps the built-in password checks and starts.
 
 The full production sequence, including CA bundles, in-process runtime, migrations, and
 Connect publishing, is in

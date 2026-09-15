@@ -318,7 +318,7 @@ Details: [docker/README.md](docker/README.md).
 
 The SQLite Connect path is a single-process, disposable demo whose data resets on redeployment. Do
 not promote that configuration to production. The production path requires PostgreSQL, SMTP, strong
-secrets, secure cookies, a password blocklist, migrations before startup, a Hedron build, a
+secrets, secure cookies, migrations before startup, a Hedron build, a
 protected pipeline spool directory. Transfers, email, lease recovery, and retention cleanup run
 inside the Hedron app process; no external worker or janitor service is required.
 Follow every production Connect step in the deployment guide before publishing

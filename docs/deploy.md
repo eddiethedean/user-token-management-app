@@ -134,11 +134,12 @@ PASSWORD_BLOCKLIST_PATH='deployment/password-blocklist.txt'
 ```
 
 Production also requires three independent application secrets, a new credential-encryption key,
-`EMAIL_BACKEND=smtp`, `COOKIE_SECURE=true`, a password blocklist, and one approved authentication
-mode. Follow [auth-modes.md](auth-modes.md) and [SECURITY.md](../SECURITY.md) before using
+`EMAIL_BACKEND=smtp`, `COOKIE_SECURE=true`, and one approved authentication mode. An offline
+password blocklist may be supplied for additional screening but is optional; a missing or unavailable
+blocklist does not prevent startup. Follow [auth-modes.md](auth-modes.md) and [SECURITY.md](../SECURITY.md) before using
 `APP_ENV=production`.
 
-For PostgreSQL/live Workbench mode, create the required blocklist before running the helper:
+For PostgreSQL/live Workbench mode, optionally create an offline blocklist before running the helper:
 
 ```bash
 mkdir -p deployment
@@ -204,7 +205,7 @@ Have these ready:
 - Posit Connect with Python 3.11 and permission to publish FastAPI content;
 - PostgreSQL and a least-privileged application role;
 - an approved SMTP relay with STARTTLS;
-- an approved password blocklist and protected spool directory;
+- a protected spool directory and, if used, an approved password blocklist;
 - approval for the implemented provider capabilities and route families (MSS/PostgreSQL sources,
   CSV source, MCS-COP destination), the corresponding destination writer flags, and HTTPS host
   allowlists; same-system routes must use different objects; and
@@ -235,9 +236,10 @@ Create `.env` from the production section of [.env.example](../.env.example). Se
 - `DATA_MOVER_MODE=real`, `PIPELINE_SPOOL_ROOT`, and `PIPELINE_ALLOWED_HTTPS_HOSTS`; and
 - the selected authentication, blocklist, and optional directory settings.
 
-For Connect, use bundle-relative paths for the password blocklist and any configured CA bundles.
-The publishing helper makes these files owner-readable and passes them as explicit extra files, so
-they remain available in the bundle even though `deployment/` is ignored by Git. Use a
+For Connect, use bundle-relative paths for any password blocklist and configured CA bundles. The
+publishing helper makes present files owner-readable and passes them as explicit extra files, so
+they remain available in the bundle even though `deployment/` is ignored by Git. Missing optional
+blocklists are skipped with a warning. Use a
 bundle-relative spool directory; the helper creates it with owner read/write/execute permission and
 adds a `.keep` marker so the directory survives bundling. The spool is temporary working storage
 owned by the app process.
@@ -341,7 +343,7 @@ database backup when a schema rollback is required.
 | `rserver-url` is unavailable | Add Workbench's helper directory to `PATH`; real-mode startup uses that helper to discover the current session URL. |
 | Schema is old | Run `python -m app migrate`, then `python -m app schema-status` with the same database URL. |
 | Links leave the mounted URL | Confirm `PUBLIC_BASE_URL` is the exact external URL and keep `COOKIE_PATH=auto`. |
-| `PASSWORD_BLOCKLIST_PATH must identify a readable file` at Connect startup | The configured policy file was not included in the content bundle, or its path is wrong | Keep `PASSWORD_BLOCKLIST_PATH` bundle-relative, create the file under `deployment/`, and publish with `scripts/deploy-connect.sh`; the helper validates and includes it explicitly. |
+| Password blocklist is not applied | The optional file is missing, unreadable, or not bundle-relative | This is safe: built-in length, common-password, and email-context checks remain active. Create `deployment/password-blocklist.txt` and set `PASSWORD_BLOCKLIST_PATH` if the extra list is needed. |
 | Email remains queued | Check SMTP settings, database access, and the Connect app logs; use `send-email` for recovery. |
 | Pipeline runs remain queued | Check the Connect app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; the in-process runtime should recover queued runs automatically. |
 | Connect cannot install packages | Confirm `requirements.txt` is present and the server can reach the approved package repository. |

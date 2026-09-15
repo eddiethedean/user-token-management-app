@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import re
 from dataclasses import dataclass
 from functools import lru_cache
@@ -493,11 +494,12 @@ class Settings(BaseSettings):
                 raise ValueError("RATE_LIMIT_ENABLED must be true in production")
             if not self.email_redact_sent_bodies:
                 raise ValueError("EMAIL_REDACT_SENT_BODIES must be true in production")
-            if not self.password_blocklist_path:
-                raise ValueError("PASSWORD_BLOCKLIST_PATH is required in production")
-            blocklist_path = Path(self.password_blocklist_path)
-            if not blocklist_path.is_file():
-                raise ValueError("PASSWORD_BLOCKLIST_PATH must identify a readable file")
+            if self.password_blocklist_path:
+                blocklist_path = Path(self.password_blocklist_path)
+                if not blocklist_path.is_file() or not os.access(blocklist_path, os.R_OK):
+                    # The local common-password and email-context checks remain active when an
+                    # optional deployment-supplied blocklist is unavailable in the content bundle.
+                    self.password_blocklist_path = ""
             if self.data_mover_mode != "real":
                 raise ValueError("DATA_MOVER_MODE must be real in production")
         if self.data_mover_mode == "real":

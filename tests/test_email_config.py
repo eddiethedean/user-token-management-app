@@ -55,3 +55,30 @@ def test_production_rejects_plaintext_port_25_fallback() -> None:
             password_only_production_risk_accepted=True,
             password_blocklist_path=str(Path("tests/fixtures/password-blocklist.txt").resolve()),
         )
+
+
+def test_production_allows_missing_optional_password_blocklist(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="production",
+        public_base_url="https://mover.example.gov",
+        database_url="postgresql+psycopg://mover:pass@localhost:5432/app",
+        jwt_secret="production-jwt-secret-must-be-long-enough",
+        session_pepper="production-session-pepper-must-be-long",
+        csrf_secret="production-csrf-secret-must-be-long-enuf",
+        api_token_encryption_keys={"prod-v1": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="},
+        api_token_active_key_id="prod-v1",
+        cookie_secure=True,
+        allowed_email_domains="example.gov",
+        email_backend="smtp",
+        email_redact_sent_bodies=True,
+        smtp_host="smtp.example.gov",
+        smtp_starttls=True,
+        password_only_production_risk_accepted=True,
+        data_mover_mode="real",
+        pipeline_spool_root=str(tmp_path),
+        pipeline_allowed_https_hosts="mss.example.gov",
+        password_blocklist_path=str(tmp_path / "missing-password-blocklist.txt"),
+    )
+
+    assert settings.password_blocklist_path == ""
