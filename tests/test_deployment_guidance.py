@@ -14,7 +14,7 @@ def _section(source: str, heading: str, next_heading: str) -> str:
     return source[start:end]
 
 
-def test_postgres_workbench_instructions_document_optional_password_blocklist() -> None:
+def test_postgres_workbench_instructions_do_not_require_password_blocklist() -> None:
     deploy = DEPLOY_DOC.read_text(encoding="utf-8")
     workbench = _section(
         deploy,
@@ -22,17 +22,8 @@ def test_postgres_workbench_instructions_document_optional_password_blocklist() 
         "## Production deployment",
     )
 
-    required_commands = (
-        "mkdir -p deployment",
-        "cp /path/to/approved/password-blocklist.txt deployment/password-blocklist.txt",
-        "chmod 600 deployment/password-blocklist.txt",
-    )
-    missing = [command for command in required_commands if command not in workbench]
-
-    assert not missing, (
-        "PostgreSQL/live Workbench setup should document the optional password blocklist; "
-        f"missing commands: {missing}"
-    )
+    assert "PASSWORD_BLOCKLIST_PATH" not in workbench
+    assert "password-blocklist.txt" not in workbench
 
 
 def test_workbench_real_mode_documents_matching_encryption_key_ids() -> None:
@@ -87,13 +78,11 @@ def test_connect_deploy_excludes_generated_hedron_theme_bundle() -> None:
 def test_connect_deploy_includes_configured_bundle_files() -> None:
     script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
-    assert (
-        "PASSWORD_BLOCKLIST_PATH DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PIPELINE_CA_BUNDLE"
-        in script
-    )
+    assert "DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PIPELINE_CA_BUNDLE" in script
     assert 'bundle_files+=("$value")' in script
     assert 'deploy_args+=("$bundle_file")' in script
     assert "must be a bundle-relative path for Connect deployment" in script
+    assert "export PASSWORD_BLOCKLIST_PATH=" in script
 
 
 def test_connect_deploy_prepares_bundle_relative_spool_directory() -> None:
@@ -118,7 +107,7 @@ def test_connect_deploy_bundles_the_current_checkout() -> None:
     script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
     assert 'source_dir="${DATA_MOVER_SOURCE_DIR:-$PWD}"' in script
-    assert 'printf \'Bundling source directory: %s (revision %s, %s)\\n\'' in script
+    assert "printf 'Bundling source directory: %s (revision %s, %s)\\n'" in script
     assert "Source directory does not look like a Data Mover checkout" in script
 
 

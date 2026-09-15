@@ -130,22 +130,11 @@ DATABASE_URL='postgresql+psycopg://USER:URL_ENCODED_PASSWORD@HOST:5432/DBNAME'
 DATA_MOVER_MODE=real
 PUBLIC_BASE_URL='https://placeholder.example'
 PIPELINE_SPOOL_ROOT='/path/to/data-mover-spool'
-PASSWORD_BLOCKLIST_PATH='deployment/password-blocklist.txt'
 ```
 
 Production also requires three independent application secrets, a new credential-encryption key,
-`EMAIL_BACKEND=smtp`, `COOKIE_SECURE=true`, and one approved authentication mode. An offline
-password blocklist may be supplied for additional screening but is optional; a missing or unavailable
-blocklist does not prevent startup. Follow [auth-modes.md](auth-modes.md) and [SECURITY.md](../SECURITY.md) before using
-`APP_ENV=production`.
-
-For PostgreSQL/live Workbench mode, optionally create an offline blocklist before running the helper:
-
-```bash
-mkdir -p deployment
-cp /path/to/approved/password-blocklist.txt deployment/password-blocklist.txt
-chmod 600 deployment/password-blocklist.txt
-```
+`EMAIL_BACKEND=smtp`, `COOKIE_SECURE=true`, and one approved authentication mode. Follow
+[auth-modes.md](auth-modes.md) and [SECURITY.md](../SECURITY.md) before using `APP_ENV=production`.
 
 Create a local spool directory before starting live transfers:
 
@@ -205,7 +194,7 @@ Have these ready:
 - Posit Connect with Python 3.11 and permission to publish FastAPI content;
 - PostgreSQL and a least-privileged application role;
 - an approved SMTP relay with STARTTLS;
-- a protected spool directory and, if used, an approved password blocklist;
+- a protected spool directory;
 - approval for the implemented provider capabilities and route families (MSS/PostgreSQL sources,
   CSV source, MCS-COP destination), the corresponding destination writer flags, and HTTPS host
   allowlists; same-system routes must use different objects; and
@@ -234,15 +223,13 @@ Create `.env` from the production section of [.env.example](../.env.example). Se
 - `EMAIL_BACKEND=smtp`, `EMAIL_FROM`, and approved `SMTP_*` values;
 - `COOKIE_SECURE=true`, `COOKIE_PATH=auto`, and a real email-domain allowlist;
 - `DATA_MOVER_MODE=real`, `PIPELINE_SPOOL_ROOT`, and `PIPELINE_ALLOWED_HTTPS_HOSTS`; and
-- the selected authentication, blocklist, and optional directory settings.
+- the selected authentication and optional directory settings.
 
-For Connect, use bundle-relative paths for any password blocklist and configured CA bundles. The
-publishing helper makes present files owner-readable and passes them as explicit extra files, so
-they remain available in the bundle even though `deployment/` is ignored by Git. Missing optional
-blocklists are skipped with a warning. Use a
-bundle-relative spool directory; the helper creates it with owner read/write/execute permission and
-adds a `.keep` marker so the directory survives bundling. The spool is temporary working storage
-owned by the app process.
+For Connect, use bundle-relative paths for configured CA bundles. The publishing helper makes
+present files owner-readable and passes them as explicit extra files, so they remain available in
+the bundle even though `deployment/` is ignored by Git. Use a bundle-relative spool directory; the
+helper creates it with owner read/write/execute permission and adds a `.keep` marker so the directory
+survives bundling. The spool is temporary working storage owned by the app process.
 
 Load the reviewed file, create the protected files, then validate and migrate:
 
@@ -251,8 +238,6 @@ set -a; . ./.env; set +a
 mkdir -p deployment/spool
 touch deployment/spool/.keep
 export PIPELINE_SPOOL_ROOT=deployment/spool
-cp /path/to/approved/password-blocklist.txt deployment/password-blocklist.txt
-chmod 600 deployment/password-blocklist.txt
 chmod 700 deployment/spool
 python -m pip check
 python -c "from app.config import get_settings; s=get_settings(); assert s.is_production; print('Production configuration validates')"
@@ -262,12 +247,11 @@ python -m app create-admin --email admin@example.gov
 ```
 
 Keep `PIPELINE_SPOOL_ROOT='deployment/spool'` in `.env` as well; the publishing helper reloads that
-file in its own process. It also includes the configured blocklist and CA bundle files explicitly in
-the Connect bundle. Absolute paths or missing configured files fail the publish preflight instead of
-producing a content bundle that cannot start. An absolute `PIPELINE_SPOOL_ROOT` must already be a
-writable directory on the publishing host; the helper does not change permissions on external
-mounts. Optional blocklist and CA-path variables omitted from `.env` are explicitly cleared in the
-Connect deployment so a stale value from an earlier bundle cannot be retained.
+file in its own process. It also includes configured CA bundle files explicitly in the Connect
+bundle. Absolute paths or missing configured files fail the publish preflight instead of producing a
+content bundle that cannot start. An absolute `PIPELINE_SPOOL_ROOT` must already be a writable
+directory on the publishing host; the helper does not change permissions on external mounts. Legacy
+`PASSWORD_BLOCKLIST_PATH` values are cleared and no blocklist file is inspected or required.
 
 `schema-status` must show `Current` equal to `Head`. Do not run `seed-demo-connections` in
 production.
@@ -306,22 +290,17 @@ current process, so source `.env` first and never put secret values directly in 
 ```bash
 cd /path/to/user-token-management-app
 set -a; . ./.env; set +a
-# Explicitly clear optional file settings that Connect may retain from an earlier deployment.
-export PASSWORD_BLOCKLIST_PATH="${PASSWORD_BLOCKLIST_PATH:-}"
+# Explicitly clear optional CA settings that Connect may retain from an earlier deployment.
 export DIRECTORY_LOOKUP_CA_BUNDLE="${DIRECTORY_LOOKUP_CA_BUNDLE:-}"
 export SMTP_CA_BUNDLE="${SMTP_CA_BUNDLE:-}"
 export PIPELINE_CA_BUNDLE="${PIPELINE_CA_BUNDLE:-}"
+# Clear the legacy setting; no password blocklist file is used by this deployment.
+export PASSWORD_BLOCKLIST_PATH=
 mkdir -p deployment/spool
 touch deployment/spool/.keep
 chmod 700 deployment/spool
 
 bundle_files=(deployment/spool/.keep)
-if [[ -n "$PASSWORD_BLOCKLIST_PATH" && -r "$PASSWORD_BLOCKLIST_PATH" ]]; then
-  bundle_files+=("$PASSWORD_BLOCKLIST_PATH")
-elif [[ -n "$PASSWORD_BLOCKLIST_PATH" ]]; then
-  echo "Warning: password blocklist is unavailable; continuing without it" >&2
-  export PASSWORD_BLOCKLIST_PATH=
-fi
 for path in "$DIRECTORY_LOOKUP_CA_BUNDLE" "$SMTP_CA_BUNDLE" "$PIPELINE_CA_BUNDLE"; do
   if [[ -n "$path" ]]; then
     [[ -r "$path" ]] || { echo "Configured CA bundle is not readable: $path" >&2; exit 2; }
@@ -373,11 +352,11 @@ rsconnect deploy fastapi \
   "${bundle_files[@]}"
 ```
 
-The example includes the spool marker and any readable configured blocklist or CA-bundle files.
-The helper is safer for normal releases because it performs the production preflight, creates the
-spool marker, includes ignored files conditionally, and clears omitted optional settings. After
-either publishing method, activate or restart the newest bundle in Connect and verify that its
-bundle ID—not an older active bundle—appears in the content logs.
+The example includes the spool marker and any readable configured CA-bundle files. The helper is
+safer for normal releases because it performs the production preflight, creates the spool marker,
+includes ignored files conditionally, and clears omitted optional settings. After either publishing
+method, activate or restart the newest bundle in Connect and verify that its bundle ID—not an older
+active bundle—appears in the content logs.
 
 In Connect, restrict access, select Python 3.11, confirm the stored environment, and restart the
 content after environment changes. No cookie proxy or custom Nginx rule is required; leave
@@ -428,7 +407,6 @@ database backup when a schema rollback is required.
 | `rserver-url` is unavailable | Add Workbench's helper directory to `PATH`; real-mode startup uses that helper to discover the current session URL. |
 | Schema is old | Run `python -m app migrate`, then `python -m app schema-status` with the same database URL. |
 | Links leave the mounted URL | Confirm `PUBLIC_BASE_URL` is the exact external URL and keep `COOKIE_PATH=auto`. |
-| Password blocklist is not applied | The optional file is missing, unreadable, or not bundle-relative | This is safe: built-in length, common-password, and email-context checks remain active. Create `deployment/password-blocklist.txt` and set `PASSWORD_BLOCKLIST_PATH` if the extra list is needed. |
 | Email remains queued | Check SMTP settings, database access, and the Connect app logs; use `send-email` for recovery. |
 | Pipeline runs remain queued | Check the Connect app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; the in-process runtime should recover queued runs automatically. |
 | Connect cannot install packages | Confirm `requirements.txt` is present and the server can reach the approved package repository. |

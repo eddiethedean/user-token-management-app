@@ -89,7 +89,7 @@ revokes their sessions.
 
 **Why does create-admin reject my password?**  
 Passwords must be 15–128 characters (Unicode NFC), must not contain the email local-part, and must
-pass the optional offline blocklist when configured.
+not be one of the built-in common passwords.
 
 **Why don’t emails arrive?**  
 Email delivery runs in the app's FastAPI background task after registration, verification,

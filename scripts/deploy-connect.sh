@@ -65,11 +65,14 @@ fi
 # Connect retains environment variables across redeployments when a name is omitted. Clear
 # optional local file settings that are no longer present in .env so an old path cannot reappear in
 # a new content bundle.
-for name in PASSWORD_BLOCKLIST_PATH DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PIPELINE_CA_BUNDLE; do
+for name in DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PIPELINE_CA_BUNDLE; do
     if [[ ! ${!name+x} ]]; then
         export "$name="
     fi
 done
+# Password blocklists are not part of Connect deployment. Clear any legacy value so Connect cannot
+# retain a path that would make an older content environment look for a file.
+export PASSWORD_BLOCKLIST_PATH=
 
 python_bin="${PYTHON_BIN:-$repo_root/.venv/bin/python}"
 if [[ ! -x "$python_bin" ]]; then
@@ -108,24 +111,16 @@ fi
 # trust/policy file explicitly so rsconnect includes it even when the source directory excludes
 # ignored files. Connect runs from the bundle root, so these paths must remain bundle-relative.
 bundle_files=()
-for name in PASSWORD_BLOCKLIST_PATH DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PIPELINE_CA_BUNDLE; do
+for name in DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PIPELINE_CA_BUNDLE; do
     value="${!name:-}"
     if [[ -z "$value" ]]; then
         continue
     fi
     if [[ "$value" = /* || "$value" == .. || "$value" == ../* || "$value" == */../* || "$value" == */.. ]]; then
-        if [[ "$name" == "PASSWORD_BLOCKLIST_PATH" ]]; then
-            printf 'Warning: optional %s is not bundle-relative and will not be included: %s\n' "$name" "$value" >&2
-            continue
-        fi
         printf '%s must be a bundle-relative path for Connect deployment: %s\n' "$name" "$value" >&2
         exit 2
     fi
     if [[ ! -f "$value" || ! -r "$value" ]]; then
-        if [[ "$name" == "PASSWORD_BLOCKLIST_PATH" ]]; then
-            printf 'Warning: optional %s is unavailable; deployment will use baseline password checks: %s\n' "$name" "$value" >&2
-            continue
-        fi
         printf '%s must identify a readable file before Connect deployment: %s\n' "$name" "$value" >&2
         exit 2
     fi

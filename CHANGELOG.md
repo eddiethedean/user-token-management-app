@@ -4,13 +4,14 @@
 
 ### Fixed
 
-- Posit Connect deployment now validates and explicitly includes the configured password blocklist
-  and CA-bundle files, preventing production startup failures when those files live under the
-  Git-ignored `deployment/` directory.
+- Posit Connect deployment now explicitly includes configured CA-bundle files, preventing
+  production startup failures when those files live under the Git-ignored `deployment/` directory.
 - Production startup no longer depends on the optional password blocklist; unavailable configured
   lists fall back to the built-in password checks.
 - Connect redeployments clear omitted optional file settings so stale blocklist or CA paths are not
   retained by the content environment.
+- Connect deployment no longer inspects or requires a password blocklist file and clears the legacy
+  `PASSWORD_BLOCKLIST_PATH` setting.
 
 ## [150926.0] — 2026-09-15
 

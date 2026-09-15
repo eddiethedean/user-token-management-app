@@ -170,7 +170,7 @@ python -m app serve --reload
 Open http://127.0.0.1:8000/login and sign in with the admin email and password.
 
 **Password rules (local_password):** 15–128 characters after Unicode NFC normalization;
-must not contain the email local-part; optional offline blocklist in production.
+must not contain the email local-part or a built-in common password.
 
 **Interactive admin create** (no env var): `python -m app create-admin --email admin@example.gov`
 (prompts for password). The same command **promotes** an existing user to administrator.
