@@ -18,6 +18,15 @@ UUID_PATTERN = re.compile(
 )
 
 
+def normalize_foundry_source_paths(value: str) -> list[str] | Literal["all_supported"]:
+    """Normalize comma/newline-separated Foundry source file paths."""
+
+    raw_paths = [part.strip() for part in re.split(r"[,\n]", value) if part.strip()]
+    if not raw_paths or any(path.casefold() == "all_supported" for path in raw_paths):
+        return "all_supported"
+    return list(dict.fromkeys(raw_paths))
+
+
 class PostgresTableLocator(BaseModel):
     kind: Literal["postgres_table"] = "postgres_table"
     schema_name: str = Field(alias="schema", min_length=1, max_length=63)

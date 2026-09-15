@@ -104,10 +104,25 @@ PIPELINE_SOURCE_SCHEMA_SELECT = FragmentRegion(
     selector="#pipeline-source-schema-select",
     description="Pipeline source schema select",
 )
+PIPELINE_SOURCE_SELECT = FragmentRegion(
+    id="pipeline-source-select",
+    selector="#pipeline-source-select",
+    description="Pipeline source provider select",
+)
 PIPELINE_SOURCE_TABLE_SELECT = FragmentRegion(
     id="pipeline-source-table-select",
     selector="#pipeline-source-table-select",
     description="Pipeline source table select",
+)
+PIPELINE_SOURCE_DATASET_SUGGESTIONS = FragmentRegion(
+    id="pipeline-source-dataset-suggestions",
+    selector="#pipeline-source-dataset-suggestions",
+    description="Pipeline source dataset suggestions",
+)
+PIPELINE_SOURCE_FILE_SUGGESTIONS = FragmentRegion(
+    id="pipeline-source-file-suggestions",
+    selector="#pipeline-source-file-suggestions",
+    description="Pipeline source file suggestions",
 )
 PIPELINE_TARGET_SELECT = FragmentRegion(
     id="pipeline-target-select",

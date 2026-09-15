@@ -1,9 +1,26 @@
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from alembic import command
 from sqlalchemy import create_engine, inspect, text
 
 from app.schema import alembic_config
+
+
+def test_alembic_revision_ids_fit_version_table_limit() -> None:
+    versions_dir = Path(__file__).parents[1] / "migrations" / "versions"
+    for migration in versions_dir.glob("*.py"):
+        if migration.name == "__init__.py":
+            continue
+        match = re.search(
+            r"^revision = [\"\']([^\"\']+)[\"\']$",
+            migration.read_text(),
+            flags=re.MULTILINE,
+        )
+        assert match is not None, migration
+        assert len(match.group(1)) <= 32, migration
 
 
 def _insert_user(connection, *, user_id: str, email: str, include_color_mode: bool) -> None:
@@ -109,3 +126,25 @@ def test_event_sequence_migration_backfills_existing_runs(tmp_path) -> None:
     engine.dispose()
 
     assert next_sequence == 7
+
+
+def test_pipeline_locator_fields_support_flexible_values(tmp_path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pipeline-locators.db'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "0014_foundry_datasets")
+    command.upgrade(config, "head")
+    engine = create_engine(database_url)
+
+    columns = {
+        column["name"]: column for column in inspect(engine).get_columns("pipeline_definitions")
+    }
+    engine.dispose()
+
+    for name in (
+        "source_dataset",
+        "source_schema",
+        "source_table",
+        "destination_schema",
+        "destination_table",
+    ):
+        assert str(columns[name]["type"]).upper() == "TEXT"

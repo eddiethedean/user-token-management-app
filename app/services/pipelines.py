@@ -15,7 +15,9 @@ from app.connectors.locators import (
     FoundryUploadLocator,
     PostgresAppendPolicy,
     PostgresReplacePolicy,
+    PostgresTableLocator,
     PostgresUpsertPolicy,
+    normalize_foundry_source_paths,
     parse_locator,
     parse_write_policy,
     postgres_table,
@@ -84,8 +86,6 @@ def save_pipeline(
         raise ValueError("Give this pipeline a name with at least 3 characters.")
     source_provider = source_provider.casefold()
     destination_provider = destination_provider.casefold()
-    if source_provider != "csv" and source_provider == destination_provider:
-        raise ValueError("Source and destination must be different systems.")
     try:
         if not route_allowed(source_provider, destination_provider):
             raise ValueError("Select a supported source and destination.")
@@ -125,16 +125,19 @@ def save_pipeline(
         final_source_schema = source_locator.schema_name
         final_source_table = source_locator.table
     else:
-        paths = "all_supported" if source_object in {"", "all_supported"} else [source_object]
+        paths = normalize_foundry_source_paths(source_object)
         source_locator = FoundryDatasetFilesLocator(
             dataset_rid=_require_rid(source_namespace, "source dataset"),
             branch=source_branch or "master",
             file_paths=paths,
         )
         final_source_schema = source_locator.dataset_rid
-        final_source_table = source_object or "all_supported"
+        final_source_table = ", ".join(paths) if isinstance(paths, list) else "all_supported"
 
     dest_caps = capabilities_for(destination_provider)
+    if write_mode not in dest_caps.write_modes:
+        supported = ", ".join(dest_caps.write_modes) or "no write modes"
+        raise ValueError(f"{dest_caps.label} supports {supported}.")
     destination_create = destination_object == CREATE_TABLE_VALUE or destination_object.startswith(
         NEW_TABLE_VALUE_PREFIX
     )
@@ -185,6 +188,13 @@ def save_pipeline(
         final_destination_schema = destination_locator.dataset_rid
         final_destination_table = destination_locator.file_name
 
+    if locators_overlap(
+        source_provider,
+        source_locator,
+        destination_provider,
+        destination_locator,
+    ):
+        raise ValueError("Choose a destination object different from the source object.")
     parse_locator(source_locator.model_dump(by_alias=True))
     parse_locator(destination_locator.model_dump(by_alias=True))
     parse_write_policy(write_policy.model_dump())
@@ -243,3 +253,34 @@ def _require_rid(value: str, label: str) -> str:
     if not _RID_PATTERN.fullmatch(value):
         raise ValueError(f"Enter a valid {label} RID.")
     return value
+
+
+def locators_overlap(
+    source_provider: str,
+    source_locator: object,
+    destination_provider: str,
+    destination_locator: object,
+) -> bool:
+    """Return whether a route can read and write the same remote object."""
+
+    if source_provider != destination_provider:
+        return False
+    if isinstance(source_locator, PostgresTableLocator) and isinstance(
+        destination_locator, PostgresTableLocator
+    ):
+        return (
+            source_locator.schema_name == destination_locator.schema_name
+            and source_locator.table == destination_locator.table
+        )
+    if isinstance(source_locator, FoundryDatasetFilesLocator) and isinstance(
+        destination_locator, FoundryUploadLocator
+    ):
+        if (
+            source_locator.dataset_rid != destination_locator.dataset_rid
+            or source_locator.branch != destination_locator.branch
+        ):
+            return False
+        if source_locator.file_paths == "all_supported":
+            return True
+        return destination_locator.file_name in source_locator.file_paths
+    return False

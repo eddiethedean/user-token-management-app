@@ -87,8 +87,9 @@ def test_route_allowed_and_http_status_mapping() -> None:
 
     load_builtin_connectors(demo=True)
     assert route_allowed("csv", "postgres") is True
-    assert route_allowed("mss", "mss") is False
-    assert route_allowed("mss", "mcscop") is False
+    assert route_allowed("mss", "mss") is True
+    assert route_allowed("mss", "mcscop") is True
+    assert route_allowed("mcscop", "postgres") is False
     assert map_http_status(401) == TransferErrorCode.AUTHENTICATION_FAILED
     assert map_http_status(403) == TransferErrorCode.PERMISSION_DENIED
     assert map_http_status(404) == TransferErrorCode.SOURCE_NOT_FOUND

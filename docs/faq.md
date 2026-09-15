@@ -10,10 +10,15 @@ app's in-process background runtime performs live transfers. CSV uploads and sav
 definitions are always real data in Data Mover's database.
 
 **Which systems can be sources and destinations?**
-The approved routes are MSS → PostgreSQL, PostgreSQL → MSS, PostgreSQL → MCS-COP, and CSV →
-PostgreSQL/MSS/MCS-COP. MCS-COP is destination-only and CSV is source-only. Connector roles do not
-implicitly approve other combinations such as MSS → MCS-COP. Real MSS and MCS-COP destinations also
-remain hidden until their deployment writer flags are enabled.
+Route compatibility comes from connector capabilities: MSS, PostgreSQL, and CSV can feed any
+configured destination they support, including same-system copies. MCS-COP is destination-only and
+CSV is source-only. Real MSS and MCS-COP destinations remain hidden until their deployment writer
+flags are enabled.
+
+**Can a pipeline write back to its source?**
+Same-system copies are supported when the source and destination objects differ. Data Mover rejects
+an exact PostgreSQL table-to-itself route and Foundry outputs that overlap their selected source
+files, including `all_supported` routes targeting the same dataset.
 
 **Why is a connection missing from the Pipeline page?**
 Pipeline normally lists remote connections whose latest validation is **Connected**. An MSS or

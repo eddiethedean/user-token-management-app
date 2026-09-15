@@ -57,7 +57,8 @@ Cursor may implement these without further product input:
   Hedron process; response-attached background tasks provide prompt execution for newly queued runs.
 - MSS/MCS-COP locators use dataset/branch/file terminology.
 - production cannot enable demo connectors.
-- the initial provider/route matrix in section 2.1 is authoritative.
+- connector source/destination capabilities and destination writer flags are authoritative for the
+  current builder; section 2.1 records the original first-release rollout matrix.
 - transfer secrets are decrypted only inside the claimed transfer execution; owner-authorized
   catalog browsing and connection testing are separate bounded web-process actions.
 - status, metrics, and logs shown in the UI must be persisted facts.
@@ -104,7 +105,7 @@ The first real-transfer release has these first-class providers:
 | `mcscop` | MCS-COP | No initially | Yes | dataset RID → branch/upload file |
 | `csv` | CSV upload | Yes | No | owner-scoped uploaded file |
 
-The required initial route matrix is:
+The original required first-release route matrix was:
 
 - MSS → PostgreSQL;
 - PostgreSQL → MSS;

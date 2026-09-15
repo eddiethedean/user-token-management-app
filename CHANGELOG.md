@@ -1,5 +1,9 @@
 # Changelog
 
+## [150926.0] — 2026-09-15
+
+- Bumped the Data Mover application and package version.
+
 ## [140926.1] — 2026-09-14
 
 - Added the user-visible application release version to the Data Mover shell and package metadata.
@@ -90,6 +94,11 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Changed
 
+- Pipeline route compatibility now follows registered source/destination capabilities, enabling
+  same-system copies between different objects and all currently implemented provider combinations.
+  Foundry source routes can accept multiple manually entered file paths, retain catalog suggestions,
+  and show multi-file preview metadata where available. Exact source-to-destination overlaps are
+  rejected.
 - Replaced the separate email worker CLI with in-process FastAPI background delivery; retained
   `send-email` and `retry-email` for operator recovery.
 - Connections are limited to MSS, MCS-COP, and PostgreSQL. Advana and MongoDB leave the UI; existing
@@ -97,8 +106,8 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Save stores credentials as untested; Test is a distinct connector health check. Wake cluster is
   removed.
 - Pipeline runs enqueue to the worker instead of using a browser-side simulator.
-- The product-approved route allowlist is enforced in the Pipeline UI, persistence, enqueue, and
-  execution boundaries; disabled destination writers are neither offered nor accepted.
+- Destination writer flags are enforced in the Pipeline UI, persistence, enqueue, and execution
+  boundaries; disabled destination writers are neither offered nor accepted.
 - Reframed the product UI and documentation around Data Mover data movement rather than token
   management.
 - Moved Password, Sessions, and user Activity from Connections into Account, leaving Connections

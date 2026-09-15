@@ -652,7 +652,7 @@ def app_shell(
             custom_theme_enabled=settings.custom_theme_enabled,
             preference=preference,
         ),
-        scripts=(asset_src(request, "/assets/app.js?v=11"),),
+        scripts=(asset_src(request, "/assets/app.js?v=13"),),
     )
 
 

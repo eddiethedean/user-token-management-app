@@ -194,6 +194,7 @@ def test_pipeline_preview_provider_calls_do_not_block_event_loop(
 
 
 MSS_DATASET = "ri.foundry.main.dataset.demo-operations"
+MSS_RAW_DATASET = "ri.foundry.main.dataset.demo-raw"
 MSS_FILE = "mission_orders.parquet"
 MSS_DEST_DATASET = "ri.foundry.main.dataset.demo-destination"
 FOUNDRY_FOLDER = "ri.compass.main.folder.11111111-1111-1111-1111-111111111111"
@@ -250,8 +251,13 @@ def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> Non
     assert "Mission orders to warehouse" in reloaded.text
     assert f'data-pipeline-id="{pipeline.id}"' in reloaded.text
     assert 'data-pipeline-run="true"' in reloaded.text
-    assert f'<option value="{MSS_DATASET}" selected>' in reloaded.text
-    assert f'<option value="{MSS_FILE}" selected>' in reloaded.text
+    source_dataset = re.search(
+        r'<input[^>]+id="pipeline-source-schema-select"[^>]*>', reloaded.text
+    )
+    assert source_dataset is not None
+    assert f'value="{MSS_DATASET}"' in source_dataset.group(0)
+    source_object = _pipeline_control(reloaded.text, "pipeline-source-table-select")
+    assert f'value="{MSS_FILE}"' in source_object
     assert '<option value="public" selected>' in reloaded.text
     assert '<option value="mission_orders" selected>' in reloaded.text
 
@@ -375,7 +381,7 @@ def test_pipeline_dataset_creation_validates_parent_folder(client, demo_connecti
     assert "valid Foundry folder RID" in response.text
 
 
-def test_saved_pipeline_requires_distinct_systems(client, demo_connections) -> None:
+def test_saved_pipeline_can_copy_within_the_same_system(client, demo_connections) -> None:
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
     response = client.post(
@@ -383,7 +389,7 @@ def test_saved_pipeline_requires_distinct_systems(client, demo_connections) -> N
         data={
             "csrf_token": csrf_from(page.text),
             "pipeline_id": "",
-            "pipeline_name": "Invalid loop",
+            "pipeline_name": "Foundry dataset copy",
             "source_provider": "mss",
             "source_schema": MSS_DATASET,
             "source_table": MSS_FILE,
@@ -394,8 +400,92 @@ def test_saved_pipeline_requires_distinct_systems(client, demo_connections) -> N
         },
     )
 
+    assert response.status_code == 303
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Foundry dataset copy")
+        )
+        assert pipeline is not None
+        assert pipeline.source_provider == "mss"
+        assert pipeline.destination_provider == "mss"
+
+
+def test_pipeline_rejects_a_postgres_route_to_the_same_table(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Unsafe self append",
+            "source_provider": "postgres",
+            "source_schema": "public",
+            "source_table": "readiness_events",
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "append",
+        },
+    )
+
     assert response.status_code == 422
-    assert "Source and destination must be different" in response.text
+    assert "different from the source object" in response.text
+
+
+def test_pipeline_rejects_a_foundry_route_to_the_same_file(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Unsafe Foundry overwrite",
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
+            "destination_provider": "mss",
+            "destination_schema": MSS_DATASET,
+            "destination_table": MSS_FILE,
+            "write_mode": "replace",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "different from the source object" in response.text
+
+
+def test_pipeline_persists_long_multi_file_source_labels(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    source_files = ", ".join(
+        [
+            "daily_readiness_events_2026_09_15.parquet",
+            "daily_readiness_events_2026_09_14.parquet",
+            "daily_readiness_events_2026_09_13.parquet",
+        ]
+    )
+    response = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Long multi-file source",
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": source_files,
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "replace",
+        },
+    )
+
+    assert response.status_code == 303
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Long multi-file source")
+        )
+        assert pipeline is not None
+        assert pipeline.source_table == source_files
 
 
 def test_pipeline_save_rejects_connections_that_are_not_setup(client) -> None:
@@ -793,6 +883,15 @@ def _pipeline_select(markup: str, element_id: str) -> str:
     return match.group(0)
 
 
+def _pipeline_control(markup: str, element_id: str) -> str:
+    try:
+        return _pipeline_select(markup, element_id)
+    except AssertionError:
+        match = re.search(rf'<input[^>]+id="{element_id}"[^>]*>', markup)
+        assert match is not None
+        return match.group(0)
+
+
 def test_pipeline_live_writer_flags_select_a_valid_initial_route(
     client, demo_connections, monkeypatch
 ) -> None:
@@ -818,8 +917,8 @@ def test_pipeline_live_writer_flags_select_a_valid_initial_route(
 @pytest.mark.parametrize(
     ("source", "old_target", "expected_targets"),
     [
-        ("mss", "mss", {"postgres"}),
-        ("postgres", "postgres", {"mss", "mcscop"}),
+        ("mss", "mss", {"mss", "postgres", "mcscop"}),
+        ("postgres", "postgres", {"mss", "postgres", "mcscop"}),
         ("csv", "postgres", {"postgres", "mss", "mcscop"}),
     ],
 )
@@ -850,13 +949,393 @@ def test_pipeline_source_change_refreshes_destination_options(
     assert 'hx-post="/pipeline/preview"' in target
     assert 'hx-include="#pipeline-form"' in target
     assert "disabled" not in target.split(">")[0]
+    if source == "mss":
+        source_dataset = _pipeline_control(response.text, "pipeline-source-schema-select")
+        source_file = _pipeline_control(response.text, "pipeline-source-table-select")
+        assert f'value="{MSS_DATASET}"' in source_dataset
+        assert 'value="public"' not in source_dataset
+        assert 'value="asset_inventory"' not in source_file
     for element_id in (
         "pipeline-source-schema-select",
         "pipeline-source-table-select",
         "pipeline-target-schema-select",
         "pipeline-target-table-select",
     ):
-        assert 'hx-post="/pipeline/preview"' in _pipeline_select(response.text, element_id)
+        assert 'hx-post="/pipeline/preview"' in _pipeline_control(response.text, element_id)
+
+
+def test_foundry_source_dataset_rid_is_free_text_and_persists_in_route(
+    client, demo_connections
+) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    fields = {
+        "csrf_token": csrf_from(page.text),
+        "source_provider": "mss",
+        "source_schema": MSS_RAW_DATASET,
+        "source_table": "source_events.csv, incoming_orders.csv",
+        "destination_provider": "postgres",
+        "destination_schema": "public",
+        "destination_table": "readiness_events",
+        "write_mode": "replace",
+    }
+    preview = client.post(
+        "/pipeline/preview",
+        data=fields,
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+
+    assert preview.status_code == 200
+    dataset_control = re.search(
+        r'<input[^>]+id="pipeline-source-schema-select"[^>]*>', preview.text
+    )
+    assert dataset_control is not None
+    assert f'value="{MSS_RAW_DATASET}"' in dataset_control.group(0)
+    assert 'name="source_schema"' in dataset_control.group(0)
+    assert 'maxlength="240"' in dataset_control.group(0)
+    assert 'value="source_events.csv, incoming_orders.csv"' in preview.text
+    assert 'list="pipeline-source-dataset-suggestions"' in preview.text
+    assert 'list="pipeline-source-file-suggestions"' in preview.text
+    assert 'id="pipeline-source-file-suggestions"' in preview.text
+
+    saved = client.post(
+        "/pipeline/save",
+        data={**fields, "pipeline_name": "Raw events export"},
+    )
+    assert saved.status_code == 303
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Raw events export")
+        )
+        assert pipeline is not None
+        locator = parse_locator(json.loads(pipeline.source_locator_json))
+        assert isinstance(locator, FoundryDatasetFilesLocator)
+        assert locator.dataset_rid == MSS_RAW_DATASET
+        assert locator.file_paths == ["source_events.csv", "incoming_orders.csv"]
+
+
+def test_pipeline_exposes_swap_direction_and_dynamic_write_mode_refresh(
+    client, demo_connections
+) -> None:
+    web_login(client, next_path="/pipeline")
+    response = client.get("/pipeline")
+
+    assert response.status_code == 200
+    assert 'data-pipeline-swap="true"' in response.text
+    swap = re.search(r'<button[^>]+data-pipeline-swap="true"[^>]*>', response.text)
+    assert swap is not None
+    assert 'hx-post="/pipeline/preview"' in swap.group(0)
+    assert 'hx-vals="{&quot;swap_direction&quot;:&quot;true&quot;}"' in swap.group(0)
+    assert 'aria-describedby="pipeline-availability-note"' in swap.group(0)
+    assert 'id="pipeline-swap-unavailable-note"' not in response.text
+    assert response.text.count('id="pipeline-source-dataset-suggestions"') == 1
+    assert response.text.count('id="pipeline-source-file-suggestions"') == 1
+    mode_select = _pipeline_select(response.text, "pipeline-mode-select")
+    assert 'hx-post="/pipeline/preview"' in mode_select
+    assert 'hx-include="#pipeline-form"' in mode_select
+
+
+def test_pipeline_preview_updates_swap_state_and_multi_file_preview(
+    client, demo_connections
+) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    headers = {
+        "HX-Request": "true",
+        "HX-Target": "pipeline-preview-region",
+    }
+    multi_file = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": "mission_orders.parquet, readiness_rollup.parquet",
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "replace",
+        },
+        headers=headers,
+    )
+    assert multi_file.status_code == 200
+    assert "2 file(s) selected" in multi_file.text
+    assert "Select an object to preview it" not in multi_file.text
+    swap = re.search(r'<button[^>]+data-pipeline-swap="true"[^>]*>', multi_file.text)
+    assert swap is not None
+    assert "disabled" in swap.group(0)
+    assert (
+        'aria-describedby="pipeline-availability-note pipeline-swap-unavailable-note"'
+        in swap.group(0)
+    )
+    assert 'id="pipeline-swap-unavailable-note"' in multi_file.text
+    assert "multiple files and all_supported cannot be reversed" in multi_file.text
+
+    invalid_swap = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": "mission_orders.parquet, readiness_rollup.parquet",
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "replace",
+            "swap_direction": "true",
+        },
+        headers=headers,
+    )
+    assert invalid_swap.status_code == 422
+    assert "multiple files and all_supported cannot be reversed" in invalid_swap.text
+
+    swapped = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "postgres",
+            "source_schema": "public",
+            "source_table": "readiness_events",
+            "destination_provider": "mss",
+            "destination_schema": MSS_DATASET,
+            "destination_table": MSS_FILE,
+            "write_mode": "replace",
+            "swap_direction": "true",
+        },
+        headers=headers,
+    )
+    assert swapped.status_code == 200
+    source_provider = _pipeline_select(swapped.text, "pipeline-source-select")
+    target_provider = _pipeline_select(swapped.text, "pipeline-target-select")
+    assert 'value="mss" selected' in source_provider
+    assert 'value="postgres" selected' in target_provider
+    source_dataset = _pipeline_control(swapped.text, "pipeline-source-schema-select")
+    source_file = _pipeline_control(swapped.text, "pipeline-source-table-select")
+    assert f'value="{MSS_DATASET}"' in source_dataset
+    assert f'value="{MSS_FILE}"' in source_file
+    assert '<option value="public" selected>' in swapped.text
+    assert '<option value="readiness_events" selected>' in swapped.text
+
+    overlap = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "postgres",
+            "source_schema": "public",
+            "source_table": "readiness_events",
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "append",
+        },
+        headers=headers,
+    )
+    assert overlap.status_code == 200
+    availability_start = overlap.text.index('id="pipeline-availability-note"')
+    availability = overlap.text[availability_start : availability_start + 500]
+    assert "hedron-alert-warning" in availability
+
+    csv_route = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "csv",
+            "source_schema": "uploaded",
+            "source_table": "pending.csv",
+            "destination_provider": "mss",
+            "destination_schema": MSS_DATASET,
+            "destination_table": MSS_FILE,
+            "write_mode": "replace",
+        },
+        headers=headers,
+    )
+    assert csv_route.status_code == 200
+    swap = re.search(r'<button[^>]+data-pipeline-swap="true"[^>]*>', csv_route.text)
+    assert swap is not None
+    assert "disabled" in swap.group(0)
+    assert "CSV sources cannot be reversed because uploads are source-only" in csv_route.text
+
+
+@pytest.mark.parametrize(
+    "source_table",
+    ["all_supported", "mission_orders.parquet, readiness_rollup.parquet"],
+)
+def test_pipeline_disables_swap_for_non_single_foundry_sources(
+    client, demo_connections, source_table
+) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": source_table,
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "replace",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+
+    assert response.status_code == 200
+    swap = re.search(r'<button[^>]+data-pipeline-swap="true"[^>]*>', response.text)
+    assert swap is not None
+    assert "disabled" in swap.group(0)
+    assert "multiple files and all_supported cannot be reversed" in response.text
+
+
+def test_pipeline_disables_swap_for_an_unlisted_foundry_source(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "mss",
+            "source_schema": "ri.foundry.main.dataset.unlisted",
+            "source_table": MSS_FILE,
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "replace",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+
+    assert response.status_code == 200
+    swap = re.search(r'<button[^>]+data-pipeline-swap="true"[^>]*>', response.text)
+    assert swap is not None
+    assert "disabled" in swap.group(0)
+    assert "Foundry dataset and file to be present in the catalog" in response.text
+
+
+def test_pipeline_can_swap_between_distinct_postgres_objects(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "postgres",
+            "source_schema": "public",
+            "source_table": "readiness_events",
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "asset_inventory",
+            "write_mode": "append",
+            "swap_direction": "true",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+
+    assert response.status_code == 200
+    assert 'value="asset_inventory" selected' in _pipeline_select(
+        response.text, "pipeline-source-table-select"
+    )
+    assert 'value="readiness_events" selected' in _pipeline_select(
+        response.text, "pipeline-target-table-select"
+    )
+    assert 'id="pipeline-swap-unavailable-note"' not in response.text
+
+
+def test_pipeline_can_swap_between_distinct_foundry_files(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
+            "destination_provider": "mss",
+            "destination_schema": MSS_DATASET,
+            "destination_table": "readiness_rollup.parquet",
+            "write_mode": "replace",
+            "swap_direction": "true",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+
+    assert response.status_code == 200
+    source_file = _pipeline_control(response.text, "pipeline-source-table-select")
+    target_file = _pipeline_control(response.text, "pipeline-target-table-select")
+    assert 'value="readiness_rollup.parquet"' in source_file
+    assert 'value="mission_orders.parquet" selected' in target_file
+    assert 'id="pipeline-swap-unavailable-note"' not in response.text
+
+
+@pytest.mark.parametrize(
+    ("route", "reason"),
+    [
+        (
+            {
+                "source_provider": "postgres",
+                "source_schema": "public",
+                "source_table": "readiness_events",
+                "destination_provider": "postgres",
+                "destination_schema": "public",
+                "destination_table": "__new__",
+            },
+            "Choose an existing destination object before swapping.",
+        ),
+        (
+            {
+                "source_provider": "postgres",
+                "source_schema": "public",
+                "source_table": "readiness_events",
+                "destination_provider": "mcscop",
+                "destination_schema": MSS_DEST_DATASET,
+                "destination_table": "readiness.snappy.parquet",
+            },
+            "The selected destination cannot be used as a source in reverse.",
+        ),
+        (
+            {
+                "source_provider": "postgres",
+                "source_schema": "public",
+                "source_table": "readiness_events",
+                "destination_provider": "postgres",
+                "destination_schema": "public",
+                "destination_table": "readiness_events",
+            },
+            "Choose a destination object different from the source object.",
+        ),
+    ],
+)
+def test_pipeline_swap_reason_is_shared_between_ui_and_server(
+    client, demo_connections, route, reason
+) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    base = {
+        "csrf_token": csrf_from(page.text),
+        "write_mode": "replace",
+        **route,
+    }
+    headers = {"HX-Request": "true", "HX-Target": "pipeline-preview-region"}
+
+    preview = client.post("/pipeline/preview", data=base, headers=headers)
+    assert preview.status_code == 200
+    swap = re.search(r'<button[^>]+data-pipeline-swap="true"[^>]*>', preview.text)
+    assert swap is not None
+    assert "disabled" in swap.group(0)
+    assert (
+        'aria-describedby="pipeline-availability-note pipeline-swap-unavailable-note"'
+        in swap.group(0)
+    )
+    assert reason in preview.text
+
+    rejected = client.post(
+        "/pipeline/preview",
+        data={**base, "swap_direction": "true"},
+        headers=headers,
+    )
+    assert rejected.status_code == 422
+    assert reason in rejected.text
 
 
 def test_pipeline_empty_destination_explains_disabled_writes_and_recovers(
@@ -866,7 +1345,7 @@ def test_pipeline_empty_destination_explains_disabled_writes_and_recovers(
 
     settings = get_settings()
     monkeypatch.setattr(settings, "data_mover_mode", "real")
-    monkeypatch.setattr(settings, "pipeline_enable_postgres_writer", True)
+    monkeypatch.setattr(settings, "pipeline_enable_postgres_writer", False)
     monkeypatch.setattr(settings, "pipeline_enable_mss_writer", False)
     monkeypatch.setattr(settings, "pipeline_enable_mcscop_writer", False)
     web_login(client, next_path="/pipeline")
@@ -888,8 +1367,25 @@ def test_pipeline_empty_destination_explains_disabled_writes_and_recovers(
     target = _pipeline_select(empty.text, "pipeline-target-select")
     assert "No writable destination for this source" in target
     assert "disabled" in target.split(">")[0]
+    swap = re.search(r'<button[^>]+data-pipeline-swap="true"[^>]*>', empty.text)
+    assert swap is not None
+    assert "disabled" in swap.group(0)
+    assert (
+        'aria-describedby="pipeline-availability-note pipeline-swap-unavailable-note"'
+        in swap.group(0)
+    )
+    assert "Select a destination before swapping." in empty.text
+
+    rejected = client.post(
+        "/pipeline/preview",
+        data={**data, "destination_provider": "", "swap_direction": "true"},
+        headers=headers,
+    )
+    assert rejected.status_code == 422
+    assert "Select a destination before swapping." in rejected.text
 
     # Disabled destination controls are omitted by the browser on the next change.
+    monkeypatch.setattr(settings, "pipeline_enable_postgres_writer", True)
     recovered = client.post(
         "/pipeline/preview",
         data={
@@ -906,7 +1402,7 @@ def test_pipeline_empty_destination_explains_disabled_writes_and_recovers(
     assert "disabled" not in schema.split(">")[0]
 
 
-def test_pipeline_preview_still_rejects_disallowed_route_without_source_change(
+def test_pipeline_preview_rejects_a_provider_without_source_capability(
     client, demo_connections
 ) -> None:
     web_login(client, next_path="/pipeline")
@@ -915,8 +1411,8 @@ def test_pipeline_preview_still_rejects_disallowed_route_without_source_change(
         "/pipeline/preview",
         data={
             "csrf_token": csrf_from(page.text),
-            "source_provider": "mss",
-            "destination_provider": "mss",
+            "source_provider": "mcscop",
+            "destination_provider": "postgres",
             "destination_schema": MSS_DEST_DATASET,
             "destination_table": "orders.parquet",
         },
@@ -950,7 +1446,7 @@ def test_preview_updates_route_facts_without_duplicate_control_ids(
     ):
         assert response.text.count(f'id="{element_id}"') == 1
     assert "MSS to PostgreSQL" in response.text
-    assert 'data-field-label="Dataset"' in _pipeline_select(
+    assert 'data-field-label="Dataset"' in _pipeline_control(
         response.text, "pipeline-source-schema-select"
     )
     assert 'data-field-label="Schema"' in _pipeline_select(

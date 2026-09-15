@@ -108,7 +108,7 @@ SECRET_PROVIDERS = (
             CredentialField(
                 "username",
                 "Username",
-                "data_mover_service",
+                "user.name.ctr",
                 autocomplete="username",
                 required=True,
             ),

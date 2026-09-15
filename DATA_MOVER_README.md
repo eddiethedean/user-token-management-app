@@ -127,8 +127,8 @@ a disposable demonstration deployment.
 
 ## Project status
 
-Data Mover is currently an alpha-stage project. The supported provider and route matrix is
-deliberately narrow, and production readiness depends on the target environment's identity,
+Data Mover is currently an alpha-stage project. The supported provider set is deliberately narrow;
+route compatibility is capability-driven and production readiness depends on the target environment's identity,
 network, provider, and security approvals.
 
 Before adopting Data Mover for operational use, review the current

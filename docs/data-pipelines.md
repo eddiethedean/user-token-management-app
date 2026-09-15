@@ -73,17 +73,24 @@ test—or a confirmed first-dataset creation—to have succeeded. An untested MS
 shown only as a provisionable destination until that happens. CSV is a source-only option; its
 upload is scanned and stored before the route can be saved.
 
-The product-approved route matrix is intentionally narrower than the cross-product of connector
-capabilities:
+Route compatibility is derived from the registered connector capabilities. Any source-capable
+provider can feed any destination-capable provider, including a copy within the same system. The
+destination writer flag remains a separate operator-controlled gate:
 
-| Source | Approved destinations |
+Same-system copies must still use different source and destination objects. Data Mover rejects a
+PostgreSQL table-to-itself route and a Foundry route whose output file overlaps the selected source
+files; this prevents append routes from duplicating their own input and prevents `all_supported`
+routes from ingesting their own output on a later run.
+
+| Source | Capability-compatible destinations |
 |---|---|
-| MSS | PostgreSQL |
-| PostgreSQL | MSS, MCS-COP |
+| MSS | MSS, PostgreSQL, MCS-COP |
+| PostgreSQL | PostgreSQL, MSS, MCS-COP |
 | CSV upload | PostgreSQL, MSS, MCS-COP |
+| MCS-COP | None (destination-only) |
 
-MCS-COP is destination-only. A destination also remains unavailable unless its writer flag is
-enabled (`PIPELINE_ENABLE_POSTGRES_WRITER`, `PIPELINE_ENABLE_MSS_WRITER`, or
+CSV is source-only. A destination also remains unavailable unless its writer flag is enabled
+(`PIPELINE_ENABLE_POSTGRES_WRITER`, `PIPELINE_ENABLE_MSS_WRITER`, or
 `PIPELINE_ENABLE_MCSCOP_WRITER`). The UI filters the choices, and save/enqueue/runtime boundaries
 repeat the same checks.
 
@@ -95,6 +102,11 @@ applies to MCS-COP with `PIPELINE_ENABLE_MCSCOP_WRITER=true`.
 
 The source selector lists every validated source connection. Changing the source refreshes the
 destination choices and selects a compatible destination if the previous one is no longer valid.
+Foundry-backed source routes accept a catalog file or one or more manually entered relative file
+paths, separated by commas or new lines. Catalog files remain available as editable suggestions,
+while custom paths remain valid for files outside the displayed catalog page. Multi-file previews
+show the selected-file count and available catalog metadata; paths outside the catalog are checked
+when the transfer runs. The same typed locator and source-size validation applies to every file.
 If no writable destination is available, the editor explains the missing setup or disabled writer
 and keeps the source selector available so another route can be chosen.
 

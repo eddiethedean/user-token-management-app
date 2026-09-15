@@ -132,26 +132,35 @@ A remote provider normally appears in a source or destination menu only after th
 saved it and its validation status is **Connected**. MSS/MCS-COP is the narrow exception: an
 **Untested** saved connection may appear as a destination so the user can create its first dataset;
 successful creation validates that connection. The menu also removes destinations whose writer is
-disabled and providers that do not form an approved route with the selected opposite end. MCS-COP is
+disabled and providers that do not form a capability-compatible route with the selected opposite end. MCS-COP is
 destination-only. If no remote connection is ready, the source menu offers CSV only.
 
 ### Choose the source
 
-Remote sources are MSS and PostgreSQL. After choosing one, select an existing schema and table
-(PostgreSQL) or dataset RID and file (MSS).
+Remote sources are MSS and PostgreSQL. After choosing PostgreSQL, select an existing schema and
+table. For an MSS source, enter the source dataset RID directly and enter one or more supported
+file paths, separated by commas or new lines; the RID does not have to be the default RID saved with
+the connection. Known datasets and files are offered as suggestions, but custom paths remain
+available. Use **Swap direction** to exchange a compatible source and destination route. The
+reverse route is available only when the destination writer is enabled by the operator and both
+ends resolve to one known object. Multi-file, `all_supported`, and unlisted Foundry source entries
+cannot be swapped because a Foundry destination writes one named parquet file.
 
 You may also choose **CSV file** and upload a local file. CSV is source-only.
 
 ### Choose the destination
 
-The approved routes are MSS → PostgreSQL, PostgreSQL → MSS, PostgreSQL → MCS-COP, and CSV →
-PostgreSQL/MSS/MCS-COP. Other combinations—including MSS → MCS-COP and same-provider routes—are not
-offered or accepted. PostgreSQL uses schema/table names; Foundry uses dataset RID, branch, and a
-destination file name (Snappy Parquet). New PostgreSQL table names must:
+The builder derives compatible routes from provider capabilities. MSS, PostgreSQL, and CSV can feed
+any configured destination they support, including same-system copies between different objects;
+MCS-COP remains destination-only, and CSV remains source-only. PostgreSQL uses schema/table names; Foundry uses
+dataset RID, branch, and a destination file name (Snappy Parquet). New PostgreSQL table names must:
 
 - contain 1–63 characters;
 - start with a letter; and
 - use only letters, numbers, and underscores.
+
+The builder rejects a route whose destination is the same object as its source. This is especially
+important for PostgreSQL append, which would otherwise duplicate the source table on every run.
 
 For MSS or MCS-COP, expand **Create Foundry dataset**, enter a parent folder RID and dataset name,
 then select **Create and select dataset**. The connected API token must have permission to create resources in

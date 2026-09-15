@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass
 from typing import Any, cast
 
 from fastapi import BackgroundTasks, HTTPException, Request, status
@@ -58,10 +59,12 @@ from starlette.responses import Response
 from app.config import get_settings
 from app.connectors.errors import ConnectorError
 from app.connectors.locators import (
+    DATASET_RID_PATTERN,
     FoundryDatasetFilesLocator,
     FoundryUploadLocator,
     PostgresTableLocator,
     PostgresUpsertPolicy,
+    normalize_foundry_source_paths,
     parse_locator,
     parse_snapshot,
     parse_write_policy,
@@ -97,7 +100,7 @@ from app.services.pipeline_runs import (
     snapshot_from_definition,
 )
 from app.services.pipeline_tasks import schedule_pipeline_run
-from app.services.pipelines import list_pipelines, save_pipeline
+from app.services.pipelines import list_pipelines, locators_overlap, save_pipeline
 from app.services.secrets import list_user_secrets
 from app.ui.design_system import (
     DATA_MOVER_DESIGN,
@@ -123,6 +126,7 @@ from app.ui.params import (
     PipelineProviderForm,
     PipelineSchemaForm,
     PipelineSourceProviderForm,
+    PipelineSwapForm,
     PipelineTableForm,
     PipelineWriteModeForm,
 )
@@ -135,9 +139,12 @@ from app.ui.regions import (
     PIPELINE_PREVIEW_REGION,
     PIPELINE_RUN_MONITOR,
     PIPELINE_SCHEMA_PREVIEW,
+    PIPELINE_SOURCE_DATASET_SUGGESTIONS,
+    PIPELINE_SOURCE_FILE_SUGGESTIONS,
     PIPELINE_SOURCE_NODE,
     PIPELINE_SOURCE_PROVIDER_LABEL,
     PIPELINE_SOURCE_SCHEMA_SELECT,
+    PIPELINE_SOURCE_SELECT,
     PIPELINE_SOURCE_TABLE_SELECT,
     PIPELINE_TARGET_NODE,
     PIPELINE_TARGET_PROVIDER_LABEL,
@@ -149,6 +156,12 @@ from app.ui.regions import (
 )
 from app.ui.tabs import NavigationTabs
 from app.ui.urls import form_action, hx_attrs, redirect_path
+
+
+@dataclass(frozen=True)
+class SwapEligibility:
+    allowed: bool
+    reason: str = ""
 
 
 def _provider_label(provider: str) -> str:
@@ -196,6 +209,7 @@ def _resolved_write_mode(
 
 
 def _write_mode_select(
+    request: Request,
     catalog: ProviderCatalog | None,
     *,
     selected: str,
@@ -220,6 +234,17 @@ def _write_mode_select(
     }
     if oob:
         attrs["hx-swap-oob"] = "outerHTML:#pipeline-mode-select"
+    attrs.update(
+        hx_attrs(
+            request,
+            path="/pipeline/preview",
+            method="post",
+            target="#pipeline-preview-region",
+            swap="none",
+            include="#pipeline-form",
+            trigger="change",
+        )
+    )
     return html.select(*options, **attrs)
 
 
@@ -372,6 +397,88 @@ def _source_provider_options(
     ]
 
 
+def _source_provider_select(
+    request: Request,
+    connections: dict[str, dict[str, str | bool]],
+    *,
+    selected: str,
+    target_provider: str,
+    oob: bool = False,
+) -> NodeLike:
+    attrs: dict[str, Any] = {
+        "id": "pipeline-source-select",
+        "name": "source_provider",
+        "data": {"pipeline-control": "source-provider"},
+        **hx_attrs(
+            request,
+            path="/pipeline/preview",
+            method="post",
+            target="#pipeline-preview-region",
+            swap="none",
+            include="#pipeline-form",
+            trigger="change",
+        ),
+    }
+    if oob:
+        attrs["hx-swap-oob"] = "outerHTML:#pipeline-source-select"
+    return html.select(
+        *_source_provider_options(
+            connections,
+            selected=selected,
+            target_provider=target_provider,
+        ),
+        **attrs,
+    )
+
+
+def _source_namespace_control(
+    request: Request,
+    catalog_access: UserCatalog,
+    provider: str,
+    *,
+    preferred_schema: str = "",
+    oob: bool = False,
+) -> NodeLike:
+    """Render a source namespace control, allowing arbitrary Foundry dataset RIDs."""
+
+    label = require_catalog_provider(provider).namespaces_label
+    attrs: dict[str, Any] = {
+        "id": "pipeline-source-schema-select",
+        "name": "source_schema",
+        "data": {"pipeline-control": "source-schema", "field-label": label},
+        **hx_attrs(
+            request,
+            path="/pipeline/preview",
+            method="post",
+            target="#pipeline-preview-region",
+            swap="none",
+            include="#pipeline-form",
+            trigger="change",
+        ),
+    }
+    if provider.casefold() in {"mss", "mcscop"}:
+        attrs["list"] = "pipeline-source-dataset-suggestions"
+    if oob:
+        attrs["hx-swap-oob"] = "outerHTML:#pipeline-source-schema-select"
+
+    if provider.casefold() in {"mss", "mcscop"}:
+        return html.input(
+            type="text",
+            value=preferred_schema,
+            maxlength="240",
+            placeholder="ri.foundry.main.dataset…",
+            autocomplete="off",
+            spellcheck="false",
+            required=True,
+            **attrs,
+        )
+
+    return html.select(
+        *_schema_options(catalog_access, provider, preferred_schema=preferred_schema),
+        **attrs,
+    )
+
+
 def _eligible_destinations(connections, source_provider: str) -> tuple[ProviderCatalog, ...]:
     return tuple(
         catalog
@@ -478,22 +585,37 @@ def _normalized_selection(
     object_name: str,
     *,
     preserve_create: bool = False,
+    freeform_namespace: bool = False,
 ) -> tuple[str, str]:
     """Keep a form selection valid when its provider changes."""
     if not provider:
         return "", ""
+    valid_freeform_namespace = freeform_namespace and bool(DATASET_RID_PATTERN.fullmatch(namespace))
     namespaces = _namespace_entries(catalog_access, provider)
     if not namespaces:
+        if valid_freeform_namespace:
+            return namespace, object_name
         return (
             "",
             CREATE_TABLE_VALUE if preserve_create and object_name == CREATE_TABLE_VALUE else "",
         )
     namespace_names = {name for name, _ in namespaces}
-    resolved_namespace = namespace if namespace in namespace_names else namespaces[0][0]
+    resolved_namespace = (
+        namespace
+        if valid_freeform_namespace
+        else namespace
+        if namespace in namespace_names
+        else namespaces[0][0]
+    )
     objects = _object_entries(catalog_access, provider, resolved_namespace)
     object_names = {name for name, _ in objects}
     if preserve_create and object_name == CREATE_TABLE_VALUE:
         return resolved_namespace, CREATE_TABLE_VALUE
+    if valid_freeform_namespace and object_name:
+        # Foundry source paths may be outside the current catalog page and may
+        # contain multiple comma/newline-separated files. Preserve the user's
+        # entry and let the typed locator validate it at save/runtime.
+        return resolved_namespace, object_name
     resolved_object = (
         object_name if object_name in object_names else (objects[0][0] if objects else "")
     )
@@ -545,6 +667,287 @@ def _table_options(
             )
         )
     return options
+
+
+def _source_object_control(
+    request: Request,
+    catalog_access: UserCatalog,
+    provider: str,
+    namespace: str,
+    *,
+    preferred_object: str = "",
+    oob: bool = False,
+):
+    """Render a catalog selector or a flexible Foundry file-path input."""
+
+    if provider.casefold() in {"mss", "mcscop"}:
+        attrs: dict[str, Any] = {
+            "id": "pipeline-source-table-select",
+            "name": "source_table",
+            "value": preferred_object,
+            "maxlength": "1000",
+            "placeholder": "file.parquet or file1.parquet, file2.csv",
+            "list": "pipeline-source-file-suggestions",
+            "autocomplete": "off",
+            "spellcheck": "false",
+            "required": True,
+            "data": {
+                "pipeline-control": "source-table",
+                "field-label": "File(s)",
+            },
+            **hx_attrs(
+                request,
+                path="/pipeline/preview",
+                method="post",
+                target="#pipeline-preview-region",
+                swap="none",
+                include="#pipeline-form",
+                trigger="change",
+            ),
+        }
+        if oob:
+            attrs["hx-swap-oob"] = "outerHTML:#pipeline-source-table-select"
+        return html.input(type="text", **attrs)
+
+    options = _table_options(
+        catalog_access,
+        provider,
+        namespace,
+        preferred_table=preferred_object,
+    )
+    attrs = {
+        "id": "pipeline-source-table-select",
+        "name": "source_table",
+        "data": {"pipeline-control": "source-table"},
+        **({"hx-swap-oob": "outerHTML:#pipeline-source-table-select"} if oob else {}),
+        **hx_attrs(
+            request,
+            path="/pipeline/preview",
+            method="post",
+            target="#pipeline-preview-region",
+            swap="none",
+            include="#pipeline-form",
+            trigger="change",
+        ),
+    }
+    return html.select(*options, **attrs)
+
+
+def _source_catalog_suggestions(
+    catalog_access: UserCatalog, provider: str, namespace: str, *, oob: bool = False
+) -> tuple[NodeLike, NodeLike]:
+    is_foundry_source = provider.casefold() in {"mss", "mcscop"}
+    datasets = (
+        [
+            html.option(display, value=name)
+            for name, display in _namespace_entries(catalog_access, provider)
+        ]
+        if is_foundry_source
+        else []
+    )
+    files = (
+        [
+            html.option(display, value=name)
+            for name, display in _object_entries(catalog_access, provider, namespace)
+        ]
+        if is_foundry_source
+        else []
+    )
+    dataset_attrs = {"id": "pipeline-source-dataset-suggestions"}
+    file_attrs = {"id": "pipeline-source-file-suggestions"}
+    if oob:
+        dataset_attrs["hx-swap-oob"] = "outerHTML:#pipeline-source-dataset-suggestions"
+        file_attrs["hx-swap-oob"] = "outerHTML:#pipeline-source-file-suggestions"
+    return html.datalist(*datasets, **dataset_attrs), html.datalist(*files, **file_attrs)
+
+
+def _swap_direction_button(
+    request: Request, *, can_swap: bool, reason: str = "", oob: bool = False
+) -> NodeLike:
+    button_attrs: dict[str, Any] = {
+        **hx_attrs(
+            request,
+            path="/pipeline/preview",
+            method="post",
+            target="#pipeline-preview-region",
+            swap="none",
+            include="#pipeline-form",
+        ),
+        "hx-vals": '{"swap_direction":"true"}',
+    }
+    wrapper_attrs: dict[str, Any] = {"id": "pipeline-swap-direction"}
+    if oob:
+        wrapper_attrs["hx-swap-oob"] = "outerHTML:#pipeline-swap-direction"
+    described_by = "pipeline-availability-note"
+    if not can_swap and reason:
+        described_by += " pipeline-swap-unavailable-note"
+    reason_note = (
+        html.p(
+            reason,
+            id="pipeline-swap-unavailable-note",
+            class_="hedron-process-flow-description",
+            role="note",
+        )
+        if not can_swap and reason
+        else None
+    )
+    return html.div(
+        Button(
+            "Swap direction",
+            variant="secondary",
+            size="sm",
+            type="button",
+            attrs={
+                "data-pipeline-swap": "true",
+                "aria-describedby": described_by,
+                **button_attrs,
+            },
+            disabled=not can_swap,
+        ),
+        reason_note,
+        **wrapper_attrs,
+    )
+
+
+def _selection_overlaps(
+    source_provider: str,
+    source_schema: str,
+    source_table: str,
+    destination_provider: str,
+    destination_schema: str,
+    destination_table: str,
+    destination_table_new: str = "",
+) -> bool:
+    if source_provider != destination_provider:
+        return False
+    try:
+        if source_provider == "postgres":
+            source_locator = postgres_table(source_schema, source_table)
+            destination_locator = postgres_table(destination_schema, destination_table)
+        elif source_provider in {"mss", "mcscop"}:
+            source_locator = FoundryDatasetFilesLocator(
+                dataset_rid=source_schema,
+                branch="master",
+                file_paths=normalize_foundry_source_paths(source_table),
+            )
+            destination_name = (
+                _committed_new_table_name(destination_table_new)
+                or destination_table_new.strip()
+                or "new_table"
+                if destination_table == CREATE_TABLE_VALUE
+                else _committed_new_table_name(destination_table)
+            )
+            if not destination_name.endswith(".parquet"):
+                destination_name = f"{destination_name}.snappy.parquet"
+            destination_locator = FoundryUploadLocator(
+                dataset_rid=destination_schema,
+                branch="master",
+                file_name=destination_name,
+            )
+        else:
+            return False
+    except ValueError:
+        return False
+    return locators_overlap(
+        source_provider,
+        source_locator,
+        destination_provider,
+        destination_locator,
+    )
+
+
+def _known_catalog_object(
+    catalog_access: UserCatalog, provider: str, namespace: str, object_name: str
+) -> bool:
+    if not namespace or not object_name:
+        return False
+    return namespace in {
+        name for name, _display in _namespace_entries(catalog_access, provider)
+    } and (
+        object_name
+        in {name for name, _display in _object_entries(catalog_access, provider, namespace)}
+    )
+
+
+def _swap_operand_reason(
+    catalog_access: UserCatalog, provider: str, namespace: str, object_name: str
+) -> str:
+    """Explain why an endpoint cannot be preserved as a destination after swapping."""
+
+    if provider == "postgres":
+        if _known_catalog_object(catalog_access, provider, namespace, object_name):
+            return ""
+        return "Swap requires both endpoints to be known catalog objects."
+    if provider in {"mss", "mcscop"}:
+        paths = normalize_foundry_source_paths(object_name)
+        if not isinstance(paths, list) or len(paths) != 1:
+            return (
+                "Swap requires one known Foundry parquet source file; multiple files "
+                "and all_supported cannot be reversed."
+            )
+        if paths[0] != object_name or not paths[0].endswith(".parquet"):
+            return "Swap requires one known Foundry parquet source file."
+        if not _known_catalog_object(catalog_access, provider, namespace, paths[0]):
+            return "Swap requires the Foundry dataset and file to be present in the catalog."
+        return ""
+    return "Swap requires endpoints from a supported provider."
+
+
+def _can_swap_direction(
+    catalog_access: UserCatalog,
+    connections: dict[str, dict[str, str | bool]],
+    *,
+    source_provider: str,
+    source_schema: str,
+    source_table: str,
+    target_provider: str,
+    target_schema: str,
+    target_table: str,
+    destination_table_new: str = "",
+) -> SwapEligibility:
+    """Return whether swapping preserves both endpoints without fallback selection."""
+
+    if source_provider == "csv":
+        return SwapEligibility(
+            False, "CSV sources cannot be reversed because uploads are source-only."
+        )
+    if not target_provider:
+        return SwapEligibility(False, "Select a destination before swapping.")
+    if target_table == CREATE_TABLE_VALUE:
+        return SwapEligibility(False, "Choose an existing destination object before swapping.")
+    if source_provider not in {
+        catalog.name for catalog in _eligible_destinations(connections, target_provider)
+    }:
+        return SwapEligibility(
+            False, "The selected destination cannot be used as a source in reverse."
+        )
+    if _selection_overlaps(
+        source_provider,
+        source_schema,
+        source_table,
+        target_provider,
+        target_schema,
+        target_table,
+        destination_table_new,
+    ):
+        return SwapEligibility(
+            False, "Choose a destination object different from the source object."
+        )
+
+    # Both current endpoints must be known objects. In particular, this keeps
+    # an arbitrary Foundry source RID/file from becoming the first catalog
+    # destination during a swap.
+    source_reason = _swap_operand_reason(
+        catalog_access, source_provider, source_schema, source_table
+    )
+    if source_reason:
+        return SwapEligibility(False, source_reason)
+    target_reason = _swap_operand_reason(
+        catalog_access, target_provider, target_schema, target_table
+    )
+    if target_reason:
+        return SwapEligibility(False, target_reason)
+    return SwapEligibility(True)
 
 
 def _destination_namespace_options(
@@ -738,8 +1141,10 @@ def _pipeline_form_locations(pipeline: PipelineDefinition) -> tuple[str, str, st
         source_object = source.table
     elif isinstance(source, FoundryDatasetFilesLocator):
         source_namespace = source.dataset_rid
-        if source.file_paths != "all_supported":
-            source_object = source.file_paths[0]
+        if source.file_paths == "all_supported":
+            source_object = "all_supported"
+        elif source.file_paths:
+            source_object = ", ".join(source.file_paths)
 
     try:
         destination = parse_locator(json.loads(pipeline.destination_locator_json))
@@ -936,7 +1341,12 @@ def _run_locator_label(locator: object) -> str:
         return f"{locator.schema_name}.{locator.table}"
     if isinstance(locator, FoundryDatasetFilesLocator):
         if isinstance(locator.file_paths, list) and locator.file_paths:
-            return locator.file_paths[0]
+            first = locator.file_paths[0]
+            return (
+                first
+                if len(locator.file_paths) == 1
+                else f"{first} (+{len(locator.file_paths) - 1} more)"
+            )
         return locator.dataset_rid
     if isinstance(locator, FoundryUploadLocator):
         return locator.file_name
@@ -969,6 +1379,55 @@ def _remote_object_preview(
         return next((item for item in page.items if item.name == object_name), None)
     except Exception:
         return None
+
+
+def _foundry_source_preview(
+    catalog_access: UserCatalog, provider: str, namespace: str, object_name: str
+):
+    paths = normalize_foundry_source_paths(object_name)
+    try:
+        page = catalog_access.list_objects(provider, namespace)
+    except Exception:
+        return None
+    if paths == "all_supported":
+        selected = list(page.items)
+        requested_count = len(selected)
+    else:
+        requested_count = len(paths)
+        requested = set(paths)
+        selected = [item for item in page.items if item.name in requested]
+    if not selected and paths == "all_supported":
+        return None
+    complete_catalog_match = paths == "all_supported" or len(selected) == requested_count
+    sizes = [item.size_bytes for item in selected]
+    rows = [item.estimated_rows for item in selected]
+    known_sizes = [value for value in sizes if isinstance(value, int)]
+    known_rows = [value for value in rows if isinstance(value, int)]
+    return {
+        "rows": sum(known_rows)
+        if complete_catalog_match and len(known_rows) == len(rows)
+        else None,
+        "size_bytes": sum(known_sizes)
+        if complete_catalog_match and len(known_sizes) == len(sizes)
+        else None,
+        "columns": [],
+        "primary_key": [],
+        "status": f"Catalog preview · {requested_count} file(s) selected",
+        "schema_provenance": "provider_unavailable",
+        "row_provenance": "estimated"
+        if complete_catalog_match and len(known_rows) == len(rows)
+        else "unavailable",
+        "size_provenance": "catalog"
+        if complete_catalog_match and len(known_sizes) == len(sizes)
+        else "unavailable",
+        "capabilities": {
+            "schema_inspection": False,
+            "exact_row_counts": False,
+            "verification_level": capabilities_for(provider).verification_level,
+            "limitations": capabilities_for(provider).limitations
+            or ("Manually entered file paths are validated during the run.",),
+        },
+    }
 
 
 def _route_schema_preview(
@@ -1023,6 +1482,8 @@ def _route_schema_preview(
                 "limitations": ("The destination schema is created during the run.",),
             },
         }
+    if not destination and provider in {"mss", "mcscop"}:
+        return _foundry_source_preview(catalog_access, provider, namespace, object_name)
     remote = _remote_object_preview(catalog_access, provider, namespace, object_name)
     if remote is None:
         return None
@@ -1623,7 +2084,11 @@ def _pipeline_preview_fragment(
 ):
     if source_provider != "csv":
         source_schema, source_table = _normalized_selection(
-            catalog_access, source_provider, source_schema, source_table
+            catalog_access,
+            source_provider,
+            source_schema,
+            source_table,
+            freeform_namespace=source_provider in {"mss", "mcscop"},
         )
     if target_provider:
         target_schema, target_table = _normalized_selection(
@@ -1664,20 +2129,32 @@ def _pipeline_preview_fragment(
         _committed_new_table_name(destination_table_new) or destination_table_new or target_table
     )
     if target_table == CREATE_TABLE_VALUE:
-        table_name = _committed_new_table_name(destination_table_new) or "new_table"
-    field_count = len(csv_inspection.columns) if csv_ready and csv_inspection is not None else 0
-    source_schema_options = (
-        [
-            _option(
-                "uploaded",
-                "Scanned CSV" if csv_ready else "Upload a CSV to inspect its schema",
-                selected=True,
-                disabled=True,
-            )
-        ]
-        if source_provider == "csv"
-        else _schema_options(catalog_access, source_provider, preferred_schema=source_schema)
+        table_name = (
+            _committed_new_table_name(destination_table_new) or destination_table_new or "new_table"
+        )
+    route_overlap = _selection_overlaps(
+        source_provider,
+        source_schema,
+        source_table,
+        target_provider,
+        target_schema,
+        table_name,
+        destination_table_new,
     )
+    swap_eligibility = _can_swap_direction(
+        catalog_access,
+        connections,
+        source_provider=source_provider,
+        source_schema=source_schema,
+        source_table=source_table,
+        target_provider=target_provider,
+        target_schema=target_schema,
+        target_table=target_table,
+        destination_table_new=destination_table_new,
+    )
+    if route_overlap:
+        availability_message = "Choose a destination object different from the source object."
+    field_count = len(csv_inspection.columns) if csv_ready and csv_inspection is not None else 0
     source_table_options = (
         [
             _option(
@@ -1690,9 +2167,7 @@ def _pipeline_preview_fragment(
             )
         ]
         if source_provider == "csv"
-        else _table_options(
-            catalog_access, source_provider, source_schema, preferred_table=source_table
-        )
+        else None
     )
     target_schema_options = (
         [_option("", "No connection available", selected=True, disabled=True)]
@@ -1736,12 +2211,21 @@ def _pipeline_preview_fragment(
             id="pipeline-capabilities",
             **{"hx-swap-oob": "outerHTML:#pipeline-capabilities"},
         ),
+        _source_provider_select(
+            request,
+            connections,
+            selected=source_provider,
+            target_provider=target_provider,
+            oob=True,
+        ),
         html.span(
             Status(
                 "Ready to transfer"
-                if source_runtime_ready and target_runtime_ready
+                if source_runtime_ready and target_runtime_ready and not route_overlap
                 else "Setup required",
-                tone="success" if source_runtime_ready and target_runtime_ready else "warning",
+                tone="success"
+                if source_runtime_ready and target_runtime_ready and not route_overlap
+                else "warning",
                 live=False,
                 variant="compact",
             ),
@@ -1756,19 +2240,53 @@ def _pipeline_preview_fragment(
             selected=target_provider,
             oob=True,
         ),
-        _select_fragment(
-            request,
-            "pipeline-source-schema-select",
-            source_schema_options,
-            name="source_schema",
-            label=source_catalog.namespaces_label,
+        (
+            _source_namespace_control(
+                request,
+                catalog_access,
+                source_provider,
+                preferred_schema=source_schema,
+                oob=True,
+            )
+            if source_provider != "csv"
+            else _select_fragment(
+                request,
+                "pipeline-source-schema-select",
+                [
+                    _option(
+                        "uploaded",
+                        "Scanned CSV" if csv_ready else "Upload a CSV to inspect its schema",
+                        selected=True,
+                        disabled=True,
+                    )
+                ],
+                name="source_schema",
+                label="Upload",
+            )
         ),
-        _select_fragment(
-            request,
-            "pipeline-source-table-select",
-            source_table_options,
-            name="source_table",
-            label=source_catalog.objects_label,
+        (
+            _source_object_control(
+                request,
+                catalog_access,
+                source_provider,
+                source_schema,
+                preferred_object=source_table,
+                oob=True,
+            )
+            if source_provider != "csv"
+            else _select_fragment(
+                request,
+                "pipeline-source-table-select",
+                source_table_options or [],
+                name="source_table",
+                label=source_catalog.objects_label,
+            )
+        ),
+        *_source_catalog_suggestions(
+            catalog_access,
+            source_provider,
+            source_schema,
+            oob=True,
         ),
         _select_fragment(
             request,
@@ -1787,6 +2305,7 @@ def _pipeline_preview_fragment(
             disabled=target_catalog is None,
         ),
         _write_mode_select(
+            request,
             target_catalog,
             selected=write_mode,
             upsert_available=bool(upsert_keys),
@@ -1799,6 +2318,12 @@ def _pipeline_preview_fragment(
             needs_dataset=bool(
                 target_catalog and target_catalog.dataset_creation and not target_schema
             ),
+            oob=True,
+        ),
+        _swap_direction_button(
+            request,
+            can_swap=swap_eligibility.allowed,
+            reason=swap_eligibility.reason,
             oob=True,
         ),
         html.p(
@@ -1826,7 +2351,11 @@ def _pipeline_preview_fragment(
         html.div(
             Alert(
                 availability_message,
-                tone=("success" if source_runtime_ready and target_runtime_ready else "warning"),
+                tone=(
+                    "success"
+                    if source_runtime_ready and target_runtime_ready and not route_overlap
+                    else "warning"
+                ),
             ),
             id="pipeline-availability-note",
             **{"hx-swap-oob": "outerHTML:#pipeline-availability-note"},
@@ -1853,16 +2382,24 @@ def _pipeline_body(
     destination_catalogs = _configured_catalogs(connections, role="destination")
     catalogs = tuple(dict.fromkeys((*source_catalogs, *destination_catalogs)))
     ready_count = sum(1 for details in connections.values() if _connection_runnable(details))
+    compatible_pairs = [
+        (source, target)
+        for source in source_catalogs
+        for target in destination_catalogs
+        if route_allowed(source.name, target.name)
+    ]
+    # Prefer a cross-system route for a fresh workspace so the default remains
+    # useful when a provider also supports copying within itself. Same-system
+    # routes remain available in the selectors.
     source_catalog, target_catalog = next(
-        (
-            (source, target)
-            for source in source_catalogs
-            for target in destination_catalogs
-            if route_allowed(source.name, target.name)
+        ((source, target) for source, target in compatible_pairs if source.name != target.name),
+        compatible_pairs[0]
+        if compatible_pairs
+        else (
+            (CSV_SOURCE_CATALOG, destination_catalogs[0])
+            if destination_catalogs
+            else (source_catalogs[0] if source_catalogs else CSV_SOURCE_CATALOG, None)
         ),
-        (CSV_SOURCE_CATALOG, destination_catalogs[0])
-        if destination_catalogs
-        else (source_catalogs[0] if source_catalogs else CSV_SOURCE_CATALOG, None),
     )
     source_provider = source_catalog.name
     target_provider = target_catalog.name if target_catalog is not None else ""
@@ -1934,7 +2471,11 @@ def _pipeline_body(
 
     if source_provider != "csv":
         source_schema_name, source_table_display = _normalized_selection(
-            catalog_access, source_provider, source_schema_name, source_table_display
+            catalog_access,
+            source_provider,
+            source_schema_name,
+            source_table_display,
+            freeform_namespace=source_provider in {"mss", "mcscop"},
         )
     if target_provider:
         target_schema_name, target_table_name = _normalized_selection(
@@ -1949,6 +2490,26 @@ def _pipeline_body(
         target_table_name or _first_object(catalog_access, target_provider, target_schema_name)
         if target_provider
         else ""
+    )
+    route_overlap = _selection_overlaps(
+        source_provider,
+        source_schema_name,
+        source_object_name,
+        target_provider,
+        target_schema_name,
+        target_table_name,
+        new_target_table_name,
+    )
+    swap_eligibility = _can_swap_direction(
+        catalog_access,
+        connections,
+        source_provider=source_provider,
+        source_schema=source_schema_name,
+        source_table=source_object_name,
+        target_provider=target_provider,
+        target_schema=target_schema_name,
+        target_table=target_table_name,
+        destination_table_new=new_target_table_name,
     )
     upsert_keys = _upsert_keys(
         catalog_access,
@@ -1976,8 +2537,10 @@ def _pipeline_body(
     target_runtime_ready = target_catalog is not None and _connection_runnable(
         connections[target_provider]
     )
-    initial_run_ready = source_runtime_ready and target_runtime_ready
-    if target_catalog is None:
+    initial_run_ready = source_runtime_ready and target_runtime_ready and not route_overlap
+    if route_overlap:
+        availability_message = "Choose a destination object different from the source object."
+    elif target_catalog is None:
         availability_message = _destination_unavailable_message(connections, source_provider)
     elif source_provider == "csv":
         availability_message = (
@@ -2096,6 +2659,11 @@ def _pipeline_body(
                             level=2,
                             density="compact",
                             actions=ActionGroup(
+                                _swap_direction_button(
+                                    request,
+                                    can_swap=swap_eligibility.allowed,
+                                    reason=swap_eligibility.reason,
+                                ),
                                 Button(
                                     "Save pipeline",
                                     variant="secondary",
@@ -2150,6 +2718,7 @@ def _pipeline_body(
                                 label="Write mode",
                                 id="pipeline-mode-select",
                                 control=_write_mode_select(
+                                    request,
                                     target_catalog,
                                     selected=write_mode,
                                     upsert_available=bool(upsert_keys),
@@ -2187,24 +2756,11 @@ def _pipeline_body(
                                             name="source_provider",
                                             label="Source type",
                                             id="pipeline-source-select",
-                                            control=html.select(
-                                                *_source_provider_options(
-                                                    connections,
-                                                    selected=source_provider,
-                                                    target_provider=target_provider,
-                                                ),
-                                                id="pipeline-source-select",
-                                                name="source_provider",
-                                                data={"pipeline-control": "source-provider"},
-                                                **hx_attrs(
-                                                    request,
-                                                    path="/pipeline/preview",
-                                                    method="post",
-                                                    target="#pipeline-preview-region",
-                                                    swap="none",
-                                                    include="#pipeline-form",
-                                                    trigger="change",
-                                                ),
+                                            control=_source_provider_select(
+                                                request,
+                                                connections,
+                                                selected=source_provider,
+                                                target_provider=target_provider,
                                             ),
                                         ),
                                         FormGrid(
@@ -2212,81 +2768,72 @@ def _pipeline_body(
                                                 name="source_schema",
                                                 label=source_catalog.namespaces_label,
                                                 id="pipeline-source-schema-select",
-                                                control=html.select(
-                                                    *(
-                                                        _schema_options(
-                                                            catalog_access,
-                                                            source_provider,
-                                                            preferred_schema=source_schema_name,
-                                                        )
-                                                        if source_provider != "csv"
-                                                        else [
-                                                            _option(
-                                                                "uploaded",
-                                                                "Scanned CSV"
-                                                                if csv_source_ready
-                                                                else "Upload required",
-                                                                selected=True,
-                                                                disabled=True,
-                                                            )
-                                                        ]
-                                                    ),
-                                                    id="pipeline-source-schema-select",
-                                                    name="source_schema",
-                                                    data={"pipeline-control": "source-schema"},
-                                                    **hx_attrs(
+                                                control=(
+                                                    _source_namespace_control(
                                                         request,
-                                                        path="/pipeline/preview",
-                                                        method="post",
-                                                        target="#pipeline-preview-region",
-                                                        swap="none",
-                                                        include="#pipeline-form",
-                                                        trigger="change",
-                                                    ),
+                                                        catalog_access,
+                                                        source_provider,
+                                                        preferred_schema=source_schema_name,
+                                                    )
+                                                    if source_provider != "csv"
+                                                    else html.select(
+                                                        _option(
+                                                            "uploaded",
+                                                            "Scanned CSV"
+                                                            if csv_source_ready
+                                                            else "Upload required",
+                                                            selected=True,
+                                                            disabled=True,
+                                                        ),
+                                                        id="pipeline-source-schema-select",
+                                                        name="source_schema",
+                                                        data={
+                                                            "pipeline-control": "source-schema",
+                                                            "field-label": "Upload",
+                                                        },
+                                                    )
                                                 ),
                                             ),
                                             FormField(
                                                 name="source_table",
-                                                label=source_catalog.objects_label,
+                                                label=(
+                                                    "File(s)"
+                                                    if source_provider in {"mss", "mcscop"}
+                                                    else source_catalog.objects_label
+                                                ),
                                                 id="pipeline-source-table-select",
-                                                control=html.select(
-                                                    *(
-                                                        _table_options(
-                                                            catalog_access,
-                                                            source_provider,
-                                                            source_schema_name,
-                                                            preferred_table=source_table_display,
-                                                        )
-                                                        if source_provider != "csv"
-                                                        else [
-                                                            _option(
-                                                                "",
-                                                                loaded_source_inspection.filename
-                                                                if csv_source_ready
-                                                                and loaded_source_inspection
-                                                                is not None
-                                                                else "Upload required",
-                                                                selected=True,
-                                                                disabled=True,
-                                                            )
-                                                        ]
-                                                    ),
-                                                    id="pipeline-source-table-select",
-                                                    name="source_table",
-                                                    data={"pipeline-control": "source-table"},
-                                                    **hx_attrs(
+                                                control=(
+                                                    _source_object_control(
                                                         request,
-                                                        path="/pipeline/preview",
-                                                        method="post",
-                                                        target="#pipeline-preview-region",
-                                                        swap="none",
-                                                        include="#pipeline-form",
-                                                        trigger="change",
-                                                    ),
+                                                        catalog_access,
+                                                        source_provider,
+                                                        source_schema_name,
+                                                        preferred_object=source_table_display,
+                                                    )
+                                                    if source_provider != "csv"
+                                                    else html.select(
+                                                        _option(
+                                                            "",
+                                                            loaded_source_inspection.filename
+                                                            if csv_source_ready
+                                                            and loaded_source_inspection is not None
+                                                            else "Upload required",
+                                                            selected=True,
+                                                            disabled=True,
+                                                        ),
+                                                        id="pipeline-source-table-select",
+                                                        name="source_table",
+                                                        data={"pipeline-control": "source-table"},
+                                                    )
                                                 ),
                                             ),
                                             columns=2,
                                             gap="sm",
+                                        ),
+                                        *_source_catalog_suggestions(
+                                            catalog_access,
+                                            source_provider,
+                                            source_schema_name,
                                         ),
                                         Surface(
                                             PageHeader(
@@ -2803,9 +3350,12 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
             CSV_INSPECTION,
             CSV_UPLOAD_STATE,
             PIPELINE_CSV_FILE,
+            PIPELINE_SOURCE_SELECT,
             PIPELINE_DATASET_CREATOR,
             PIPELINE_SOURCE_SCHEMA_SELECT,
             PIPELINE_SOURCE_TABLE_SELECT,
+            PIPELINE_SOURCE_DATASET_SUGGESTIONS,
+            PIPELINE_SOURCE_FILE_SUGGESTIONS,
             PIPELINE_TARGET_SELECT,
             PIPELINE_TARGET_SCHEMA_SELECT,
             PIPELINE_TARGET_TABLE_SELECT,
@@ -2835,6 +3385,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
         source_upload_id: PipelineIdForm = "",
         write_mode: PipelineWriteModeForm = "replace",
         conflict_columns: PipelineConflictColumnsForm = "",
+        swap_direction: PipelineSwapForm = False,
     ) -> Response:
         csv_upload = None
         csv_inspection = None
@@ -2854,6 +3405,36 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
             }
             for provider, secret in list_user_secrets(db, auth.user)
         }
+        if swap_direction:
+            swap_eligibility = await asyncio.to_thread(
+                _with_user_catalog,
+                settings,
+                auth.user.id,
+                request,
+                lambda catalog: _can_swap_direction(
+                    catalog,
+                    connections,
+                    source_provider=source_provider,
+                    source_schema=source_schema,
+                    source_table=source_table,
+                    target_provider=destination_provider,
+                    target_schema=destination_schema,
+                    target_table=destination_table,
+                    destination_table_new=destination_table_new,
+                ),
+            )
+            if not swap_eligibility.allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=swap_eligibility.reason,
+                )
+            source_provider, destination_provider = (
+                cast(PipelineSourceProviderForm, destination_provider),
+                cast(PipelineOptionalProviderForm, source_provider),
+            )
+            source_schema, destination_schema = destination_schema, source_schema
+            source_table, destination_table = destination_table, source_table
+            destination_table_new = ""
         if source_provider != "csv" and not _connection_configured(connections[source_provider]):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -2886,7 +3467,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
         if destination_provider and not route_allowed(source_provider, destination_provider):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Select an approved source and destination route.",
+                detail="Select source and destination providers that support this transfer.",
             )
         if source_provider != "csv":
             source_schema, source_table = await asyncio.to_thread(
@@ -2895,7 +3476,11 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 auth.user.id,
                 request,
                 lambda catalog: _normalized_selection(
-                    catalog, source_provider, source_schema, source_table
+                    catalog,
+                    source_provider,
+                    source_schema,
+                    source_table,
+                    freeform_namespace=source_provider in {"mss", "mcscop"},
                 ),
             )
         if destination_provider:

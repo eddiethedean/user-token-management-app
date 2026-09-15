@@ -129,9 +129,9 @@ function markPipelineDirty(event) {
 function syncPipelineEditor() {
   const form = document.getElementById("pipeline-form");
   if (!form) return;
-  form.querySelectorAll("select[data-field-label]").forEach((select) => {
-    const label = form.querySelector(`label[for="${select.id}"]`);
-    if (label && select.dataset.fieldLabel) label.textContent = select.dataset.fieldLabel;
+  form.querySelectorAll("[data-field-label]").forEach((control) => {
+    const label = form.querySelector(`label[for="${control.id}"]`);
+    if (label && control.dataset.fieldLabel) label.textContent = control.dataset.fieldLabel;
   });
   const dirty = form.dataset.pipelineDirty === "true";
   const note = document.getElementById("pipeline-unsaved-note");
@@ -172,6 +172,15 @@ document.addEventListener("htmx:afterRequest", (event) => {
     source.value = "csv";
     source.dispatchEvent(new Event("change", { bubbles: true }));
   }
+});
+
+document.addEventListener("click", (event) => {
+  const swap = event.target.closest?.("[data-pipeline-swap]");
+  if (!swap || swap.disabled || swap.getAttribute("aria-disabled") === "true") return;
+  const form = swap.closest("#pipeline-form");
+  if (!form?.querySelector('[name="pipeline_id"]')?.value) return;
+  form.dataset.pipelineDirty = "true";
+  syncPipelineEditor();
 });
 
 document.addEventListener("pipelineDatasetCreated", () => {

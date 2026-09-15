@@ -236,9 +236,9 @@ Provider work spans several contracts. Complete all of these before calling the 
    credential-free metadata enters `pipeline_catalog_cache`.
 6. Update typed form allowlists in `app/ui/params.py` and persistence validation in
    `app/services/pipelines.py`.
-7. Add the exact approved pair to `ALLOWED_ROUTES` only after product/provider approval, and define
-   the destination writer flag. Keep Connections status, Pipeline selectors, save, enqueue, and
-   execution consistent. UI filtering is not an authorization boundary.
+7. Set accurate source/destination capability metadata and define the destination writer flag. Keep
+   Connections status, Pipeline selectors, save, enqueue, and execution consistent. UI filtering is
+   not an authorization boundary.
 8. Add tests for encryption/non-reveal behavior, owner scoping, health checks, catalog selection,
    save/load, enqueue/cancel/poll, and source/destination capability rules.
 9. Use Semblance fixtures for Foundry/HTTP contracts. Do not call live hosts from default tests.
