@@ -295,6 +295,86 @@ names to Connect; secret values are not command-line arguments. The defaults are
 `DATA_MOVER_ENV_FILE=prod.env CONNECT_NAME=prod-connect ./scripts/deploy-connect.sh`. If the final
 content URL changes, update `PUBLIC_BASE_URL` in `.env` and publish again before inviting users.
 
+If you need to publish without the helper, run the equivalent command from the repository root.
+The `--environment` option takes a variable name; `rsconnect-python` reads that variable from the
+current process, so source `.env` first and never put secret values directly in the command:
+
+```bash
+cd /path/to/user-token-management-app
+set -a; . ./.env; set +a
+# Explicitly clear optional file settings that Connect may retain from an earlier deployment.
+export PASSWORD_BLOCKLIST_PATH="${PASSWORD_BLOCKLIST_PATH:-}"
+export DIRECTORY_LOOKUP_CA_BUNDLE="${DIRECTORY_LOOKUP_CA_BUNDLE:-}"
+export SMTP_CA_BUNDLE="${SMTP_CA_BUNDLE:-}"
+export PIPELINE_CA_BUNDLE="${PIPELINE_CA_BUNDLE:-}"
+mkdir -p deployment/spool
+touch deployment/spool/.keep
+chmod 700 deployment/spool
+
+bundle_files=(deployment/spool/.keep)
+if [[ -n "$PASSWORD_BLOCKLIST_PATH" && -r "$PASSWORD_BLOCKLIST_PATH" ]]; then
+  bundle_files+=("$PASSWORD_BLOCKLIST_PATH")
+elif [[ -n "$PASSWORD_BLOCKLIST_PATH" ]]; then
+  echo "Warning: password blocklist is unavailable; continuing without it" >&2
+  export PASSWORD_BLOCKLIST_PATH=
+fi
+for path in "$DIRECTORY_LOOKUP_CA_BUNDLE" "$SMTP_CA_BUNDLE" "$PIPELINE_CA_BUNDLE"; do
+  if [[ -n "$path" ]]; then
+    [[ -r "$path" ]] || { echo "Configured CA bundle is not readable: $path" >&2; exit 2; }
+    bundle_files+=("$path")
+  fi
+done
+
+environment_args=()
+for name in \
+  APP_ENV APP_NAME CUSTOM_THEME_ENABLED PUBLIC_BASE_URL DATABASE_URL JWT_SECRET SESSION_PEPPER \
+  CSRF_SECRET API_TOKEN_ENCRYPTION_KEYS API_TOKEN_ACTIVE_KEY_ID API_TOKEN_MAX_WRAPS_PER_KEY \
+  JWT_ISSUER JWT_AUDIENCE AUTHENTICATION_MODE PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED \
+  TRUSTED_IDENTITY_HEADER ACCESS_TOKEN_MINUTES REFRESH_TOKEN_HOURS SESSION_IDLE_MINUTES \
+  COOKIE_SECURE COOKIE_PATH HSTS_INCLUDE_SUBDOMAINS TRUSTED_PROXY_IPS DB_POOL_SIZE DB_MAX_OVERFLOW \
+  DB_POOL_TIMEOUT DB_POOL_RECYCLE RATE_LIMIT_ENABLED RATE_LIMIT_WINDOW_SECONDS \
+  RATE_LIMIT_LOGIN_PER_SOURCE RATE_LIMIT_LOGIN_PER_ACCOUNT RATE_LIMIT_REGISTRATION_PER_SOURCE \
+  RATE_LIMIT_REGISTRATION_PER_ACCOUNT RATE_LIMIT_RESET_PER_SOURCE RATE_LIMIT_RESET_PER_ACCOUNT \
+  DIRECTORY_LOOKUP_URL DIRECTORY_LOOKUP_TIMEOUT_SECONDS DIRECTORY_LOOKUP_VERIFY_TLS \
+  DIRECTORY_LOOKUP_CA_BUNDLE DIRECTORY_LOOKUP_REQUIRED DIRECTORY_LOOKUP_BEARER_TOKEN \
+  ALLOWED_EMAIL_DOMAINS EMAIL_BACKEND EMAIL_REDACT_SENT_BODIES EMAIL_MAX_ATTEMPTS \
+  EMAIL_RETRY_BASE_SECONDS EMAIL_RETRY_MAX_SECONDS EMAIL_CLAIM_TIMEOUT_SECONDS EMAIL_FROM \
+  SMTP_HOST SMTP_PORT SMTP_STARTTLS SMTP_ALLOW_LEGACY_PORT25_FALLBACK SMTP_CA_BUNDLE SMTP_USERNAME \
+  SMTP_PASSWORD PASSWORD_HASH_SCHEME PBKDF2_ITERATIONS PASSWORD_BLOCKLIST_PATH DATA_MOVER_MODE \
+  PIPELINE_WORKER_ID PIPELINE_LEASE_SECONDS PIPELINE_BATCH_ROWS PIPELINE_BATCH_TARGET_BYTES \
+  PIPELINE_MAX_RUN_SECONDS PIPELINE_MAX_SOURCE_BYTES PIPELINE_MAX_SPOOL_BYTES PIPELINE_SPOOL_ROOT \
+  PIPELINE_HTTP_CONNECT_SECONDS PIPELINE_HTTP_READ_SECONDS PIPELINE_HTTP_WRITE_SECONDS \
+  PIPELINE_HTTP_RETRY_ATTEMPTS PIPELINE_CATALOG_TTL_SECONDS PIPELINE_CONNECTION_MAX_AGE_SECONDS \
+  PIPELINE_RUN_RETENTION_DAYS PIPELINE_EVENT_RETENTION_DAYS PIPELINE_ALLOWED_HTTPS_HOSTS \
+  PIPELINE_CA_BUNDLE PIPELINE_ENABLE_POSTGRES_WRITER PIPELINE_ENABLE_MSS_WRITER \
+  PIPELINE_ENABLE_MCSCOP_WRITER PIPELINE_APPLY_INTERNAL_CA_FIX; do
+  if [[ ${!name+x} == x ]]; then environment_args+=(--environment "$name"); fi
+done
+
+rsconnect deploy fastapi \
+  --name my-connect \
+  --title "Data Mover" \
+  --entrypoint app.main:app \
+  --requirements-file requirements.txt \
+  "${environment_args[@]}" \
+  --exclude .env \
+  --exclude .venv \
+  --exclude .hedron/build \
+  --exclude '**/__pycache__/*' \
+  --exclude '**/*.db' \
+  --exclude '**/*.sqlite3' \
+  --exclude tests \
+  --exclude demo-app \
+  ./ \
+  "${bundle_files[@]}"
+```
+
+The example includes the spool marker and any readable configured blocklist or CA-bundle files.
+The helper is safer for normal releases because it performs the production preflight, creates the
+spool marker, includes ignored files conditionally, and clears omitted optional settings. After
+either publishing method, activate or restart the newest bundle in Connect and verify that its
+bundle ID—not an older active bundle—appears in the content logs.
+
 In Connect, restrict access, select Python 3.11, confirm the stored environment, and restart the
 content after environment changes. No cookie proxy or custom Nginx rule is required; leave
 `COOKIE_PATH=auto`.
