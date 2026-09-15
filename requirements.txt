@@ -13,5 +13,6 @@ pwdlib[argon2]>=0.2
 polars>=1.21
 psycopg[binary]>=3.1.4
 python-multipart>=0.0.9
+setuptools>=75,<82
 sqlalchemy>=2.0
 uvicorn[standard]>=0.32.0

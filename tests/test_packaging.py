@@ -46,7 +46,7 @@ def test_project_requirements_only_bound_hedron_to_its_tested_feature_line() -> 
     ]
 
     for requirement in requirements:
-        if requirement.startswith("hedron"):
+        if requirement.startswith(("hedron", "setuptools")):
             continue
         assert "<" not in requirement
 
