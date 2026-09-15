@@ -66,6 +66,50 @@
   min-inline-size: 0;
 }
 
+/* Keep every form control on the same visual baseline. Hedron's compact
+ * buttons are shorter than its fields, which is especially visible beside
+ * credential fields and in filter/action rows. Keep icon-only controls at
+ * their native size and retain the larger touch target on coarse pointers. */
+:root[data-hedron-theme] form
+  :where(
+    input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+    select,
+    textarea,
+    .hedron-button:not(.hedron-icon-button)
+  ) {
+  min-block-size: var(--hedron-geometry-control-height, 2.65rem);
+}
+
+.data-mover-password-field {
+  align-items: stretch;
+}
+
+@media (hover: none), (pointer: coarse) {
+  :root[data-hedron-theme] form
+    :where(
+      input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+      select,
+      textarea,
+      .hedron-button:not(.hedron-icon-button)
+    ) {
+    min-block-size: 2.75rem;
+  }
+}
+
+/* The PostgreSQL options row mixes one-line labels, a wrapped label, and
+ * optional help text. Reserve a two-line label track only while the grid is
+ * multi-column, and stop the form-field grid from stretching each field's
+ * internal rows independently. */
+@media (min-width: 36rem) {
+  .data-mover-postgres-options-grid > .hedron-form-field {
+    align-content: start;
+  }
+
+  .data-mover-postgres-options-grid > .hedron-form-field > label {
+    min-block-size: 2.4rem;
+  }
+}
+
 /* A confirmation opened from an end-aligned table action must not inherit
  * the cell's text alignment. Modal structure and focus remain native. */
 .data-mover-app-shell .hedron-dialog {

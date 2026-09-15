@@ -81,7 +81,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=3"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=17"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=18"')
     assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=12"')
     assert_html_contains(response, 'src="/assets/app.js?v=13"')
     assert response.body.count('src="/assets/app.js?v=13"') == 1
@@ -242,6 +242,11 @@ def test_hedron_theme_export_preserves_native_component_appearances(access_app) 
     assert "@media (max-width: 48rem)" in theme.body
     assert ".data-mover-app-shell {" in theme.body
     assert ".data-mover-app-shell > .hedron-main-panel" in theme.body
+    assert ":root[data-hedron-theme] form" in theme.body
+    assert ".hedron-button:not(.hedron-icon-button)" in theme.body
+    assert 'input:not([type="hidden"])' in theme.body
+    assert "align-items: stretch" in theme.body
+    assert "@media (min-width: 36rem)" in theme.body
     assert "border-block-start: 1px solid" in theme.body
     assert "color: transparent" in theme.body
     assert ".data-mover-admin-split" in theme.body
@@ -718,6 +723,7 @@ def test_session_list_and_secret_slot_render_html() -> None:
     assert "Find these values in pgAdmin" in postgres
     assert "Login/Group Roles has the username" in postgres
     assert "pgAdmin cannot reveal an existing role password" in postgres
+    assert "data-mover-postgres-options-grid" in postgres
     assert all(
         f'id="postgres-{field}"' in postgres
         for field in ("host", "port", "database", "username", "password", "sslmode")

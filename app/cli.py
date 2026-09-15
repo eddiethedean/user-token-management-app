@@ -90,8 +90,14 @@ def seed_demo_connections_for_user(email: str, *, replace: bool = False) -> int:
             return 2
         result = seed_demo_connections(db, settings, user=user, replace=replace)
     seeded = ", ".join(result.seeded) or "none"
+    refreshed = ", ".join(result.refreshed) or "none"
+    revalidated = ", ".join(result.revalidated) or "none"
     skipped = ", ".join(result.skipped) or "none"
-    print(f"Fake demo connections ready for {canonical}: seeded={seeded}; skipped={skipped}")
+    print(
+        f"Fake demo connections ready for {canonical}: "
+        f"seeded={seeded}; refreshed={refreshed}; "
+        f"revalidated={revalidated}; skipped={skipped}"
+    )
     return 0
 
 

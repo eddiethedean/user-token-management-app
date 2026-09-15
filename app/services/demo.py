@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.models import User, UserSecret
+from app.services.secret_crypto import CredentialEnvelope, CredentialEnvelopeError
 from app.services.secrets import store_user_credentials, test_user_connection
 
 DEMO_CONNECTION_CREDENTIALS: dict[str, dict[str, str]] = {
@@ -38,11 +39,63 @@ DEMO_CONNECTION_CREDENTIALS: dict[str, dict[str, str]] = {
     },
 }
 
+# Credential payloads from demo databases created before structured provider
+# fields were expanded. Keep these exact so a real user's credentials are
+# never mistaken for demo state merely because they share some field values.
+LEGACY_DEMO_CONNECTION_CREDENTIALS: dict[str, tuple[dict[str, str], ...]] = {
+    "mss": (
+        {
+            "endpoint": "https://mss.demo.invalid",
+            "username": "data_mover_demo",
+            "token": "fake-mss-token-for-demo-only",
+        },
+        {
+            "endpoint": "https://mss.demo.invalid",
+            "token": "fake-mss-token-for-demo-only",
+            "branch": "master",
+            "ca_profile": "system",
+        },
+    ),
+    "postgres": (
+        {
+            "host": "postgres.demo.invalid",
+            "port": "5432",
+            "database": "readiness_demo",
+            "username": "data_mover_demo",
+            "password": "fake-postgres-password-for-demo-only",
+            "sslmode": "require",
+        },
+    ),
+}
+
 
 @dataclass(frozen=True)
 class DemoConnectionSeedResult:
     seeded: tuple[str, ...]
     skipped: tuple[str, ...]
+    refreshed: tuple[str, ...] = ()
+    revalidated: tuple[str, ...] = ()
+
+
+def _classify_demo_credentials(
+    settings: Settings,
+    stored: UserSecret,
+    expected: dict[str, str],
+) -> str:
+    """Classify an encrypted bundle without guessing about user-owned data."""
+
+    try:
+        actual = CredentialEnvelope.decrypt(settings, stored)
+    except CredentialEnvelopeError:
+        # An unreadable or differently encrypted secret is user-owned state;
+        # never replace it just because demo seeding is running.
+        return "unknown"
+
+    if actual == expected:
+        return "current"
+    if actual in LEGACY_DEMO_CONNECTION_CREDENTIALS.get(stored.provider, ()):
+        return "legacy"
+    return "unknown"
 
 
 def seed_demo_connections(
@@ -52,7 +105,7 @@ def seed_demo_connections(
     user: User,
     replace: bool = False,
 ) -> DemoConnectionSeedResult:
-    """Store fake provider bundles without overwriting existing credentials by default."""
+    """Seed fake bundles and repair only recognizable legacy demo credentials."""
     from app.connectors.registry import load_builtin_connectors
 
     load_builtin_connectors(demo=settings.is_demo_mode)
@@ -61,15 +114,28 @@ def seed_demo_connections(
     if not settings.is_demo_mode:
         raise ValueError("Fake demo credentials can only be seeded in demo mode.")
 
-    existing = set(
-        db.scalars(select(UserSecret.provider).where(UserSecret.user_id == user.id)).all()
-    )
+    existing = {
+        secret.provider: secret
+        for secret in db.scalars(select(UserSecret).where(UserSecret.user_id == user.id)).all()
+    }
     seeded: list[str] = []
     skipped: list[str] = []
+    refreshed: list[str] = []
+    revalidated: list[str] = []
     for provider, credentials in DEMO_CONNECTION_CREDENTIALS.items():
-        if provider in existing and not replace:
-            skipped.append(provider)
-            continue
+        stored = existing.get(provider)
+        if stored is not None and not replace:
+            classification = _classify_demo_credentials(settings, stored, credentials)
+            if classification == "unknown":
+                skipped.append(provider)
+                continue
+            if classification == "current" and stored.validation_status == "connected":
+                skipped.append(provider)
+                continue
+            if classification == "current":
+                test_user_connection(db, settings=settings, user=user, provider=provider)
+                revalidated.append(provider)
+                continue
         store_user_credentials(
             db,
             settings,
@@ -78,6 +144,8 @@ def seed_demo_connections(
             credentials=credentials,
         )
         test_user_connection(db, settings=settings, user=user, provider=provider)
-        seeded.append(provider)
+        (refreshed if stored is not None and not replace else seeded).append(provider)
 
-    return DemoConnectionSeedResult(tuple(seeded), tuple(skipped))
+    return DemoConnectionSeedResult(
+        tuple(seeded), tuple(skipped), tuple(refreshed), tuple(revalidated)
+    )

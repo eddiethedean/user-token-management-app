@@ -213,7 +213,12 @@ def secret_slot(
         credential_layout = Stack(
             FormGrid(*credential_fields[:3], columns=3, gap="sm"),
             FormGrid(*credential_fields[3:5], columns=2, gap="sm"),
-            FormGrid(*credential_fields[5:], columns=3, gap="sm"),
+            FormGrid(
+                *credential_fields[5:],
+                columns=3,
+                gap="sm",
+                class_="data-mover-postgres-options-grid",
+            ),
             gap="md",
         )
     else:
