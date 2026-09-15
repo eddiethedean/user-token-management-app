@@ -12,6 +12,8 @@
   retained by the content environment.
 - Connect deployment no longer inspects or requires a password blocklist file and clears the legacy
   `PASSWORD_BLOCKLIST_PATH` setting.
+- Connect deployment supports `CONNECT_TITLE` for the content name and `CONNECT_NEW=true` for a
+  separate Connect content item.
 
 ## [150926.0] — 2026-09-15
 

@@ -111,6 +111,14 @@ def test_connect_deploy_bundles_the_current_checkout() -> None:
     assert "Source directory does not look like a Data Mover checkout" in script
 
 
+def test_connect_deploy_can_force_a_new_content_item() -> None:
+    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'connect_new="${CONNECT_NEW:-false}"' in script
+    assert "deploy_args+=(--new)" in script
+    assert "CONNECT_NEW must be true or false" in script
+
+
 def test_readme_operational_commands_use_one_in_process_app() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     introduction = "Its commands are:"

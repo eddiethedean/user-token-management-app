@@ -283,6 +283,18 @@ script copied from elsewhere while bundling a specific checkout, set
 `DATA_MOVER_SOURCE_DIR=/path/to/user-token-management-app`. If the final content URL changes,
 update `PUBLIC_BASE_URL` in `.env` and publish again before inviting users.
 
+`CONNECT_NAME` selects the saved Connect server profile; it does not name the content. Use
+`CONNECT_TITLE` for the app’s displayed name. To create a separate Connect content item instead of
+redeploying saved content metadata, set `CONNECT_NEW=true`:
+
+```bash
+CONNECT_NEW=true CONNECT_TITLE='Data Mover Test' ./scripts/deploy-connect.sh
+```
+
+Leave `CONNECT_NEW=false` (the default) for normal updates to an existing content item. The
+underlying `rsconnect-python` options are `--name` for the server nickname, `--title` for the
+content title, and `--new` to force a new deployment. [Its FastAPI deployment reference](https://docs.posit.co/rsconnect-python/commands/deploy/) documents these options.
+
 If you need to publish without the helper, run the equivalent command from the repository root.
 The `--environment` option takes a variable name; `rsconnect-python` reads that variable from the
 current process, so source `.env` first and never put secret values directly in the command:

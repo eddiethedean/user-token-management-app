@@ -92,7 +92,16 @@ fi
 
 connect_name="${CONNECT_NAME:-my-connect}"
 connect_title="${CONNECT_TITLE:-Data Mover}"
+connect_new="${CONNECT_NEW:-false}"
 requirements_file="${CONNECT_REQUIREMENTS_FILE:-requirements.txt}"
+
+case "$connect_new" in
+    true|false) ;;
+    *)
+        printf 'CONNECT_NEW must be true or false: %s\n' "$connect_new" >&2
+        exit 2
+        ;;
+esac
 
 if [[ "${APP_ENV:-}" != "production" ]]; then
     printf 'APP_ENV must be production for Connect deployment.\n' >&2
@@ -259,6 +268,9 @@ deploy_args=(
     --entrypoint app.main:app
     --requirements-file "$requirements_file"
 )
+if [[ "$connect_new" == true ]]; then
+    deploy_args+=(--new)
+fi
 for name in "${environment_names[@]}"; do
     # Preserve explicitly empty values so an operator can clear a value retained by Connect.
     if [[ ${!name+x} == x ]]; then
