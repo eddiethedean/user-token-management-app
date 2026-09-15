@@ -96,24 +96,14 @@ connect_new="${CONNECT_NEW:-false}"
 connect_no_verify="${CONNECT_NO_VERIFY:-false}"
 requirements_file="${CONNECT_REQUIREMENTS_FILE:-requirements.txt}"
 
-for option in CONNECT_NEW CONNECT_NO_VERIFY; do
-    value="${!option}"
-    case "$value" in
-        true|false) ;;
-        *)
-            printf '%s must be true or false: %s\n' "$option" "$value" >&2
-            exit 2
-            ;;
-    esac
-done
-
-case "$connect_new" in
-    true|false) ;;
-    *)
-        printf 'CONNECT_NEW must be true or false: %s\n' "$connect_new" >&2
-        exit 2
-        ;;
-esac
+if [[ "$connect_new" != true && "$connect_new" != false ]]; then
+    printf 'CONNECT_NEW must be true or false: %s\n' "$connect_new" >&2
+    exit 2
+fi
+if [[ "$connect_no_verify" != true && "$connect_no_verify" != false ]]; then
+    printf 'CONNECT_NO_VERIFY must be true or false: %s\n' "$connect_no_verify" >&2
+    exit 2
+fi
 
 if [[ "${APP_ENV:-}" != "production" ]]; then
     printf 'APP_ENV must be production for Connect deployment.\n' >&2
