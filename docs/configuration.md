@@ -73,9 +73,10 @@ Set or confirm all of the following:
 7. Set a real `ALLOWED_EMAIL_DOMAINS` list. This is an enrollment allowlist,
    not proof that the user completed CAC authentication.
 8. Configure SMTP with `EMAIL_BACKEND=smtp`, the approved `SMTP_HOST`, the
-   correct port and TLS settings, and `EMAIL_REDACT_SENT_BODIES=true`. Email is
-   delivered by an in-process FastAPI background task; no email worker service
-   or scheduler is required.
+   correct port and relay security settings, and `EMAIL_REDACT_SENT_BODIES=true`.
+   `SMTP_STARTTLS` may be `false` when the approved relay requires an internal
+   plaintext connection. Email is delivered by an in-process FastAPI background
+   task; no email worker service or scheduler is required.
 9. Set `DATA_MOVER_MODE=real`, a writable `PIPELINE_SPOOL_ROOT`, and an
    explicit `PIPELINE_ALLOWED_HTTPS_HOSTS` allowlist. Writers for MSS and
    MCSCOP remain opt-in until their integrations are approved and tested.

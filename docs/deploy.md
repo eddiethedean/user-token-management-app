@@ -193,7 +193,8 @@ Have these ready:
 
 - Posit Connect with Python 3.11 and permission to publish FastAPI content;
 - PostgreSQL and a least-privileged application role;
-- an approved SMTP relay with STARTTLS;
+- an approved SMTP relay and its required connection security settings (STARTTLS may be disabled
+  when the approved relay requires an internal plaintext connection);
 - a protected spool directory;
 - approval for the implemented provider capabilities and route families (MSS/PostgreSQL sources,
   CSV source, MCS-COP destination), the corresponding destination writer flags, and HTTPS host

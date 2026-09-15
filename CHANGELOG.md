@@ -19,6 +19,8 @@
 - Connect runtime dependencies include `standard-pkg-resources` for the `pkg_resources` import
   used by the Connect 2025.06.0 FastAPI launcher, without requiring an unavailable older
   `setuptools` release.
+- Production SMTP configuration no longer requires `SMTP_STARTTLS=true`; deployments may use the
+  approved relay mode, including internal plaintext SMTP when required.
 
 ## [150926.0] — 2026-09-15
 

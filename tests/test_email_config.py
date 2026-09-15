@@ -73,7 +73,7 @@ def test_production_allows_missing_optional_password_blocklist(tmp_path: Path) -
         email_backend="smtp",
         email_redact_sent_bodies=True,
         smtp_host="smtp.example.gov",
-        smtp_starttls=True,
+        smtp_starttls=False,
         password_only_production_risk_accepted=True,
         data_mover_mode="real",
         pipeline_spool_root=str(tmp_path),
@@ -82,3 +82,4 @@ def test_production_allows_missing_optional_password_blocklist(tmp_path: Path) -
     )
 
     assert settings.password_blocklist_path == ""
+    assert settings.smtp_starttls is False
