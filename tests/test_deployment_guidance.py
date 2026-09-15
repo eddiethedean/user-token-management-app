@@ -84,6 +84,18 @@ def test_connect_deploy_excludes_generated_hedron_theme_bundle() -> None:
     assert "--exclude .hedron/build" in script
 
 
+def test_connect_deploy_includes_configured_bundle_files() -> None:
+    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    assert (
+        "PASSWORD_BLOCKLIST_PATH DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PIPELINE_CA_BUNDLE"
+        in script
+    )
+    assert 'bundle_files+=("$value")' in script
+    assert 'deploy_args+=("$bundle_file")' in script
+    assert "must be a bundle-relative path for Connect deployment" in script
+
+
 def test_readme_operational_commands_use_one_in_process_app() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     introduction = "Its commands are:"

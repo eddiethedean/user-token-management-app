@@ -69,6 +69,30 @@ if [[ ! -r "$requirements_file" ]]; then
     exit 2
 fi
 
+# Files under deployment/ are intentionally ignored by Git. Pass every configured local
+# trust/policy file explicitly so rsconnect includes it even when the source directory excludes
+# ignored files. Connect runs from the bundle root, so these paths must remain bundle-relative.
+bundle_files=()
+for name in PASSWORD_BLOCKLIST_PATH DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PIPELINE_CA_BUNDLE; do
+    value="${!name:-}"
+    if [[ -z "$value" ]]; then
+        continue
+    fi
+    if [[ "$value" = /* || "$value" == .. || "$value" == ../* || "$value" == */../* || "$value" == */.. ]]; then
+        printf '%s must be a bundle-relative path for Connect deployment: %s\n' "$name" "$value" >&2
+        exit 2
+    fi
+    if [[ ! -f "$value" || ! -r "$value" ]]; then
+        printf '%s must identify a readable file before Connect deployment: %s\n' "$name" "$value" >&2
+        exit 2
+    fi
+    bundle_files+=("$value")
+done
+if [[ "${APP_ENV:-}" == "production" && -z "${PASSWORD_BLOCKLIST_PATH:-}" ]]; then
+    printf 'PASSWORD_BLOCKLIST_PATH must be set for Connect production deployment.\n' >&2
+    exit 2
+fi
+
 printf 'Validating production configuration from %s\n' "$env_file"
 "$python_bin" -m pip check
 "$python_bin" -m app schema-status
@@ -183,6 +207,9 @@ deploy_args+=(
     --exclude demo-app
     ./
 )
+for bundle_file in "${bundle_files[@]}"; do
+    deploy_args+=("$bundle_file")
+done
 
 printf 'Publishing %s to Connect server profile %s using %s\n' "$connect_title" "$connect_name" "$env_file"
 exec "$rsconnect_bin" "${deploy_args[@]}"

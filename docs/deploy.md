@@ -235,8 +235,11 @@ Create `.env` from the production section of [.env.example](../.env.example). Se
 - `DATA_MOVER_MODE=real`, `PIPELINE_SPOOL_ROOT`, and `PIPELINE_ALLOWED_HTTPS_HOSTS`; and
 - the selected authentication, blocklist, and optional directory settings.
 
-For Connect, use a bundle-relative spool directory so the published content has the directory it
-validates at startup. The spool is temporary working storage owned by the app process.
+For Connect, use bundle-relative paths for the password blocklist and any configured CA bundles.
+The publishing helper validates these files and passes them as explicit extra files, so they remain
+available in the bundle even though `deployment/` is ignored by Git. Use a bundle-relative spool
+directory so the published content has the directory it validates at startup. The spool is
+temporary working storage owned by the app process.
 
 Load the reviewed file, create the protected files, then validate and migrate:
 
@@ -256,7 +259,9 @@ python -m app create-admin --email admin@example.gov
 ```
 
 Keep `PIPELINE_SPOOL_ROOT='deployment/spool'` in `.env` as well; the publishing helper reloads that
-file in its own process.
+file in its own process. It also includes the configured blocklist and CA bundle files explicitly in
+the Connect bundle. Absolute paths or missing configured files fail the publish preflight instead of
+producing a content bundle that cannot start.
 
 `schema-status` must show `Current` equal to `Head`. Do not run `seed-demo-connections` in
 production.
@@ -333,6 +338,7 @@ database backup when a schema rollback is required.
 | `rserver-url` is unavailable | Add Workbench's helper directory to `PATH`; real-mode startup uses that helper to discover the current session URL. |
 | Schema is old | Run `python -m app migrate`, then `python -m app schema-status` with the same database URL. |
 | Links leave the mounted URL | Confirm `PUBLIC_BASE_URL` is the exact external URL and keep `COOKIE_PATH=auto`. |
+| `PASSWORD_BLOCKLIST_PATH must identify a readable file` at Connect startup | The configured policy file was not included in the content bundle, or its path is wrong | Keep `PASSWORD_BLOCKLIST_PATH` bundle-relative, create the file under `deployment/`, and publish with `scripts/deploy-connect.sh`; the helper validates and includes it explicitly. |
 | Email remains queued | Check SMTP settings, database access, and the Connect app logs; use `send-email` for recovery. |
 | Pipeline runs remain queued | Check the Connect app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; the in-process runtime should recover queued runs automatically. |
 | Connect cannot install packages | Confirm `requirements.txt` is present and the server can reach the approved package repository. |
