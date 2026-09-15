@@ -119,6 +119,15 @@ def test_connect_deploy_can_force_a_new_content_item() -> None:
     assert "CONNECT_NEW must be true or false" in script
 
 
+def test_connect_deploy_can_activate_without_url_verification() -> None:
+    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'connect_no_verify="${CONNECT_NO_VERIFY:-false}"' in script
+    assert "deploy_args+=(--no-verify)" in script
+    assert "for option in CONNECT_NEW CONNECT_NO_VERIFY" in script
+    assert "%s must be true or false" in script
+
+
 def test_readme_operational_commands_use_one_in_process_app() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     introduction = "Its commands are:"

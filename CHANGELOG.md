@@ -14,6 +14,8 @@
   `PASSWORD_BLOCKLIST_PATH` setting.
 - Connect deployment supports `CONNECT_TITLE` for the content name and `CONNECT_NEW=true` for a
   separate Connect content item.
+- Connect deployment supports `CONNECT_NO_VERIFY=true` for Connect environments where the upload
+  succeeds but the client cannot reach the deployed URL for verification.
 
 ## [150926.0] — 2026-09-15
 

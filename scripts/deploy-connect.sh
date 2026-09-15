@@ -93,7 +93,19 @@ fi
 connect_name="${CONNECT_NAME:-my-connect}"
 connect_title="${CONNECT_TITLE:-Data Mover}"
 connect_new="${CONNECT_NEW:-false}"
+connect_no_verify="${CONNECT_NO_VERIFY:-false}"
 requirements_file="${CONNECT_REQUIREMENTS_FILE:-requirements.txt}"
+
+for option in CONNECT_NEW CONNECT_NO_VERIFY; do
+    value="${!option}"
+    case "$value" in
+        true|false) ;;
+        *)
+            printf '%s must be true or false: %s\n' "$option" "$value" >&2
+            exit 2
+            ;;
+    esac
+done
 
 case "$connect_new" in
     true|false) ;;
@@ -270,6 +282,9 @@ deploy_args=(
 )
 if [[ "$connect_new" == true ]]; then
     deploy_args+=(--new)
+fi
+if [[ "$connect_no_verify" == true ]]; then
+    deploy_args+=(--no-verify)
 fi
 for name in "${environment_names[@]}"; do
     # Preserve explicitly empty values so an operator can clear a value retained by Connect.

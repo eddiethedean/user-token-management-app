@@ -288,12 +288,15 @@ update `PUBLIC_BASE_URL` in `.env` and publish again before inviting users.
 redeploying saved content metadata, set `CONNECT_NEW=true`:
 
 ```bash
-CONNECT_NEW=true CONNECT_TITLE='Data Mover Test' ./scripts/deploy-connect.sh
+CONNECT_NEW=true CONNECT_NO_VERIFY=true CONNECT_TITLE='Data Mover Test' ./scripts/deploy-connect.sh
 ```
 
-Leave `CONNECT_NEW=false` (the default) for normal updates to an existing content item. The
-underlying `rsconnect-python` options are `--name` for the server nickname, `--title` for the
-content title, and `--new` to force a new deployment. [Its FastAPI deployment reference](https://docs.posit.co/rsconnect-python/commands/deploy/) documents these options.
+Leave `CONNECT_NEW=false` (the default) for normal updates to an existing content item. Set
+`CONNECT_NO_VERIFY=true` when Connect can build the bundle but cannot reach the deployed URL during
+the client verification step; this activates the new bundle immediately, so inspect the Connect
+content logs afterward. The underlying `rsconnect-python` options are `--name` for the server
+nickname, `--title` for the content title, `--new` to force a new deployment, and `--no-verify` to
+activate without URL verification. [Its FastAPI deployment reference](https://docs.posit.co/rsconnect-python/commands/deploy/) documents these options.
 
 If you need to publish without the helper, use this short command from the repository root. Source
 `.env` first; `-E NAME` passes the value of that local environment variable without putting secrets
@@ -303,7 +306,7 @@ in the command line:
 cd /path/to/user-token-management-app
 set -a; . ./.env; set +a
 mkdir -p deployment/spool && touch deployment/spool/.keep
-rsconnect deploy fastapi --new -n my-connect -t "Data Mover Test" -e app.main:app -r requirements.txt \
+rsconnect deploy fastapi --new --no-verify -n my-connect -t "Data Mover Test" -e app.main:app -r requirements.txt \
   -E APP_ENV -E PUBLIC_BASE_URL -E DATABASE_URL -E JWT_SECRET -E SESSION_PEPPER -E CSRF_SECRET \
   -E API_TOKEN_ENCRYPTION_KEYS -E API_TOKEN_ACTIVE_KEY_ID -E AUTHENTICATION_MODE \
   -E PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED -E COOKIE_SECURE -E COOKIE_PATH \
@@ -313,8 +316,8 @@ rsconnect deploy fastapi --new -n my-connect -t "Data Mover Test" -e app.main:ap
 ```
 
 Change `-t "Data Mover Test"` to the desired Connect app name. Remove `--new` for normal updates
-to an existing content item. After publishing, activate or restart the newest bundle in Connect
-and verify that its bundle ID appears in the content logs.
+to an existing content item. `--no-verify` activates the new bundle without the client URL check;
+inspect the Connect logs and verify that its bundle ID appears there.
 
 In Connect, restrict access, select Python 3.11, confirm the stored environment, and restart the
 content after environment changes. No cookie proxy or custom Nginx rule is required; leave
