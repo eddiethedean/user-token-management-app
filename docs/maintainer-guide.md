@@ -47,6 +47,7 @@ rules. That is the quickest way to introduce authorization drift or an unrecover
 |---|---|
 | `app/main.py` | FastAPI/Hedron application assembly, middleware, startup checks |
 | `app/config.py` | Typed environment settings and production validation |
+| `app/application/` | Framework-neutral commands that pass explicit route and writer policies into services |
 | `app/ui/` | Pages, actions, fragments, shell layout, design recipes, SafeUrl helpers, forms, and interaction regions |
 | `app/static/` | Product art direction and narrowly scoped progressive enhancement |
 | `app/services/` | Domain use cases and persistence orchestration |
@@ -177,6 +178,8 @@ history behavior.
 Keep routes thin and make domain rules testable without a browser or database where possible:
 
 - Use `SecretCatalog`, `CredentialValidator`, and `CredentialEnvelope` for credential policy.
+- Use `PipelineCommands` and its `PipelineDependencies` when a route saves or enqueues a pipeline;
+  keep capability and writer policy explicit at this boundary.
 - Use `PipelineRunStateMachine` for status, stage, lease, and terminal-run rules.
 - Use `ConnectorRegistry` or the `Connector` protocol instead of importing a concrete connector
   into domain code.

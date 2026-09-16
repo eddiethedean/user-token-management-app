@@ -11,6 +11,8 @@ Browser (HTMX)
     ▼
 app/ui          FastAPI routes, fragments, mount-aware URLs
     │
+app/application Pipeline commands with explicit route and writer policies
+    │
 app/services    Accounts, auth, catalogs, CSV inspection, pipelines, pipeline runs, transfer engine, secrets, audit, mailer
     │
 app/connectors  Postgres, Foundry (MSS/MCS-COP), CSV source, fake demo adapters
@@ -119,8 +121,8 @@ upload by foreign key so the source remains available when the pipeline is loade
 Connector capability metadata in `app/connectors/registry.py` is the source of truth for provider
 labels, source/destination eligibility, object models, write modes, schema inspection, row-count
 precision, and verification limits. `app/services/catalogs.py` projects that metadata into the UI,
-while each connector owns its namespace and object discovery. Real catalog requests use the current
-owner's connected credential and persist only credential-free locator/metadata payloads in an owner-scoped
+while each connector owns its namespace and object discovery. Real catalog requests decrypt the current
+owner's connected credential only for that request and persist only credential-free locator/metadata payloads in an owner-scoped
 cache for `PIPELINE_CATALOG_TTL_SECONDS`; credential replacement or deletion invalidates that
 provider's rows. Route compatibility is derived from registered source/destination capabilities:
 MSS and PostgreSQL are source-capable, MCS-COP is destination-only, and CSV is source-only.

@@ -47,8 +47,9 @@ only that the saved fields are ready for the process-local emulator; the message
 network request occurred. Demo status never proves that a hostname is reachable or a credential is
 valid. Foundry without a default dataset RID remains **Untested**.
 
-**How do I wake Databricks?**
-Advana/Databricks is not a first-class provider in this release. There is no wake action.
+**Are Advana, Databricks, or MongoDB supported?**
+Advana/Databricks and MongoDB are outside the current product scope. References to them in
+archived transfer notes describe legacy integrations and do not indicate available connectors.
 
 **Is there a public REST or OpenAPI API?**  
 No. The product surface is an HTMX UI over FastAPI cookie sessions. Do not expect bearer-token

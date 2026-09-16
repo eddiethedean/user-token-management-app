@@ -52,7 +52,11 @@ def test_configuration_reference_lists_less_common_settings() -> None:
         "RATE_LIMIT_LOGIN_PER_SOURCE",
         "EMAIL_MAX_ATTEMPTS",
         "PASSWORD_HASH_SCHEME",
+        "PASSWORD_BLOCKLIST_PATH",
         "PIPELINE_MAX_RUN_SECONDS",
         "PIPELINE_RUN_RETENTION_DAYS",
     ):
         assert setting in configuration
+
+    assert "rsconnect deploy fastapi" in configuration
+    assert "Connect deployment helper" not in configuration

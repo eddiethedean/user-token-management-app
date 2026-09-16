@@ -108,8 +108,9 @@ Sanitized examples: `tests/fixtures/providers/foundry_error_unauthorized.json`, 
 
 Default tests serve these fixtures through a [Semblance](https://pypi.org/project/semblance/)
 simulator (`tests/simulators/foundry.py`). List files is schema-driven. Dataset creation, download,
-committed upload, v1 operation fallback, and the legacy preview-only fallback are FastAPI overlays on the same app. Advana/Databricks REST shapes used
-by archived credentials live in `tests/simulators/advana.py` and are not a product connector.
+committed upload, v1 operation fallback, and the legacy preview-only fallback are FastAPI overlays
+on the same app. The Advana/Databricks REST shapes in `tests/simulators/advana.py` support archived
+credential fixtures only; they are not a product connector.
 
 ## Foundry Platform SDK decision
 

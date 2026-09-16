@@ -38,6 +38,7 @@ PRs to `main`, followed by the production Hedron manifest build.
 | Layer | Package | Responsibility |
 |-------|---------|----------------|
 | HTTP / UI | `app/ui/` | Routes, HTMX fragments, layout, mount-aware SafeUrl helpers |
+| Application | `app/application/` | Framework-neutral pipeline commands and explicit route/writer policy dependencies |
 | Domain | `app/services/` | Auth, accounts, catalogs, CSV inspection, pipelines, pipeline runs, transfer engine, secrets, audit, mailer |
 | Connectors | `app/connectors/` | Provider protocols, fake/real adapters, TLS, redaction |
 | Primitives | `app/security/` | Passwords, CSRF, tokens, email normalize, client trust |

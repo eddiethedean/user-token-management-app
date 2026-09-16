@@ -122,6 +122,7 @@ configuration reference and `.env.example` can be checked against `app/config.py
 | Rate limits | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_WINDOW_SECONDS`, `RATE_LIMIT_LOGIN_PER_SOURCE`, `RATE_LIMIT_LOGIN_PER_ACCOUNT`, `RATE_LIMIT_REGISTRATION_PER_SOURCE`, `RATE_LIMIT_REGISTRATION_PER_ACCOUNT`, `RATE_LIMIT_RESET_PER_SOURCE`, `RATE_LIMIT_RESET_PER_ACCOUNT` |
 | Email retry and claims | `EMAIL_MAX_ATTEMPTS`, `EMAIL_RETRY_BASE_SECONDS`, `EMAIL_RETRY_MAX_SECONDS`, `EMAIL_CLAIM_TIMEOUT_SECONDS`, `SMTP_ALLOW_LEGACY_PORT25_FALLBACK` |
 | Password hashing | `PASSWORD_HASH_SCHEME`, `PBKDF2_ITERATIONS` |
+| Password policy | `PASSWORD_BLOCKLIST_PATH` (optional readable common-password list) |
 | Pipeline worker and limits | `PIPELINE_WORKER_ID`, `PIPELINE_MAX_RUN_SECONDS`, `PIPELINE_MAX_SOURCE_BYTES`, `PIPELINE_MAX_SPOOL_BYTES`, `PIPELINE_RUN_RETENTION_DAYS`, `PIPELINE_EVENT_RETENTION_DAYS` |
 
 These settings are deployment overrides, not user-editable application fields. Their defaults,
@@ -134,8 +135,8 @@ allowed ranges, production restrictions, and compatibility aliases remain author
   and `DIRECTORY_LOOKUP_VERIFY_TLS`. Compatibility aliases `SMTP_FROM_EMAIL`,
   `DIRECTORY_LOOKUP_TIMEOUT_S`, and `DIRECTORY_LOOKUP_VERIFY_SSL` are accepted
   for environments shared with `jwt-user-management`.
-- The Connect deployment helper forwards only variables that are actually set
-  in `.env`; omitted optional variables use the application defaults.
+- The native `rsconnect deploy fastapi` command forwards only the `-E` variables
+  you explicitly provide; omitted optional variables use the application defaults.
 - Environment variables supplied by the process supervisor or hosting
   platform take precedence over values loaded from `.env`, as is standard for
   Pydantic Settings. Keep one authoritative protected configuration per

@@ -16,10 +16,15 @@
 - Offline demo mode backed by fake connectors that never contact remote endpoints.
 - Deployment, authentication, troubleshooting, provider, security, and worker runbooks.
 
+This note describes the 0.1.0 repository snapshot. The current runtime is in-process; the
+separate-worker wording and command examples below are retained only as historical context.
+
 ## Security boundaries
 
 Credential values are encrypted at rest and are not rendered in plans, reports, audit events, or
-browser fragments. Real-mode workers decrypt selected credentials only inside a claimed run. See
+browser fragments. In this snapshot, real-mode workers decrypted selected credentials only inside a
+claimed run. Current catalog browsing and connection tests are also bounded, owner-authorized
+credential-use actions. See
 [SECURITY.md](../../SECURITY.md) for the production gate and assurance boundary.
 
 ## Upgrade notes
@@ -35,7 +40,7 @@ browser fragments. Real-mode workers decrypt selected credentials only inside a 
 
 ```bash
 make check
-python -m app pipeline-worker --once
 ```
 
-The worker command is safe to run only against the intended environment and database.
+The `pipeline-worker` command shown in earlier release notes is no longer part of the current CLI;
+the web process owns transfer execution and recovery.
