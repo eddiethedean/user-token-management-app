@@ -42,11 +42,14 @@ from app.connectors.locators import (
     parse_write_policy,
 )
 from app.connectors.registry import (
+    ProviderSpecification,
     catalog_browser_for,
     catalog_reader_for,
     connection_tester_for,
     destination_writer_for,
     object_schema_inspector_for,
+    provider_specification_for,
+    provider_specifications,
     row_counter_for,
     source_reader_for,
 )
@@ -89,6 +92,9 @@ __all__ = [
     "row_counter_for",
     "SourceReader",
     "source_reader_for",
+    "provider_specification_for",
+    "provider_specifications",
+    "ProviderSpecification",
     "TransferBatch",
     "TransferErrorCode",
     "WritePolicy",

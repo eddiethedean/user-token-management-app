@@ -14,7 +14,7 @@ from urllib.parse import quote, urlsplit
 import httpx2
 import polars as pl
 
-from app.config import Settings, get_settings
+from app.config import Settings
 from app.connectors.base import (
     BatchWriteResult,
     CatalogPage,
@@ -37,6 +37,7 @@ from app.connectors.locators import (
     WritePolicy,
 )
 from app.connectors.redaction import redact_text
+from app.connectors.registry import connector_settings
 from app.connectors.tls import ssl_context_for_bundle
 
 SUPPORTED_SUFFIXES = (".csv", ".parquet")
@@ -119,7 +120,7 @@ def assert_host_allowed(hostname: str, settings: Settings) -> None:
 
 class FoundryClient:
     def __init__(self, credentials: Mapping[str, str], settings: Settings | None = None):
-        self.settings = settings or get_settings()
+        self.settings = settings or connector_settings()
         endpoint = credentials.get("endpoint") or credentials.get("url") or ""
         if not endpoint:
             raise ConnectorError(
@@ -536,7 +537,7 @@ class FoundryConnector:
     capabilities = None  # set by subclass
 
     def __init__(self, settings: Settings | None = None):
-        self.settings = settings or get_settings()
+        self.settings = settings or connector_settings()
         self._load_credentials: dict[str, str] = {}
 
     def _client(self, credentials) -> FoundryClient:

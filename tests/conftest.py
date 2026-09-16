@@ -82,8 +82,24 @@ def access_app(tmp_path, monkeypatch):
     os.environ["ADMIN_BOOTSTRAP_PASSWORD"] = "Tr0pic-Maple!River92"
     assert create_admin("admin@example.gov", password="Tr0pic-Maple!River92") == 0
 
+    from app.connectors.registry import current_registry
+    from app.database import stable_session_factory
+    from app.infrastructure.runtime import ExecutionRuntime
+
+    # Direct fixture clients use an explicit isolated runtime generation. Production
+    # app lifespans still replace it with their accepting/draining generation.
+    app.state.runtime_lifecycle = "fixture"
+    app.state.execution = ExecutionRuntime(
+        _get_settings(), stable_session_factory(), current_registry()
+    )
+    app.state.settings = _get_settings()
+    app.state.ready = True
+
     yield app
 
+    app.state.execution.begin_shutdown()
+    app.state.ready = False
+    app.state.runtime_lifecycle = "closed"
     from app.config import get_settings
 
     get_settings.cache_clear()
@@ -91,8 +107,33 @@ def access_app(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def client(access_app):
-    with TestClient(access_app, follow_redirects=False, client=("127.0.0.1", 50000)) as test_client:
+    # ``access_app`` supplies a fixture-owned runtime.  Do not enter TestClient's
+    # lifespan here: doing so replaces that runtime with the process entrypoint's
+    # accepting generation before a test can configure its fixture settings.
+    test_client = TestClient(access_app, follow_redirects=False, client=("127.0.0.1", 50000))
+    try:
         yield test_client
+    finally:
+        test_client.close()
+
+
+@pytest.fixture()
+def request_settings_override(access_app):
+    """Deliberately replace request settings for tests of mutable policy values."""
+
+    from app.config import get_settings
+
+    original = access_app.dependency_overrides.get(get_settings)
+
+    def install(settings):
+        access_app.dependency_overrides[get_settings] = lambda: settings
+
+    yield install
+
+    if original is None:
+        access_app.dependency_overrides.pop(get_settings, None)
+    else:
+        access_app.dependency_overrides[get_settings] = original
 
 
 @pytest.fixture()

@@ -38,8 +38,9 @@ PRs to `main`, followed by the production Hedron manifest build.
 | Layer | Package | Responsibility |
 |-------|---------|----------------|
 | HTTP / UI | `app/ui/` | Routes, HTMX fragments, layout, mount-aware SafeUrl helpers |
-| Application | `app/application/` | Framework-neutral pipeline commands and explicit route/writer policy dependencies |
-| Domain | `app/services/` | Auth, accounts, catalogs, CSV inspection, pipelines, pipeline runs, transfer engine, secrets, audit, mailer |
+| Application | `app/application/` | Pipeline and identity use cases, DTOs, consumer-owned ports, and compatibility commands |
+| Domain | `app/domain/` | Framework-neutral pipeline policy and persistence-free lifecycle values |
+| Services | `app/services/` | Compatibility adapters and persistence-backed auth, catalogs, pipelines, runs, secrets, audit, and mailer |
 | Connectors | `app/connectors/` | Provider protocols, fake/real adapters, TLS, redaction |
 | Primitives | `app/security/` | Passwords, CSRF, tokens, email normalize, client trust |
 | Wiring | `app/dependencies.py`, `app/config.py` | AuthContext, settings |

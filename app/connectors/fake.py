@@ -15,7 +15,7 @@ from io import BytesIO
 
 import polars as pl
 
-from app.config import Settings, get_settings
+from app.config import Settings
 from app.connectors.base import (
     BatchWriteResult,
     CatalogPage,
@@ -45,7 +45,7 @@ from app.connectors.locators import (
     WritePolicy,
     postgres_table,
 )
-from app.connectors.registry import register_connector
+from app.connectors.registry import connector_settings, register_connector
 
 DEMO_DATASET = "ri.foundry.main.dataset.demo-operations"
 DEMO_RAW_DATASET = "ri.foundry.main.dataset.demo-raw"
@@ -495,6 +495,7 @@ class FakePostgresConnector:
         namespaces_label="Schema",
         objects_label="Table",
         writer_enabled=True,
+        writer_setting="pipeline_enable_postgres_writer",
     )
 
     def __init__(self, backend: _DemoBackend | None = None) -> None:
@@ -689,13 +690,14 @@ class FakeFoundryConnector:
             namespaces_label="Dataset",
             objects_label="File",
             writer_enabled=True,
+            writer_setting=f"pipeline_enable_{provider}_writer",
             schema_inspection=False,
             exact_row_counts=False,
             verification_level="local_manifest",
             limitations=_FOUNDRY_LIMITATIONS,
             dataset_creation=True,
         )
-        self.settings = settings or get_settings()
+        self.settings = settings or connector_settings()
         self._backend = backend or _DemoBackend()
         self._backend.register_foundry_templates(provider, files)
         self._pending: dict[str, _PendingLoad] = {}
@@ -945,23 +947,25 @@ def register() -> None:
     backend = _DemoBackend()
     register_connector(lambda: FakePostgresConnector(backend))
     register_connector(
-        lambda: FakeFoundryConnector(
+        lambda settings=None: FakeFoundryConnector(
             provider="mss",
             label="MSS",
             mark="MSS",
             source=True,
             files=MSS_FILES,
             backend=backend,
+            settings=settings,
         )
     )
     register_connector(
-        lambda: FakeFoundryConnector(
+        lambda settings=None: FakeFoundryConnector(
             provider="mcscop",
             label="MCS-COP",
             mark="MCS",
             source=False,
             files=MCSCOP_FILES,
             backend=backend,
+            settings=settings,
         )
     )
     register_connector(FakeCsvConnector)

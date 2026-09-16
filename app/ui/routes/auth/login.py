@@ -8,6 +8,8 @@ from hedron import Hedron
 from sqlalchemy import func, select
 from starlette.responses import Response
 
+from app.application.dto import ActorContext
+from app.application.identity import LoginInput, LoginUseCase
 from app.dependencies import (
     Auth,
     DbSession,
@@ -18,6 +20,7 @@ from app.dependencies import (
     set_auth_cookies,
 )
 from app.dev_trace import dev_trace
+from app.infrastructure.security.identity import SqlAlchemyPasswordGateway
 from app.models import User
 from app.security.csrf import (
     clear_preauth_csrf_cookie,
@@ -26,7 +29,6 @@ from app.security.csrf import (
 from app.services.auth import (
     AuthenticationError,
     authenticate_trusted_identity,
-    authenticate_user,
     create_session,
     revoke_session,
 )
@@ -107,7 +109,15 @@ def register_login_routes(app: Hedron) -> None:
             account_key=email,
         )
         try:
-            user = authenticate_user(db, settings, email, password, request)
+            identity = LoginUseCase(SqlAlchemyPasswordGateway(db, settings, request)).execute(
+                input=LoginInput(email, password),
+                actor=ActorContext(
+                    "anonymous", request_id=getattr(request.state, "request_id", "")
+                ),
+            )
+            user = db.get(User, identity.user_id)
+            if user is None:
+                raise AuthenticationError("Unable to sign in with those credentials.")
         except (AuthenticationError, ValueError) as exc:
             dev_trace("auth.password.rejected", reason="credentials_or_account")
             return render_login_page(

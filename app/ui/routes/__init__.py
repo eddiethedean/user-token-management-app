@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from fastapi import Request, status
 from fastapi.responses import RedirectResponse, Response
 from hedron import Hedron, HedronRouter, resolve_theme_preference
 from hedron.htmx import is_htmx_request
 
+from app.application.catalogs import CatalogOperationRunner
+from app.application.pipelines import PipelineAuthoringOperation
 from app.dependencies import Auth, DbSession, OptionalAuth, RequireCsrf, SettingsDep
 from app.security.cookies import set_application_cookie
 from app.ui.layout import (
@@ -24,7 +28,12 @@ from app.ui.routes.security import register_security_routes
 from app.ui.urls import redirect_path
 
 
-def register_routes(app: Hedron) -> None:
+def register_routes(
+    app: Hedron,
+    *,
+    catalog_runner_factory: Callable[[Request], CatalogOperationRunner],
+    authoring_operation_factory: Callable[[Request], PipelineAuthoringOperation],
+) -> None:
     fragment_router = HedronRouter(provenance="access-registry fragment views")
 
     @app.page("/", include_in_schema=False)
@@ -79,7 +88,12 @@ def register_routes(app: Hedron) -> None:
         return response
 
     register_auth_routes(app)
-    register_pipeline_routes(app, fragment_router)
+    register_pipeline_routes(
+        app,
+        fragment_router,
+        catalog_runner_factory=catalog_runner_factory,
+        authoring_operation_factory=authoring_operation_factory,
+    )
     register_profile_routes(app)
     register_security_routes(app, fragment_router)
     register_admin_routes(app, fragment_router)

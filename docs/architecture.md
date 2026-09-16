@@ -11,7 +11,7 @@ Browser (HTMX)
     ▼
 app/ui          FastAPI routes, fragments, mount-aware URLs
     │
-app/application Pipeline commands with explicit route and writer policies
+app/application Pipeline use cases, DTOs, ports, and explicit route/writer policies
     │
 app/services    Accounts, auth, catalogs, CSV inspection, pipelines, pipeline runs, transfer engine, secrets, audit, mailer
     │
@@ -21,6 +21,21 @@ app/security    Passwords, tokens, CSRF, email normalize, client trust
     │
 SQLAlchemy ──► SQLite (local demo/tests) or PostgreSQL (production)
 ```
+
+Newly composed app instances use `app.bootstrap.ApplicationComposition` to own a database runtime,
+connector registry, settings, execution lock, and shutdown event. Requests bind those resources as
+one context; deferred and recovery work captures the same execution bundle explicitly, so one app
+cannot recover a run through another app's registry or database. Existing module-level services
+remain compatibility adapters while slices are migrated. Framework-neutral pipeline policy and
+use-case values live under `app/domain` and `app/application`; they do not import FastAPI, Hedron,
+or SQLAlchemy. Long-running workers accept an injected session factory for lease renewal, and
+catalog/email adapters accept narrow cache/transport ports.
+
+Credential specifications are domain values under `app.domain.credentials`. Catalog services receive
+the application `CredentialResolver` port; the SQLAlchemy resolver in infrastructure performs the
+owner and purpose check before decrypting a bundle. Provider writer enablement is declared beside
+each provider's capability metadata, so adding a provider does not require editing a central flag
+map.
 
 There is **no public REST API**. Mutations are form/HTMX POSTs; GETs render HTML fragments or pages.
 
@@ -124,7 +139,8 @@ precision, and verification limits. `app/services/catalogs.py` projects that met
 while each connector owns its namespace and object discovery. Real catalog requests decrypt the current
 owner's connected credential only for that request and persist only credential-free locator/metadata payloads in an owner-scoped
 cache for `PIPELINE_CATALOG_TTL_SECONDS`; credential replacement or deletion invalidates that
-provider's rows. Route compatibility is derived from registered source/destination capabilities:
+provider's rows. The UI receives a composed catalog factory; it does not construct SQLAlchemy cache
+or credential adapters. Route compatibility is derived from registered source/destination capabilities:
 MSS and PostgreSQL are source-capable, MCS-COP is destination-only, and CSV is source-only.
 Connections status, Pipeline selectors, persistence, enqueue, and transfer execution enforce
 capabilities, route safety, and writer flags independently; hiding an option in the browser is not

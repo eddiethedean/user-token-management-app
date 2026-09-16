@@ -12,6 +12,7 @@ from fastapi import Request
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.application.ports import CatalogCache, CredentialResolver
 from app.config import Settings, get_settings
 from app.connectors.base import (
     CatalogBrowser,
@@ -24,7 +25,7 @@ from app.connectors.base import (
     RowCounter,
 )
 from app.connectors.errors import ConnectorError, TransferErrorCode
-from app.connectors.locators import Locator, parse_locator
+from app.connectors.locators import parse_locator, validate_locator
 from app.connectors.registry import (
     capabilities_for,
     catalog_browser_for,
@@ -33,6 +34,7 @@ from app.connectors.registry import (
     object_schema_inspector_for,
     row_counter_for,
 )
+from app.domain.locators import Locator
 from app.models import FoundryDataset, PipelineCatalogCache, User, new_id, utcnow
 
 CREATE_TABLE_VALUE = "__new__"
@@ -73,6 +75,8 @@ class UserCatalog:
         browser_resolver: Callable[[str], CatalogBrowser] | None = None,
         schema_resolver: Callable[[str], ObjectSchemaInspector] | None = None,
         row_counter_resolver: Callable[[str], RowCounter] | None = None,
+        cache: CatalogCache | None = None,
+        credential_resolver: CredentialResolver | None = None,
     ) -> None:
         self.db = db
         self.settings = settings
@@ -86,6 +90,8 @@ class UserCatalog:
         self.browser_resolver = browser_resolver or legacy_resolver or catalog_browser_for
         self.schema_resolver = schema_resolver or legacy_resolver or object_schema_inspector_for
         self.row_counter_resolver = row_counter_resolver or legacy_resolver or row_counter_for
+        self.cache = cache
+        self.credential_resolver = credential_resolver
         self._credentials: dict[str, dict[str, str]] = {}
 
     def list_namespaces(self, provider: str) -> list[RemoteNamespace]:
@@ -148,6 +154,7 @@ class UserCatalog:
         return page
 
     def inspect_object(self, provider: str, locator: Locator):
+        locator = validate_locator(locator)
         inspector = self.schema_resolver(provider)
         if not inspector.capabilities.schema_inspection:
             raise ConnectorError(
@@ -158,6 +165,7 @@ class UserCatalog:
         return inspector.inspect_object(self._credentials_for(provider), locator)
 
     def count_rows(self, provider: str, locator: Locator) -> int | None:
+        locator = validate_locator(locator)
         counter = self.row_counter_resolver(provider)
         if not counter.capabilities.exact_row_counts:
             raise ConnectorError(
@@ -194,22 +202,25 @@ class UserCatalog:
     def _credentials_for(self, provider: str) -> dict[str, str]:
         provider_id = provider.casefold()
         if provider_id not in self._credentials:
-            from app.services.secrets import decrypt_user_credentials_for_run
-
             # Demo adapters still receive the saved bundle. They use its
             # endpoint/database as an isolation key and its Foundry branch when
             # producing locators, but never perform network I/O.
-            self._credentials[provider_id] = decrypt_user_credentials_for_run(
-                self.db,
-                self.settings,
-                user=self.user,
+            if self.credential_resolver is None:
+                from app.infrastructure.security.credentials import SqlAlchemyCredentialResolver
+
+                self.credential_resolver = SqlAlchemyCredentialResolver(
+                    self.db, self.settings, self.user, self.request
+                )
+            self._credentials[provider_id] = self.credential_resolver(
+                user_id=self.user.id,
                 provider=provider_id,
-                request=self.request,
                 purpose="catalog",
             )
         return self._credentials[provider_id]
 
     def _read_cache(self, provider: str, namespace: str) -> dict[str, Any] | None:
+        if self.cache is not None:
+            return self.cache.get(provider, namespace)
         now = utcnow()
         row = self.db.scalar(
             select(PipelineCatalogCache).where(
@@ -228,6 +239,9 @@ class UserCatalog:
         return payload if isinstance(payload, dict) else None
 
     def _write_cache(self, provider: str, namespace: str, payload: dict[str, Any]) -> None:
+        if self.cache is not None:
+            self.cache.put(provider, namespace, payload)
+            return
         provider_id = provider.casefold()
         row = self.db.scalar(
             select(PipelineCatalogCache).where(

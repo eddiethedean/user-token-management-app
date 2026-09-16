@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
@@ -11,6 +11,7 @@ import pytest
 from app.config import Settings
 from app.connectors.base import ProviderCapabilities, RemoteNamespace
 from app.connectors.errors import ConnectorError
+from app.connectors.locators import postgres_table
 from app.models import User
 from app.services import catalogs, secrets
 
@@ -105,5 +106,69 @@ def test_catalog_rejects_disabled_optional_metadata_before_decrypting() -> None:
     )
 
     with pytest.raises(ConnectorError, match="schema inspection"):
-        access.inspect_object("provider", Mock())
+        access.inspect_object("provider", postgres_table("public", "events"))
     db.scalar.assert_not_called()
+
+
+def test_catalog_rejects_invalid_locator_before_resolving_credentials() -> None:
+    db = Mock()
+    inspector = Mock()
+    inspector.capabilities = ProviderCapabilities(
+        provider="provider",
+        label="Provider",
+        technology="test",
+        mark="TST",
+        source=True,
+        destination=False,
+        object_model="object",
+        write_modes=(),
+        namespaces_label="Namespace",
+        objects_label="Object",
+        schema_inspection=True,
+        exact_row_counts=True,
+    )
+    credentials = Mock()
+    access = catalogs.UserCatalog(
+        db,
+        cast(Settings, SimpleNamespace(is_demo_mode=False, pipeline_catalog_ttl_seconds=300)),
+        cast(User, SimpleNamespace(id="user-1")),
+        schema_resolver=lambda _provider: inspector,
+        credential_resolver=credentials,
+    )
+
+    with pytest.raises(ValueError):
+        access.inspect_object("provider", cast(Any, "not-a-locator"))
+    credentials.assert_not_called()
+    inspector.inspect_object.assert_not_called()
+
+
+def test_catalog_revalidates_mutated_locator_before_resolving_connector() -> None:
+    db = Mock()
+    inspector = Mock()
+    inspector.capabilities = ProviderCapabilities(
+        provider="provider",
+        label="Provider",
+        technology="test",
+        mark="TST",
+        source=True,
+        destination=False,
+        object_model="object",
+        write_modes=(),
+        namespaces_label="Namespace",
+        objects_label="Object",
+        schema_inspection=True,
+        exact_row_counts=True,
+    )
+    resolver = Mock(return_value=inspector)
+    access = catalogs.UserCatalog(
+        db,
+        cast(Settings, SimpleNamespace(is_demo_mode=False, pipeline_catalog_ttl_seconds=300)),
+        cast(User, SimpleNamespace(id="user-1")),
+        schema_resolver=resolver,
+    )
+    locator = postgres_table("public", "events")
+    locator.table = "invalid table name"
+
+    with pytest.raises(ValueError):
+        access.inspect_object("provider", locator)
+    resolver.assert_not_called()

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, HedronRouter, InteractionResult
@@ -13,7 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import Response
 
 from app.connectors.registry import connection_tester_for
-from app.database import SessionLocal
+from app.database import current_session_factory
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep, clear_auth_cookies
 from app.models import RefreshSession, User, UserSecret
 from app.security.passwords import PasswordPolicyError
@@ -64,6 +62,7 @@ from app.ui.regions import (
     SIDE_NAV,
     TOAST_HOST,
 )
+from app.ui.routes.pipeline_context import run_owned_sync
 from app.ui.urls import htmx_redirect_path, redirect_path
 
 
@@ -444,7 +443,8 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
     ) -> Response:
         try:
             specification = require_secret_provider(provider)
-            checked = await asyncio.to_thread(
+            checked = await run_owned_sync(
+                request,
                 _test_user_connection_in_thread,
                 settings,
                 auth.user.id,
@@ -477,7 +477,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
 def _test_user_connection_in_thread(settings, user_id: str, provider: str):
     """Run synchronous connector I/O with a session owned by the worker thread."""
 
-    with SessionLocal() as db:
+    with current_session_factory()() as db:
         user = db.get(User, user_id)
         if user is None:
             raise SecretStorageError("The account is no longer available.")

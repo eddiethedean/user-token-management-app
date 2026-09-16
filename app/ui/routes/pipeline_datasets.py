@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Sequence
 from typing import Protocol
 
@@ -11,13 +10,13 @@ from hedron import Fragment, Hedron, html
 from hedron_core import NodeLike
 from starlette.responses import Response
 
+from app.application.catalogs import CatalogAccess
 from app.connectors.errors import ConnectorError
 from app.connectors.registry import writer_enabled
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
     ProviderCatalog,
-    UserCatalog,
     require_catalog_provider,
 )
 from app.services.foundry_datasets import create_foundry_dataset
@@ -29,7 +28,7 @@ from app.ui.regions import (
     PIPELINE_TARGET_TABLE_SELECT,
     TOAST_HOST,
 )
-from app.ui.routes.pipeline_context import WithUserCatalog, WithUserSession
+from app.ui.routes.pipeline_context import WithUserCatalog, WithUserSession, run_owned_sync
 from app.ui.urls import hx_attrs
 
 
@@ -48,14 +47,14 @@ class DatasetCreatorFragment(Protocol):
 
 class SchemaOptions(Protocol):
     def __call__(
-        self, catalog_access: UserCatalog, provider: str, preferred_schema: str = ""
+        self, catalog_access: CatalogAccess, provider: str, preferred_schema: str = ""
     ) -> Sequence[NodeLike]: ...
 
 
 class TableOptions(Protocol):
     def __call__(
         self,
-        catalog_access: UserCatalog,
+        catalog_access: CatalogAccess,
         provider: str,
         schema_name: str,
         *,
@@ -99,7 +98,8 @@ def register_pipeline_dataset_routes(
     ) -> Response:
         catalog = require_catalog_provider(destination_provider)
         try:
-            created = await asyncio.to_thread(
+            created = await run_owned_sync(
+                request,
                 with_user_session,
                 settings,
                 auth.user.id,
@@ -125,7 +125,8 @@ def register_pipeline_dataset_routes(
             )
 
         namespace_select = html.select(
-            *await asyncio.to_thread(
+            *await run_owned_sync(
+                request,
                 with_user_catalog,
                 settings,
                 auth.user.id,
@@ -151,7 +152,8 @@ def register_pipeline_dataset_routes(
             ),
         )
         file_select = html.select(
-            *await asyncio.to_thread(
+            *await run_owned_sync(
+                request,
                 with_user_catalog,
                 settings,
                 auth.user.id,

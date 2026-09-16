@@ -8,8 +8,25 @@ from typing import Any, Protocol, runtime_checkable
 
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import Locator, WritePolicy
+from app.domain.catalogs import (
+    CatalogPage,
+    ColumnSchema,
+    ObjectSchema,
+    ProvisionedDataset,
+    RemoteNamespace,
+    RemoteObject,
+)
 
 Credentials = Mapping[str, str]
+
+__all__ = [
+    "CatalogPage",
+    "ColumnSchema",
+    "ObjectSchema",
+    "ProvisionedDataset",
+    "RemoteNamespace",
+    "RemoteObject",
+]
 
 
 @dataclass(frozen=True)
@@ -25,6 +42,7 @@ class ProviderCapabilities:
     namespaces_label: str
     objects_label: str
     writer_enabled: bool = False
+    writer_setting: str | None = None
     schema_inspection: bool = True
     exact_row_counts: bool = True
     verification_level: str = "exact"
@@ -44,55 +62,6 @@ class ConnectionHealth:
     message: str
     latency_ms: int
     server_identity: str = ""
-
-
-@dataclass(frozen=True)
-class RemoteNamespace:
-    name: str
-    display_name: str
-    kind: str = "namespace"
-
-
-@dataclass(frozen=True)
-class ProvisionedDataset:
-    dataset_rid: str
-    name: str
-    parent_folder_rid: str
-    branch: str = "master"
-
-
-@dataclass(frozen=True)
-class RemoteObject:
-    name: str
-    display_name: str
-    locator: Locator
-    estimated_rows: int | None = None
-    size_bytes: int | None = None
-    updated_at: str = ""
-    format: str = ""
-
-
-@dataclass(frozen=True)
-class CatalogPage:
-    items: tuple[RemoteObject, ...]
-    cursor: str | None = None
-
-
-@dataclass(frozen=True)
-class ColumnSchema:
-    name: str
-    data_type: str
-    nullable: bool = True
-    example: str = ""
-
-
-@dataclass(frozen=True)
-class ObjectSchema:
-    locator: Locator
-    columns: tuple[ColumnSchema, ...]
-    primary_key: tuple[str, ...] = ()
-    unique_constraints: tuple[tuple[str, ...], ...] = ()
-    estimated_rows: int | None = None
 
 
 @dataclass(frozen=True)

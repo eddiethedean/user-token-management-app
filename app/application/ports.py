@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any, Protocol
 
 Clock = Callable[[], datetime]
 Sleeper = Callable[[float], None]
@@ -17,6 +18,28 @@ class RequestMetadata:
 
     request_id: str = ""
     source_ip: str = ""
+
+
+class CredentialResolver(Protocol):
+    """Resolve one owner-authorized bundle for a specific execution purpose."""
+
+    def __call__(self, *, user_id: str, provider: str, purpose: str) -> dict[str, str]: ...
+
+
+class RunControl(Protocol):
+    """Small execution port for lease and cancellation checks."""
+
+    def cancellation_requested(self, run_id: str) -> bool: ...
+
+    def lease_lost(self, run_id: str, lease_token: str) -> bool: ...
+
+
+class CatalogCache(Protocol):
+    """Owner-scoped catalog cache used by the catalog application service."""
+
+    def get(self, provider: str, namespace: str) -> dict[str, Any] | None: ...
+
+    def put(self, provider: str, namespace: str, payload: dict[str, Any]) -> None: ...
 
 
 def system_clock() -> datetime:

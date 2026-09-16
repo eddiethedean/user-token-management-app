@@ -9,6 +9,7 @@ from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.application.ports import RequestMetadata
 from app.connectors.locators import (
     CsvUploadLocator,
     FoundryDatasetFilesLocator,
@@ -24,6 +25,7 @@ from app.connectors.locators import (
     postgres_table,
 )
 from app.connectors.registry import capabilities_for, route_allowed, writer_enabled
+from app.domain.pipelines import PipelineDraft, PipelinePolicy, PipelinePolicyError
 from app.models import PipelineDefinition, PipelineUpload, User, new_id
 from app.services.audit import record_event
 from app.services.catalogs import (
@@ -71,7 +73,7 @@ def save_pipeline(
     conflict_columns: str = "",
     upsert_action: str = "ignore",
     pipeline_id: str = "",
-    request: Request | None = None,
+    request: Request | RequestMetadata | None = None,
     # legacy aliases used by existing forms
     source_schema: str = "",
     source_table: str = "",
@@ -84,28 +86,31 @@ def save_pipeline(
     source_object = source_object or source_table
     destination_namespace = destination_namespace or destination_schema
     destination_object = destination_object or destination_table
-    normalized_name = " ".join(name.split())
-    if len(normalized_name) < 3:
-        raise ValueError("Give this pipeline a name with at least 3 characters.")
-    source_provider = source_provider.casefold()
-    destination_provider = destination_provider.casefold()
+    # Keep the compatibility service as a persistence adapter, but centralize
+    # its common policy in a framework-neutral value object. Provider-specific
+    # locator construction remains below because it needs the database-backed
+    # upload record and connector capabilities.
     try:
-        is_route_allowed = route_policy or route_allowed
-        if not is_route_allowed(source_provider, destination_provider):
-            raise ValueError("Select a supported source and destination.")
-    except ValueError:
-        raise
-    except Exception as exc:
-        raise ValueError("Select a supported source and destination.") from exc
-    if source_provider != "csv" and source_provider not in available_providers:
-        raise ValueError("Configure and validate the selected source connection before saving.")
-    if destination_provider not in available_providers:
-        raise ValueError(
-            "Configure and validate the selected destination connection before saving."
+        policy = PipelinePolicy(
+            route_allowed=route_policy or route_allowed,
+            writer_enabled=writer_policy or writer_enabled,
+            write_modes_for=lambda provider: capabilities_for(provider).write_modes,
         )
-    is_writer_enabled = writer_policy or writer_enabled
-    if not is_writer_enabled(destination_provider):
-        raise ValueError("The selected destination writer is not enabled by the operator.")
+        validated = policy.validate(
+            PipelineDraft(
+                name=name,
+                source_provider=source_provider,
+                destination_provider=destination_provider,
+                write_mode=write_mode,
+                available_providers=frozenset(available_providers),
+            )
+        )
+    except PipelinePolicyError as exc:
+        raise ValueError(str(exc)) from exc
+    normalized_name = validated.name
+    source_provider = validated.source_provider
+    destination_provider = validated.destination_provider
+    write_mode = validated.write_mode
 
     source_upload = None
     destination_create = False

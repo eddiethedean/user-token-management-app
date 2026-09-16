@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 
 from app.models import PipelineRun, PipelineRunStatus, utcnow
@@ -82,6 +83,41 @@ STAGE_FOR_STATUS = {
 
 class RunConflictError(ValueError):
     """Raised when a worker tries to mutate a run it no longer owns."""
+
+
+@dataclass
+class RunState:
+    """Persistence-neutral state used by policy tests and non-SQL adapters."""
+
+    status: str
+    stage: str = "queued"
+    lease_token: str | None = None
+    finished_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class PurePipelineRunStateMachine:
+    """Apply lifecycle transitions without an ORM identity or database."""
+
+    def __init__(self, *, clock: Callable[[], datetime] = utcnow) -> None:
+        self._clock = clock
+
+    def require_lease(self, run: RunState, lease_token: str) -> None:
+        if run.lease_token != lease_token:
+            raise RunConflictError("This worker no longer holds the run lease.")
+
+    def transition(self, run: RunState, status: str, *, lease_token: str | None) -> None:
+        allowed = ALLOWED_TRANSITIONS.get(run.status, frozenset())
+        if status not in allowed:
+            raise RunConflictError(f"Cannot move a {run.status} run to {status}.")
+        if lease_token is not None:
+            self.require_lease(run, lease_token)
+        run.status = status
+        run.stage = STAGE_FOR_STATUS[status]
+        run.updated_at = self._clock()
+        if status in TERMINAL_STATUSES:
+            run.finished_at = run.updated_at
+            run.lease_token = None
 
 
 class PipelineRunStateMachine:

@@ -1,27 +1,7 @@
-"""Shared immutable types for the secret domain."""
+"""Compatibility exports for the credential domain types."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from app.domain.credentials import CredentialField, SecretProvider
 
-
-@dataclass(frozen=True)
-class CredentialField:
-    name: str
-    label: str
-    placeholder: str
-    input_type: str = "text"
-    autocomplete: str = "off"
-    required: bool = False
-    default: str = ""
-    options: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class SecretProvider:
-    name: str
-    label: str
-    mark: str
-    environment_variable: str
-    fields: tuple[CredentialField, ...]
-    setup_hint: str = ""
+__all__ = ["CredentialField", "SecretProvider"]

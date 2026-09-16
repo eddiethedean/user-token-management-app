@@ -15,7 +15,9 @@ import pytest
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.database import SessionLocal
+from app.connectors.registry import current_registry
+from app.database import SessionLocal, stable_session_factory
+from app.infrastructure.runtime import ExecutionRuntime
 from app.models import PipelineDefinition, PipelineRun, PipelineRunStatus
 from tests.helpers import csrf_from, login_csrf_from, web_login
 
@@ -69,10 +71,15 @@ def _run_cli(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str
 
 
 def test_pipeline_run_executes_as_an_in_process_background_task(
-    client, demo_connections, monkeypatch
+    access_app, client, demo_connections
 ) -> None:
     """A live-mode run completes in the app process after the enqueue response."""
-    monkeypatch.setattr(get_settings(), "app_env", "development")
+    development_settings = get_settings().model_copy(update={"app_env": "development"})
+    access_app.state.execution.begin_shutdown()
+    access_app.state.execution = ExecutionRuntime(
+        development_settings, stable_session_factory(), current_registry()
+    )
+    access_app.state.settings = development_settings
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
     saved = client.post(

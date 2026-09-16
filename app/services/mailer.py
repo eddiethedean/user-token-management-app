@@ -13,6 +13,7 @@ from fastapi import BackgroundTasks
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.application.email import EmailTransport, OutboundEmail
 from app.config import Settings
 from app.models import EmailDeliveryState, EmailOutbox, new_id, utcnow
 
@@ -35,15 +36,36 @@ def schedule_email_delivery(background_tasks: BackgroundTasks, settings: Setting
         background_tasks.add_task(deliver_pending_background, settings)
 
 
-def deliver_pending_background(settings: Settings, *, limit: int = 20) -> None:
+def deliver_pending_background(
+    settings: Settings, session_factory=None, *, limit: int = 20
+) -> None:
     """Drain one outbox batch from a FastAPI background task."""
-    from app.database import SessionLocal
+    from app.database import current_session_factory
+    from app.infrastructure.email import ConsoleEmailTransport, SmtpEmailTransport
 
+    transport = (
+        ConsoleEmailTransport()
+        if getattr(settings, "email_backend", "console") == "console"
+        else SmtpEmailTransport(settings)
+    )
+
+    factory = session_factory or current_session_factory()
     with _BACKGROUND_DELIVERY_LOCK:
         try:
-            with SessionLocal() as db:
-                while deliver_pending_with_metrics(db, settings, limit=limit).claimed == limit:
-                    pass
+            with factory() as db:
+                while True:
+                    try:
+                        metrics = deliver_pending_with_metrics(
+                            db, settings, limit=limit, transport=transport
+                        )
+                    except TypeError as exc:
+                        # Third-party or test adapters written against the
+                        # pre-port function signature remain compatible.
+                        if "transport" not in str(exc):
+                            raise
+                        metrics = deliver_pending_with_metrics(db, settings, limit=limit)
+                    if metrics.claimed != limit:
+                        break
         except Exception:
             # Background task failures happen after the response has been sent;
             # log them without turning a successful request into a server error.
@@ -100,6 +122,7 @@ def _deliver_claim(
     *,
     message_id: str,
     claim_token: str,
+    transport: EmailTransport | None = None,
 ) -> tuple[bool, bool]:
     row = db.execute(
         select(EmailOutbox, EmailDeliveryState)
@@ -120,7 +143,15 @@ def _deliver_claim(
     db.commit()
 
     try:
-        if settings.email_backend == "console":
+        if transport is not None:
+            transport.send(
+                OutboundEmail(
+                    recipient=message.recipient,
+                    subject=message.subject,
+                    body_text=message.body_text,
+                )
+            )
+        elif settings.email_backend == "console":
             print(
                 f"\n--- EMAIL TO {message.recipient} ---\n{message.subject}\n\n{message.body_text}\n"
             )
@@ -167,7 +198,11 @@ def _deliver_claim(
 
 
 def deliver_pending_with_metrics(
-    db: Session, settings: Settings, *, limit: int = 20
+    db: Session,
+    settings: Settings,
+    *,
+    limit: int = 20,
+    transport: EmailTransport | None = None,
 ) -> DeliveryMetrics:
     claims = _claim_pending(db, settings, limit=limit)
     delivered = 0
@@ -178,6 +213,7 @@ def deliver_pending_with_metrics(
             settings,
             message_id=message_id,
             claim_token=claim_token,
+            transport=transport,
         )
         delivered += int(was_delivered)
         dead_lettered += int(was_dead_lettered)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -50,7 +49,9 @@ from hedron_core import NodeLike
 from starlette.responses import Response
 
 import app.services.pipeline_runs as pipeline_run_service
-from app.config import get_settings
+from app.application.catalogs import CatalogAccess, CatalogOperationRunner
+from app.application.dto import ActorContext
+from app.application.pipelines import PipelineAuthoringOperation
 from app.connectors.errors import ConnectorError
 from app.connectors.locators import (
     DATASET_RID_PATTERN,
@@ -66,18 +67,15 @@ from app.connectors.locators import (
 )
 from app.connectors.registry import (
     capabilities_for,
-    catalog_browser_for,
     route_allowed,
     writer_enabled,
 )
-from app.database import SessionLocal
 from app.dependencies import Auth, DbSession, SettingsDep
-from app.models import PipelineDefinition, PipelineUpload, User
+from app.models import PipelineDefinition, PipelineUpload
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
     CSV_SOURCE_CATALOG,
     ProviderCatalog,
-    UserCatalog,
     all_provider_catalogs,
     require_catalog_provider,
 )
@@ -105,6 +103,7 @@ from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.params import NoticeQuery
+from app.ui.presenters.pipeline import SavedPipelineFields, saved_pipeline_form_data
 from app.ui.presenters.run_status import (
     EVENT_STAGE_LABELS,
     destination_count_metric,
@@ -118,7 +117,12 @@ from app.ui.regions import (
     MAIN_PANEL,
     SIDE_NAV,
 )
-from app.ui.routes.pipeline_context import with_user_catalog, with_user_session
+from app.ui.routes.pipeline_context import (
+    request_metadata,
+    run_owned_sync,
+    with_user_catalog,
+    with_user_session,
+)
 from app.ui.tabs import NavigationTabs
 from app.ui.urls import form_action, hx_attrs
 
@@ -217,7 +221,7 @@ def _write_mode_select(
 
 
 def _upsert_keys(
-    catalog_access: UserCatalog, provider: str, namespace: str, object_name: str
+    catalog_access: CatalogAccess, provider: str, namespace: str, object_name: str
 ) -> tuple[tuple[str, ...], ...]:
     if (
         provider != "postgres"
@@ -412,7 +416,7 @@ def _source_provider_select(
 
 def _source_namespace_control(
     request: Request,
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     provider: str,
     *,
     preferred_schema: str = "",
@@ -550,12 +554,12 @@ def _destination_provider_select(
     )
 
 
-def _namespace_entries(catalog_access: UserCatalog, provider: str) -> list[tuple[str, str]]:
+def _namespace_entries(catalog_access: CatalogAccess, provider: str) -> list[tuple[str, str]]:
     return [(item.name, item.display_name) for item in catalog_access.list_namespaces(provider)]
 
 
 def _object_entries(
-    catalog_access: UserCatalog, provider: str, namespace: str
+    catalog_access: CatalogAccess, provider: str, namespace: str
 ) -> list[tuple[str, str]]:
     try:
         page = catalog_access.list_objects(provider, namespace)
@@ -567,12 +571,12 @@ def _object_entries(
     return [(item.name, item.display_name) for item in page.items]
 
 
-def _first_namespace(catalog_access: UserCatalog, provider: str) -> str:
+def _first_namespace(catalog_access: CatalogAccess, provider: str) -> str:
     entries = _namespace_entries(catalog_access, provider)
     return entries[0][0] if entries else ""
 
 
-def _first_object(catalog_access: UserCatalog, provider: str, namespace: str) -> str:
+def _first_object(catalog_access: CatalogAccess, provider: str, namespace: str) -> str:
     if not namespace:
         return ""
     entries = _object_entries(catalog_access, provider, namespace)
@@ -580,7 +584,7 @@ def _first_object(catalog_access: UserCatalog, provider: str, namespace: str) ->
 
 
 def _normalized_selection(
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     provider: str,
     namespace: str,
     object_name: str,
@@ -623,7 +627,7 @@ def _normalized_selection(
     return resolved_namespace, resolved_object
 
 
-def _schema_options(catalog_access: UserCatalog, provider: str, preferred_schema: str = ""):
+def _schema_options(catalog_access: CatalogAccess, provider: str, preferred_schema: str = ""):
     entries = _namespace_entries(catalog_access, provider)
     return [
         _option(
@@ -641,7 +645,7 @@ def _committed_new_table_name(value: str) -> str:
 
 
 def _table_options(
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     provider: str,
     schema_name: str,
     *,
@@ -672,7 +676,7 @@ def _table_options(
 
 def _source_object_control(
     request: Request,
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     provider: str,
     namespace: str,
     *,
@@ -735,7 +739,7 @@ def _source_object_control(
 
 
 def _source_catalog_suggestions(
-    catalog_access: UserCatalog, provider: str, namespace: str, *, oob: bool = False
+    catalog_access: CatalogAccess, provider: str, namespace: str, *, oob: bool = False
 ) -> tuple[NodeLike, NodeLike]:
     is_foundry_source = provider.casefold() in {"mss", "mcscop"}
     datasets = (
@@ -858,7 +862,7 @@ def _selection_overlaps(
 
 
 def _known_catalog_object(
-    catalog_access: UserCatalog, provider: str, namespace: str, object_name: str
+    catalog_access: CatalogAccess, provider: str, namespace: str, object_name: str
 ) -> bool:
     if not namespace or not object_name:
         return False
@@ -871,7 +875,7 @@ def _known_catalog_object(
 
 
 def _swap_operand_reason(
-    catalog_access: UserCatalog, provider: str, namespace: str, object_name: str
+    catalog_access: CatalogAccess, provider: str, namespace: str, object_name: str
 ) -> str:
     """Explain why an endpoint cannot be preserved as a destination after swapping."""
 
@@ -895,7 +899,7 @@ def _swap_operand_reason(
 
 
 def _can_swap_direction(
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     connections: dict[str, dict[str, str | bool]],
     *,
     source_provider: str,
@@ -956,7 +960,7 @@ def _can_swap_direction(
 
 
 def _destination_namespace_options(
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     catalog: ProviderCatalog,
     provider: str,
     *,
@@ -969,7 +973,7 @@ def _destination_namespace_options(
 
 
 def _destination_object_options(
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     catalog: ProviderCatalog,
     provider: str,
     namespace: str,
@@ -1302,7 +1306,7 @@ def _saved_run_summary(run: object | None) -> str:
 
 
 def _catalog_data(
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     catalogs: tuple[ProviderCatalog, ...],
     pipelines: list[PipelineDefinition],
 ):
@@ -1375,7 +1379,7 @@ def _csv_columns_json(inspection: CsvInspection) -> str:
 
 
 def _remote_object_preview(
-    catalog_access: UserCatalog, provider: str, namespace: str, object_name: str
+    catalog_access: CatalogAccess, provider: str, namespace: str, object_name: str
 ):
     if not provider or not namespace or not object_name or object_name == CREATE_TABLE_VALUE:
         return None
@@ -1387,7 +1391,7 @@ def _remote_object_preview(
 
 
 def _foundry_source_preview(
-    catalog_access: UserCatalog, provider: str, namespace: str, object_name: str
+    catalog_access: CatalogAccess, provider: str, namespace: str, object_name: str
 ):
     paths = normalize_foundry_source_paths(object_name)
     try:
@@ -1436,7 +1440,7 @@ def _foundry_source_preview(
 
 
 def _route_schema_preview(
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     provider: str,
     namespace: str,
     object_name: str,
@@ -1653,7 +1657,7 @@ def _schema_preview_surface(
 
 def _pipeline_schema_preview_panel(
     *,
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     source_provider: str,
     source_schema: str,
     source_object: str,
@@ -1900,40 +1904,34 @@ def _saved_pipeline_data(pipeline: PipelineDefinition, *, run: bool = False) -> 
     source_namespace, source_object, destination_namespace, destination_object = (
         _pipeline_form_locations(pipeline)
     )
-    data = {
-        "pipeline-load": "true",
-        "pipeline-id": pipeline.id,
-        "pipeline-name": pipeline.name,
-        "pipeline-source": pipeline.source_provider,
-        "pipeline-source-schema": source_namespace,
-        "pipeline-source-table": source_object,
-        "pipeline-target": pipeline.destination_provider,
-        "pipeline-target-schema": destination_namespace,
-        "pipeline-target-table": (
-            CREATE_TABLE_VALUE if pipeline.destination_create else destination_object
-        ),
-        "pipeline-target-table-new": (
-            _new_destination_basename(pipeline) if pipeline.destination_create else ""
-        ),
-        "pipeline-mode": pipeline.write_mode,
-    }
-    if run:
-        data["pipeline-run"] = "true"
+    upload_fields: dict[str, str] = {}
     if pipeline.source_provider == "csv" and pipeline.source_upload is not None:
         inspection = inspection_from_upload(pipeline.source_upload)
-        data.update(
-            {
-                "pipeline-source-upload-id": pipeline.source_upload.id,
-                "pipeline-source-upload-name": inspection.filename,
-                "pipeline-source-upload-rows": str(inspection.row_count),
-                "pipeline-source-upload-size": _format_file_size(inspection.size_bytes),
-                "pipeline-source-upload-megabytes": (
-                    f"{inspection.size_bytes / (1024 * 1024):.4f}"
-                ),
-                "pipeline-source-upload-columns": _csv_columns_json(inspection),
-            }
-        )
-    return data
+        upload_fields = {
+            "source_upload_id": pipeline.source_upload.id,
+            "source_upload_name": inspection.filename,
+            "source_upload_rows": str(inspection.row_count),
+            "source_upload_size": _format_file_size(inspection.size_bytes),
+            "source_upload_megabytes": f"{inspection.size_bytes / (1024 * 1024):.4f}",
+            "source_upload_columns": _csv_columns_json(inspection),
+        }
+    return saved_pipeline_form_data(
+        SavedPipelineFields(
+            pipeline_id=pipeline.id,
+            name=pipeline.name,
+            source_provider=pipeline.source_provider,
+            source_namespace=source_namespace,
+            source_object=source_object,
+            destination_provider=pipeline.destination_provider,
+            destination_namespace=destination_namespace,
+            destination_object=destination_object,
+            destination_create=pipeline.destination_create,
+            destination_new_name=_new_destination_basename(pipeline),
+            write_mode=pipeline.write_mode,
+            **upload_fields,
+        ),
+        run=run,
+    )
 
 
 def _saved_pipeline_cards(
@@ -2073,7 +2071,7 @@ def _saved_pipeline_cards(
 def _pipeline_preview_fragment(
     *,
     request: Request,
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     source_provider: str,
     source_schema: str,
     source_table: str,
@@ -2375,7 +2373,7 @@ def _pipeline_preview_fragment(
 
 def _pipeline_body(
     request: Request,
-    catalog_access: UserCatalog,
+    catalog_access: CatalogAccess,
     connections: dict[str, dict[str, str | bool]],
     pipelines: list[PipelineDefinition],
     *,
@@ -2580,8 +2578,8 @@ def _pipeline_body(
             tone="success" if connections and ready_count == len(connections) else "info",
         ),
         Badge(
-            "Demo mode" if get_settings().is_demo_mode else "Real transfers",
-            tone="warning" if get_settings().is_demo_mode else "success",
+            "Demo mode" if demo_mode else "Real transfers",
+            tone="warning" if demo_mode else "success",
         ),
         align="end",
         gap="sm",
@@ -3209,7 +3207,18 @@ def _pipeline_body(
     ]
 
 
-def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None:
+def register_pipeline_routes(
+    app: Hedron,
+    fragment_router: HedronRouter,
+    *,
+    catalog_runner_factory: Callable[[Request], CatalogOperationRunner],
+    authoring_operation_factory: Callable[[Request], PipelineAuthoringOperation],
+) -> None:
+    def bound_with_user_catalog(settings, user_id, request, operation):
+        return with_user_catalog(
+            settings, user_id, request, operation, catalog_runner_factory(request)
+        )
+
     @app.page(
         "/pipeline",
         fragment_regions=(MAIN_PANEL, SIDE_NAV),
@@ -3267,7 +3276,8 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 key=lambda item: item.created_at,
                 default=None,
             )
-        body = await asyncio.to_thread(
+        body = await run_owned_sync(
+            request,
             _pipeline_body_in_thread,
             request,
             settings,
@@ -3291,6 +3301,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 else None
             ),
             settings.is_demo_mode,
+            catalog_runner_factory(request),
         )
         return await render_authenticated_view(
             request,
@@ -3322,12 +3333,12 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
         schema_options=_schema_options,
         table_options=_table_options,
         with_user_session=with_user_session,
-        with_user_catalog=with_user_catalog,
+        with_user_catalog=bound_with_user_catalog,
     )
     register_pipeline_preview_routes(
         app,
         dependencies=PipelinePreviewDependencies(
-            with_user_catalog=with_user_catalog,
+            with_user_catalog=bound_with_user_catalog,
             can_swap_direction=_can_swap_direction,
             eligible_destinations=_eligible_destinations,
             normalized_selection=_normalized_selection,
@@ -3342,7 +3353,7 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
     )
     register_pipeline_save_routes(
         app,
-        with_user_session=with_user_session,
+        authoring_operation_factory=authoring_operation_factory,
     )
 
     register_pipeline_run_routes(
@@ -3373,22 +3384,16 @@ def _pipeline_body_in_thread(
     latest_runs,
     run_monitor,
     demo_mode,
+    catalog_runner: CatalogOperationRunner,
 ):
     """Build the provider-backed pipeline body with a thread-owned session."""
 
-    with SessionLocal() as db:
-        user = db.get(User, user_id)
-        if user is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-        return _pipeline_body(
+    metadata = request_metadata(settings, request)
+    return catalog_runner(
+        ActorContext(user_id=user_id, request_id=metadata.request_id, source_ip=metadata.source_ip),
+        lambda catalog_access: _pipeline_body(
             request,
-            UserCatalog(
-                db,
-                settings,
-                user,
-                request=request,
-                browser_resolver=catalog_browser_for,
-            ),
+            catalog_access,
             connections,
             pipelines,
             csrf_token=csrf_token,
@@ -3400,7 +3405,8 @@ def _pipeline_body_in_thread(
             run_monitor=run_monitor,
             demo_mode=demo_mode,
             writer_policy=lambda provider: writer_enabled(provider, settings=settings),
-        )
+        ),
+    )
 
 
 def _run_manifest(value: str | None) -> dict[str, Any]:

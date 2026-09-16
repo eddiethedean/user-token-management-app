@@ -251,15 +251,15 @@ def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> Non
         assert pipeline.destination_schema == "public"
         assert pipeline.destination_table == "mission_orders"
         assert pipeline.destination_create is False
-        assert (
-            db.scalar(
-                select(AuditEvent).where(
-                    AuditEvent.event_type == "pipeline.created",
-                    AuditEvent.actor_user_id == pipeline.user_id,
-                )
+        event = db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.event_type == "pipeline.created",
+                AuditEvent.actor_user_id == pipeline.user_id,
             )
-            is not None
         )
+        assert event is not None
+        assert event.request_id
+        assert event.source_ip == "127.0.0.1"
 
     reloaded = client.get(saved.headers["location"])
     assert reloaded.status_code == 200
@@ -563,7 +563,7 @@ def test_pipeline_save_uses_connected_foundry_branches(
     client, demo_connections, monkeypatch
 ) -> None:
     monkeypatch.setattr(
-        "app.ui.routes.pipeline.UserCatalog.default_branch",
+        "app.services.catalogs.UserCatalog.default_branch",
         lambda _self, provider: "release" if provider in {"mss", "mcscop"} else "",
     )
     web_login(client, next_path="/pipeline")
@@ -639,7 +639,7 @@ def test_pipeline_save_persists_selected_unique_upsert_key(
             )
         return original_inspect(self, provider, locator)
 
-    monkeypatch.setattr("app.ui.routes.pipeline.UserCatalog.inspect_object", inspect_with_unique)
+    monkeypatch.setattr("app.services.catalogs.UserCatalog.inspect_object", inspect_with_unique)
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
     preview = client.post(
@@ -909,7 +909,7 @@ def _pipeline_control(markup: str, element_id: str) -> str:
 
 
 def test_pipeline_live_writer_flags_select_a_valid_initial_route(
-    client, demo_connections, monkeypatch
+    client, demo_connections, monkeypatch, request_settings_override
 ) -> None:
     from app.config import get_settings
 
@@ -919,6 +919,7 @@ def test_pipeline_live_writer_flags_select_a_valid_initial_route(
     monkeypatch.setattr(settings, "pipeline_enable_postgres_writer", True)
     monkeypatch.setattr(settings, "pipeline_enable_mss_writer", False)
     monkeypatch.setattr(settings, "pipeline_enable_mcscop_writer", False)
+    request_settings_override(settings)
     web_login(client, next_path="/pipeline")
     response = client.get("/pipeline")
     assert response.status_code == 200
@@ -1355,7 +1356,7 @@ def test_pipeline_swap_reason_is_shared_between_ui_and_server(
 
 
 def test_pipeline_empty_destination_explains_disabled_writes_and_recovers(
-    client, demo_connections, monkeypatch
+    client, demo_connections, monkeypatch, request_settings_override
 ) -> None:
     from app.config import get_settings
 
@@ -1364,6 +1365,7 @@ def test_pipeline_empty_destination_explains_disabled_writes_and_recovers(
     monkeypatch.setattr(settings, "pipeline_enable_postgres_writer", False)
     monkeypatch.setattr(settings, "pipeline_enable_mss_writer", False)
     monkeypatch.setattr(settings, "pipeline_enable_mcscop_writer", False)
+    request_settings_override(settings)
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
     headers = {

@@ -7,7 +7,7 @@ from fastapi import Depends, Form, Header, HTTPException, Request, Response, sta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import Settings, get_settings
+from app.config import Settings, get_settings  # noqa: F401
 from app.database import get_db
 from app.dev_trace import dev_trace
 from app.models import RefreshSession, User, utcnow
@@ -23,7 +23,22 @@ from app.security.tokens import AccessTokenError, decode_access_token, hash_toke
 from app.services.auth import SessionTokens, TokenFlowError, rotate_session
 
 DbSession = Annotated[Session, Depends(get_db)]
-SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+
+def request_settings(request: Request) -> Settings:
+    """Return the settings captured by the request's execution runtime."""
+
+    captured = getattr(request.state, "settings", None)
+    if captured is None:
+        state = getattr(request.app, "state", None)
+        if getattr(state, "runtime_lifecycle", None) == "fixture":
+            captured = getattr(state, "settings", None)
+    if captured is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+    return captured
+
+
+SettingsDep = Annotated[Settings, Depends(request_settings)]
 
 
 @dataclass

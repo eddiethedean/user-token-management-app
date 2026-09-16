@@ -20,6 +20,15 @@ AUDIT_PAGE_SIZE = 50
 def client_ip(request: Request | RequestMetadata | None) -> str:
     if isinstance(request, RequestMetadata):
         return request.source_ip
+    if request is None:
+        return ""
+    state = getattr(request, "state", None)
+    settings = getattr(state, "settings", None)
+    if settings is None:
+        execution = getattr(state, "execution", None)
+        settings = getattr(execution, "execution_settings", None)
+    if settings is not None:
+        return resolve_client_ip(request, settings)
     return resolve_client_ip(request, get_settings())
 
 

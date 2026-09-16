@@ -25,6 +25,7 @@ from app.security.tokens import (
     hash_token,
     random_token,
 )
+from app.services.audit import client_ip as audit_client_ip
 
 HEDRON_APP = SimpleNamespace(
     state=SimpleNamespace(hedron_mount_path="", hedron_mount_was_configured=False)
@@ -73,6 +74,14 @@ def test_email_normalization_and_allowlist() -> None:
     assert canonical == "analyst@example.gov"
     assert original == "Analyst@example.gov"
     assert settings().email_domain_allowlist == {"example.gov", "example.mil"}
+
+
+def test_audit_client_ip_uses_settings_captured_by_the_request(monkeypatch) -> None:
+    request = request_with_client("10.0.0.10", forwarded="198.51.100.25")
+    request.state.settings = settings(trusted_proxy_ips="10.0.0.10")
+    monkeypatch.setattr("app.services.audit.get_settings", lambda: settings(trusted_proxy_ips=""))
+
+    assert audit_client_ip(request) == "198.51.100.25"
 
 
 @pytest.mark.parametrize("email", ["not-an-email", "analyst@outside.test"])

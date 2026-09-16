@@ -75,7 +75,7 @@ python -m pip check
 
 ### 2. Configure
 
-Create a private environment file and fill in the production values from
+For the first deployment, create a private environment file and fill in the production values from
 [`.env.example`](../.env.example):
 
 ```bash
@@ -109,7 +109,7 @@ PY
 
 ### 3. Initialize the database
 
-Source the same file that will be published, create the bundle-local spool directory, and run the
+Source the private environment file, create the bundle-local spool directory, and run the
 migrations:
 
 ```bash
@@ -142,6 +142,8 @@ unset CONNECT_API_KEY
 ```
 
 ### 5. Publish
+
+#### First deployment
 
 For the first deployment, create a new Connect content item:
 
@@ -190,9 +192,56 @@ command line. The extra `.keep` file ensures the writable spool directory is inc
 bundle. Add `-E NAME` for any optional settings used by this deployment, such as
 `SMTP_USERNAME`, `SMTP_PASSWORD`, or a CA bundle path.
 
-For a later deployment, replace `--new` with `--app-id CONTENT_ID`. Update `.env` with the exact
-Connect content URL before republishing. Use `--no-verify` only when the publishing host cannot
-reach the deployed URL; otherwise omit it.
+After the first deployment, set `PUBLIC_BASE_URL` to the exact Connect content URL in the app's
+Connect environment settings. Keep the local `.env` consistent if it is used for maintenance.
+Use `--no-verify` only when the publishing host cannot reach the deployed URL; otherwise omit it.
+
+#### Redeployment: preserve existing secrets
+
+Open the existing app in Connect and copy its content GUID from the **Info** tab. Target that GUID
+explicitly with `--app-id` and the same registered server (`--name my-connect`) on every
+redeployment. `rsconnect info .` can also show the locally saved deployment target, but the explicit
+GUID ensures the command targets the intended content item even from a different checkout.
+`--new` creates a separate content item with separate environment settings; omit it for updates.
+
+Use this command for routine redeployments. It omits all `-E` options, so Connect retains every
+previously established environment variable, including secrets, and supplies them to the new app
+version. There is no need to regenerate, source, or resend application secrets just to publish a
+new version. Prepare `deployment/spool/.keep` as in step 3 if publishing from a fresh checkout.
+
+```bash
+rsconnect deploy fastapi \
+  --name my-connect \
+  --app-id YOUR_EXISTING_CONTENT_GUID \
+  --entrypoint app.main:app \
+  --requirements-file requirements.txt \
+  --exclude '.env' \
+  --exclude '.venv' \
+  --exclude '.hedron/build' \
+  --exclude '**/__pycache__/*' \
+  --exclude '**/*.db' \
+  --exclude '**/*.sqlite3' \
+  --exclude 'tests' \
+  --exclude 'demo-app' \
+  ./ deployment/spool/.keep
+```
+
+Replace `YOUR_EXISTING_CONTENT_GUID` with the GUID copied from Connect. Add `--no-verify` only if
+the publishing host cannot reach the deployed URL. Run any required database migrations separately
+using the existing database credentials; redeployment does not require creating another admin.
+
+#### Explicitly replace an environment value
+
+Change a saved value only when the user explicitly intends to replace it. Either edit that variable
+in the app's Connect environment settings, or export its intended replacement in the publishing
+shell and add only that variable's `-E NAME` option to the redeployment command above. For example,
+add `-E SMTP_PASSWORD` to send an explicitly supplied replacement SMTP password. Omitted variables
+remain unchanged. Do not reuse the first-deployment `-E` list for routine updates: those options
+overwrite saved values with the current shell values.
+
+Connect applies supplied environment updates before uploading and deploying the bundle, so an
+explicit replacement takes effect even if deployment fails. See
+[Posit's environment-variable deployment behavior](https://docs.posit.co/connect/user/publishing-cli/#environment-variables).
 
 ### 6. Start and verify
 

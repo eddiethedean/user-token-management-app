@@ -37,7 +37,7 @@ from app.connectors.locators import (
     WritePolicy,
     postgres_table,
 )
-from app.connectors.registry import register_connector
+from app.connectors.registry import connector_settings, register_connector
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 _DECIMAL = re.compile(
@@ -130,10 +130,11 @@ class PostgresConnector:
         namespaces_label="Schema",
         objects_label="Table",
         writer_enabled=True,
+        writer_setting="pipeline_enable_postgres_writer",
     )
 
     def __init__(self, settings: Settings | None = None):
-        self.settings = settings or get_settings()
+        self.settings = settings or connector_settings()
         self._load_conn: psycopg.Connection | None = None
         self._load_credentials: dict[str, str] | None = None
 

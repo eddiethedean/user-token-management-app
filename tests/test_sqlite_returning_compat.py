@@ -60,7 +60,7 @@ def test_login_succeeds_on_sqlite_without_returning(client) -> None:
     assert ADMIN_EMAIL in profile.text
 
 
-def test_rate_limit_throttles_on_sqlite(client) -> None:
+def test_rate_limit_throttles_on_sqlite(client, request_settings_override) -> None:
     from app.config import get_settings
     from app.database import SessionLocal
 
@@ -69,6 +69,7 @@ def test_rate_limit_throttles_on_sqlite(client) -> None:
     original_account = settings.rate_limit_login_per_account
     settings.rate_limit_login_per_source = 1
     settings.rate_limit_login_per_account = 1
+    request_settings_override(settings)
     try:
         page = client.get("/login")
         token = login_csrf_from(page.text)

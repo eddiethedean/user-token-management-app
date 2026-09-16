@@ -6,6 +6,7 @@ from fastapi import Request
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.application.ports import RequestMetadata
 from app.config import Settings
 from app.connectors.base import ConnectionTester
 from app.connectors.registry import connection_tester_for
@@ -305,7 +306,7 @@ def decrypt_user_secret_for_run(
     *,
     user: User,
     provider: str,
-    request: Request | None = None,
+    request: Request | RequestMetadata | None = None,
 ) -> str:
     """Return a provider's primary secret; retained for token-only integrations."""
     credentials = decrypt_user_credentials_for_run(
@@ -328,7 +329,7 @@ def decrypt_user_credentials_for_run(
     *,
     user: User,
     provider: str,
-    request: Request | None = None,
+    request: Request | RequestMetadata | None = None,
     purpose: str = "run",
 ) -> dict[str, str]:
     """Return credentials at an authorized connector boundary; never expose them in a response."""

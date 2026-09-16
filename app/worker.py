@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
@@ -30,6 +32,7 @@ class LeaseKeeper:
     settings: Settings
     run_id: str
     lease_token: str
+    session_factory: Callable[[], AbstractContextManager[Session]] | None = None
     stopped: threading.Event = field(default_factory=threading.Event)
     lost: threading.Event = field(default_factory=threading.Event)
     _thread: threading.Thread | None = None
@@ -45,15 +48,20 @@ class LeaseKeeper:
     def stop(self) -> None:
         self.stopped.set()
         if self._thread is not None:
-            self._thread.join(timeout=5)
+            self._thread.join()
 
     def _run(self) -> None:
-        from app.database import SessionLocal
+        if self.session_factory is None:
+            from app.database import SessionLocal
+
+            session_factory = SessionLocal
+        else:
+            session_factory = self.session_factory
 
         interval = max(1.0, self.settings.pipeline_lease_seconds / 3)
         while not self.stopped.wait(interval):
             try:
-                with SessionLocal() as heartbeat_db:
+                with session_factory() as heartbeat_db:
                     renewed = pipeline_runs.renew_lease(
                         heartbeat_db,
                         run_id=self.run_id,
@@ -83,6 +91,8 @@ def process_one(
     *,
     run_id: str | None = None,
     stop_event: threading.Event | None = None,
+    session_factory: Callable[[], AbstractContextManager[Session]] | None = None,
+    credential_resolver: Callable[..., dict[str, str]] | None = None,
 ) -> bool:
     if stop_event is not None and stop_event.is_set():
         return False
@@ -109,15 +119,25 @@ def process_one(
     if not user.is_active:
         pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
         return True
-    keeper = LeaseKeeper(settings=settings, run_id=run_id, lease_token=lease_token)
+    keeper = LeaseKeeper(
+        settings=settings,
+        run_id=run_id,
+        lease_token=lease_token,
+        session_factory=session_factory,
+    )
     keeper.start()
     try:
         snapshot = parse_snapshot(run.definition_snapshot_json)
-        source_credentials = _credentials_for(
+        resolve_credentials = credential_resolver or _credentials_for
+        source_credentials = resolve_credentials(
             db, settings, user=user, provider=snapshot.source_provider, snapshot=snapshot
         )
-        destination_credentials = decrypt_user_credentials_for_run(
-            db, settings, user=user, provider=snapshot.destination_provider
+        destination_credentials = resolve_credentials(
+            db,
+            settings,
+            user=user,
+            provider=snapshot.destination_provider,
+            snapshot=snapshot,
         )
         execute_transfer(
             db,

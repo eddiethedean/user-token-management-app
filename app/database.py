@@ -3,13 +3,22 @@ from __future__ import annotations
 import fcntl
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
+from typing import Any
 
+from fastapi import HTTPException, status
 from sqlalchemy import create_engine, event
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from starlette.requests import Request
 
 from app.config import Settings, get_settings
+from app.infrastructure.persistence.database import (
+    DatabaseRuntime,
+    clone_session_factory,
+    create_database,
+)
 
 
 class Base(DeclarativeBase):
@@ -73,10 +82,76 @@ def sqlite_worker_lock(database_url: str, worker_kind: str) -> Iterator[None]:
 
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+_ACTIVE_SESSION_FACTORY: ContextVar[sessionmaker[Session] | None] = ContextVar(
+    "access_registry_active_session_factory", default=None
+)
 
 
-def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
+def bind_runtime(runtime: Any):
+    """Bind an app-owned session factory for the current request/task context."""
+
+    return _ACTIVE_SESSION_FACTORY.set(runtime.sessions if runtime is not None else None)
+
+
+def unbind_runtime(token) -> None:
+    _ACTIVE_SESSION_FACTORY.reset(token)
+
+
+def current_session_factory():
+    """Return the request-bound factory or the compatibility factory."""
+
+    return _ACTIVE_SESSION_FACTORY.get() or SessionLocal
+
+
+def legacy_session_factory():
+    """Return the process-global factory without consulting request context."""
+
+    return SessionLocal
+
+
+def legacy_database_engine():
+    """Return the process-global engine without consulting request context."""
+
+    return engine
+
+
+def legacy_database_url() -> URL:
+    """Return the database URL owned by the compatibility engine."""
+
+    return engine.url
+
+
+def legacy_session_engine():
+    """Return the engine bound to the compatibility session factory."""
+
+    return getattr(SessionLocal, "kw", {}).get("bind")
+
+
+def stable_session_factory():
+    """Clone the compatibility factory so a runtime owns its engine binding."""
+
+    return clone_session_factory(SessionLocal, engine)
+
+
+def create_runtime(settings: Settings | None = None) -> DatabaseRuntime:
+    """Create an independent database runtime for a composed app instance."""
+
+    return create_database(settings or get_settings())
+
+
+def get_db(request: Request) -> Generator[Session, None, None]:
+    """Yield the app-owned session when composed, preserving CLI compatibility."""
+
+    runtime = getattr(getattr(request, "state", None), "execution", None)
+    if runtime is None:
+        lifecycle = getattr(getattr(request, "app", None), "state", None)
+        if getattr(lifecycle, "runtime_lifecycle", None) != "fixture":
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        runtime = getattr(lifecycle, "execution", None)
+    if runtime is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+    factory = runtime.sessions
+    db = factory()
     try:
         yield db
     finally:

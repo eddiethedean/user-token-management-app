@@ -2,28 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-
-from app.services.secrets_types import CredentialField, SecretProvider
-
-
-class SecretCatalog:
-    """Immutable provider lookup used by UI, storage, and runtime adapters."""
-
-    def __init__(self, providers: Iterable[SecretProvider]) -> None:
-        self._providers = tuple(providers)
-        self._by_name = {provider.name.casefold(): provider for provider in self._providers}
-
-    @property
-    def providers(self) -> tuple[SecretProvider, ...]:
-        return self._providers
-
-    def require(self, provider: str) -> SecretProvider:
-        specification = self._by_name.get(provider.casefold())
-        if specification is None:
-            raise ValueError("Select a supported connection provider.")
-        return specification
-
+from app.domain.credentials import CredentialField, SecretCatalog, SecretProvider
 
 SECRET_PROVIDERS = (
     SecretProvider(

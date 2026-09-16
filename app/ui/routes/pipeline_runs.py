@@ -106,11 +106,17 @@ def register_pipeline_run_routes(
             process_one(db, settings, run_id=run.id)
             db.refresh(run)
         else:
+            execution = getattr(request.state, "execution", None)
             schedule_pipeline_run(
                 background_tasks,
-                settings,
+                execution.execution_settings if execution is not None else settings,
                 run.id,
-                getattr(request.app.state, "pipeline_stop_event", None),
+                (
+                    None
+                    if execution is not None
+                    else getattr(request.app.state, "pipeline_stop_event", None)
+                ),
+                execution,
             )
         if is_htmx_request(request):
             run_events = _events_after(db, run=run, after_sequence=0)

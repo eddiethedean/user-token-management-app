@@ -71,12 +71,15 @@ def test_federated_login_page_and_proxy_allowlist(access_app) -> None:
         settings.trusted_proxy_ips = original_proxies
 
 
-def test_federated_invitation_activation_skips_password(access_app) -> None:
+def test_federated_invitation_activation_skips_password(
+    access_app, request_settings_override
+) -> None:
     settings = get_settings()
     original_mode = settings.authentication_mode
     email = "federated.invitee@example.gov"
     try:
         settings.authentication_mode = "trusted_header"
+        request_settings_override(settings)
         with SessionLocal() as db:
             administrator = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
             assert administrator is not None
@@ -106,12 +109,15 @@ def test_federated_invitation_activation_skips_password(access_app) -> None:
         settings.authentication_mode = original_mode
 
 
-def test_federated_registration_verification_skips_password(client) -> None:
+def test_federated_registration_verification_skips_password(
+    client, request_settings_override
+) -> None:
     settings = get_settings()
     original_mode = settings.authentication_mode
     email = "federated.reg@example.gov"
     try:
         settings.authentication_mode = "trusted_header"
+        request_settings_override(settings)
         assert (
             preauth_post(
                 client, "/register", {"email": email, "full_name": "Federated Reg"}

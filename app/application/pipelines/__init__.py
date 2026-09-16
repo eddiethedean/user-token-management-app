@@ -1,39 +1,44 @@
-"""Pipeline application commands with explicit policy dependencies."""
+"""Framework-neutral pipeline commands and use cases.
+
+The lazy compatibility exports point old route code at infrastructure only
+when that code is used. Keeping the import path avoids a flag-day migration
+without making ORM or HTTP types part of this package's module imports.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import Any
 
-from sqlalchemy.orm import Session
+from app.application.pipelines.authoring import (
+    PipelineAuthoringOperation,
+    SavePipelineAuthoringCommand,
+)
+from app.application.pipelines.use_cases import PipelineUseCases, SavePipelineInput
 
-from app.connectors.locators import DefinitionSnapshot
-from app.connectors.registry import route_allowed, writer_enabled
-from app.models import PipelineDefinition, PipelineRun, User
-from app.services.pipeline_runs import enqueue_run
-from app.services.pipelines import save_pipeline
 
-if TYPE_CHECKING:
-    from fastapi import Request
+def _route_allowed(source: str, destination: str) -> bool:
+    from app.connectors.registry import route_allowed
 
-RoutePolicy = Callable[[str, str], bool]
-WriterPolicy = Callable[[str], bool]
+    return route_allowed(source, destination)
+
+
+def _writer_enabled(provider: str) -> bool:
+    from app.connectors.registry import writer_enabled
+
+    return writer_enabled(provider)
 
 
 @dataclass(frozen=True)
 class PipelineDependencies:
-    """External policy authorities used by pipeline commands."""
-
-    route_policy: RoutePolicy = route_allowed
-    writer_policy: WriterPolicy = writer_enabled
+    route_policy: Callable[[str, str], bool] = _route_allowed
+    writer_policy: Callable[[str], bool] = _writer_enabled
 
 
 @dataclass(frozen=True)
 class SavePipelineCommand:
-    """Validated inputs for saving a pipeline definition."""
-
-    user: User
+    user: Any
     name: str
     source_provider: str
     destination_provider: str
@@ -49,35 +54,32 @@ class SavePipelineCommand:
     source_upload_id: str = ""
     conflict_columns: str = ""
     pipeline_id: str = ""
-    request: Request | None = None
+    request: Any = None
 
 
 @dataclass(frozen=True)
 class EnqueuePipelineCommand:
-    """Validated inputs for enqueuing a pipeline run."""
-
-    user: User
-    pipeline: PipelineDefinition
-    snapshot: DefinitionSnapshot
+    user: Any
+    pipeline: Any
+    snapshot: Any
     attempt: int = 1
     parent_run_id: str | None = None
     idempotency_token: str | None = None
-    request: Request | None = None
+    request: Any = None
 
 
 class PipelineCommands:
-    """Application boundary for pipeline mutations.
-
-    The web layer supplies policy authorities once, while the underlying
-    service functions remain available as compatibility adapters during the
-    repository migration.
-    """
+    """Compatibility adapter with policy dependencies supplied by callers."""
 
     def __init__(self, dependencies: PipelineDependencies | None = None) -> None:
         self.dependencies = dependencies or PipelineDependencies()
 
-    def save(self, db: Session, command: SavePipelineCommand) -> PipelineDefinition:
-        return save_pipeline(
+    def save(self, db: Any, command: SavePipelineCommand) -> Any:
+        save_fn = globals().get("save_pipeline")
+        if save_fn is None:
+            from app.infrastructure.persistence.legacy_pipeline import save_pipeline as save_fn
+
+        return save_fn(
             db,
             route_policy=self.dependencies.route_policy,
             writer_policy=self.dependencies.writer_policy,
@@ -100,8 +102,12 @@ class PipelineCommands:
             request=command.request,
         )
 
-    def enqueue(self, db: Session, command: EnqueuePipelineCommand) -> PipelineRun:
-        return enqueue_run(
+    def enqueue(self, db: Any, command: EnqueuePipelineCommand) -> Any:
+        enqueue_fn = globals().get("enqueue_run")
+        if enqueue_fn is None:
+            from app.infrastructure.persistence.legacy_pipeline import enqueue_run as enqueue_fn
+
+        return enqueue_fn(
             db,
             route_policy=self.dependencies.route_policy,
             writer_policy=self.dependencies.writer_policy,
@@ -113,3 +119,23 @@ class PipelineCommands:
             idempotency_token=command.idempotency_token,
             request=command.request,
         )
+
+
+def __getattr__(name: str):
+    if name in {"save_pipeline", "enqueue_run"}:
+        from app.infrastructure.persistence import legacy_pipeline
+
+        return getattr(legacy_pipeline, name)
+    raise AttributeError(name)
+
+
+__all__ = [
+    "EnqueuePipelineCommand",
+    "PipelineCommands",
+    "PipelineDependencies",
+    "PipelineAuthoringOperation",
+    "PipelineUseCases",
+    "SavePipelineCommand",
+    "SavePipelineAuthoringCommand",
+    "SavePipelineInput",
+]

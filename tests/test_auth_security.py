@@ -260,12 +260,13 @@ def test_password_change_signs_out(client) -> None:
     assert blocked.status_code in {302, 303, 401}
 
 
-def test_login_rate_limit_html(client) -> None:
+def test_login_rate_limit_html(client, request_settings_override) -> None:
     settings = get_settings()
     original_source = settings.rate_limit_login_per_source
     original_account = settings.rate_limit_login_per_account
     settings.rate_limit_login_per_source = 1
     settings.rate_limit_login_per_account = 1
+    request_settings_override(settings)
     try:
         preauth = login_csrf_from(client.get("/login").text)
         rejected = client.post(
@@ -302,7 +303,7 @@ def test_login_rate_limit_html(client) -> None:
         settings.rate_limit_login_per_account = original_account
 
 
-def test_registration_and_reset_rate_limits(client) -> None:
+def test_registration_and_reset_rate_limits(client, request_settings_override) -> None:
     settings = get_settings()
     original_reg_source = settings.rate_limit_registration_per_source
     original_reg_account = settings.rate_limit_registration_per_account
@@ -312,6 +313,7 @@ def test_registration_and_reset_rate_limits(client) -> None:
     settings.rate_limit_registration_per_account = 1
     settings.rate_limit_reset_per_source = 1
     settings.rate_limit_reset_per_account = 1
+    request_settings_override(settings)
     try:
         first = preauth_post(
             client, "/register", {"email": "rate.reg@example.gov", "full_name": "Rate Reg"}

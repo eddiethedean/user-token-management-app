@@ -20,6 +20,7 @@ class McscopConnector(FoundryConnector):
         namespaces_label="Dataset",
         objects_label="File",
         writer_enabled=False,
+        writer_setting="pipeline_enable_mcscop_writer",
         schema_inspection=False,
         exact_row_counts=False,
         verification_level="local_manifest",

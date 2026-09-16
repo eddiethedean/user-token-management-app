@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, cast
@@ -12,6 +11,7 @@ from hedron import Badge, Hedron, OobUpdate, html
 from hedron_core import NodeLike
 from starlette.responses import Response
 
+from app.application.catalogs import CatalogAccess
 from app.connectors.registry import route_allowed, writer_enabled
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.models import PipelineUpload
@@ -19,7 +19,6 @@ from app.services.catalogs import (
     CREATE_TABLE_VALUE,
     CSV_SOURCE_CATALOG,
     ProviderCatalog,
-    UserCatalog,
     require_catalog_provider,
 )
 from app.services.csv_uploads import CsvInspection, inspection_from_upload
@@ -55,7 +54,7 @@ from app.ui.regions import (
     PIPELINE_TARGET_TABLE_SELECT,
     TOAST_HOST,
 )
-from app.ui.routes.pipeline_context import WithUserCatalog
+from app.ui.routes.pipeline_context import WithUserCatalog, run_owned_sync
 
 Connections = dict[str, dict[str, str | bool]]
 WriterPolicy = Callable[[str], bool]
@@ -72,7 +71,7 @@ class SwapEligibilityResult(Protocol):
 class CanSwapDirection(Protocol):
     def __call__(
         self,
-        catalog_access: UserCatalog,
+        catalog_access: CatalogAccess,
         connections: Connections,
         *,
         source_provider: str,
@@ -91,7 +90,7 @@ class PipelinePreviewFragment(Protocol):
         self,
         *,
         request: Request,
-        catalog_access: UserCatalog,
+        catalog_access: CatalogAccess,
         source_provider: str,
         source_schema: str,
         source_table: str,
@@ -112,7 +111,7 @@ class PipelinePreviewFragment(Protocol):
 class NormalizedSelection(Protocol):
     def __call__(
         self,
-        catalog_access: UserCatalog,
+        catalog_access: CatalogAccess,
         provider: str,
         namespace: str,
         object_name: str,
@@ -136,7 +135,7 @@ class PipelineSchemaPreviewPanel(Protocol):
     def __call__(
         self,
         *,
-        catalog_access: UserCatalog,
+        catalog_access: CatalogAccess,
         source_provider: str,
         source_schema: str,
         source_object: str,
@@ -274,7 +273,8 @@ def register_pipeline_preview_routes(
             for provider, secret in list_user_secrets(db, auth.user)
         }
         if swap_direction:
-            swap_eligibility = await asyncio.to_thread(
+            swap_eligibility = await run_owned_sync(
+                request,
                 with_user_catalog,
                 settings,
                 auth.user.id,
@@ -341,7 +341,8 @@ def register_pipeline_preview_routes(
                 detail="Select source and destination providers that support this transfer.",
             )
         if source_provider != "csv":
-            source_schema, source_table = await asyncio.to_thread(
+            source_schema, source_table = await run_owned_sync(
+                request,
                 with_user_catalog,
                 settings,
                 auth.user.id,
@@ -355,7 +356,8 @@ def register_pipeline_preview_routes(
                 ),
             )
         if destination_provider:
-            destination_schema, destination_table = await asyncio.to_thread(
+            destination_schema, destination_table = await run_owned_sync(
+                request,
                 with_user_catalog,
                 settings,
                 auth.user.id,
@@ -368,7 +370,8 @@ def register_pipeline_preview_routes(
                     preserve_create=True,
                 ),
             )
-        preview_fragment = await asyncio.to_thread(
+        preview_fragment = await run_owned_sync(
+            request,
             with_user_catalog,
             settings,
             auth.user.id,
@@ -396,7 +399,8 @@ def register_pipeline_preview_routes(
         destination_object = committed_new_table_name(destination_table_new) or destination_table
         if destination_table == CREATE_TABLE_VALUE:
             destination_object = committed_new_table_name(destination_table_new) or "new_table"
-        schema_preview = await asyncio.to_thread(
+        schema_preview = await run_owned_sync(
+            request,
             with_user_catalog,
             settings,
             auth.user.id,
