@@ -31,6 +31,22 @@ from app.services.csv_uploads import inspect_csv
 from tests.helpers import csrf_from, web_login
 
 
+def test_pipeline_destination_selection_uses_request_writer_policy(access_app) -> None:
+    from app.ui.routes.pipeline import _eligible_destinations
+
+    connections = {
+        provider: {"configured": True, "validation": "connected", "runtime": "demo"}
+        for provider in ("mss", "mcscop", "postgres")
+    }
+    destinations = _eligible_destinations(
+        connections,
+        "postgres",
+        writer_policy=lambda provider: provider == "mss",
+    )
+
+    assert [catalog.name for catalog in destinations] == ["mss"]
+
+
 def test_pipeline_workspace_renders_live_feedback_controls(client) -> None:
     web_login(client, next_path="/pipeline")
     response = client.get("/pipeline")
@@ -1491,13 +1507,17 @@ def test_created_foundry_file_can_be_saved_again_after_reload(
     parser = NewNameParser()
     parser.feed(reloaded.text)
     assert parser.value == "a"
+    assert parser.pattern is not None
     assert re.fullmatch(parser.pattern, parser.value)
-    pipeline_id = re.search(r'name="pipeline_id" value="([^"]+)"', reloaded.text).group(1)
+    pipeline_match = re.search(r'name="pipeline_id" value="([^"]+)"', reloaded.text)
+    assert pipeline_match is not None
+    pipeline_id = pipeline_match.group(1)
     fields.update(pipeline_id=pipeline_id, destination_table_new=parser.value)
     saved_again = client.post("/pipeline/save", data=fields)
     assert saved_again.status_code == 303
     with SessionLocal() as db:
         pipeline = db.get(PipelineDefinition, pipeline_id)
+        assert pipeline is not None
         assert pipeline.destination_table == "a.snappy.parquet"
 
 

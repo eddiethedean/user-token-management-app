@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 from fastapi import Request
 from sqlalchemy import select
@@ -76,6 +77,8 @@ def save_pipeline(
     source_table: str = "",
     destination_schema: str = "",
     destination_table: str = "",
+    route_policy: Callable[[str, str], bool] | None = None,
+    writer_policy: Callable[[str], bool] | None = None,
 ) -> PipelineDefinition:
     source_namespace = source_namespace or source_schema
     source_object = source_object or source_table
@@ -87,7 +90,8 @@ def save_pipeline(
     source_provider = source_provider.casefold()
     destination_provider = destination_provider.casefold()
     try:
-        if not route_allowed(source_provider, destination_provider):
+        is_route_allowed = route_policy or route_allowed
+        if not is_route_allowed(source_provider, destination_provider):
             raise ValueError("Select a supported source and destination.")
     except ValueError:
         raise
@@ -99,7 +103,8 @@ def save_pipeline(
         raise ValueError(
             "Configure and validate the selected destination connection before saving."
         )
-    if not writer_enabled(destination_provider):
+    is_writer_enabled = writer_policy or writer_enabled
+    if not is_writer_enabled(destination_provider):
         raise ValueError("The selected destination writer is not enabled by the operator.")
 
     source_upload = None

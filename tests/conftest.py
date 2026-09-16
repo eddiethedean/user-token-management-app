@@ -19,7 +19,6 @@ mongodb_from_noproc = factories.mongodb("mongo_noproc")
 def _rebind_database() -> None:
     """Point the process-wide engine/SessionLocal at the current DATABASE_URL."""
     from app import database as dbmod
-    from app import schema as schemamod
     from app.config import get_settings
 
     get_settings.cache_clear()
@@ -41,7 +40,6 @@ def _rebind_database() -> None:
 
     dbmod.engine = new_engine
     dbmod.SessionLocal.configure(bind=new_engine)
-    schemamod.engine = new_engine
 
 
 @pytest.fixture()

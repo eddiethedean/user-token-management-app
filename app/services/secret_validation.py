@@ -108,11 +108,3 @@ class CredentialValidator:
         field = next((item for item in specification.fields if item.name == field_name), None)
         if value and field and value not in field.options:
             raise ValueError(f"Select a supported {label}.")
-
-
-def validate_credentials(
-    specification: SecretProvider,
-    credentials: Mapping[str, str],
-) -> dict[str, str]:
-    """Functional adapter for callers that do not need a custom policy."""
-    return CredentialValidator().validate(specification, credentials)

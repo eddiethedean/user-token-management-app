@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from fastapi import Request
 from hedron import (
@@ -237,7 +237,10 @@ def document_head(
 def alert_box(message: str, *, kind: str = "error") -> Alert | Fragment:
     if not message:
         return Fragment()
-    tone = {"success": "success", "info": "info", "warning": "warning"}.get(kind, "danger")
+    tone = cast(
+        Literal["info", "success", "warning", "danger"],
+        {"success": "success", "info": "info", "warning": "warning"}.get(kind, "danger"),
+    )
     return Alert(message, tone=tone)
 
 
@@ -688,7 +691,7 @@ def main_panel(
                     padding="none",
                 ),
                 theme=theme,
-                color_mode=color_mode,
+                color_mode=cast(Literal["light", "dark"] | None, color_mode),
                 density="comfortable",
                 variant="workspace",
                 design="data-mover",

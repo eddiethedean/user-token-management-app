@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlencode
+
 from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, HedronRouter, InteractionResult, SplitView, html
@@ -24,7 +26,6 @@ from app.services.auth import (
 from app.services.directory import (
     ADMIN_PAGE_SIZE,
     DirectoryUnavailableError,
-    user_listing_path,
     user_listing_values,
     validate_directory_email,
 )
@@ -68,7 +69,16 @@ from app.ui.regions import (
     USER_DIRECTORY_BODY,
     USER_MATCH_COUNT,
 )
-from app.ui.urls import redirect_path
+from app.ui.urls import mounted_path, redirect_path
+
+
+def user_listing_path(
+    request: Request, *, query: str = "", status_filter: str = "", page: int = 1, notice: str = ""
+) -> str:
+    parameters = [("q", query), ("status", status_filter), ("page", str(max(1, page)))]
+    if notice:
+        parameters.append(("notice", notice))
+    return mounted_path(request, "/admin/users?" + urlencode(parameters))
 
 
 def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:

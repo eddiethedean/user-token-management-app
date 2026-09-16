@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from pathlib import Path
+from typing import cast
 
 from alembic import command
 from sqlalchemy import create_engine, inspect, text
@@ -62,9 +64,13 @@ def test_dark_default_migration_preserves_existing_user_choice(tmp_path) -> None
             email="new@example.gov",
             include_color_mode=False,
         )
-        choices = dict(
-            connection.execute(text("SELECT id, preferred_color_mode FROM users ORDER BY id")).all()
+        rows = cast(
+            Iterable[tuple[str, str | None]],
+            connection.execute(
+                text("SELECT id, preferred_color_mode FROM users ORDER BY id")
+            ).all(),
         )
+        choices = {row[0]: row[1] for row in rows}
 
     color_column = next(
         column

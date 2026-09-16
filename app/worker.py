@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import parse_snapshot
+from app.connectors.registry import destination_writer_for, source_reader_for
 from app.models import PipelineRun, User
 from app.services import pipeline_runs
 from app.services.pipeline_state import RunConflictError
@@ -130,6 +131,8 @@ def process_one(
                 _cancel_flag(db, run_id) or (stop_event is not None and stop_event.is_set())
             ),
             lease_lost=keeper.lost.is_set,
+            source_resolver=source_reader_for,
+            destination_resolver=destination_writer_for,
         )
     except ConnectorError as exc:
         db.rollback()

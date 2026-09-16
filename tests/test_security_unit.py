@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import jwt
 import pytest
@@ -42,7 +43,7 @@ def settings(**updates) -> Settings:
         "trusted_proxy_ips": "10.0.0.10",
     }
     values.update(updates)
-    return Settings(_env_file=None, **values)
+    return Settings(_env_file=None, **values)  # pyright: ignore[reportCallIssue]
 
 
 def request_with_client(host: str, *, forwarded: str = "", connect_base: str = "") -> Request:
@@ -241,7 +242,7 @@ def test_application_cookies_use_hedron_posit_mount_registry() -> None:
         state=SimpleNamespace(hedron_mount_path=mount),
         _owned_cookie_names=lambda: (),
     )
-    cookies = CookieRegistry(registry_app)
+    cookies = CookieRegistry(cast(Any, registry_app))
     cookies.register(CookieSpec("data-mover-test", secure=False))
     request = Request(
         {

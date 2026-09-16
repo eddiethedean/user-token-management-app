@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, cast
 
 from fastapi import Request
 from hedron import (
@@ -173,7 +173,10 @@ def secret_slot(
             control = TextInput(
                 field.name,
                 id=field_id,
-                type=field.input_type,
+                type=cast(
+                    Literal["text", "email", "password", "search", "tel", "url"],
+                    field.input_type,
+                ),
                 autocomplete=field.autocomplete,
                 required=field.required,
                 placeholder=field.placeholder,

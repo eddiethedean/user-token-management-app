@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
-from app.connectors.base import ConnectionHealth, ProviderCapabilities
+from app.connectors.base import ConnectionHealth, ProviderCapabilities, RegisteredConnector
 from app.connectors.errors import ConnectorError
 from app.connectors.registry import ConnectorRegistry
 
@@ -33,8 +34,8 @@ def _connector(provider: str) -> SimpleNamespace:
 def test_registry_instances_are_isolated_and_replaceable() -> None:
     registry = ConnectorRegistry()
 
-    def factory() -> object:
-        return _connector("example")
+    def factory() -> RegisteredConnector:
+        return cast(RegisteredConnector, _connector("example"))
 
     registry.register(factory)
 

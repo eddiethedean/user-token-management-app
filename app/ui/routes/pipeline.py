@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
-from fastapi import BackgroundTasks, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
+from fastapi import HTTPException, Request, status
 from hedron import (
     ActionGroup,
-    ActionState,
-    ActionTrace,
     Alert,
     AsyncRegion,
     AttrHost,
@@ -29,15 +27,11 @@ from hedron import (
     FlowStep,
     FormField,
     FormGrid,
-    Fragment,
     Grid,
     Hedron,
     HedronRouter,
     Inline,
-    InteractionResult,
     Metric,
-    OobUpdate,
-    OperationIdentity,
     ProcessFlow,
     Progress,
     ResourceList,
@@ -52,10 +46,10 @@ from hedron import (
     Timeline,
     html,
 )
-from hedron.htmx import is_htmx_request
 from hedron_core import NodeLike
 from starlette.responses import Response
 
+import app.services.pipeline_runs as pipeline_run_service
 from app.config import get_settings
 from app.connectors.errors import ConnectorError
 from app.connectors.locators import (
@@ -70,9 +64,14 @@ from app.connectors.locators import (
     parse_write_policy,
     postgres_table,
 )
-from app.connectors.registry import capabilities_for, route_allowed, writer_enabled
+from app.connectors.registry import (
+    capabilities_for,
+    catalog_browser_for,
+    route_allowed,
+    writer_enabled,
+)
 from app.database import SessionLocal
-from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
+from app.dependencies import Auth, DbSession, SettingsDep
 from app.models import PipelineDefinition, PipelineUpload, User
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
@@ -86,21 +85,14 @@ from app.services.csv_uploads import (
     MAX_CSV_UPLOAD_BYTES,
     CsvInspection,
     inspection_from_upload,
-    store_csv_upload,
 )
-from app.services.foundry_datasets import create_foundry_dataset
 from app.services.pipeline_metadata import provenance_label, schema_diff
 from app.services.pipeline_runs import (
-    enqueue_run,
     events_after,
     latest_run_map,
     owned_run,
-    record_reconciliation_review,
-    request_cancel,
-    snapshot_from_definition,
 )
-from app.services.pipeline_tasks import schedule_pipeline_run
-from app.services.pipelines import list_pipelines, locators_overlap, save_pipeline
+from app.services.pipelines import list_pipelines, locators_overlap
 from app.services.secrets import list_user_secrets
 from app.ui.design_system import (
     DATA_MOVER_DESIGN,
@@ -111,57 +103,33 @@ from app.ui.design_system import (
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
-from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.layout import INDICATOR, alert_box
-from app.ui.params import (
-    CsvUploadForm,
-    FoundryDatasetNameForm,
-    FoundryFolderRidForm,
-    NoticeQuery,
-    PipelineConflictColumnsForm,
-    PipelineIdForm,
-    PipelineNameForm,
-    PipelineOptionalProviderForm,
-    PipelineOptionalTableForm,
-    PipelineProviderForm,
-    PipelineSchemaForm,
-    PipelineSourceProviderForm,
-    PipelineSwapForm,
-    PipelineTableForm,
-    PipelineWriteModeForm,
+from app.ui.params import NoticeQuery
+from app.ui.presenters.run_status import (
+    EVENT_STAGE_LABELS,
+    destination_count_metric,
+    run_action_state,
+    run_flow_statuses,
+    run_flow_steps,
+    run_progress,
+    run_stage_copy,
 )
 from app.ui.regions import (
-    CSV_INSPECTION,
-    CSV_UPLOAD_STATE,
     MAIN_PANEL,
-    PIPELINE_CSV_FILE,
-    PIPELINE_DATASET_CREATOR,
-    PIPELINE_PREVIEW_REGION,
-    PIPELINE_RUN_MONITOR,
-    PIPELINE_SCHEMA_PREVIEW,
-    PIPELINE_SOURCE_DATASET_SUGGESTIONS,
-    PIPELINE_SOURCE_FILE_SUGGESTIONS,
-    PIPELINE_SOURCE_NODE,
-    PIPELINE_SOURCE_PROVIDER_LABEL,
-    PIPELINE_SOURCE_SCHEMA_SELECT,
-    PIPELINE_SOURCE_SELECT,
-    PIPELINE_SOURCE_TABLE_SELECT,
-    PIPELINE_TARGET_NODE,
-    PIPELINE_TARGET_PROVIDER_LABEL,
-    PIPELINE_TARGET_SCHEMA_SELECT,
-    PIPELINE_TARGET_SELECT,
-    PIPELINE_TARGET_TABLE_SELECT,
     SIDE_NAV,
-    TOAST_HOST,
 )
+from app.ui.routes.pipeline_context import with_user_catalog, with_user_session
 from app.ui.tabs import NavigationTabs
-from app.ui.urls import form_action, hx_attrs, redirect_path
+from app.ui.urls import form_action, hx_attrs
 
 
 @dataclass(frozen=True)
 class SwapEligibility:
     allowed: bool
     reason: str = ""
+
+
+WriterPolicy = Callable[[str], bool]
 
 
 def _provider_label(provider: str) -> str:
@@ -178,7 +146,7 @@ def _option(
     disabled: bool = False,
     **data: str,
 ):
-    attrs = {"value": value}
+    attrs: dict[str, Any] = {"value": value}
     if selected:
         attrs["selected"] = True
     if disabled:
@@ -307,7 +275,10 @@ def _connection_provisionable(details: dict[str, str | bool], catalog: ProviderC
 
 
 def _configured_catalogs(
-    connections: dict[str, dict[str, str | bool]], *, role: str
+    connections: dict[str, dict[str, str | bool]],
+    *,
+    role: str,
+    writer_policy: WriterPolicy,
 ) -> tuple[ProviderCatalog, ...]:
     return tuple(
         catalog
@@ -322,7 +293,7 @@ def _configured_catalogs(
         )
         and (
             (role == "source" and catalog.source)
-            or (role == "destination" and catalog.destination and writer_enabled(catalog.name))
+            or (role == "destination" and catalog.destination and writer_policy(catalog.name))
         )
     )
 
@@ -333,6 +304,7 @@ def _provider_options(
     selected: str,
     role: str,
     counterpart: str = "",
+    writer_policy: WriterPolicy,
 ):
     return [
         _option(
@@ -356,7 +328,7 @@ def _provider_options(
         )
         and (
             (role == "source" and catalog.source)
-            or (role == "destination" and catalog.destination and writer_enabled(catalog.name))
+            or (role == "destination" and catalog.destination and writer_policy(catalog.name))
         )
         and (
             not counterpart
@@ -370,13 +342,18 @@ def _provider_options(
 
 
 def _source_provider_options(
-    connections: dict[str, dict[str, str | bool]], *, selected: str, target_provider: str
+    connections: dict[str, dict[str, str | bool]],
+    *,
+    selected: str,
+    target_provider: str,
+    writer_policy: WriterPolicy,
 ):
     return [
         *_provider_options(
             connections,
             selected=selected,
             role="source",
+            writer_policy=writer_policy,
         ),
         *(
             [
@@ -403,6 +380,7 @@ def _source_provider_select(
     *,
     selected: str,
     target_provider: str,
+    writer_policy: WriterPolicy,
     oob: bool = False,
 ) -> NodeLike:
     attrs: dict[str, Any] = {
@@ -426,6 +404,7 @@ def _source_provider_select(
             connections,
             selected=selected,
             target_provider=target_provider,
+            writer_policy=writer_policy,
         ),
         **attrs,
     )
@@ -479,15 +458,27 @@ def _source_namespace_control(
     )
 
 
-def _eligible_destinations(connections, source_provider: str) -> tuple[ProviderCatalog, ...]:
+def _eligible_destinations(
+    connections,
+    source_provider: str,
+    *,
+    writer_policy: WriterPolicy,
+) -> tuple[ProviderCatalog, ...]:
     return tuple(
         catalog
-        for catalog in _configured_catalogs(connections, role="destination")
+        for catalog in _configured_catalogs(
+            connections, role="destination", writer_policy=writer_policy
+        )
         if route_allowed(source_provider, catalog.name)
     )
 
 
-def _destination_unavailable_message(connections, source_provider: str) -> str:
+def _destination_unavailable_message(
+    connections,
+    source_provider: str,
+    *,
+    writer_policy: WriterPolicy,
+) -> str:
     if not any(details["configured"] for details in connections.values()):
         return "Set up at least one connection before building or running a pipeline."
     disabled = [
@@ -497,7 +488,7 @@ def _destination_unavailable_message(connections, source_provider: str) -> str:
         and catalog.destination
         and _connection_configured(connections[catalog.name])
         and route_allowed(source_provider, catalog.name)
-        and not writer_enabled(catalog.name)
+        and not writer_policy(catalog.name)
     ]
     if disabled:
         return (
@@ -511,10 +502,20 @@ def _destination_unavailable_message(connections, source_provider: str) -> str:
 
 
 def _destination_provider_select(
-    request, connections, *, source_provider: str, selected: str, oob=False
+    request,
+    connections,
+    *,
+    source_provider: str,
+    selected: str,
+    writer_policy: WriterPolicy,
+    oob=False,
 ):
     options = _provider_options(
-        connections, selected=selected, role="destination", counterpart=source_provider
+        connections,
+        selected=selected,
+        role="destination",
+        counterpart=source_provider,
+        writer_policy=writer_policy,
     )
     if not options:
         options = [
@@ -903,6 +904,7 @@ def _can_swap_direction(
     target_provider: str,
     target_schema: str,
     target_table: str,
+    writer_policy: WriterPolicy,
     destination_table_new: str = "",
 ) -> SwapEligibility:
     """Return whether swapping preserves both endpoints without fallback selection."""
@@ -916,7 +918,10 @@ def _can_swap_direction(
     if target_table == CREATE_TABLE_VALUE:
         return SwapEligibility(False, "Choose an existing destination object before swapping.")
     if source_provider not in {
-        catalog.name for catalog in _eligible_destinations(connections, target_provider)
+        catalog.name
+        for catalog in _eligible_destinations(
+            connections, target_provider, writer_policy=writer_policy
+        )
     }:
         return SwapEligibility(
             False, "The selected destination cannot be used as a source in reverse."
@@ -1937,6 +1942,7 @@ def _saved_pipeline_cards(
     connections: dict[str, dict[str, str | bool]],
     *,
     csrf_token: str,
+    writer_policy: WriterPolicy,
     latest_runs: dict[str, object] | None = None,
 ):
     latest_runs = latest_runs or {}
@@ -1961,7 +1967,7 @@ def _saved_pipeline_cards(
         )
         target_runnable = _connection_runnable(
             connections[pipeline.destination_provider]
-        ) and writer_enabled(pipeline.destination_provider)
+        ) and writer_policy(pipeline.destination_provider)
         runnable = (
             connections_configured
             and source_runnable
@@ -2081,6 +2087,7 @@ def _pipeline_preview_fragment(
     csv_inspection: CsvInspection | None = None,
     csv_upload: PipelineUpload | None = None,
     connections: dict[str, dict[str, str | bool]],
+    writer_policy: WriterPolicy,
 ):
     if source_provider != "csv":
         source_schema, source_table = _normalized_selection(
@@ -2112,7 +2119,7 @@ def _pipeline_preview_fragment(
         connections[target_provider]
     )
     availability_message = (
-        _destination_unavailable_message(connections, source_provider)
+        _destination_unavailable_message(connections, source_provider, writer_policy=writer_policy)
         if target_catalog is None
         else "Upload and scan a CSV source."
         if source_provider == "csv" and not csv_ready
@@ -2150,6 +2157,7 @@ def _pipeline_preview_fragment(
         target_provider=target_provider,
         target_schema=target_schema,
         target_table=target_table,
+        writer_policy=writer_policy,
         destination_table_new=destination_table_new,
     )
     if route_overlap:
@@ -2216,6 +2224,7 @@ def _pipeline_preview_fragment(
             connections,
             selected=source_provider,
             target_provider=target_provider,
+            writer_policy=writer_policy,
             oob=True,
         ),
         html.span(
@@ -2238,6 +2247,7 @@ def _pipeline_preview_fragment(
             connections,
             source_provider=source_provider,
             selected=target_provider,
+            writer_policy=writer_policy,
             oob=True,
         ),
         (
@@ -2377,9 +2387,12 @@ def _pipeline_body(
     latest_runs: dict[str, object] | None = None,
     run_monitor: NodeLike = None,
     demo_mode: bool = True,
+    writer_policy: WriterPolicy,
 ):
-    source_catalogs = _configured_catalogs(connections, role="source")
-    destination_catalogs = _configured_catalogs(connections, role="destination")
+    source_catalogs = _configured_catalogs(connections, role="source", writer_policy=writer_policy)
+    destination_catalogs = _configured_catalogs(
+        connections, role="destination", writer_policy=writer_policy
+    )
     catalogs = tuple(dict.fromkeys((*source_catalogs, *destination_catalogs)))
     ready_count = sum(1 for details in connections.values() if _connection_runnable(details))
     compatible_pairs = [
@@ -2413,7 +2426,7 @@ def _pipeline_body(
             source_provider = loaded_pipeline.source_provider
         if loaded_pipeline.destination_provider in configured_providers:
             target_provider = loaded_pipeline.destination_provider
-    destinations = _eligible_destinations(connections, source_provider)
+    destinations = _eligible_destinations(connections, source_provider, writer_policy=writer_policy)
     if target_provider not in {catalog.name for catalog in destinations}:
         target_provider = destinations[0].name if destinations else ""
     source_catalog = (
@@ -2509,6 +2522,7 @@ def _pipeline_body(
         target_provider=target_provider,
         target_schema=target_schema_name,
         target_table=target_table_name,
+        writer_policy=writer_policy,
         destination_table_new=new_target_table_name,
     )
     upsert_keys = _upsert_keys(
@@ -2541,7 +2555,9 @@ def _pipeline_body(
     if route_overlap:
         availability_message = "Choose a destination object different from the source object."
     elif target_catalog is None:
-        availability_message = _destination_unavailable_message(connections, source_provider)
+        availability_message = _destination_unavailable_message(
+            connections, source_provider, writer_policy=writer_policy
+        )
     elif source_provider == "csv":
         availability_message = (
             "Upload and scan a CSV source."
@@ -2761,6 +2777,7 @@ def _pipeline_body(
                                                 connections,
                                                 selected=source_provider,
                                                 target_provider=target_provider,
+                                                writer_policy=writer_policy,
                                             ),
                                         ),
                                         FormGrid(
@@ -2893,6 +2910,7 @@ def _pipeline_body(
                                                 connections,
                                                 source_provider=source_provider,
                                                 selected=target_provider,
+                                                writer_policy=writer_policy,
                                             ),
                                         ),
                                         _dataset_creator(
@@ -3171,6 +3189,7 @@ def _pipeline_body(
                         pipelines,
                         connections,
                         csrf_token=csrf_token,
+                        writer_policy=writer_policy,
                         latest_runs=latest_runs,
                     ),
                     Alert(
@@ -3284,737 +3303,60 @@ def register_pipeline_routes(app: Hedron, fragment_router: HedronRouter) -> None
             headers={"Cache-Control": "no-store"},
         )
 
-    @app.action(
-        "/pipeline/csv/inspect",
-        fragment_regions=(CSV_INSPECTION, CSV_UPLOAD_STATE, TOAST_HOST),
-        include_in_schema=False,
+    from app.ui.routes.pipeline_csv import register_pipeline_csv_routes
+    from app.ui.routes.pipeline_datasets import register_pipeline_dataset_routes
+    from app.ui.routes.pipeline_preview import (
+        PipelinePreviewDependencies,
+        register_pipeline_preview_routes,
     )
-    async def pipeline_csv_inspect(
-        request: Request,
-        auth: Auth,
-        db: DbSession,
-        _csrf: RequireCsrf,
-        csv_file: CsvUploadForm,
-    ) -> Response:
-        try:
-            content = await csv_file.read(MAX_CSV_UPLOAD_BYTES + 1)
-            upload, inspection = store_csv_upload(
-                db,
-                user=auth.user,
-                filename=csv_file.filename or "",
-                content_type=csv_file.content_type or "text/csv",
-                content=content,
-                request=request,
-            )
-        except ValueError as exc:
-            return await interaction_response(
-                request,
-                ok_fragment(
-                    _csv_inspection(error=str(exc)),
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    toast=str(exc),
-                    toast_tone="danger",
-                    oob=(
-                        OobUpdate(
-                            Badge("Scan failed", tone="danger"),
-                            element_id="pipeline-csv-upload-state",
-                            swap="outerHTML",
-                        ),
-                    ),
-                    region_id=CSV_INSPECTION.id,
-                ),
-            )
-        finally:
-            await csv_file.close()
-        return await interaction_response(
-            request,
-            ok_fragment(
-                _csv_inspection(upload, inspection),
-                toast=(
-                    f"Scanned {inspection.filename}: {len(inspection.columns)} columns detected."
-                ),
-                oob=(
-                    OobUpdate(
-                        Badge("Scan complete", tone="success"),
-                        element_id="pipeline-csv-upload-state",
-                        swap="outerHTML",
-                    ),
-                ),
-                region_id=CSV_INSPECTION.id,
-            ),
-        )
+    from app.ui.routes.pipeline_runs import register_pipeline_run_routes
+    from app.ui.routes.pipeline_save import register_pipeline_save_routes
 
-    @app.action(
-        "/pipeline/preview",
-        fragment_regions=(
-            CSV_INSPECTION,
-            CSV_UPLOAD_STATE,
-            PIPELINE_CSV_FILE,
-            PIPELINE_SOURCE_SELECT,
-            PIPELINE_DATASET_CREATOR,
-            PIPELINE_SOURCE_SCHEMA_SELECT,
-            PIPELINE_SOURCE_TABLE_SELECT,
-            PIPELINE_SOURCE_DATASET_SUGGESTIONS,
-            PIPELINE_SOURCE_FILE_SUGGESTIONS,
-            PIPELINE_TARGET_SELECT,
-            PIPELINE_TARGET_SCHEMA_SELECT,
-            PIPELINE_TARGET_TABLE_SELECT,
-            PIPELINE_PREVIEW_REGION,
-            PIPELINE_SOURCE_NODE,
-            PIPELINE_SOURCE_PROVIDER_LABEL,
-            PIPELINE_SCHEMA_PREVIEW,
-            PIPELINE_TARGET_NODE,
-            PIPELINE_TARGET_PROVIDER_LABEL,
-            TOAST_HOST,
+    register_pipeline_csv_routes(
+        app,
+        inspection_fragment=_csv_inspection,
+    )
+    register_pipeline_dataset_routes(
+        app,
+        dataset_creator_fragment=_dataset_creator,
+        schema_options=_schema_options,
+        table_options=_table_options,
+        with_user_session=with_user_session,
+        with_user_catalog=with_user_catalog,
+    )
+    register_pipeline_preview_routes(
+        app,
+        dependencies=PipelinePreviewDependencies(
+            with_user_catalog=with_user_catalog,
+            can_swap_direction=_can_swap_direction,
+            eligible_destinations=_eligible_destinations,
+            normalized_selection=_normalized_selection,
+            pipeline_preview_fragment=_pipeline_preview_fragment,
+            pipeline_schema_preview_panel=_pipeline_schema_preview_panel,
+            committed_new_table_name=_committed_new_table_name,
+            provider_node=_provider_node,
+            csv_inspection_fragment=_csv_inspection,
+            connection_configured=_connection_configured,
+            connection_runnable=_connection_runnable,
         ),
-        include_in_schema=False,
     )
-    async def pipeline_preview(
-        request: Request,
-        auth: Auth,
-        db: DbSession,
-        settings: SettingsDep,
-        _csrf: RequireCsrf,
-        source_provider: PipelineSourceProviderForm,
-        destination_provider: PipelineOptionalProviderForm = "",
-        destination_schema: PipelineOptionalTableForm = "",
-        destination_table: PipelineOptionalTableForm = "",
-        source_schema: PipelineOptionalTableForm = "",
-        source_table: PipelineOptionalTableForm = "",
-        destination_table_new: PipelineOptionalTableForm = "",
-        source_upload_id: PipelineIdForm = "",
-        write_mode: PipelineWriteModeForm = "replace",
-        conflict_columns: PipelineConflictColumnsForm = "",
-        swap_direction: PipelineSwapForm = False,
-    ) -> Response:
-        csv_upload = None
-        csv_inspection = None
-        if source_provider == "csv" and source_upload_id:
-            csv_upload = db.get(PipelineUpload, source_upload_id)
-            if csv_upload is not None and csv_upload.user_id == auth.user.id:
-                try:
-                    csv_inspection = inspection_from_upload(csv_upload)
-                except ValueError:
-                    csv_upload = None
-                    csv_inspection = None
-        connections = {
-            provider.name: {
-                "configured": secret is not None,
-                "validation": secret.validation_status if secret is not None else "unconfigured",
-                "runtime": secret.runtime_status if secret is not None else "",
-            }
-            for provider, secret in list_user_secrets(db, auth.user)
-        }
-        if swap_direction:
-            swap_eligibility = await asyncio.to_thread(
-                _with_user_catalog,
-                settings,
-                auth.user.id,
-                request,
-                lambda catalog: _can_swap_direction(
-                    catalog,
-                    connections,
-                    source_provider=source_provider,
-                    source_schema=source_schema,
-                    source_table=source_table,
-                    target_provider=destination_provider,
-                    target_schema=destination_schema,
-                    target_table=destination_table,
-                    destination_table_new=destination_table_new,
-                ),
-            )
-            if not swap_eligibility.allowed:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail=swap_eligibility.reason,
-                )
-            source_provider, destination_provider = (
-                cast(PipelineSourceProviderForm, destination_provider),
-                cast(PipelineOptionalProviderForm, source_provider),
-            )
-            source_schema, destination_schema = destination_schema, source_schema
-            source_table, destination_table = destination_table, source_table
-            destination_table_new = ""
-        if source_provider != "csv" and not _connection_configured(connections[source_provider]):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Configure and validate the selected source connection first.",
-            )
-        # A source change can invalidate the previous destination. Resolve a
-        # compatible selection before inspecting its schema; save/run still
-        # enforce the route and writer policy independently.
-        if (
-            request.headers.get("HX-Trigger") == "pipeline-source-select"
-            or not destination_provider
-        ):
-            destinations = _eligible_destinations(connections, source_provider)
-            if destination_provider not in {catalog.name for catalog in destinations}:
-                destination_provider = cast(
-                    PipelineOptionalProviderForm, destinations[0].name if destinations else ""
-                )
-                destination_schema = ""
-                destination_table = ""
-                destination_table_new = ""
-                conflict_columns = ""
-        if destination_provider and (
-            not _connection_configured(connections[destination_provider])
-            or not writer_enabled(destination_provider)
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="The selected destination is not ready for writes.",
-            )
-        if destination_provider and not route_allowed(source_provider, destination_provider):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Select source and destination providers that support this transfer.",
-            )
-        if source_provider != "csv":
-            source_schema, source_table = await asyncio.to_thread(
-                _with_user_catalog,
-                settings,
-                auth.user.id,
-                request,
-                lambda catalog: _normalized_selection(
-                    catalog,
-                    source_provider,
-                    source_schema,
-                    source_table,
-                    freeform_namespace=source_provider in {"mss", "mcscop"},
-                ),
-            )
-        if destination_provider:
-            destination_schema, destination_table = await asyncio.to_thread(
-                _with_user_catalog,
-                settings,
-                auth.user.id,
-                request,
-                lambda catalog: _normalized_selection(
-                    catalog,
-                    destination_provider,
-                    destination_schema,
-                    destination_table,
-                    preserve_create=True,
-                ),
-            )
-        preview_fragment = await asyncio.to_thread(
-            _with_user_catalog,
-            settings,
-            auth.user.id,
-            request,
-            lambda catalog: _pipeline_preview_fragment(
-                request=request,
-                catalog_access=catalog,
-                source_provider=source_provider,
-                source_schema=source_schema,
-                source_table=source_table,
-                target_provider=destination_provider,
-                target_schema=destination_schema,
-                target_table=destination_table,
-                destination_table_new=destination_table_new,
-                source_upload_id=source_upload_id,
-                write_mode=write_mode,
-                conflict_columns=conflict_columns,
-                csv_inspection=csv_inspection,
-                csv_upload=csv_upload,
-                connections=connections,
-            ),
-        )
-        source_object = source_table
-        destination_object = _committed_new_table_name(destination_table_new) or destination_table
-        if destination_table == CREATE_TABLE_VALUE:
-            destination_object = _committed_new_table_name(destination_table_new) or "new_table"
-        schema_preview = await asyncio.to_thread(
-            _with_user_catalog,
-            settings,
-            auth.user.id,
-            request,
-            lambda catalog: _pipeline_schema_preview_panel(
-                catalog_access=catalog,
-                source_provider=source_provider,
-                source_schema=source_schema,
-                source_object=source_object,
-                destination_provider=destination_provider,
-                destination_schema=destination_schema,
-                destination_object=destination_object,
-                destination_create=destination_table == CREATE_TABLE_VALUE,
-                csv_inspection=csv_inspection if csv_upload is not None else None,
-                include_id=False,
-            ),
-        )
-        source_catalog = (
-            CSV_SOURCE_CATALOG
-            if source_provider == "csv"
-            else require_catalog_provider(source_provider)
-        )
-        target_catalog = (
-            require_catalog_provider(destination_provider) if destination_provider else None
-        )
-        source_ready = (
-            source_provider == "csv" and csv_upload is not None and csv_inspection is not None
-        ) or (source_provider != "csv" and _connection_runnable(connections[source_provider]))
-        target_ready = target_catalog is not None and _connection_runnable(
-            connections[destination_provider]
-        )
-        source_detail = (
-            csv_inspection.filename
-            if source_provider == "csv" and source_ready and csv_inspection is not None
-            else "Choose a CSV file"
-            if source_provider == "csv"
-            else f"{source_schema}.{source_table}"
-        )
-        target_object = _committed_new_table_name(destination_table_new) or destination_table
-        if destination_table == CREATE_TABLE_VALUE:
-            target_object = _committed_new_table_name(destination_table_new) or "new_table"
-        oob_updates = [
-            OobUpdate(schema_preview, element_id="pipeline-schema-preview", swap="outerHTML"),
-            OobUpdate(
-                html.span(Badge(source_catalog.label, tone="success")),
-                element_id="pipeline-source-provider-label",
-                swap="outerHTML",
-            ),
-            OobUpdate(
-                html.span(
-                    Badge(
-                        target_catalog.label if target_catalog is not None else "Not selected",
-                        tone="info",
-                    )
-                ),
-                element_id="pipeline-target-provider-label",
-                swap="outerHTML",
-            ),
-            OobUpdate(
-                _provider_node(
-                    kind="source",
-                    include_id=False,
-                    catalog=source_catalog,
-                    detail=source_detail,
-                    configured=source_ready,
-                    runtime=(
-                        str(connections[source_provider]["runtime"])
-                        if source_provider != "csv"
-                        else ""
-                    ),
-                ),
-                element_id="pipeline-source-node",
-                swap="outerHTML",
-            ),
-            OobUpdate(
-                _provider_node(
-                    kind="target",
-                    include_id=False,
-                    catalog=target_catalog,
-                    detail=(
-                        f"{destination_schema}.{target_object}"
-                        if target_catalog is not None
-                        else "Configure a connection"
-                    ),
-                    configured=target_ready,
-                    runtime=(
-                        str(connections[destination_provider]["runtime"])
-                        if target_catalog is not None
-                        else ""
-                    ),
-                ),
-                element_id="pipeline-target-node",
-                swap="outerHTML",
-            ),
-        ]
-        if source_provider != "csv":
-            oob_updates.extend(
-                [
-                    OobUpdate(
-                        _csv_inspection(include_id=False),
-                        element_id="pipeline-csv-inspection",
-                        swap="outerHTML",
-                    ),
-                    OobUpdate(
-                        Badge("5 MB maximum", tone="neutral"),
-                        element_id="pipeline-csv-upload-state",
-                        swap="outerHTML",
-                    ),
-                ]
-            )
-        return await interaction_response(
-            request,
-            ok_fragment(
-                preview_fragment,
-                oob=tuple(oob_updates),
-            ),
-        )
-
-    @app.action(
-        "/pipeline/foundry-datasets",
-        fragment_regions=(
-            PIPELINE_DATASET_CREATOR,
-            PIPELINE_TARGET_SCHEMA_SELECT,
-            PIPELINE_TARGET_TABLE_SELECT,
-            TOAST_HOST,
-        ),
-        include_in_schema=False,
+    register_pipeline_save_routes(
+        app,
+        with_user_session=with_user_session,
     )
-    async def pipeline_foundry_dataset_create(
-        request: Request,
-        auth: Auth,
-        db: DbSession,
-        settings: SettingsDep,
-        _csrf: RequireCsrf,
-        destination_provider: PipelineProviderForm,
-        parent_folder_rid: FoundryFolderRidForm,
-        dataset_name: FoundryDatasetNameForm,
-    ) -> Response:
-        catalog = require_catalog_provider(destination_provider)
-        try:
-            created = await asyncio.to_thread(
-                _with_user_session,
-                settings,
-                auth.user.id,
-                lambda thread_db, user: create_foundry_dataset(
-                    thread_db,
-                    settings,
-                    user=user,
-                    provider=destination_provider,
-                    parent_folder_rid=parent_folder_rid,
-                    name=dataset_name,
-                    request=request,
-                ),
-            )
-        except (ConnectorError, ValueError) as exc:
-            return await interaction_response(
-                request,
-                ok_fragment(
-                    _dataset_creator(request, catalog, error=str(exc)),
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    region_id=PIPELINE_DATASET_CREATOR.id,
-                ),
-            )
 
-        namespace_select = html.select(
-            *await asyncio.to_thread(
-                _with_user_catalog,
-                settings,
-                auth.user.id,
-                request,
-                lambda catalog_access: _schema_options(
-                    catalog_access,
-                    destination_provider,
-                    preferred_schema=created.dataset_rid,
-                ),
-            ),
-            id="pipeline-target-schema-select",
-            **{"hx-swap-oob": "outerHTML:#pipeline-target-schema-select"},
-            name="destination_schema",
-            data={"pipeline-control": "target-schema"},
-            **hx_attrs(
-                request,
-                path="/pipeline/preview",
-                method="post",
-                target="#pipeline-preview-region",
-                swap="none",
-                include="#pipeline-form",
-                trigger="change",
-            ),
-        )
-        file_select = html.select(
-            *await asyncio.to_thread(
-                _with_user_catalog,
-                settings,
-                auth.user.id,
-                request,
-                lambda catalog_access: _table_options(
-                    catalog_access,
-                    destination_provider,
-                    created.dataset_rid,
-                    allow_create=True,
-                    preferred_table=CREATE_TABLE_VALUE,
-                    create_label="file",
-                ),
-            ),
-            id="pipeline-target-table-select",
-            **{"hx-swap-oob": "outerHTML:#pipeline-target-table-select"},
-            name="destination_table",
-            data={"pipeline-control": "target-table"},
-            **hx_attrs(
-                request,
-                path="/pipeline/preview",
-                method="post",
-                target="#pipeline-preview-region",
-                swap="none",
-                include="#pipeline-form",
-                trigger="change",
-            ),
-        )
-        response = await interaction_response(
-            request,
-            ok_fragment(
-                Fragment(
-                    _dataset_creator(request, catalog, created_name=created.name),
-                    namespace_select,
-                    file_select,
-                ),
-                toast=f'Dataset "{created.name}" was created.',
-                status_code=status.HTTP_201_CREATED,
-                region_id=PIPELINE_DATASET_CREATOR.id,
-            ),
-        )
-        response.headers["HX-Trigger-After-Settle"] = "pipelineDatasetCreated"
-        return response
-
-    @app.action("/pipeline/save", include_in_schema=False)
-    async def pipeline_save(
-        request: Request,
-        auth: Auth,
-        db: DbSession,
-        settings: SettingsDep,
-        _csrf: RequireCsrf,
-        pipeline_name: PipelineNameForm,
-        source_provider: PipelineSourceProviderForm,
-        destination_provider: PipelineProviderForm,
-        destination_schema: PipelineSchemaForm,
-        destination_table: PipelineTableForm,
-        write_mode: PipelineWriteModeForm,
-        source_schema: PipelineOptionalTableForm = "",
-        source_table: PipelineOptionalTableForm = "",
-        destination_table_new: PipelineOptionalTableForm = "",
-        conflict_columns: PipelineConflictColumnsForm = "",
-        source_upload_id: PipelineIdForm = "",
-        pipeline_id: PipelineIdForm = "",
-    ) -> Response:
-        if source_provider != "csv" and (not source_schema or not source_table):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="Select a source schema and object before saving.",
-            )
-        try:
-            saved_pipeline_id = await asyncio.to_thread(
-                _save_pipeline_in_thread,
-                settings,
-                auth.user.id,
-                request,
-                pipeline_name,
-                source_provider,
-                source_schema,
-                source_table,
-                destination_provider,
-                destination_schema,
-                destination_table,
-                write_mode,
-                destination_table_new,
-                conflict_columns,
-                source_upload_id,
-                pipeline_id,
-            )
-        except (ConnectorError, ValueError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
-            ) from exc
-        return RedirectResponse(
-            redirect_path(
-                request,
-                f"/pipeline?notice=saved&pipeline_id={saved_pipeline_id}",
-            ),
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-
-    async def _start_pipeline_run(
-        request: Request,
-        auth: Auth,
-        db: DbSession,
-        settings: SettingsDep,
-        _csrf: RequireCsrf,
-        background_tasks: BackgroundTasks,
-        pipeline_id: str,
-        idempotency_token: PipelineIdForm = "",
-    ) -> Response:
-        pipeline = db.get(PipelineDefinition, pipeline_id)
-        if pipeline is None or pipeline.user_id != auth.user.id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pipeline not found")
-        try:
-            snapshot = snapshot_from_definition(pipeline)
-            run = enqueue_run(
-                db,
-                user=auth.user,
-                pipeline=pipeline,
-                snapshot=snapshot,
-                idempotency_token=idempotency_token or None,
-                request=request,
-            )
-        except (ValueError, LookupError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
-            ) from exc
-        if settings.is_demo_mode and settings.app_env == "test":
-            from app.worker import process_one
-
-            process_one(db, settings, run_id=run.id)
-            db.refresh(run)
-        else:
-            schedule_pipeline_run(
-                background_tasks,
-                settings,
-                run.id,
-                getattr(request.app.state, "pipeline_stop_event", None),
-            )
-        if is_htmx_request(request):
-            run_events = events_after(db, run=run, after_sequence=0)
-            action_state, action_trace = _run_action_metadata(run, run_events)
-            response = await interaction_response(
-                request,
-                ok_fragment(
-                    _run_status_fragment(
-                        request,
-                        db,
-                        run,
-                        csrf_token=auth.session.csrf_token,
-                        events=run_events,
-                    ),
-                    status_code=status.HTTP_202_ACCEPTED,
-                    action_state=action_state,
-                    action_trace=action_trace,
-                ),
-            )
-            return response
-        response = RedirectResponse(
-            redirect_path(request, f"/pipeline?notice=queued&run_id={run.id}"),
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-        return response
-
-    @app.action(
-        "/pipeline/runs",
-        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST),
-        include_in_schema=False,
+    register_pipeline_run_routes(
+        app,
+        fragment_router,
+        status_fragment=_run_status_fragment,
+        events_loader=_events_after_for_run_routes,
     )
-    async def pipeline_run_start(
-        request: Request,
-        auth: Auth,
-        db: DbSession,
-        settings: SettingsDep,
-        background_tasks: BackgroundTasks,
-        _csrf: RequireCsrf,
-        pipeline_id: PipelineIdForm,
-        idempotency_token: PipelineIdForm = "",
-    ) -> Response:
-        if not pipeline_id:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="pipeline_id is required to start a pipeline run",
-            )
-        return await _start_pipeline_run(
-            request=request,
-            auth=auth,
-            db=db,
-            settings=settings,
-            background_tasks=background_tasks,
-            _csrf=_csrf,
-            pipeline_id=pipeline_id,
-            idempotency_token=idempotency_token,
-        )
 
-    @fragment_router.view(
-        "/pipeline/runs/{run_id}/status",
-        fragment_regions=(PIPELINE_RUN_MONITOR,),
-        include_in_schema=False,
-    )
-    async def pipeline_run_status(
-        request: Request,
-        auth: Auth,
-        db: DbSession,
-        run_id: str,
-    ) -> Response | InteractionResult:
-        request.state.hedron_authenticated = True
-        try:
-            run = owned_run(db, user=auth.user, run_id=run_id)
-        except LookupError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        if not is_htmx_request(request):
-            return RedirectResponse(
-                redirect_path(request, f"/pipeline?run_id={run.id}"),
-                status_code=status.HTTP_303_SEE_OTHER,
-            )
-        run_events = events_after(db, run=run, after_sequence=0)
-        action_state, action_trace = _run_action_metadata(run, run_events)
-        return ok_fragment(
-            _run_status_fragment(
-                request,
-                db,
-                run,
-                csrf_token=auth.session.csrf_token,
-                events=run_events,
-            ),
-            **_run_status_toasts(run),
-            action_state=action_state,
-            action_trace=action_trace,
-        )
 
-    @app.action(
-        "/pipeline/runs/{run_id}/cancel",
-        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST),
-        include_in_schema=False,
-    )
-    async def pipeline_run_cancel(
-        request: Request,
-        auth: Auth,
-        db: DbSession,
-        _csrf: RequireCsrf,
-        run_id: str,
-    ) -> Response:
-        try:
-            run = request_cancel(db, user=auth.user, run_id=run_id)
-        except LookupError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        run_events = events_after(db, run=run, after_sequence=0)
-        action_state, action_trace = _run_action_metadata(run, run_events)
-        return await interaction_response(
-            request,
-            ok_fragment(
-                _run_status_fragment(
-                    request,
-                    db,
-                    run,
-                    csrf_token=auth.session.csrf_token,
-                    events=run_events,
-                ),
-                **_run_status_toasts(run),
-                action_state=action_state,
-                action_trace=action_trace,
-            ),
-        )
+def _events_after_for_run_routes(db, *, run, after_sequence=0):
+    """Load run events for the extracted lifecycle routes."""
 
-    @app.action(
-        "/pipeline/runs/{run_id}/reconcile",
-        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST),
-        include_in_schema=False,
-    )
-    async def pipeline_run_reconcile(
-        request: Request,
-        auth: Auth,
-        db: DbSession,
-        _csrf: RequireCsrf,
-        run_id: str,
-    ) -> Response:
-        try:
-            run = record_reconciliation_review(db, user=auth.user, run_id=run_id)
-        except LookupError as exc:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        run_events = events_after(db, run=run, after_sequence=0)
-        action_state, action_trace = _run_action_metadata(run, run_events)
-        return await interaction_response(
-            request,
-            ok_fragment(
-                _run_status_fragment(
-                    request,
-                    db,
-                    run,
-                    csrf_token=auth.session.csrf_token,
-                    events=run_events,
-                ),
-                toast="Reconciliation review recorded.",
-                toast_tone="info",
-                action_state=action_state,
-                action_trace=action_trace,
-            ),
-        )
+    return pipeline_run_service.events_after(db, run=run, after_sequence=after_sequence)
 
 
 def _pipeline_body_in_thread(
@@ -4040,7 +3382,13 @@ def _pipeline_body_in_thread(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         return _pipeline_body(
             request,
-            UserCatalog(db, settings, user, request=request),
+            UserCatalog(
+                db,
+                settings,
+                user,
+                request=request,
+                browser_resolver=catalog_browser_for,
+            ),
             connections,
             pipelines,
             csrf_token=csrf_token,
@@ -4051,308 +3399,8 @@ def _pipeline_body_in_thread(
             latest_runs=latest_runs,
             run_monitor=run_monitor,
             demo_mode=demo_mode,
+            writer_policy=lambda provider: writer_enabled(provider, settings=settings),
         )
-
-
-def _with_user_session(settings, user_id, operation):
-    """Run synchronous pipeline work with a session created in the calling thread."""
-
-    with SessionLocal() as db:
-        user = db.get(User, user_id)
-        if user is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
-        return operation(db, user)
-
-
-def _with_user_catalog(settings, user_id, request, operation):
-    return _with_user_session(
-        settings,
-        user_id,
-        lambda db, user: operation(UserCatalog(db, settings, user, request=request)),
-    )
-
-
-def _save_pipeline_in_thread(
-    settings,
-    user_id,
-    request,
-    pipeline_name,
-    source_provider,
-    source_schema,
-    source_table,
-    destination_provider,
-    destination_schema,
-    destination_table,
-    write_mode,
-    destination_table_new,
-    conflict_columns,
-    source_upload_id,
-    pipeline_id,
-):
-    def save(thread_db, user):
-        available_providers = {
-            provider.name
-            for provider, secret in list_user_secrets(thread_db, user)
-            if secret is not None and secret.validation_status == "connected"
-        }
-        catalog_access = UserCatalog(thread_db, settings, user, request=request)
-        source_branch = (
-            catalog_access.default_branch(source_provider)
-            if source_provider != "csv" and source_provider in available_providers
-            else ""
-        )
-        destination_branch = (
-            catalog_access.branch_for_namespace(destination_provider, destination_schema)
-            if destination_provider in available_providers
-            else ""
-        )
-        selected_conflict_columns = conflict_columns
-        if (
-            destination_provider == "postgres"
-            and destination_provider in available_providers
-            and write_mode == "upsert"
-        ):
-            if destination_table == CREATE_TABLE_VALUE:
-                raise ValueError("Create the PostgreSQL table before configuring an upsert.")
-            destination_schema_details = catalog_access.inspect_object(
-                "postgres", postgres_table(destination_schema, destination_table)
-            )
-            eligible_keys = {
-                tuple(destination_schema_details.primary_key),
-                *map(tuple, destination_schema_details.unique_constraints),
-            }
-            eligible_keys.discard(())
-            selected_key = tuple(
-                item.strip() for item in conflict_columns.split(",") if item.strip()
-            )
-            if not selected_key and destination_schema_details.primary_key:
-                selected_key = tuple(destination_schema_details.primary_key)
-            if not selected_key or selected_key not in eligible_keys:
-                raise ValueError(
-                    "Select a current primary or unique key for the PostgreSQL upsert."
-                )
-            selected_conflict_columns = ",".join(selected_key)
-        saved_pipeline = save_pipeline(
-            thread_db,
-            user=user,
-            name=pipeline_name,
-            source_provider=source_provider,
-            source_schema=source_schema,
-            source_table=source_table,
-            source_branch=source_branch,
-            destination_provider=destination_provider,
-            destination_schema=destination_schema,
-            destination_table=destination_table,
-            destination_branch=destination_branch,
-            destination_table_new=destination_table_new,
-            source_upload_id=source_upload_id,
-            write_mode=write_mode,
-            conflict_columns=selected_conflict_columns,
-            available_providers=available_providers,
-            pipeline_id=pipeline_id,
-            request=request,
-        )
-        return saved_pipeline.id
-
-    return _with_user_session(settings, user_id, save)
-
-
-def _run_status_toasts(run):
-    if run.status == "succeeded":
-        return {"toast": "Transfer completed.", "toast_tone": "success"}
-    if run.status in {"failed", "cancelled", "failed_needs_reconciliation"}:
-        return {"toast": "Transfer ended.", "toast_tone": "warning"}
-    return {}
-
-
-def _run_action_phase(status: str) -> str:
-    if status in {"queued", "validating", "extracting", "transforming", "loading", "verifying"}:
-        return "pending"
-    if status == "succeeded":
-        return "success"
-    if status == "cancelled":
-        return "cancelled"
-    if status == "failed_needs_reconciliation":
-        return "conflict"
-    if status == "failed":
-        return "error"
-    return "idle"
-
-
-def _run_operation(run, *, revision: int | None = None) -> OperationIdentity:
-    """Project a persisted run into Hedron's bounded operation identity."""
-    attempt = max(int(run.attempt or 1) - 1, 0)
-    return OperationIdentity(
-        str(run.id),
-        generation=attempt,
-        target="#pipeline-run-monitor",
-        correlation_id=run.pipeline_definition_id,
-        attempt=attempt,
-        revision=revision,
-    )
-
-
-def _run_action_state(
-    run,
-    *,
-    progress: int | None = None,
-    revision: int | None = None,
-) -> ActionState:
-    status = str(run.status or "idle").lower()
-    phase = _run_action_phase(status)
-    operation = _run_operation(run, revision=revision)
-    message = (
-        run.error_summary
-        if phase in {"error", "conflict"}
-        else _RUN_STAGE_COPY.get(status, (status.replace("_", " ").title(), ""))[0]
-    )
-    return ActionState(
-        phase=phase,
-        operation=operation,
-        message=(message or None),
-        retryable=bool(phase == "error" and run.retryable),
-        progress=progress,
-        revision=revision,
-    )
-
-
-def _run_action_trace(run, events, state: ActionState) -> ActionTrace:
-    trace = ActionTrace()
-    for event in events:
-        trace = trace.append(
-            "pending",
-            operation=state.operation,
-            facts={"stage": event.stage, "sequence": event.sequence, "message": event.message},
-        )
-    return trace.append(state.phase, operation=state.operation, facts={"status": run.status})
-
-
-def _run_action_metadata(run, events) -> tuple[ActionState, ActionTrace]:
-    revision = events[-1].sequence if events else None
-    status = str(run.status or "idle").lower()
-    state = _run_action_state(run, progress=_RUN_PROGRESS.get(status), revision=revision)
-    return state, _run_action_trace(run, events, state)
-
-
-_RUN_PROGRESS = {
-    "queued": 4,
-    "validating": 16,
-    "extracting": 42,
-    "loading": 72,
-    "verifying": 92,
-    "succeeded": 100,
-}
-
-_RUN_STAGE_INDEX = {
-    "queued": 0,
-    "validating": 0,
-    "extracting": 1,
-    "loading": 2,
-    "verifying": 3,
-}
-
-_RUN_STAGE_COPY = {
-    "queued": ("Queued", "Waiting for an available worker."),
-    "validating": ("Validating", "Checking the route and connection handshakes."),
-    "extracting": ("Extracting", "Reading source batches and counting rows."),
-    "loading": ("Loading", "Writing batches to the destination."),
-    "verifying": ("Verifying", "Comparing persisted results with the source."),
-    "succeeded": ("Complete", "Transfer verified and ready for review."),
-    "cancelled": ("Cancelled", "The transfer was stopped before completion."),
-    "failed": ("Failed", "The worker stopped and recorded a failure."),
-    "failed_needs_reconciliation": (
-        "Needs review",
-        "The worker stopped; reconcile the destination before retrying.",
-    ),
-}
-
-_EVENT_STAGE_LABELS = {
-    "queued": "Queue",
-    "authenticate": "Validate",
-    "inspect": "Extract",
-    "transfer": "Load",
-    "verify": "Verify",
-    "cancelled": "Cancelled",
-    "failed": "Failed",
-    "reconcile": "Reconcile",
-}
-
-
-def _run_flow_statuses(run_status: str) -> tuple[str, str, str, str]:
-    if run_status == "succeeded":
-        return ("complete", "complete", "complete", "complete")
-    current = _RUN_STAGE_INDEX.get(run_status, 0)
-    failed = run_status in {"failed", "failed_needs_reconciliation", "cancelled"}
-    return tuple(
-        "complete"
-        if index < current
-        else "blocked"
-        if failed and index == current
-        else "current"
-        if index == current
-        else "pending"
-        for index in range(4)
-    )  # type: ignore[return-value]
-
-
-def _run_flow_steps(flow_statuses: tuple[str, str, str, str]) -> tuple[FlowStep, ...]:
-    labels = ("Validate", "Extract", "Load", "Verify")
-    descriptions = (
-        "Check credentials and route settings.",
-        "Read source batches.",
-        "Write destination batches.",
-        "Confirm row counts and checksums.",
-    )
-    status_text = {
-        "complete": "Complete",
-        "current": "In progress",
-        "blocked": "Stopped",
-        "pending": "Waiting",
-    }
-    return tuple(
-        FlowStep(
-            label,
-            class_=PROCESS_FLOW_STEP_STYLE_CLASS,
-            status=step_status,
-            description=description,
-            status_text=status_text[step_status],
-        )
-        for label, description, step_status in zip(labels, descriptions, flow_statuses, strict=True)
-    )  # type: ignore[return-value]
-
-
-def _destination_count_metric(run) -> Metric:
-    """Build a before/after destination count metric from persisted verification data."""
-
-    try:
-        verification = json.loads(run.verification_json or "{}")
-    except (TypeError, ValueError):
-        verification = {}
-    before = verification.get("destination_rows_before")
-    after = verification.get("destination_rows_after")
-    delta = verification.get("destination_row_delta")
-    if isinstance(before, int) and isinstance(after, int):
-        delta = after - before if not isinstance(delta, int) else delta
-        tone = "up" if delta > 0 else "down" if delta < 0 else "neutral"
-        return Metric(
-            "Destination table",
-            f"{before:,} → {after:,} rows",
-            delta=f"{delta:+,} rows",
-            delta_tone=tone,
-        )
-    if isinstance(after, int):
-        return Metric(
-            "Destination table",
-            f"{after:,} rows after run",
-            delta="Before count unavailable",
-            delta_tone="neutral",
-        )
-    return Metric(
-        "Destination table",
-        "Count unavailable",
-        delta="Provider does not expose counts",
-        delta_tone="neutral",
-    )
 
 
 def _run_manifest(value: str | None) -> dict[str, Any]:
@@ -4491,7 +3539,10 @@ def _schema_diff_surface(differences: list[dict[str, str]]):
                     [
                         Badge(
                             status_labels.get(row["status"], ("Review", "warning"))[0],
-                            tone=status_labels.get(row["status"], ("Review", "warning"))[1],
+                            tone=cast(
+                                Literal["neutral", "info", "success", "warning", "danger"],
+                                status_labels.get(row["status"], ("Review", "warning"))[1],
+                            ),
                             size="sm",
                         ),
                         html.strong(row["name"]),
@@ -4630,7 +3681,7 @@ def _run_status_fragment(
         "loading",
         "verifying",
     }:
-        run_badge_text = _RUN_STAGE_COPY.get(run_status, ("Running", ""))[0]
+        run_badge_text = run_stage_copy(run_status)[0]
         run_badge_tone = "info"
     elif run_status == "cancelled":
         run_badge_text = "Cancelled"
@@ -4638,17 +3689,16 @@ def _run_status_fragment(
     elif run_status in {"failed", "failed_needs_reconciliation"}:
         run_badge_text = "Failed"
         run_badge_tone = "danger"
-    progress_value = _RUN_PROGRESS.get(run_status, 0)
-    action_state = _run_action_state(
+    progress_value = run_progress(run_status)
+    action_state = run_action_state(
         run,
         progress=progress_value if not monitor_active else None,
         revision=next_sequence,
     )
-    stage_label, stage_description = _RUN_STAGE_COPY.get(
-        run_status,
-        (run_status.replace("_", " ").title(), "Worker state persisted to the run log."),
-    )
-    flow_statuses = _run_flow_statuses(run_status)
+    stage_label, stage_description = run_stage_copy(run_status)
+    if not stage_description:
+        stage_description = "Worker state persisted to the run log."
+    flow_statuses = run_flow_statuses(run_status)
     snapshot = parse_snapshot(run.definition_snapshot_json)
     source_label = _provider_label(snapshot.source_provider)
     target_label = _provider_label(snapshot.destination_provider)
@@ -4819,7 +3869,7 @@ def _run_status_fragment(
             min_size="sm",
         ),
         ProcessFlow(
-            *_run_flow_steps(flow_statuses),
+            *run_flow_steps(flow_statuses),
             label="Live transfer stages",
             direction="horizontal",
             collapse="never",
@@ -4844,7 +3894,7 @@ def _run_status_fragment(
                 delta=_format_file_size(run.loaded_bytes),
                 delta_tone="up" if run.loaded_rows else "neutral",
             ),
-            _destination_count_metric(run),
+            destination_count_metric(run),
             Metric(
                 "Worker stage",
                 stage_label,
@@ -4869,7 +3919,7 @@ def _run_status_fragment(
                     [
                         (
                             event.occurred_at.strftime("%H:%M:%S"),
-                            _EVENT_STAGE_LABELS.get(event.stage, event.stage.title()),
+                            EVENT_STAGE_LABELS.get(event.stage, event.stage.title()),
                             event.message,
                         )
                         for event in lines

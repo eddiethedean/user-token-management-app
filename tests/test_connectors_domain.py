@@ -2,24 +2,242 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
 
 from app.config import Settings
+from app.connectors.base import (
+    BatchWriteResult,
+    CatalogBrowser,
+    CatalogPage,
+    ConnectionHealth,
+    Credentials,
+    DestinationManifest,
+    DestinationWriter,
+    LoadSession,
+    ObjectSchema,
+    ProviderCapabilities,
+    ProvisionedDataset,
+    RemoteNamespace,
+    SourceReader,
+    TransferBatch,
+)
+from app.connectors.csv_source import CsvSourceConnector
+from app.connectors.errors import ConnectorError
 from app.connectors.locators import (
     FoundryDatasetFilesLocator,
+    Locator,
+    PostgresTableLocator,
+    WritePolicy,
     parse_locator,
     parse_snapshot,
     parse_write_policy,
 )
 from app.connectors.redaction import SENTINEL_REPLACEMENT, redact_mapping, redact_text
+from app.connectors.registry import ConnectorRegistry
 from app.connectors.tls import apply_internal_ca_fix, ssl_context_for_bundle
+
+
+class _SourceOnly:
+    capabilities = ProviderCapabilities(
+        provider="source-only",
+        label="Source only",
+        technology="test",
+        mark="SRC",
+        source=True,
+        destination=False,
+        object_model="test object",
+        write_modes=(),
+        namespaces_label="Namespace",
+        objects_label="Object",
+    )
+
+    def test_connection(self, credentials) -> ConnectionHealth:
+        return ConnectionHealth(status="connected", message="ok", latency_ms=0)
+
+    def list_namespaces(self, credentials) -> list[RemoteNamespace]:
+        return []
+
+    def list_objects(self, credentials, namespace, cursor=None) -> CatalogPage:
+        return CatalogPage(items=())
+
+    def inspect_object(self, credentials, locator) -> ObjectSchema:
+        raise NotImplementedError
+
+    def count_rows(self, credentials, locator) -> int | None:
+        return None
+
+    def extract(self, credentials, locator, *, batch_rows, batch_bytes):
+        yield from ()
+
+    def create_dataset(self, credentials, *, parent_folder_rid, name) -> ProvisionedDataset:
+        raise NotImplementedError
+
+
+class _WriteOnlyDestination:
+    capabilities = ProviderCapabilities(
+        provider="write-only",
+        label="Write only",
+        technology="test",
+        mark="WRT",
+        source=False,
+        destination=True,
+        object_model="test object",
+        write_modes=("append",),
+        namespaces_label="Namespace",
+        objects_label="Object",
+    )
+
+    def test_connection(self, credentials: Credentials) -> ConnectionHealth:
+        return ConnectionHealth("connected", "ok", 0)
+
+    def prepare_destination(
+        self,
+        credentials: Credentials,
+        locator: Locator,
+        schema: ObjectSchema,
+        write_policy: WritePolicy,
+        *,
+        run_id: str,
+    ) -> LoadSession:
+        return LoadSession(locator=locator, write_policy=write_policy)
+
+    def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
+        return BatchWriteResult(batch.row_count, batch.byte_count)
+
+    def finalize(self, load_session: LoadSession) -> DestinationManifest:
+        return DestinationManifest(locator=load_session.locator, rows=0, bytes=0)
+
+    def abort(self, load_session: LoadSession) -> None:
+        return None
+
+
+class _BrowseOnly:
+    capabilities = ProviderCapabilities(
+        provider="browse-only",
+        label="Browse only",
+        technology="test",
+        mark="BRW",
+        source=False,
+        destination=False,
+        object_model="test object",
+        write_modes=(),
+        namespaces_label="Namespace",
+        objects_label="Object",
+        schema_inspection=False,
+        exact_row_counts=False,
+    )
+
+    def list_namespaces(self, credentials: Credentials) -> list[RemoteNamespace]:
+        return []
+
+    def list_objects(
+        self,
+        credentials: Credentials,
+        namespace: str,
+        cursor: str | None = None,
+    ) -> CatalogPage:
+        return CatalogPage(items=())
+
+    def inspect_object(self, credentials: Credentials, locator: Locator) -> ObjectSchema:
+        return ObjectSchema(locator=locator, columns=())
+
+    def count_rows(self, credentials: Credentials, locator: Locator) -> int | None:
+        return None
+
+
+class _ExtractionOnlySource:
+    capabilities = ProviderCapabilities(
+        provider="extract-only",
+        label="Extract only",
+        technology="test",
+        mark="EXT",
+        source=True,
+        destination=False,
+        object_model="test object",
+        write_modes=(),
+        namespaces_label="Namespace",
+        objects_label="Object",
+        schema_inspection=True,
+        exact_row_counts=False,
+    )
+
+    def test_connection(self, credentials: Credentials) -> ConnectionHealth:
+        return ConnectionHealth("connected", "ok", 0)
+
+    def inspect_object(self, credentials: Credentials, locator: Locator) -> ObjectSchema:
+        return ObjectSchema(locator=locator, columns=())
+
+    def extract(
+        self,
+        credentials: Credentials,
+        locator: Locator,
+        *,
+        batch_rows: int,
+        batch_bytes: int,
+    ) -> Iterator[TransferBatch]:
+        yield from ()
+
+
+def test_registry_rejects_unsupported_connector_roles() -> None:
+    registry = ConnectorRegistry()
+    registry.register(_SourceOnly)
+
+    assert isinstance(registry.source_reader_for("source-only"), SourceReader)
+    with pytest.raises(ConnectorError, match="destination writes"):
+        registry.destination_writer_for("source-only")
+    with pytest.raises(ConnectorError, match="dataset creation"):
+        registry.dataset_provisioner_for("source-only")
+
+
+def test_registry_respects_csv_destination_capability() -> None:
+    registry = ConnectorRegistry()
+    registry.register(CsvSourceConnector)
+
+    assert isinstance(registry.source_reader_for("csv"), SourceReader)
+    with pytest.raises(ConnectorError, match="destination writes"):
+        registry.destination_writer_for("csv")
+
+
+def test_registry_accepts_write_only_destination_adapter() -> None:
+    connector = _WriteOnlyDestination()
+    registry = ConnectorRegistry()
+    registry.register(lambda: connector)
+
+    assert isinstance(registry.destination_writer_for("write-only"), DestinationWriter)
+    resolved = registry.connector_for("write-only")
+    assert resolved is connector
+    assert not hasattr(resolved, "extract")
+
+
+def test_registry_accepts_browse_only_catalog_adapter() -> None:
+    registry = ConnectorRegistry()
+    registry.register(_BrowseOnly)
+
+    assert isinstance(registry.catalog_browser_for("browse-only"), CatalogBrowser)
+    with pytest.raises(ConnectorError, match="catalog browsing"):
+        registry.catalog_reader_for("browse-only")
+    with pytest.raises(ConnectorError, match="schema inspection"):
+        registry.object_schema_inspector_for("browse-only")
+    with pytest.raises(ConnectorError, match="row counting"):
+        registry.row_counter_for("browse-only")
+
+
+def test_registry_accepts_extraction_only_source_adapter() -> None:
+    connector = _ExtractionOnlySource()
+    registry = ConnectorRegistry()
+    registry.register(lambda: connector)
+
+    assert isinstance(registry.source_reader_for("extract-only"), SourceReader)
 
 
 def test_postgres_and_foundry_locators_fail_closed() -> None:
     postgres = parse_locator({"kind": "postgres_table", "schema": "public", "table": "events"})
+    assert isinstance(postgres, PostgresTableLocator)
     assert postgres.table == "events"
     with pytest.raises(ValidationError):
         parse_locator({"kind": "postgres_table", "schema": "public;drop", "table": "events"})
@@ -112,7 +330,7 @@ def test_apply_internal_ca_fix_is_optional(monkeypatch) -> None:
     def add_nipr_ca() -> None:
         called["n"] += 1
 
-    fake.add_nipr_ca = add_nipr_ca
+    fake.__dict__["add_nipr_ca"] = add_nipr_ca
     monkeypatch.setitem(sys.modules, "socom_ca_fix", fake)
     assert apply_internal_ca_fix() is True
     assert called["n"] == 1
@@ -121,7 +339,7 @@ def test_apply_internal_ca_fix_is_optional(monkeypatch) -> None:
 def test_real_mode_allows_sqlite_for_session_scoped_workbench(tmp_path) -> None:
     spool = tmp_path / "spool"
     spool.mkdir()
-    settings = Settings(
+    settings = cast(Any, Settings)(
         _env_file=None,
         app_env="development",
         data_mover_mode="real",
@@ -139,7 +357,7 @@ def test_real_mode_allows_sqlite_for_session_scoped_workbench(tmp_path) -> None:
     assert settings.database_url.startswith("sqlite:")
 
     with pytest.raises(ValueError, match="strong real-mode secret"):
-        Settings(
+        cast(Any, Settings)(
             _env_file=None,
             app_env="development",
             data_mover_mode="real",
@@ -151,7 +369,7 @@ def test_real_mode_allows_sqlite_for_session_scoped_workbench(tmp_path) -> None:
         )
 
     with pytest.raises(ValueError, match="file-backed"):
-        Settings(
+        cast(Any, Settings)(
             _env_file=None,
             app_env="development",
             data_mover_mode="real",
@@ -174,7 +392,7 @@ def test_real_mode_requires_spool_and_allowlist(tmp_path) -> None:
     spool = tmp_path / "spool"
     spool.mkdir()
     with pytest.raises(ValueError, match="PIPELINE_ALLOWED_HTTPS_HOSTS"):
-        Settings(
+        cast(Any, Settings)(
             _env_file=None,
             app_env="development",
             data_mover_mode="real",
@@ -192,7 +410,7 @@ def test_real_mode_requires_spool_and_allowlist(tmp_path) -> None:
         )
 
     with pytest.raises(ValueError, match="absolute HTTPS URL"):
-        Settings(
+        cast(Any, Settings)(
             _env_file=None,
             app_env="development",
             data_mover_mode="real",
@@ -215,7 +433,7 @@ def test_production_real_mode_rejects_sqlite(tmp_path) -> None:
     spool = tmp_path / "spool"
     spool.mkdir()
     with pytest.raises(ValueError, match="PostgreSQL"):
-        Settings(
+        cast(Any, Settings)(
             _env_file=None,
             app_env="production",
             data_mover_mode="real",
@@ -250,7 +468,7 @@ def test_sqlite_worker_lock_prevents_duplicate_workers(tmp_path) -> None:
 
 def test_production_rejects_demo_mode() -> None:
     with pytest.raises(ValueError, match="DATA_MOVER_MODE must be real"):
-        Settings(
+        cast(Any, Settings)(
             _env_file=None,
             app_env="production",
             data_mover_mode="demo",

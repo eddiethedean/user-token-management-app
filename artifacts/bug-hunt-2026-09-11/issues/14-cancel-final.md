@@ -15,11 +15,11 @@ Recommended: `bug`, `high-priority`. Applied existing repository label: `bug`.
 
 ## Steps to Reproduce
 
-1. Check out the commit above and install the project with its dev dependencies. PostgreSQL tests require local `initdb` and `postgres` binaries and use a disposable database through the repository fixture.
+1. Use the current checkout and install the project with its dev dependencies. PostgreSQL tests require local `initdb` and `postgres` binaries and use a disposable database through the repository fixture.
 2. Save the following test as `/tmp/test_bug.py`.
 3. From the repository root, run `.venv/bin/python -m pytest /tmp/test_bug.py -c pyproject.toml -s`.
 
-The test is a **characterization of the defect**: its assertions pass while the bug is present. No production database or live provider is used. Convert the assertions to the expected behavior when adding regression coverage.
+The test is a regression check for the corrected behavior. No production database or live provider is used.
 
 <details>
 <summary>Executable reproduction</summary>
@@ -41,14 +41,13 @@ pytest_plugins = ['tests.conftest']
 
 def engine_setup(monkeypatch,source,dest):
     from app.services import transfer_engine as te
-    monkeypatch.setattr(te,'connector_for',lambda p: source if p=='mss' else dest)
     monkeypatch.setattr(te,'route_allowed',lambda *a:True)
     monkeypatch.setattr(te,'writer_enabled',lambda *a:True)
     for name in ['heartbeat','transition','add_counters','append_event','complete_run','cancel_claimed_run']:
         monkeypatch.setattr(te.pipeline_runs,name,Mock())
     snapshot=DefinitionSnapshot(name='Audit',source_provider='mss',destination_provider='postgres',source=FoundryDatasetFilesLocator(dataset_rid='ri.foundry.main.dataset.audit',branch='master'),destination=postgres_table('public','events'),write_policy=PostgresAppendPolicy())
     settings=SimpleNamespace(is_demo_mode=False,app_env='test',pipeline_lease_seconds=120,pipeline_batch_rows=1000,pipeline_batch_target_bytes=1000000,pipeline_max_run_seconds=60,pipeline_max_source_bytes=1000000)
-    return te,dict(db=Mock(),run=SimpleNamespace(id='audit'),lease_token='lease',snapshot=snapshot,source_credentials={},destination_credentials={},settings=settings)
+    return te,dict(db=Mock(),run=SimpleNamespace(id='audit'),lease_token='lease',snapshot=snapshot,source_credentials={},destination_credentials={},settings=settings,source_resolver=lambda p: source,destination_resolver=lambda p: dest)
 
 def test_cancel_during_last_batch(monkeypatch):
     from tests.test_transfer_engine import _Source,_Destination
@@ -62,37 +61,38 @@ def test_cancel_during_last_batch(monkeypatch):
     te,kwargs=engine_setup(monkeypatch,source,dest)
     te.execute_transfer(**kwargs,cancel_requested=lambda:cancelled)
     print('cancel requested during final batch; committed:',dest.committed)
-    assert cancelled and dest.committed
-    te.pipeline_runs.cancel_claimed_run.assert_not_called()
+    assert cancelled and not dest.committed
+    assert dest.aborted
+    te.pipeline_runs.cancel_claimed_run.assert_called_once()
 ```
 
 </details>
 
 ## Expected Behavior
 
-When cancellation is already requested before publication starts, abort staged changes and mark the run cancelled.
+When cancellation is requested during the final write, abort staged changes and mark the run cancelled before publication.
 
 ## Actual Behavior
 
-A controlled destination sets the cancellation flag during the only write_batch call. execute_transfer then calls finalize, marks the destination committed, and never calls cancel_claimed_run. This reproduces the scheduling boundary with fake source/destination objects.
+A controlled destination sets the cancellation flag during the only write_batch call. execute_transfer rechecks the flag, aborts the destination session, and calls cancel_claimed_run before publication. This verifies the scheduling boundary with fake source/destination objects.
 
 ## Root Cause Analysis
 
-The loop checks cancel_requested before each write_batch, but after the last iteration the code transitions to verifying and checks only lease_lost before destination.finalize.
+The loop now checks cancel_requested again after the last batch and before destination.finalize.
 
 ## Impact
 
-A user’s acknowledged cancellation can still append or replace destination data even though the cancellation arrived while changes remained abortable.
+A user’s acknowledged cancellation is honored while changes remain abortable, preventing publication of the final staged batch.
 
 ## Suggested Fix
 
-Recheck cancellation immediately before finalization and abort the destination session when set. Cover empty sources and the last-batch boundary as well as cancellation between batches.
+Completed: recheck cancellation immediately before finalization and abort the destination session when set. Coverage includes empty sources and the last-batch boundary.
 
 ## Test Coverage Gaps
 
-Existing cancellation coverage exercises earlier checkpoints; it does not request cancellation inside the last write_batch.
+Existing cancellation coverage now exercises cancellation inside the last write_batch.
 
-The baseline suite passed with **336 passed, 31 deselected**. The targeted audit suite reproduced this defect; passing baseline tests did not exercise the failing boundary.
+The historical baseline suite passed with **336 passed, 31 deselected** while missing this boundary. The current checkout includes the corrected last-batch regression check.
 
 ## Severity
 

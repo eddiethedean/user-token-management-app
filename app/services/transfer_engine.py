@@ -3,34 +3,76 @@
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Callable
 from itertools import chain
+from typing import Literal, TypeVar, cast
 
 from sqlalchemy.orm import Session
 
+from app.application.ports import Clock, Sleeper, system_clock, system_sleep
 from app.config import Settings
-from app.connectors.base import ColumnSchema, ObjectSchema, TransferBatch
+from app.connectors.base import (
+    ColumnSchema,
+    DestinationRowCounter,
+    DestinationSchemaInspector,
+    DestinationWriter,
+    ObjectSchema,
+    ProviderCapabilities,
+    SourceReader,
+    TransferBatch,
+)
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import DefinitionSnapshot, PostgresUpsertPolicy
-from app.connectors.registry import connector_for, route_allowed, writer_enabled
-from app.models import PipelineRun, utcnow
+from app.connectors.registry import (
+    destination_writer_for,
+    route_allowed,
+    source_reader_for,
+    writer_enabled,
+)
+from app.models import PipelineRun
 from app.services import pipeline_runs
 from app.services.pipeline_metadata import manifest_metadata
 from app.services.pipeline_state import RunConflictError
 
 CancelCheck = Callable[[], bool]
+RoleT = TypeVar("RoleT")
 log = logging.getLogger(__name__)
+
+
+def _require_role(
+    candidate: object,
+    role: type[RoleT],
+    label: str,
+    capability: Literal["source", "destination"],
+) -> RoleT:
+    """Validate an injected adapter before any transfer state changes or I/O."""
+
+    if not isinstance(candidate, role):
+        raise ConnectorError(
+            TransferErrorCode.INTERNAL_ERROR,
+            f"The selected provider does not support {label}.",
+            retryable=False,
+        )
+    capabilities = getattr(candidate, "capabilities", None)
+    if not isinstance(capabilities, ProviderCapabilities) or not getattr(capabilities, capability):
+        raise ConnectorError(
+            TransferErrorCode.INTERNAL_ERROR,
+            f"The selected provider does not support {label}.",
+            retryable=False,
+        )
+    return cast(RoleT, candidate)
 
 
 def _destination_row_count(destination, credentials, locator) -> int | None:
     """Read destination counts as best-effort telemetry, never as a run prerequisite."""
 
-    count_rows = getattr(destination, "count_rows", None)
-    if count_rows is None:
+    if (
+        not isinstance(destination, DestinationRowCounter)
+        or not destination.capabilities.exact_row_counts
+    ):
         return None
     try:
-        value = count_rows(credentials, locator)
+        value = destination.count_rows(credentials, locator)
     except Exception:
         return None
     return int(value) if value is not None else None
@@ -52,7 +94,29 @@ def _schema_manifest(schema: ObjectSchema) -> dict:
     }
 
 
+def _destination_schema_projection(
+    destination_schema_after: ObjectSchema | None,
+    source_schema: ObjectSchema,
+) -> tuple[ObjectSchema, bool, str]:
+    """Choose the persisted destination schema and accurately label its provenance."""
+
+    selected = destination_schema_after or source_schema
+    available = bool(selected.columns)
+    if not available:
+        provenance = "unavailable"
+    elif destination_schema_after is not None:
+        provenance = "captured"
+    else:
+        provenance = "local_manifest"
+    return selected, available, provenance
+
+
 def _inspect_destination_schema(destination, credentials, locator) -> ObjectSchema | None:
+    if (
+        not isinstance(destination, DestinationSchemaInspector)
+        or not destination.capabilities.schema_inspection
+    ):
+        return None
     try:
         inspected = destination.inspect_object(credentials, locator)
     except Exception:
@@ -60,11 +124,11 @@ def _inspect_destination_schema(destination, credentials, locator) -> ObjectSche
     return inspected if inspected.columns else None
 
 
-def _demo_stage_pause(settings: Settings) -> None:
+def _demo_stage_pause(settings: Settings, *, sleeper: Sleeper = system_sleep) -> None:
     """Keep local demo stages visible without slowing tests or real transfers."""
 
     if settings.is_demo_mode and settings.app_env != "test":
-        time.sleep(0.7)
+        sleeper(0.7)
 
 
 def _abort_quietly(destination, session) -> None:
@@ -84,6 +148,15 @@ def _validate_upsert_policy(
     policy = snapshot.write_policy
     if not isinstance(policy, PostgresUpsertPolicy):
         return destination_schema
+    if destination_schema is None and (
+        not isinstance(destination, DestinationSchemaInspector)
+        or not destination.capabilities.schema_inspection
+    ):
+        raise ConnectorError(
+            TransferErrorCode.SCHEMA_DRIFT,
+            "Destination schema inspection is required for PostgreSQL upsert.",
+            retryable=False,
+        )
     inspected = destination_schema or destination.inspect_object(credentials, snapshot.destination)
     conflict_columns = tuple(policy.conflict_columns)
     eligible = {tuple(inspected.primary_key), *map(tuple, inspected.unique_constraints)}
@@ -115,16 +188,49 @@ def execute_transfer(
     settings: Settings,
     cancel_requested: CancelCheck,
     lease_lost: CancelCheck = lambda: False,
+    # Resolvers are typed ports and are also validated at runtime before the
+    # transfer starts so dynamic composition cannot bypass role capabilities.
+    source_resolver: Callable[[str], SourceReader] | None = None,
+    destination_resolver: Callable[[str], DestinationWriter] | None = None,
+    route_policy: Callable[[str, str], bool] | None = None,
+    writer_policy: Callable[[str], bool] | None = None,
+    clock: Clock = system_clock,
+    sleeper: Sleeper = system_sleep,
 ) -> None:
-    if not route_allowed(snapshot.source_provider, snapshot.destination_provider):
+    is_route_allowed = route_policy or route_allowed
+    is_writer_enabled = writer_policy or (
+        lambda provider: writer_enabled(provider, settings=settings)
+    )
+    if not is_route_allowed(snapshot.source_provider, snapshot.destination_provider):
         raise ConnectorError(
             TransferErrorCode.PERMISSION_DENIED,
             "This source and destination route is not approved for execution.",
             retryable=False,
         )
-    source = connector_for(snapshot.source_provider)
-    destination = connector_for(snapshot.destination_provider)
-    if not writer_enabled(snapshot.destination_provider) and not settings.is_demo_mode:
+    source = _require_role(
+        (
+            source_resolver(snapshot.source_provider)
+            if source_resolver is not None
+            else source_reader_for(snapshot.source_provider)
+        ),
+        SourceReader,
+        "source extraction",
+        "source",
+    )
+    destination = _require_role(
+        (
+            destination_resolver(snapshot.destination_provider)
+            if destination_resolver is not None
+            else destination_writer_for(snapshot.destination_provider)
+        ),
+        DestinationWriter,
+        "destination writes",
+        "destination",
+    )
+    # The resolved policy is authoritative in every mode.  The default policy
+    # already accounts for demo capabilities, while injected policies must not
+    # be bypassed by the executor.
+    if not is_writer_enabled(snapshot.destination_provider):
         raise ConnectorError(
             TransferErrorCode.PERMISSION_DENIED,
             "This destination writer is not enabled.",
@@ -139,7 +245,7 @@ def execute_transfer(
     pipeline_runs.heartbeat(
         db, run, lease_token=lease_token, lease_seconds=settings.pipeline_lease_seconds
     )
-    _demo_stage_pause(settings)
+    _demo_stage_pause(settings, sleeper=sleeper)
     source.test_connection(source_credentials)
     destination.test_connection(destination_credentials)
     destination_rows_before = _destination_row_count(
@@ -156,11 +262,11 @@ def execute_transfer(
         lease_token=lease_token,
         message="Source and destination connections validated.",
     )
-    _demo_stage_pause(settings)
+    _demo_stage_pause(settings, sleeper=sleeper)
 
     extracted_rows = 0
     extracted_bytes = 0
-    started = utcnow()
+    started = clock()
     source_iterator = iter(
         source.extract(
             source_credentials,
@@ -212,7 +318,7 @@ def execute_transfer(
             lease_token=lease_token,
             message="Starting destination load.",
         )
-        _demo_stage_pause(settings)
+        _demo_stage_pause(settings, sleeper=sleeper)
         session = destination.prepare_destination(
             destination_credentials,
             snapshot.destination,
@@ -228,7 +334,7 @@ def execute_transfer(
                 _abort_quietly(destination, session)
                 pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
                 return
-            if (utcnow() - started).total_seconds() > settings.pipeline_max_run_seconds:
+            if (clock() - started).total_seconds() > settings.pipeline_max_run_seconds:
                 raise ConnectorError(
                     TransferErrorCode.RUN_TIMEOUT, "The run exceeded its time limit."
                 )
@@ -287,7 +393,7 @@ def execute_transfer(
                 stage="transfer",
             )
             db.commit()
-            _demo_stage_pause(settings)
+            _demo_stage_pause(settings, sleeper=sleeper)
         if lease_lost():
             raise RunConflictError("This worker no longer holds the run lease.")
         if cancel_requested():
@@ -301,7 +407,7 @@ def execute_transfer(
             lease_token=lease_token,
             message="Finalizing destination write.",
         )
-        _demo_stage_pause(settings)
+        _demo_stage_pause(settings, sleeper=sleeper)
         if lease_lost():
             raise RunConflictError("This worker no longer holds the run lease.")
         if cancel_requested():
@@ -316,6 +422,11 @@ def execute_transfer(
         destination_schema_after = _inspect_destination_schema(
             destination, destination_credentials, snapshot.destination
         )
+        (
+            persisted_destination_schema,
+            destination_schema_available,
+            destination_schema_provenance,
+        ) = _destination_schema_projection(destination_schema_after, schema)
         verification = {
             "source_rows": extracted_rows,
             "loaded_rows": manifest.rows,
@@ -341,7 +452,7 @@ def execute_transfer(
                     rows=extracted_rows,
                     schema_available=bool(schema.columns),
                     row_provenance="exact",
-                    schema_provenance="captured",
+                    schema_provenance=("captured" if schema.columns else "unavailable"),
                 ),
             },
             destination_manifest={
@@ -350,7 +461,7 @@ def execute_transfer(
                 "checksum": manifest.checksum,
                 "remote_id": manifest.remote_id,
                 "details": dict(manifest.details),
-                "schema": _schema_manifest(destination_schema_after or schema),
+                "schema": _schema_manifest(persisted_destination_schema),
                 "schema_before": (
                     _schema_manifest(destination_schema_before)
                     if destination_schema_before is not None
@@ -358,13 +469,11 @@ def execute_transfer(
                 ),
                 "metadata": manifest_metadata(
                     rows=manifest.rows,
-                    schema_available=bool(destination_schema_after or schema),
+                    schema_available=destination_schema_available,
                     row_provenance=(
                         "exact" if destination_rows_after is not None else "local_manifest"
                     ),
-                    schema_provenance=(
-                        "captured" if destination_schema_after is not None else "local_manifest"
-                    ),
+                    schema_provenance=destination_schema_provenance,
                 ),
             },
             verification=verification,

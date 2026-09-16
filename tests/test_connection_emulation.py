@@ -19,7 +19,16 @@ from app.connectors.locators import (
 )
 from app.connectors.mcscop import McscopConnector
 from app.connectors.mss import MssConnector
-from app.connectors.registry import capabilities_for, connector_for, load_builtin_connectors
+from app.connectors.registry import (
+    capabilities_for,
+    catalog_browser_for,
+    connection_tester_for,
+    destination_writer_for,
+    load_builtin_connectors,
+    object_schema_inspector_for,
+    row_counter_for,
+    source_reader_for,
+)
 from app.services.demo import DEMO_CONNECTION_CREDENTIALS
 
 
@@ -44,7 +53,7 @@ def _schema_for(frame: pl.DataFrame, locator) -> ObjectSchema:
 
 def test_emulated_health_is_explicit_and_never_claims_network_latency() -> None:
     load_builtin_connectors(demo=True)
-    postgres = connector_for("postgres")
+    postgres = connection_tester_for("postgres")
     health = postgres.test_connection(DEMO_CONNECTION_CREDENTIALS["postgres"])
     assert health.status == "connected"
     assert health.latency_ms == 0
@@ -52,7 +61,7 @@ def test_emulated_health_is_explicit_and_never_claims_network_latency() -> None:
     assert "no network request" in health.message
     assert "emulator" in health.server_identity
 
-    mss = connector_for("mss")
+    mss = connection_tester_for("mss")
     without_rid = dict(DEMO_CONNECTION_CREDENTIALS["mss"])
     without_rid.pop("dataset_rid")
     incomplete = mss.test_connection(without_rid)
@@ -80,31 +89,34 @@ def test_emulated_foundry_capabilities_match_live_metadata_limits() -> None:
 def test_emulated_foundry_honors_branch_batching_and_missing_files() -> None:
     load_builtin_connectors(demo=True)
     credentials = {**DEMO_CONNECTION_CREDENTIALS["mss"], "branch": "release"}
-    connector = connector_for("mss")
-    namespaces = connector.list_namespaces(credentials)
+    browser = catalog_browser_for("mss")
+    source = source_reader_for("mss")
+    namespaces = browser.list_namespaces(credentials)
     assert [item.name for item in namespaces] == [credentials["dataset_rid"]]
-    objects = connector.list_objects(connector_credentials := credentials, namespaces[0].name)
+    objects = browser.list_objects(connector_credentials := credentials, namespaces[0].name)
     assert objects.items
-    assert all(item.locator.branch == "release" for item in objects.items)
+    for item in objects.items:
+        assert isinstance(item.locator, FoundryDatasetFilesLocator)
+        assert item.locator.branch == "release"
 
-    source = FoundryDatasetFilesLocator(
+    source_locator = FoundryDatasetFilesLocator(
         dataset_rid=credentials["dataset_rid"],
         branch="release",
         file_paths=["mission_orders.parquet"],
     )
-    inspected = connector.inspect_object(connector_credentials, source)
+    inspected = source.inspect_object(connector_credentials, source_locator)
     assert inspected.columns == ()
     assert inspected.estimated_rows is None
-    assert connector.count_rows(connector_credentials, source) is None
+    assert capabilities_for("mss").exact_row_counts is False
     batches = list(
-        connector.extract(connector_credentials, source, batch_rows=1, batch_bytes=1_024)
+        source.extract(connector_credentials, source_locator, batch_rows=1, batch_bytes=1_024)
     )
     assert [batch.sequence for batch in batches] == [1, 2, 3]
     assert [batch.row_count for batch in batches] == [1, 1, 1]
 
-    missing = source.model_copy(update={"file_paths": ["missing.parquet"]})
+    missing = source_locator.model_copy(update={"file_paths": ["missing.parquet"]})
     with pytest.raises(ConnectorError) as excinfo:
-        list(connector.extract(credentials, missing, batch_rows=10, batch_bytes=1_024))
+        list(source.extract(credentials, missing, batch_rows=10, batch_bytes=1_024))
     assert excinfo.value.code == TransferErrorCode.SOURCE_NOT_FOUND
 
 
@@ -112,9 +124,9 @@ def test_emulated_postgres_commits_persist_and_write_modes_are_realistic() -> No
     load_builtin_connectors(demo=True)
     credentials = DEMO_CONNECTION_CREDENTIALS["postgres"]
     locator = postgres_table("public", "readiness_events")
-    destination = connector_for("postgres")
-    schema = destination.inspect_object(credentials, locator)
-    assert destination.count_rows(credentials, locator) == 3
+    destination = destination_writer_for("postgres")
+    schema = object_schema_inspector_for("postgres").inspect_object(credentials, locator)
+    assert row_counter_for("postgres").count_rows(credentials, locator) == 3
     assert schema.primary_key == ("event_id",)
 
     appended = pl.DataFrame(
@@ -130,7 +142,7 @@ def test_emulated_postgres_commits_persist_and_write_modes_are_realistic() -> No
     )
     assert destination.write_batch(session, _batch(appended)).rows_acknowledged == 2
     assert destination.finalize(session).rows == 2
-    assert connector_for("postgres").count_rows(credentials, locator) == 5
+    assert row_counter_for("postgres").count_rows(credentials, locator) == 5
 
     upserted = pl.DataFrame(
         {
@@ -146,14 +158,14 @@ def test_emulated_postgres_commits_persist_and_write_modes_are_realistic() -> No
     )
     destination.write_batch(session, _batch(upserted))
     assert destination.finalize(session).rows == 1
-    assert connector_for("postgres").count_rows(credentials, locator) == 6
+    assert row_counter_for("postgres").count_rows(credentials, locator) == 6
 
     session = destination.prepare_destination(
         credentials, locator, schema, PostgresAppendPolicy(), run_id="abort-run"
     )
     destination.write_batch(session, _batch(appended))
     destination.abort(session)
-    assert connector_for("postgres").count_rows(credentials, locator) == 6
+    assert row_counter_for("postgres").count_rows(credentials, locator) == 6
 
     duplicate = pl.DataFrame(
         {
@@ -170,10 +182,10 @@ def test_emulated_postgres_commits_persist_and_write_modes_are_realistic() -> No
     with pytest.raises(ConnectorError) as conflict:
         destination.finalize(session)
     assert conflict.value.code == TransferErrorCode.DESTINATION_CONFLICT
-    assert connector_for("postgres").count_rows(credentials, locator) == 6
+    assert row_counter_for("postgres").count_rows(credentials, locator) == 6
 
     isolated = {**credentials, "database": "another_demo_database"}
-    assert connector_for("postgres").count_rows(isolated, locator) == 3
+    assert row_counter_for("postgres").count_rows(isolated, locator) == 3
 
 
 def test_emulated_foundry_upload_is_visible_to_later_connector_instances() -> None:
@@ -185,7 +197,7 @@ def test_emulated_foundry_upload_is_visible_to_later_connector_instances() -> No
         file_name="emulated-output.parquet",
     )
     frame = pl.DataFrame({"event_id": [10, 11], "unit_name": ["A", "B"]})
-    destination = connector_for("mss")
+    destination = destination_writer_for("mss")
     session = destination.prepare_destination(
         credentials,
         locator,
@@ -199,8 +211,9 @@ def test_emulated_foundry_upload_is_visible_to_later_connector_instances() -> No
     assert manifest.bytes > 0
     assert manifest.remote_id == "emulated-output.parquet"
 
-    later = connector_for("mss")
-    listed = later.list_objects(credentials, credentials["dataset_rid"])
+    browser = catalog_browser_for("mss")
+    later = source_reader_for("mss")
+    listed = browser.list_objects(credentials, credentials["dataset_rid"])
     assert "emulated-output.parquet" in {item.name for item in listed.items}
     source = FoundryDatasetFilesLocator(
         dataset_rid=credentials["dataset_rid"],
@@ -226,8 +239,8 @@ def test_emulated_destination_rejects_false_batch_acknowledgements() -> None:
     load_builtin_connectors(demo=True)
     credentials = DEMO_CONNECTION_CREDENTIALS["postgres"]
     locator = postgres_table("public", "mission_orders")
-    connector = connector_for("postgres")
-    schema = connector.inspect_object(credentials, locator)
+    connector = destination_writer_for("postgres")
+    schema = object_schema_inspector_for("postgres").inspect_object(credentials, locator)
     session = connector.prepare_destination(
         credentials, locator, schema, PostgresAppendPolicy(), run_id="bad-batch"
     )

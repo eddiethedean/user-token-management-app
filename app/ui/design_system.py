@@ -134,7 +134,7 @@ DATA_MOVER_THEME_SPEC = (
     )
     .accessibility_mode(
         "forced-colors",
-        **{
+        {
             "color.bg": "Canvas",
             "color.fg": "CanvasText",
             "color.accent": "Highlight",
@@ -144,7 +144,7 @@ DATA_MOVER_THEME_SPEC = (
     )
     .accessibility_mode(
         "more-contrast",
-        **{"color.accent": "#a8aaff", "color.focus": "#ffffff"},
+        {"color.accent": "#a8aaff", "color.focus": "#ffffff"},
     )
     .tokens(
         {

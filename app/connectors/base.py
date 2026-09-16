@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import Locator, WritePolicy
@@ -30,6 +30,12 @@ class ProviderCapabilities:
     verification_level: str = "exact"
     limitations: tuple[str, ...] = ()
     dataset_creation: bool = False
+
+
+class RegisteredConnector(Protocol):
+    """Minimal contract required for registry discovery and capability lookup."""
+
+    capabilities: ProviderCapabilities
 
 
 @dataclass(frozen=True)
@@ -161,6 +167,113 @@ def bounded_frame_batches(
         )
         start += length
         sequence += 1
+
+
+@runtime_checkable
+class ConnectionTester(Protocol):
+    capabilities: ProviderCapabilities
+
+    def test_connection(self, credentials: Credentials) -> ConnectionHealth: ...
+
+
+@runtime_checkable
+class CatalogBrowser(Protocol):
+    capabilities: ProviderCapabilities
+
+    def list_namespaces(self, credentials: Credentials) -> list[RemoteNamespace]: ...
+
+    def list_objects(
+        self,
+        credentials: Credentials,
+        namespace: str,
+        cursor: str | None = None,
+    ) -> CatalogPage: ...
+
+
+@runtime_checkable
+class ObjectSchemaInspector(Protocol):
+    capabilities: ProviderCapabilities
+
+    def inspect_object(self, credentials: Credentials, locator: Locator) -> ObjectSchema: ...
+
+
+@runtime_checkable
+class RowCounter(Protocol):
+    capabilities: ProviderCapabilities
+
+    def count_rows(self, credentials: Credentials, locator: Locator) -> int | None: ...
+
+
+@runtime_checkable
+class CatalogReader(CatalogBrowser, ObjectSchemaInspector, RowCounter, Protocol):
+    """Composite port for callers that need the complete catalog surface."""
+
+
+@runtime_checkable
+class SourceReader(ConnectionTester, ObjectSchemaInspector, Protocol):
+    def extract(
+        self,
+        credentials: Credentials,
+        locator: Locator,
+        *,
+        batch_rows: int,
+        batch_bytes: int,
+    ) -> Iterator[TransferBatch]: ...
+
+
+@runtime_checkable
+class DestinationWriter(ConnectionTester, Protocol):
+    def prepare_destination(
+        self,
+        credentials: Credentials,
+        locator: Locator,
+        schema: ObjectSchema,
+        write_policy: WritePolicy,
+        *,
+        run_id: str,
+    ) -> LoadSession: ...
+
+    def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult: ...
+
+    def finalize(self, load_session: LoadSession) -> DestinationManifest: ...
+
+    def abort(self, load_session: LoadSession) -> None: ...
+
+
+@runtime_checkable
+class DestinationSchemaInspector(ObjectSchemaInspector, Protocol):
+    """Optional destination schema metadata used for verification and upsert checks."""
+
+    capabilities: ProviderCapabilities
+
+    def inspect_object(self, credentials: Credentials, locator: Locator) -> ObjectSchema: ...
+
+
+@runtime_checkable
+class DestinationRowCounter(RowCounter, Protocol):
+    """Optional destination row counts used for verification telemetry."""
+
+    capabilities: ProviderCapabilities
+
+    def count_rows(self, credentials: Credentials, locator: Locator) -> int | None: ...
+
+
+@runtime_checkable
+class DestinationInspector(DestinationSchemaInspector, DestinationRowCounter, Protocol):
+    """Deprecated combined metadata port retained for import compatibility."""
+
+
+@runtime_checkable
+class DatasetProvisioner(Protocol):
+    capabilities: ProviderCapabilities
+
+    def create_dataset(
+        self,
+        credentials: Credentials,
+        *,
+        parent_folder_rid: str,
+        name: str,
+    ) -> ProvisionedDataset: ...
 
 
 class Connector(Protocol):

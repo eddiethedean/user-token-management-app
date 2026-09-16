@@ -15,7 +15,7 @@ def test_reference_smtp_environment_names_are_accepted(monkeypatch):
     monkeypatch.setenv("SMTP_FROM_EMAIL", "Data Mover <relay@example.gov>")
     monkeypatch.setenv("SMTP_USE_TLS", "false")
 
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
     assert settings.email_from == "Data Mover <relay@example.gov>"
     assert settings.smtp_starttls is False
@@ -27,7 +27,7 @@ def test_reference_directory_environment_names_are_accepted(monkeypatch):
     monkeypatch.setenv("DIRECTORY_LOOKUP_TIMEOUT_S", "7")
     monkeypatch.setenv("DIRECTORY_LOOKUP_VERIFY_SSL", "false")
 
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
     assert settings.directory_lookup_timeout_seconds == 7
     assert settings.directory_lookup_verify_tls is False
@@ -35,8 +35,8 @@ def test_reference_directory_environment_names_are_accepted(monkeypatch):
 
 def test_production_rejects_plaintext_port_25_fallback() -> None:
     with pytest.raises(ValueError, match="SMTP_ALLOW_LEGACY_PORT25_FALLBACK"):
-        Settings(
-            _env_file=None,
+        Settings(  # pyright: ignore[reportCallIssue]
+            _env_file=None,  # pyright: ignore[reportCallIssue]
             app_env="production",
             public_base_url="https://mover.example.gov",
             database_url="postgresql+psycopg://mover:pass@localhost:5432/app",
@@ -58,8 +58,8 @@ def test_production_rejects_plaintext_port_25_fallback() -> None:
 
 
 def test_production_allows_missing_optional_password_blocklist(tmp_path: Path) -> None:
-    settings = Settings(
-        _env_file=None,
+    settings = Settings(  # pyright: ignore[reportCallIssue]
+        _env_file=None,  # pyright: ignore[reportCallIssue]
         app_env="production",
         public_base_url="https://mover.example.gov",
         database_url="postgresql+psycopg://mover:pass@localhost:5432/app",

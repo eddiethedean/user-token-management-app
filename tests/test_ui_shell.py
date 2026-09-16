@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from hedron.testing import (
@@ -323,6 +324,7 @@ def test_hedron_065_scoped_motion_and_application_style_contract(access_app) -> 
     assert "prefers-reduced-motion" not in DATA_MOVER_SCOPED_STYLES.css
     styles = get_registry().application_styles()
     assert [style.name for style in styles] == ["data-mover-art-direction"]
+    styles = list(styles)
     assert styles[0].layer == "application"
     assert styles[0].global_ is True
 
@@ -358,8 +360,8 @@ def test_hedron_064_presentation_contract_is_available() -> None:
 
     assert contract["schema"] == "hedron.presentation-contract/1"
     assert contract["container_sizes"]
-    assert "checkbox" in contract["native_controls"]
-    assert "table" in contract["data_chrome"]
+    assert "checkbox" in cast(set[str], contract["native_controls"])
+    assert "table" in cast(set[str], contract["data_chrome"])
 
 
 def test_hedron_native_stylesheet_includes_responsive_rules() -> None:
@@ -586,7 +588,13 @@ def test_profile_form_render_html() -> None:
             role_names=["administrator"],
         )
     )
-    html = render_html(ui.profile_form(_request(), auth, csrf_token="test-csrf"))
+    html = render_html(  # pyright: ignore[reportArgumentType]
+        ui.profile_form(
+            _request(),
+            auth,  # pyright: ignore[reportArgumentType]
+            csrf_token="test-csrf",  # pyright: ignore[reportArgumentType]
+        )
+    )
     assert 'id="profile-form-region"' in html
     assert 'name="csrf_token"' in html
     assert 'value="Ada Admin"' in html
@@ -638,7 +646,7 @@ def test_user_directory_groups_account_identity_in_one_column() -> None:
     html = render_html(
         ui.user_directory(
             _request(),
-            [user],
+            [user],  # pyright: ignore[reportArgumentType]
             csrf_token="admin-csrf",
             query="",
             status_filter="",
@@ -676,7 +684,12 @@ def test_session_list_and_secret_slot_render_html() -> None:
         ),
     ]
     session_html = render_html(
-        ui.session_list(_request(), sessions, auth=auth, csrf_token="sess-csrf")
+        ui.session_list(  # pyright: ignore[reportArgumentType]
+            _request(),
+            sessions,  # pyright: ignore[reportArgumentType]
+            auth=auth,  # pyright: ignore[reportArgumentType]
+            csrf_token="sess-csrf",
+        )
     )
     assert 'id="session-list"' in session_html
     assert "Current" in session_html
@@ -755,7 +768,7 @@ def test_audit_results_and_invitation_panel_render_html() -> None:
     audit = render_html(
         ui.audit_results(
             _request(),
-            events,
+            events,  # pyright: ignore[reportArgumentType]
             event_type_filter="auth.login",
             outcome_filter="",
             current_page=1,
@@ -770,7 +783,10 @@ def test_audit_results_and_invitation_panel_render_html() -> None:
         ui.invitation_panel(
             _request(),
             [],
-            [SimpleNamespace(name="administrator"), SimpleNamespace(name="user")],
+            [  # pyright: ignore[reportArgumentType]
+                SimpleNamespace(name="administrator"),
+                SimpleNamespace(name="user"),
+            ],
             csrf_token="inv-csrf",
         )
     )
@@ -949,7 +965,12 @@ def test_session_list_uses_dialog_confirm(access_app) -> None:
         ),
     ]
     session_html = render_html(
-        ui.session_list(_request(), sessions, auth=auth, csrf_token="sess-csrf")
+        ui.session_list(  # pyright: ignore[reportArgumentType]
+            _request(),
+            sessions,  # pyright: ignore[reportArgumentType]
+            auth=auth,  # pyright: ignore[reportArgumentType]
+            csrf_token="sess-csrf",
+        )
     )
     assert 'data-hedron-dialog-open="#revoke-session-other-session"' in session_html
     assert 'id="revoke-session-other-session"' in session_html

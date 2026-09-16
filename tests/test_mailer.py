@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import patch
 
 from fastapi import BackgroundTasks
 from sqlalchemy import select
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.database import SessionLocal
 from app.models import EmailOutbox, utcnow
 from app.services.mailer import (
@@ -51,7 +52,9 @@ class _FakeSmtp:
 def test_schedule_email_delivery_uses_fastapi_background_tasks():
     background_tasks = BackgroundTasks()
 
-    schedule_email_delivery(background_tasks, SimpleNamespace(app_env="development"))
+    schedule_email_delivery(
+        background_tasks, cast(Settings, SimpleNamespace(app_env="development"))
+    )
 
     assert len(background_tasks.tasks) == 1
     assert background_tasks.tasks[0].func is deliver_pending_background
@@ -60,7 +63,7 @@ def test_schedule_email_delivery_uses_fastapi_background_tasks():
 def test_schedule_email_delivery_is_disabled_during_tests():
     background_tasks = BackgroundTasks()
 
-    schedule_email_delivery(background_tasks, SimpleNamespace(app_env="test"))
+    schedule_email_delivery(background_tasks, cast(Settings, SimpleNamespace(app_env="test")))
 
     assert background_tasks.tasks == []
 
@@ -82,7 +85,7 @@ def test_background_delivery_drains_all_immediately_due_batches(monkeypatch):
 
     monkeypatch.setattr("app.database.SessionLocal", lambda: _Session())
     monkeypatch.setattr("app.services.mailer.deliver_pending_with_metrics", fake_deliver)
-    settings = SimpleNamespace(app_env="development")
+    settings = cast(Settings, SimpleNamespace(app_env="development"))
 
     deliver_pending_background(settings, limit=20)
 

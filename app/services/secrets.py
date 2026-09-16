@@ -7,8 +7,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.connectors.base import Connector
-from app.connectors.registry import connector_for
+from app.connectors.base import ConnectionTester
+from app.connectors.registry import connection_tester_for
 from app.db_compat import execute_dml, insert_for, supports_returning
 from app.models import ApiTokenKeyUsage, PipelineCatalogCache, User, UserSecret, new_id, utcnow
 from app.services.audit import record_event
@@ -20,8 +20,6 @@ from app.services.secret_catalog import (
 from app.services.secret_crypto import (
     CredentialEnvelope,
     CredentialEnvelopeError,
-    decode,
-    encode,
 )
 from app.services.secret_validation import CredentialValidator
 from app.services.secrets_types import CredentialField, SecretProvider
@@ -206,7 +204,7 @@ def test_user_connection(
     provider: str,
     settings: Settings,
     request: Request | None = None,
-    connector_resolver: Callable[[str], Connector] = connector_for,
+    connector_resolver: Callable[[str], ConnectionTester] | None = None,
 ) -> UserSecret:
     """Decrypt credentials inside this call, test the connector, and persist health."""
     specification = require_secret_provider(provider)
@@ -230,7 +228,8 @@ def test_user_connection(
 
     started = utcnow()
     try:
-        health = connector_resolver(provider).test_connection(credentials)
+        resolver = connector_resolver or connection_tester_for
+        health = resolver(provider).test_connection(credentials)
         stored.validation_status = health.status
         stored.validation_message = health.message[:240]
     except ConnectorError as exc:
@@ -362,15 +361,3 @@ def _validate_credentials(
     specification: SecretProvider, credentials: Mapping[str, str]
 ) -> dict[str, str]:
     return CredentialValidator(max_bytes=_FIELD_MAX_BYTES).validate(specification, credentials)
-
-
-def _aad(user_id: str, secret_id: str, provider: str) -> bytes:
-    return CredentialEnvelope.associated_data(user_id, secret_id, provider)
-
-
-def _encode(value: bytes) -> str:
-    return encode(value)
-
-
-def _decode(value: str) -> bytes:
-    return decode(value)

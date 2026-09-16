@@ -123,13 +123,9 @@ ignore = ["B008", "E501"]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
 extraPaths = ["."]
-exclude = ["**/__pycache__", "access_registry.egg-info", ".venv", "tests"]
+include = ["app", "tests"]
+exclude = ["**/__pycache__", "access_registry.egg-info", ".venv"]
 reportMissingTypeStubs = false
-
-# Hedron HTML kwargs remain loosely typed at call sites.
-[[tool.basedpyright.executionEnvironments]]
-root = "app/ui"
-reportArgumentType = "none"
 
 [tool.hedron]
 format_version = 1

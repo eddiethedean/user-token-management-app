@@ -5,17 +5,14 @@ import logging
 import ssl
 from dataclasses import dataclass
 from typing import TypeAlias, TypedDict, cast
-from urllib.parse import urlencode
 
 import httpx2
-from fastapi import Request
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import Settings
 from app.models import User, UserStatus
 from app.security.email import normalize_email
-from app.ui.urls import mounted_path
 
 log = logging.getLogger(__name__)
 
@@ -216,12 +213,3 @@ def user_listing_values(
         "status_filter": cleaned_status,
         "user_success": user_success,
     }
-
-
-def user_listing_path(
-    request: Request, *, query: str = "", status_filter: str = "", page: int = 1, notice: str = ""
-) -> str:
-    parameters = [("q", query), ("status", status_filter), ("page", str(max(1, page)))]
-    if notice:
-        parameters.append(("notice", notice))
-    return mounted_path(request, "/admin/users?" + urlencode(parameters))

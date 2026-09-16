@@ -32,7 +32,7 @@ create-admin:
 check:
 	$(PYTHON) -m ruff check app tests demo-app
 	$(PYTHON) -m ruff format --check app tests demo-app
-	$(PYTHON) -m basedpyright app
+	$(PYTHON) -m basedpyright
 	$(MAKE) hedron-check
 	$(MAKE) posit-check
 	$(PYTHON) -m pytest --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)

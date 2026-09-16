@@ -47,7 +47,7 @@ def credentials_from(postgresql: Any) -> dict[str, str]:
 
 
 def connector_settings() -> Settings:
-    return Settings(_env_file=None, data_mover_mode="demo")
+    return Settings(_env_file=None, data_mover_mode="demo")  # pyright: ignore[reportCallIssue]
 
 
 requires_postgres = pytest.mark.skipif(

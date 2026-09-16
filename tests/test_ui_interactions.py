@@ -513,7 +513,12 @@ def test_component_renders_via_hedron_assert_renders() -> None:
         ),
     ]
     html = assert_renders(
-        ui.session_list(_request(), sessions, auth=auth, csrf_token="csrf"),
+        ui.session_list(  # pyright: ignore[reportArgumentType]
+            _request(),
+            sessions,  # pyright: ignore[reportArgumentType]
+            auth=auth,  # pyright: ignore[reportArgumentType]
+            csrf_token="csrf",
+        ),
         contains="hedron-dialog",
     )
     assert "data-hedron-dialog-open" in html
@@ -558,7 +563,7 @@ def test_connection_and_account_tabs_keep_controls_in_the_right_section() -> Non
             csrf_token="csrf",
             local_password=True,
             sessions=[],
-            auth=auth,
+            auth=auth,  # pyright: ignore[reportArgumentType]
             profile_content="Profile details",
         )
     )

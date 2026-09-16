@@ -195,6 +195,7 @@ def test_invitation_accept_and_revoke(client) -> None:
     settings = get_settings()
     with SessionLocal() as db:
         admin = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert admin is not None
         invitation, raw_token = create_invitation(
             db,
             settings,
@@ -235,6 +236,7 @@ def test_invitation_accept_and_revoke(client) -> None:
     client.cookies.clear()
     with SessionLocal() as db:
         admin = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert admin is not None
         invitation, _ = create_invitation(
             db,
             settings,
@@ -305,6 +307,7 @@ def test_self_registration_revokes_prior_invitation(client) -> None:
     email = "invite.then.register@example.gov"
     with SessionLocal() as db:
         admin = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert admin is not None
         invitation, _ = create_invitation(
             db, settings, email=email, role_name="user", inviter=admin
         )

@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from typing import cast
 
 from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.connectors.base import ProvisionedDataset
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import DATASET_RID_PATTERN
-from app.connectors.registry import capabilities_for, connector_for, writer_enabled
+from app.connectors.registry import capabilities_for, dataset_provisioner_for, writer_enabled
 from app.models import FoundryDataset, User, UserSecret, new_id, utcnow
 from app.services.audit import record_event
 from app.services.secrets import decrypt_user_credentials_for_run
@@ -48,6 +46,7 @@ def create_foundry_dataset(
     parent_folder_rid: str,
     name: str,
     request: Request | None = None,
+    writer_policy: Callable[[str], bool] | None = None,
 ) -> FoundryDataset:
     provider_id = provider.casefold()
     try:
@@ -56,7 +55,8 @@ def create_foundry_dataset(
         raise ValueError("Select MSS or MCS-COP to create a dataset.") from exc
     if not capabilities.dataset_creation:
         raise ValueError("The selected destination does not support dataset creation.")
-    if not writer_enabled(provider_id):
+    is_writer_enabled = writer_policy or writer_enabled
+    if not is_writer_enabled(provider_id):
         raise ValueError("The selected destination writer is not enabled by the operator.")
 
     stored = db.scalar(
@@ -78,11 +78,13 @@ def create_foundry_dataset(
         request=request,
         purpose="dataset_create",
     )
-    provision = getattr(connector_for(provider_id), "create_dataset", None)
-    if not callable(provision):
+    try:
+        provisioner = dataset_provisioner_for(provider_id)
+    except ConnectorError as exc:
+        raise ValueError("The selected destination does not support dataset creation.") from exc
+    if not provisioner.capabilities.dataset_creation:
         raise ValueError("The selected destination does not support dataset creation.")
-    create_dataset = cast(Callable[..., ProvisionedDataset], provision)
-    created = create_dataset(
+    created = provisioner.create_dataset(
         credentials,
         parent_folder_rid=folder_rid,
         name=normalized_name,

@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import Response
 
+from app.connectors.registry import connection_tester_for
 from app.database import SessionLocal
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep, clear_auth_cookies
 from app.models import RefreshSession, User, UserSecret
@@ -486,4 +487,5 @@ def _test_user_connection_in_thread(settings, user_id: str, provider: str):
             user=user,
             provider=provider,
             request=None,
+            connector_resolver=connection_tester_for,
         )

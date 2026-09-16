@@ -1,27 +1,39 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
-from fastapi import Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.application.ports import RequestMetadata
 from app.config import get_settings
 from app.models import AuditEvent, User
 from app.security.client import client_ip as resolve_client_ip
 
+if TYPE_CHECKING:
+    from fastapi import Request
+
 AUDIT_PAGE_SIZE = 50
 
 
-def client_ip(request: Request | None) -> str:
+def client_ip(request: Request | RequestMetadata | None) -> str:
+    if isinstance(request, RequestMetadata):
+        return request.source_ip
     return resolve_client_ip(request, get_settings())
+
+
+def _request_id(request: Request | RequestMetadata | None) -> str:
+    if isinstance(request, RequestMetadata):
+        return request.request_id
+    return getattr(request.state, "request_id", "") if request else ""
 
 
 def record_event(
     db: Session,
     event_type: str,
     *,
-    request: Request | None = None,
+    request: Request | RequestMetadata | None = None,
     actor: User | None = None,
     target: User | None = None,
     outcome: str = "success",
@@ -32,7 +44,7 @@ def record_event(
         actor_user_id=actor.id if actor else None,
         target_user_id=target.id if target else None,
         outcome=outcome,
-        request_id=getattr(request.state, "request_id", "") if request else "",
+        request_id=_request_id(request),
         source_ip=client_ip(request),
         detail=json.dumps(detail or {}, separators=(",", ":"), sort_keys=True),
     )

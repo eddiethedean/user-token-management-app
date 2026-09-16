@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -12,13 +13,25 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.connectors.base import CatalogPage, ProviderCapabilities, RemoteNamespace, RemoteObject
-from app.connectors.locators import parse_locator
+from app.connectors.base import (
+    CatalogBrowser,
+    CatalogPage,
+    CatalogReader,
+    ObjectSchemaInspector,
+    ProviderCapabilities,
+    RemoteNamespace,
+    RemoteObject,
+    RowCounter,
+)
+from app.connectors.errors import ConnectorError, TransferErrorCode
+from app.connectors.locators import Locator, parse_locator
 from app.connectors.registry import (
     capabilities_for,
-    connector_for,
+    catalog_browser_for,
     listed_capabilities,
     load_builtin_connectors,
+    object_schema_inspector_for,
+    row_counter_for,
 )
 from app.models import FoundryDataset, PipelineCatalogCache, User, new_id, utcnow
 
@@ -56,11 +69,23 @@ class UserCatalog:
         user: User,
         *,
         request: Request | None = None,
+        connector_resolver: Callable[[str], CatalogReader] | None = None,
+        browser_resolver: Callable[[str], CatalogBrowser] | None = None,
+        schema_resolver: Callable[[str], ObjectSchemaInspector] | None = None,
+        row_counter_resolver: Callable[[str], RowCounter] | None = None,
     ) -> None:
         self.db = db
         self.settings = settings
         self.user = user
         self.request = request
+        # Resolve module-level defaults at construction time so tests and
+        # application composition can replace each narrow connector authority.
+        # connector_resolver remains as a compatibility adapter for callers
+        # that still provide the legacy composite catalog port.
+        legacy_resolver = connector_resolver
+        self.browser_resolver = browser_resolver or legacy_resolver or catalog_browser_for
+        self.schema_resolver = schema_resolver or legacy_resolver or object_schema_inspector_for
+        self.row_counter_resolver = row_counter_resolver or legacy_resolver or row_counter_for
         self._credentials: dict[str, dict[str, str]] = {}
 
     def list_namespaces(self, provider: str) -> list[RemoteNamespace]:
@@ -68,7 +93,7 @@ class UserCatalog:
         if cached is not None:
             items = [RemoteNamespace(**item) for item in cached.get("items", [])]
         else:
-            items = connector_for(provider).list_namespaces(self._credentials_for(provider))
+            items = self.browser_resolver(provider).list_namespaces(self._credentials_for(provider))
             self._write_cache(
                 provider,
                 "",
@@ -111,7 +136,7 @@ class UserCatalog:
                 **credentials,
                 "branch": self.branch_for_namespace(provider, namespace),
             }
-        page = connector_for(provider).list_objects(credentials, namespace)
+        page = self.browser_resolver(provider).list_objects(credentials, namespace)
         self._write_cache(
             provider,
             namespace,
@@ -122,11 +147,25 @@ class UserCatalog:
         )
         return page
 
-    def inspect_object(self, provider: str, locator):
-        return connector_for(provider).inspect_object(self._credentials_for(provider), locator)
+    def inspect_object(self, provider: str, locator: Locator):
+        inspector = self.schema_resolver(provider)
+        if not inspector.capabilities.schema_inspection:
+            raise ConnectorError(
+                code=TransferErrorCode.INTERNAL_ERROR,
+                summary="The selected provider does not support schema inspection.",
+                retryable=False,
+            )
+        return inspector.inspect_object(self._credentials_for(provider), locator)
 
-    def count_rows(self, provider: str, locator) -> int | None:
-        return connector_for(provider).count_rows(self._credentials_for(provider), locator)
+    def count_rows(self, provider: str, locator: Locator) -> int | None:
+        counter = self.row_counter_resolver(provider)
+        if not counter.capabilities.exact_row_counts:
+            raise ConnectorError(
+                code=TransferErrorCode.INTERNAL_ERROR,
+                summary="The selected provider does not support exact row counts.",
+                retryable=False,
+            )
+        return counter.count_rows(self._credentials_for(provider), locator)
 
     def default_branch(self, provider: str) -> str:
         """Return the branch bound to this user's validated Foundry connection."""
@@ -278,7 +317,6 @@ def all_provider_catalogs() -> tuple[ProviderCatalog, ...]:
     return tuple(provider_catalog(item) for item in listed_capabilities() if item.provider != "csv")
 
 
-PROVIDER_CATALOGS = ()  # populated after registry load; prefer all_provider_catalogs()
 CSV_SOURCE_CATALOG = ProviderCatalog(
     name="csv",
     label="CSV file",
@@ -295,7 +333,6 @@ CSV_SOURCE_CATALOG = ProviderCatalog(
     verification_level="local_manifest",
     limitations=("Scan the upload to inspect schema and exact row counts.",),
 )
-PROVIDER_CATALOG_MAP = {"csv": CSV_SOURCE_CATALOG}
 
 
 def require_catalog_provider(provider: str) -> ProviderCatalog:

@@ -7,6 +7,7 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import select
@@ -120,6 +121,69 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
         )
         assert events
         assert all("token" not in event.message.casefold() for event in events)
+
+
+def test_worker_persists_writer_policy_denial_without_writing(
+    client, demo_connections, monkeypatch
+) -> None:
+    from app.connectors.locators import postgres_table
+    from app.connectors.registry import row_counter_for
+    from app.services import transfer_engine
+    from app.services.demo import DEMO_CONNECTION_CREDENTIALS
+
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    saved = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Worker writer denial",
+            "source_provider": "mss",
+            "source_schema": "ri.foundry.main.dataset.demo-operations",
+            "source_table": "mission_orders.parquet",
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "append",
+        },
+    )
+    assert saved.status_code == 303
+    with SessionLocal() as db:
+        pipeline = db.scalar(
+            select(PipelineDefinition).where(PipelineDefinition.name == "Worker writer denial")
+        )
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert pipeline is not None and user is not None
+        run = enqueue_run(
+            db, user=user, pipeline=pipeline, snapshot=snapshot_from_definition(pipeline)
+        )
+        run_id = run.id
+
+    credentials = DEMO_CONNECTION_CREDENTIALS["postgres"]
+    destination_locator = postgres_table("public", "readiness_events")
+    before = row_counter_for("postgres").count_rows(credentials, destination_locator)
+    assert before is not None
+    denied = Mock(return_value=False)
+    settings = get_settings()
+    monkeypatch.setattr(transfer_engine, "writer_enabled", denied)
+
+    with SessionLocal() as db:
+        assert process_one(db, settings, run_id=run_id) is True
+
+    with SessionLocal() as db:
+        failed = db.get(PipelineRun, run_id)
+        assert failed is not None
+        assert failed.status == PipelineRunStatus.FAILED.value
+        assert failed.error_code == "permission_denied"
+        assert failed.retryable is False
+        assert failed.source_rows == 0
+        assert failed.source_bytes == 0
+        assert failed.loaded_rows == 0
+        assert failed.loaded_bytes == 0
+
+    after = row_counter_for("postgres").count_rows(credentials, destination_locator)
+    assert after == before
+    denied.assert_called_once_with("postgres", settings=settings)
 
 
 def test_cancel_before_claim_marks_run_cancelled(client, demo_connections) -> None:
@@ -247,16 +311,16 @@ def test_active_run_monitor_exposes_cancel_control(client, demo_connections, mon
             db, user=user, pipeline=pipeline, snapshot=snapshot_from_definition(pipeline)
         )
         run_id = run.id
-    from app.ui.routes import pipeline as pipeline_routes
+    import app.services.pipeline_runs as pipeline_run_service
 
-    real_events_after = pipeline_routes.events_after
+    real_events_after = pipeline_run_service.events_after
     event_queries: list[int] = []
 
     def counted_events_after(db, *, run, after_sequence=0):
         event_queries.append(after_sequence)
         return real_events_after(db, run=run, after_sequence=after_sequence)
 
-    monkeypatch.setattr(pipeline_routes, "events_after", counted_events_after)
+    monkeypatch.setattr(pipeline_run_service, "events_after", counted_events_after)
     response = client.get(
         f"/pipeline/runs/{run_id}/status",
         headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor"},

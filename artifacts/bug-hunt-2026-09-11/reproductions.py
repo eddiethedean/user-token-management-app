@@ -83,14 +83,13 @@ def test_csv_late_text():
 
 def engine_setup(monkeypatch,source,dest):
     from app.services import transfer_engine as te
-    monkeypatch.setattr(te,'connector_for',lambda p: source if p=='mss' else dest)
     monkeypatch.setattr(te,'route_allowed',lambda *a:True)
     monkeypatch.setattr(te,'writer_enabled',lambda *a:True)
     for name in ['heartbeat','transition','add_counters','append_event','complete_run','cancel_claimed_run']:
         monkeypatch.setattr(te.pipeline_runs,name,Mock())
     snapshot=DefinitionSnapshot(name='Audit',source_provider='mss',destination_provider='postgres',source=FoundryDatasetFilesLocator(dataset_rid='ri.foundry.main.dataset.audit',branch='master'),destination=postgres_table('public','events'),write_policy=PostgresAppendPolicy())
     settings=SimpleNamespace(is_demo_mode=False,app_env='test',pipeline_lease_seconds=120,pipeline_batch_rows=1000,pipeline_batch_target_bytes=1000000,pipeline_max_run_seconds=60,pipeline_max_source_bytes=1000000)
-    return te,dict(db=Mock(),run=SimpleNamespace(id='audit'),lease_token='lease',snapshot=snapshot,source_credentials={},destination_credentials={},settings=settings)
+    return te,dict(db=Mock(),run=SimpleNamespace(id='audit'),lease_token='lease',snapshot=snapshot,source_credentials={},destination_credentials={},settings=settings,source_resolver=lambda p: source,destination_resolver=lambda p: dest)
 
 def test_cancel_during_last_batch(monkeypatch):
     from tests.test_transfer_engine import _Source,_Destination
@@ -104,8 +103,9 @@ def test_cancel_during_last_batch(monkeypatch):
     te,kwargs=engine_setup(monkeypatch,source,dest)
     te.execute_transfer(**kwargs,cancel_requested=lambda:cancelled)
     print('cancel requested during final batch; committed:',dest.committed)
-    assert cancelled and dest.committed
-    te.pipeline_runs.cancel_claimed_run.assert_not_called()
+    assert cancelled and not dest.committed
+    assert dest.aborted
+    te.pipeline_runs.cancel_claimed_run.assert_called_once()
 
 def test_upsert_ignore_duplicate_input(postgres_credentials):
     import psycopg
@@ -147,14 +147,12 @@ def test_empty_foundry_destination(tmp_path):
     print('empty typed source:',str(exc.value))
     assert str(exc.value)=='No Parquet spool was produced.'
 
-def test_invalid_connect_timeout_stored():
-    from app.services.secret_validation import validate_credentials
+def test_invalid_connect_timeout_rejected():
+    from app.services.secret_validation import CredentialValidator
     from app.services.secret_catalog import SECRET_CATALOG
-    creds=validate_credentials(SECRET_CATALOG.require('postgres'),dict(host='localhost',port='5432',database='x',username='x',password='x',sslmode='require',connect_timeout='abc'))
-    assert creds['connect_timeout']=='abc'
-    with pytest.raises(ValueError) as exc:
-        connect(creds,connector_settings())
-    print('validated timeout crashes:',str(exc.value))
+    with pytest.raises(ValueError, match='Connect timeout') as exc:
+        CredentialValidator().validate(SECRET_CATALOG.require('postgres'),dict(host='localhost',port='5432',database='x',username='x',password='x',sslmode='require',connect_timeout='abc'))
+    print('invalid timeout rejected:',str(exc.value))
 
 def test_uppercase_postgres_identifier(postgres_credentials):
     import psycopg

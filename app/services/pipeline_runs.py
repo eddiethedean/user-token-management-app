@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
 
@@ -63,12 +64,16 @@ def enqueue_run(
     parent_run_id: str | None = None,
     idempotency_token: str | None = None,
     request: Request | None = None,
+    route_policy: Callable[[str, str], bool] | None = None,
+    writer_policy: Callable[[str], bool] | None = None,
 ) -> PipelineRun:
     if pipeline.legacy_unsupported:
         raise ValueError("That saved pipeline uses an unsupported provider and cannot be run.")
-    if not route_allowed(snapshot.source_provider, snapshot.destination_provider):
+    is_route_allowed = route_policy or route_allowed
+    is_writer_enabled = writer_policy or writer_enabled
+    if not is_route_allowed(snapshot.source_provider, snapshot.destination_provider):
         raise ValueError("That saved pipeline uses an unsupported transfer route.")
-    if not writer_enabled(snapshot.destination_provider):
+    if not is_writer_enabled(snapshot.destination_provider):
         raise ValueError("That saved pipeline's destination writer is not enabled.")
     run = PipelineRun(
         id=new_id(),
@@ -194,22 +199,6 @@ def owned_run(db: Session, *, user: User, run_id: str) -> PipelineRun:
     if run is None or run.user_id != user.id:
         raise LookupError("That pipeline run is no longer available.")
     return run
-
-
-def list_runs_for_pipeline(
-    db: Session, *, user: User, pipeline_id: str, limit: int = 8
-) -> list[PipelineRun]:
-    return list(
-        db.scalars(
-            select(PipelineRun)
-            .where(
-                PipelineRun.user_id == user.id,
-                PipelineRun.pipeline_definition_id == pipeline_id,
-            )
-            .order_by(PipelineRun.created_at.desc())
-            .limit(limit)
-        ).all()
-    )
 
 
 def latest_run_map(db: Session, *, user: User, pipeline_ids: list[str]) -> dict[str, PipelineRun]:

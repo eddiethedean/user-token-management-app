@@ -37,7 +37,11 @@ def foundry_sim():
 
 
 def _settings(spool: Path) -> Settings:
-    return Settings(_env_file=None, data_mover_mode="demo", pipeline_spool_root=str(spool))
+    return Settings(  # pyright: ignore[reportCallIssue]
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        data_mover_mode="demo",
+        pipeline_spool_root=str(spool),
+    )
 
 
 def test_supported_files_keep_csv_and_parquet_only() -> None:
@@ -324,7 +328,7 @@ def test_foundry_writer_uploads_to_locator_branch(foundry_sim, tmp_path) -> None
         TransferBatch(
             frame=frame,
             row_count=frame.height,
-            byte_count=frame.estimated_size(),
+            byte_count=int(frame.estimated_size()),
             sequence=1,
         ),
     )

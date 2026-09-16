@@ -261,9 +261,9 @@ def widen_cookie_paths(http: httpx2.Client) -> None:
     http.cookies.clear()
     for name, value, domain in snapshots:
         if domain:
-            http.cookies.set(name, value, domain=domain, path="/")
+            http.cookies.set(name, value, domain=domain, path="/")  # pyright: ignore[reportArgumentType]
         else:
-            http.cookies.set(name, value, path="/")
+            http.cookies.set(name, value, path="/")  # pyright: ignore[reportArgumentType]
 
 
 def app_login(

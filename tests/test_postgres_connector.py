@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import LiteralString
 
 import polars as pl
 import psycopg
@@ -60,7 +61,7 @@ def _key_frame() -> pl.DataFrame:
     )
 
 
-def _fetchall(credentials, query: str, params=None) -> list:
+def _fetchall(credentials, query: LiteralString, params=None) -> list:
     conn = connect(credentials, connector_settings())
     try:
         with conn.cursor() as cursor:
@@ -70,7 +71,7 @@ def _fetchall(credentials, query: str, params=None) -> list:
         conn.close()
 
 
-def _execute(credentials, statement: str) -> None:
+def _execute(credentials, statement: LiteralString) -> None:
     conn = connect(credentials, connector_settings())
     try:
         with conn.cursor() as cursor:
