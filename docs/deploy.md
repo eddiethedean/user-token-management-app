@@ -1,409 +1,220 @@
-# Deploy Data Mover
+# Deploy Data Mover to Posit Connect
 
-Use the shortest path that matches your goal:
+Choose one of the two supported paths:
 
-| Goal | Command or guide | Data and email |
-|---|---|---|
-| Try the app locally or in Workbench | `make demo` | Disposable SQLite, fake connectors, console email |
-| Run live transfers from one Workbench session | [Operational Workbench](#operational-workbench-deployment) | SQLite or PostgreSQL, live connectors, optional SMTP |
-| Evaluate the full app on Connect | [SQLite Connect demo](connect-sqlite-demo.md) | Disposable SQLite, console email |
-| Run a persistent service | [Production Connect](#production-deployment) | PostgreSQL, SMTP, in-process background runtime |
+- **Workbench** for a session-scoped live deployment;
+- **Connect** for the persistent PostgreSQL-backed application.
 
-The demo paths are not production paths. Production requires PostgreSQL, HTTPS, SMTP, generated
-secrets, and the [production security gate](../SECURITY.md#production-security-gate).
+Both deployment paths use real provider connections and PostgreSQL. SQLite and demo-only fixtures
+are for local development and tests only.
 
-## Shared setup
+Before deploying, review the [production security gate](../SECURITY.md#production-security-gate) and
+[configuration reference](configuration.md).
 
-Run this once in the repository checkout on the host that will run Data Mover:
+## Workbench
+
+Use this path for a live, single-session Workbench deployment. Create the environment file and
+install the app:
 
 ```bash
 cd /path/to/user-token-management-app
 python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
+python -m pip install -e .
 test -f .env || cp .env.example .env
 chmod 600 .env
 ```
 
-Keep `.env` out of Git. It is shell syntax and contains credentials in live deployments; review it
-before sourcing it. The complete setting reference is in [configuration.md](configuration.md).
-
-## Local Workbench demo
-
-This is the fastest way to explore the complete UI. It uses fake provider credentials, a disposable
-SQLite file, and console email. It never contacts provider endpoints.
-
-```bash
-cd /path/to/user-token-management-app
-source .venv/bin/activate
-make demo
-```
-
-Open the URL printed by the command and sign in with the displayed demo account. The script creates
-the database, administrator, and fake MSS, MCS-COP, and PostgreSQL connections before starting the
-server on port 8765. Stop it with `Ctrl+C`.
-
-For a normal local server without pre-seeded demo connections:
-
-```bash
-python -m app migrate
-python -m app create-admin --email admin@example.gov
-python -m app serve --reload
-```
-
-Open `http://127.0.0.1:8000/login`. The default development mode uses fake connectors only when you
-configure or seed them; console verification, invitation, and reset links appear in the server
-output. Do not use a Workbench session URL as a durable public URL.
-
-## Operational Workbench deployment
-
-This option runs one Hedron app process with in-process transfer, email, recovery, and retention
-tasks in an approved Workbench session. It is session-scoped: ending or sleeping the session stops
-the service. Use the PostgreSQL/live mode for shared durable data; use Production Connect for an
-always-on service or multiple app replicas.
-
-### Choose a mode
-
-| Mode | Required values | Suitable for |
-|---|---|---|
-| SQLite/live | `APP_ENV=development`, `DATA_MOVER_MODE=real`, `DATABASE_URL=sqlite:///...` | One operator, one app process |
-| PostgreSQL/live | `APP_ENV=production`, `DATA_MOVER_MODE=real`, PostgreSQL `DATABASE_URL` | Multiple users or production-grade storage |
-
-Both modes support live connector checks, transfers, and email invitations. SQLite requires a
-host-local filesystem with reliable locking; do not put its database or spool directory on NFS.
-
-### Configure `.env` and email
-
-Edit `.env` and set the values for the selected mode. Start with the matching block below, then use
-[configuration.md](configuration.md) for optional directory, CA-bundle, rate-limit, and writer
-settings.
-
-SQLite/live minimum:
+Edit `.env` with these values, replacing the development secrets with strong values:
 
 ```dotenv
 APP_ENV=development
-DATABASE_URL='sqlite:///./access-registry.db'
 DATA_MOVER_MODE=real
-PUBLIC_BASE_URL='http://127.0.0.1:8765'
+DATABASE_URL='postgresql+psycopg://USER:PASSWORD@HOST:5432/DBNAME'
+PUBLIC_BASE_URL='https://workbench.example.gov'
 COOKIE_SECURE=true
 COOKIE_PATH=auto
 ALLOWED_EMAIL_DOMAINS='example.gov,example.mil,socom.mil'
 PIPELINE_SPOOL_ROOT='/path/to/data-mover-spool'
 PIPELINE_ALLOWED_HTTPS_HOSTS='mss.example.gov,mcscop.example.gov'
-EMAIL_BACKEND=smtp
-EMAIL_FROM='Data Mover <no-reply@example.gov>'
-SMTP_HOST='smtp.example.gov'
-SMTP_PORT=587
-SMTP_STARTTLS=true
-EMAIL_REDACT_SENT_BODIES=true
+EMAIL_BACKEND=console
 ```
 
-For console-only testing, change `EMAIL_BACKEND=smtp` to `EMAIL_BACKEND=console`. Console mode
-prints links; it does not deliver invitations.
-
-Real mode requires three strong, independent application secrets and a non-development encryption
-key, whether the database is SQLite or PostgreSQL. Generate them once without putting them in shell
-history or source control:
-
-```bash
-python - <<'PY'
-import base64, json, secrets
-print("JWT_SECRET=" + repr(secrets.token_urlsafe(48)))
-print("SESSION_PEPPER=" + repr(secrets.token_urlsafe(48)))
-print("CSRF_SECRET=" + repr(secrets.token_urlsafe(48)))
-key = base64.b64encode(secrets.token_bytes(32)).decode()
-print("API_TOKEN_ENCRYPTION_KEYS=" + repr(json.dumps({"workbench-v1": key})))
-print("API_TOKEN_ACTIVE_KEY_ID=" + repr("workbench-v1"))
-PY
-```
-
-Replace all five printed values in `.env`. The active key ID must exactly match an ID in the JSON
-key ring. Keep the old key in the JSON when reusing a database that already contains encrypted
-credentials; never replace a key that existing records still need.
-
-PostgreSQL/live uses the production block in [.env.example](../.env.example), with at least:
-
-```dotenv
-APP_ENV=production
-DATABASE_URL='postgresql+psycopg://USER:URL_ENCODED_PASSWORD@HOST:5432/DBNAME'
-DATA_MOVER_MODE=real
-PUBLIC_BASE_URL='https://placeholder.example'
-PIPELINE_SPOOL_ROOT='/path/to/data-mover-spool'
-```
-
-Production also requires three independent application secrets, a new credential-encryption key,
-`EMAIL_BACKEND=smtp`, `COOKIE_SECURE=true`, and one approved authentication mode. Follow
-[auth-modes.md](auth-modes.md) and [SECURITY.md](../SECURITY.md) before using `APP_ENV=production`.
-
-Create a local spool directory before starting live transfers:
+Create the spool directory:
 
 ```bash
 mkdir -p /path/to/data-mover-spool
 chmod 700 /path/to/data-mover-spool
 ```
 
-### Initialize and run
-
-The Workbench helper loads `.env` for every process and asks `rserver-url` for the current session
-URL. You do not need to copy the URL into `.env`, set `UVICORN_ROOT_PATH`, or repeat `set -a` in
-each terminal.
-
-Initialize the database and create an administrator:
+Then initialize and run the app:
 
 ```bash
 scripts/run-workbench.sh migrate
 scripts/run-workbench.sh admin --email admin@example.gov
-```
-
-Run the single app process in Workbench:
-
-```bash
 scripts/run-workbench.sh web
 ```
 
-The command prints the current `/s/<session>/p/<port>/login` URL. Keep the app process running in
-the Workbench session. Transfers, invitations, lease recovery, and retention cleanup run inside
-that process; no second terminal, worker, or janitor is needed.
+The `web` command prints the current Workbench URL and keeps the single app process running. Ending
+the Workbench session stops the deployment.
 
-### Verify
+## Connect
 
-Open the printed URL and confirm:
+### 1. Install
 
-1. `/health` returns `{"status":"ok"}` and `/ready` returns `{"status":"ready"}`.
-2. The administrator can sign in.
-3. A non-sensitive connection test succeeds.
-4. A test pipeline completes through the in-process transfer task.
-5. An invitation reaches the approved test mailbox when SMTP is enabled.
-6. Audit events appear for the test actions.
-
-Update the code and rerun `scripts/run-workbench.sh migrate` after stopping the app.
-Back up SQLite while the app is stopped. Keep the same database, encryption key, SMTP
-configuration, and spool directory across restarts. A new Workbench session gets a new URL; the
-`web` command discovers it automatically.
-
-## Production deployment
-
-Production runs the web application and all background runtime tasks inside Posit Connect. There
-are no transfer-worker or janitor services to deploy separately.
-
-### Before you begin
-
-Have these ready:
-
-- Posit Connect with Python 3.11 and permission to publish FastAPI content;
-- PostgreSQL and a least-privileged application role;
-- an approved SMTP relay and its required connection security settings (STARTTLS may be disabled
-  when the approved relay requires an internal plaintext connection);
-- a protected spool directory;
-- approval for the implemented provider capabilities and route families (MSS/PostgreSQL sources,
-  CSV source, MCS-COP destination), the corresponding destination writer flags, and HTTPS host
-  allowlists; same-system routes must use different objects; and
-- a Connect process sized for the expected transfer workload.
-
-Choose `local_password` (with explicit production risk acceptance) or `trusted_header` behind an
-identity-aware proxy. See [auth-modes.md](auth-modes.md).
-
-### Configure and validate
-
-On the publishing host, install the app and publishing client:
+Run these commands from the checkout that will be published:
 
 ```bash
 cd /path/to/user-token-management-app
+python3.11 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e "."
-python -m pip install rsconnect-python
+python -m pip install --upgrade pip
+python -m pip install -e . rsconnect-python
 python -m pip check
 ```
 
-Create `.env` from the production section of [.env.example](../.env.example). Set:
+### 2. Configure
+
+Create a private environment file and fill in the production values from
+[`.env.example`](../.env.example):
+
+```bash
+test -f .env || cp .env.example .env
+chmod 600 .env
+```
+
+At minimum, set:
 
 - `APP_ENV=production` and the final HTTPS `PUBLIC_BASE_URL`;
 - PostgreSQL `DATABASE_URL`;
-- independent JWT, session, and CSRF secrets plus a production encryption key;
-- `EMAIL_BACKEND=smtp`, `EMAIL_FROM`, and approved `SMTP_*` values;
-- `COOKIE_SECURE=true`, `COOKIE_PATH=auto`, and a real email-domain allowlist;
-- `DATA_MOVER_MODE=real`, `PIPELINE_SPOOL_ROOT`, and `PIPELINE_ALLOWED_HTTPS_HOSTS`; and
-- the selected authentication and optional directory settings.
+- independent `JWT_SECRET`, `SESSION_PEPPER`, and `CSRF_SECRET` values;
+- `API_TOKEN_ENCRYPTION_KEYS` and `API_TOKEN_ACTIVE_KEY_ID`;
+- `AUTHENTICATION_MODE`, `COOKIE_SECURE=true`, and `ALLOWED_EMAIL_DOMAINS`;
+- `EMAIL_BACKEND=smtp`, `EMAIL_REDACT_SENT_BODIES=true`, and the approved SMTP settings; and
+- `DATA_MOVER_MODE=real`, `PIPELINE_SPOOL_ROOT=deployment/spool`, and
+  `PIPELINE_ALLOWED_HTTPS_HOSTS`.
 
-For Connect, use bundle-relative paths for configured CA bundles. The publishing helper makes
-present files owner-readable and passes them as explicit extra files, so they remain available in
-the bundle even though `deployment/` is ignored by Git. Use a bundle-relative spool directory; the
-helper creates it with owner read/write/execute permission and adds a `.keep` marker so the directory
-survives bundling. The spool is temporary working storage owned by the app process.
-
-Load the reviewed file, create the protected files, then validate and migrate:
+Generate application secrets without putting them in shell history:
 
 ```bash
-set -a; . ./.env; set +a
+python - <<'PY'
+import base64, json, secrets
+print("JWT_SECRET=" + secrets.token_urlsafe(48))
+print("SESSION_PEPPER=" + secrets.token_urlsafe(48))
+print("CSRF_SECRET=" + secrets.token_urlsafe(48))
+print("API_TOKEN_ENCRYPTION_KEYS=" + json.dumps({"production-v1": base64.b64encode(secrets.token_bytes(32)).decode()}))
+print("API_TOKEN_ACTIVE_KEY_ID=production-v1")
+PY
+```
+
+### 3. Initialize the database
+
+Source the same file that will be published, create the bundle-local spool directory, and run the
+migrations:
+
+```bash
+set -a
+. ./.env
+set +a
 mkdir -p deployment/spool
 touch deployment/spool/.keep
-export PIPELINE_SPOOL_ROOT=deployment/spool
 chmod 700 deployment/spool
-python -m pip check
-python -c "from app.config import get_settings; s=get_settings(); assert s.is_production; print('Production configuration validates')"
 python -m app migrate
 python -m app schema-status
 python -m app create-admin --email admin@example.gov
 ```
 
-Keep `PIPELINE_SPOOL_ROOT='deployment/spool'` in `.env` as well; the publishing helper reloads that
-file in its own process. It also includes configured CA bundle files explicitly in the Connect
-bundle. Absolute paths or missing configured files fail the publish preflight instead of producing a
-content bundle that cannot start. An absolute `PIPELINE_SPOOL_ROOT` must already be a writable
-directory on the publishing host; the helper does not change permissions on external mounts. Legacy
-`PASSWORD_BLOCKLIST_PATH` values are cleared and no blocklist file is inspected or required.
+Use an administrator address from `ALLOWED_EMAIL_DOMAINS`. `schema-status` must report that
+`Current` equals `Head`.
 
-`schema-status` must show `Current` equal to `Head`. Do not run `seed-demo-connections` in
-production.
-
-### Register and publish
+### 4. Register Connect
 
 Register the Connect server once on the publishing host:
 
 ```bash
-read -rsp 'Connect API key: ' CONNECT_API_KEY; printf '\n'
-rsconnect add --server https://connect.example.gov/ --name my-connect --api-key "${CONNECT_API_KEY}"
+read -rsp 'Connect API key: ' CONNECT_API_KEY
+printf '\n'
+rsconnect add \
+  --server https://connect.example.gov/ \
+  --name my-connect \
+  --api-key "$CONNECT_API_KEY"
 unset CONNECT_API_KEY
 ```
 
-Then publish with the repository helper from the checkout you want to bundle:
+### 5. Publish
+
+For the first deployment, create a new Connect content item:
 
 ```bash
-cd /path/to/user-token-management-app
-./scripts/deploy-connect.sh
+rsconnect deploy fastapi \
+  --name my-connect \
+  --title "Data Mover" \
+  --entrypoint app.main:app \
+  --requirements-file requirements.txt \
+  --new \
+  --no-verify \
+  -E APP_ENV \
+  -E PUBLIC_BASE_URL \
+  -E DATABASE_URL \
+  -E JWT_SECRET \
+  -E SESSION_PEPPER \
+  -E CSRF_SECRET \
+  -E API_TOKEN_ENCRYPTION_KEYS \
+  -E API_TOKEN_ACTIVE_KEY_ID \
+  -E AUTHENTICATION_MODE \
+  -E PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED \
+  -E COOKIE_SECURE \
+  -E COOKIE_PATH \
+  -E ALLOWED_EMAIL_DOMAINS \
+  -E EMAIL_BACKEND \
+  -E EMAIL_REDACT_SENT_BODIES \
+  -E EMAIL_FROM \
+  -E SMTP_HOST \
+  -E SMTP_PORT \
+  -E SMTP_STARTTLS \
+  -E DATA_MOVER_MODE \
+  -E PIPELINE_SPOOL_ROOT \
+  -E PIPELINE_ALLOWED_HTTPS_HOSTS \
+  --exclude '.env' \
+  --exclude '.venv' \
+  --exclude '.hedron/build' \
+  --exclude '**/__pycache__/*' \
+  --exclude '**/*.db' \
+  --exclude '**/*.sqlite3' \
+  --exclude 'tests' \
+  --exclude 'demo-app' \
+  ./ deployment/spool/.keep
 ```
 
-The helper defaults to the current directory, prints the source path and Git revision it is
-bundling, then loads `.env`, validates production settings, checks the schema, builds Hedron assets,
-and excludes `.env`, `.venv`, databases, tests, and demo files. It forwards only set environment-variable
-names to Connect; secret values are not command-line arguments. The defaults are `.env`,
-`my-connect`, and `Data Mover`; override them only when needed, for example
-`DATA_MOVER_ENV_FILE=prod.env CONNECT_NAME=prod-connect ./scripts/deploy-connect.sh`. To invoke a
-script copied from elsewhere while bundling a specific checkout, set
-`DATA_MOVER_SOURCE_DIR=/path/to/user-token-management-app`. If the final content URL changes,
-update `PUBLIC_BASE_URL` in `.env` and publish again before inviting users.
+The `-E NAME` options send values from the current shell without putting secret values in the
+command line. The extra `.keep` file ensures the writable spool directory is included in the
+bundle. Add `-E NAME` for any optional settings used by this deployment, such as
+`SMTP_USERNAME`, `SMTP_PASSWORD`, or a CA bundle path.
 
-`CONNECT_NAME` selects the saved Connect server profile; it does not name the content. Use
-`CONNECT_TITLE` for the app’s displayed name. To create a separate Connect content item instead of
-redeploying saved content metadata, set `CONNECT_NEW=true`:
+For a later deployment, replace `--new` with `--app-id CONTENT_ID`. Update `.env` with the exact
+Connect content URL before republishing. Use `--no-verify` only when the publishing host cannot
+reach the deployed URL; otherwise omit it.
 
-```bash
-CONNECT_NEW=true CONNECT_NO_VERIFY=true CONNECT_TITLE='Data Mover Test' ./scripts/deploy-connect.sh
-```
+### 6. Start and verify
 
-Leave `CONNECT_NEW=false` (the default) for normal updates to an existing content item. Set
-`CONNECT_NO_VERIFY=true` when Connect can build the bundle but cannot reach the deployed URL during
-the client verification step; this activates the new bundle immediately, so inspect the Connect
-content logs afterward. The underlying `rsconnect-python` options are `--name` for the server
-nickname, `--title` for the content title, `--new` to force a new deployment, and `--no-verify` to
-activate without URL verification. [Its FastAPI deployment reference](https://docs.posit.co/rsconnect-python/commands/deploy/) documents these options.
+In Connect:
 
-If you need to publish without the helper, use this short command from the repository root. Source
-`.env` first; `-E NAME` passes the value of that local environment variable without putting secrets
-in the command line:
+1. Select Python 3.11.
+2. Restrict access to the intended users or groups.
+3. Confirm the environment values and restart the content.
+4. Open the content URL and confirm `/health` returns `{"status":"ok"}` and `/ready` returns
+   `{"status":"ready"}`.
+5. Sign in, test a non-sensitive connection, run a test pipeline, and confirm audit events.
 
-```bash
-cd /path/to/user-token-management-app
-set -a; . ./.env; set +a
-mkdir -p deployment/spool && touch deployment/spool/.keep
-rsconnect deploy fastapi --new --no-verify -n my-connect -t "Data Mover Test" -e app.main:app -r requirements.txt \
-  -E APP_ENV -E PUBLIC_BASE_URL -E DATABASE_URL -E JWT_SECRET -E SESSION_PEPPER -E CSRF_SECRET \
-  -E API_TOKEN_ENCRYPTION_KEYS -E API_TOKEN_ACTIVE_KEY_ID -E AUTHENTICATION_MODE \
-  -E PASSWORD_ONLY_PRODUCTION_RISK_ACCEPTED -E COOKIE_SECURE -E COOKIE_PATH \
-  -E ALLOWED_EMAIL_DOMAINS -E EMAIL_BACKEND -E EMAIL_REDACT_SENT_BODIES -E EMAIL_FROM \
-  -E SMTP_HOST -E SMTP_PORT -E SMTP_STARTTLS -E DATA_MOVER_MODE -E PIPELINE_SPOOL_ROOT \
-  -E PIPELINE_ALLOWED_HTTPS_HOSTS . deployment/spool/.keep
-```
-
-Change `-t "Data Mover Test"` to the desired Connect app name. Remove `--new` for normal updates
-to an existing content item. `--no-verify` activates the new bundle without the client URL check;
-inspect the Connect logs and verify that its bundle ID appears there.
-
-In Connect, restrict access, select Python 3.11, confirm the stored environment, and restart the
-content after environment changes. No cookie proxy or custom Nginx rule is required; leave
-`COOKIE_PATH=auto`.
-
-### Start and verify
-
-After publishing, open the content in Posit Connect and choose **Start** (or **Restart** after an
-environment change). The Connect content process owns the in-process runtime: it executes queued
-transfers, recovers expired leases, delivers email, and performs retention cleanup. No separate
-worker host, email worker, or janitor scheduler is required.
-
-Open the final content URL and verify, in order:
-
-1. `/health` returns `{"status":"ok"}` and `/ready` returns `{"status":"ready"}`.
-2. The administrator can sign in and the mounted navigation works.
-3. An invitation reaches the approved test mailbox.
-4. A non-sensitive connection test succeeds.
-5. A non-sensitive pipeline completes and its persisted run history is visible.
-6. Audit events appear for the test actions.
-
-If the content URL or environment changes, update `.env`, run the validation/migration steps below,
-republish, and restart the content before testing generated links.
-
-### Redeploy and rollback
-
-For a normal release, run these commands from the repository root after activating the same virtual
-environment used to publish:
-
-```bash
-python -m app migrate
-python -m app schema-status
-./scripts/deploy-connect.sh
-```
-
-In Connect, restart the content after the publish completes. Back up PostgreSQL before migrations;
-`schema-status` must show `Current` equal to `Head` before the restart.
-
-Do not regenerate secrets during a redeploy. Retain old encryption keys until stored credentials have
-been rewrapped. Reverting a Connect bundle does not undo a database migration; restore a tested
-database backup when a schema rollback is required.
-
-## Troubleshooting
-
-| Symptom | Action |
-|---|---|
-| Workbench URL does not load | Use the URL printed by `scripts/run-workbench.sh web`; do not construct `/proxy/8000/` manually. |
-| `rserver-url` is unavailable | Add Workbench's helper directory to `PATH`; real-mode startup uses that helper to discover the current session URL. |
-| Schema is old | Run `python -m app migrate`, then `python -m app schema-status` with the same database URL. |
-| Links leave the mounted URL | Confirm `PUBLIC_BASE_URL` is the exact external URL and keep `COOKIE_PATH=auto`. |
-| Email remains queued | Check SMTP settings, database access, and the Connect app logs; use `send-email` for recovery. |
-| Pipeline runs remain queued | Check the Connect app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; the in-process runtime should recover queued runs automatically. |
-| Connect cannot install packages | Confirm `requirements.txt` is present and the server can reach the approved package repository. |
-
-For detailed diagnostics, see [troubleshooting.md](troubleshooting.md), [configuration.md](configuration.md),
-and the [pipeline runtime runbook](runbooks/pipeline-worker.md).
-
-## Optional licensed checks
-
-Put evaluation keys in the ignored `.env` file only:
-
-```dotenv
-POSIT_WORKBENCH_KEY='REPLACE_WITH_EVALUATION_KEY'
-CONNECT_LICENSE='REPLACE_WITH_EVALUATION_KEY'
-```
-
-Run the optional integration checks with Docker:
-
-```bash
-make workbench-up
-make workbench-test
-make workbench-down
-make connect-smoke
-```
-
-See [docker/README.md](../docker/README.md) before running license-backed tests.
+No separate worker, email service, janitor, cookie proxy, or Nginx rule is required. The Connect
+content process owns the UI, email delivery, pipeline execution, lease recovery, and retention
+cleanup.
 
 ## Related documentation
 
 - [Data Mover configuration](configuration.md)
 - [Authentication modes](auth-modes.md)
 - [Pipeline runtime runbook](runbooks/pipeline-worker.md)
-- [SQLite Connect demo](connect-sqlite-demo.md)
-- [Database migrations](../migrations/README.md)
 - [Security policy and production gate](../SECURITY.md)
 - [Posit Connect FastAPI documentation](https://docs.posit.co/connect/user/fastapi/)
 - [Posit Connect command-line publishing](https://docs.posit.co/connect/user/publishing-cli/)
-- [Posit Workbench proxied servers](https://docs.posit.co/ide/server-pro/user/vs-code/guide/proxying-web-servers.html)

@@ -8,13 +8,20 @@ COMPOSE_FILE="${ROOT}/docker/compose.workbench.yml"
 ENV_FILE="${ROOT}/.env"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
-  echo "Missing ${ENV_FILE}. Copy .env.example and set POSIT_WORKBENCH_KEY." >&2
+  echo "Missing ${ENV_FILE}. Copy .env.example and set PWB_LICENSE." >&2
   exit 1
 fi
 
-if ! grep -Eq '^POSIT_WORKBENCH_KEY=.+' "${ENV_FILE}"; then
-  echo "POSIT_WORKBENCH_KEY is missing or empty in .env" >&2
+if ! grep -Eq '^(PWB_LICENSE|POSIT_WORKBENCH_KEY)=.+' "${ENV_FILE}"; then
+  echo "PWB_LICENSE is missing or empty in .env" >&2
   exit 1
+fi
+
+# PWB_LICENSE is the Workbench image's native setting. Keep accepting the older
+# POSIT_WORKBENCH_KEY name so existing private .env files continue to work.
+if ! grep -Eq '^PWB_LICENSE=.+' "${ENV_FILE}"; then
+  workbench_license="$(grep -m 1 '^POSIT_WORKBENCH_KEY=' "${ENV_FILE}" | cut -d= -f2-)"
+  export PWB_LICENSE="${workbench_license}"
 fi
 
 export PWB_IMAGE="${PWB_IMAGE:-posit/workbench:latest}"

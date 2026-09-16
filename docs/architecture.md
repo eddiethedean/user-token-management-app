@@ -17,7 +17,7 @@ app/connectors  Postgres, Foundry (MSS/MCS-COP), CSV source, fake demo adapters
     │
 app/security    Passwords, tokens, CSRF, email normalize, client trust
     │
-SQLAlchemy ──► SQLite (demo or session-scoped live Workbench) or PostgreSQL (production)
+SQLAlchemy ──► SQLite (local demo/tests) or PostgreSQL (production)
 ```
 
 There is **no public REST API**. Mutations are form/HTMX POSTs; GETs render HTML fragments or pages.

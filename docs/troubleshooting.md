@@ -28,7 +28,6 @@ actions and may destroy data — they are not a supported “undo account” pat
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | Generic “invalid credentials” for a real user | Pending approval, wrong password, or disabled | Admin: check status; approve or enable. Enabling clears failed-attempt lockout |
-| Login 400 for `example@socom.mil` (or any address) on first Workbench run | No user in the SQLite DB yet, and/or `socom.mil` missing from `ALLOWED_EMAIL_DOMAINS` | Add `socom.mil` to `ALLOWED_EMAIL_DOMAINS`, then `python -m app migrate` and `ADMIN_BOOTSTRAP_PASSWORD='…' python -m app create-admin --email you@socom.mil --password-env ADMIN_BOOTSTRAP_PASSWORD`. Sign in with that email/password |
 | Account disabled after repeated failures | Five-failure terminal disablement | Admin enable + password reset / rebinding per local policy |
 | Federated users cannot use password form | `AUTHENTICATION_MODE=trusted_header` | Sign in through the proxy; see [auth-modes.md](auth-modes.md) |
 | Header auth never sees the user | Proxy not injecting / stripping identity header | Fix proxy; ensure app is not reachable without it |
@@ -44,10 +43,8 @@ expire those legacy root cookies when issuing replacements. In development logs,
 `csrf.preauth.rejected` reports only whether the submitted field or cookie was missing/mismatched;
 it never prints either secret value.
 
-For the full safe event sequence and interpretation, see
-[Read safe login diagnostics in Connect](connect-sqlite-demo.md#read-safe-login-diagnostics-in-connect).
-Production deployments can temporarily set `ACCESS_REGISTRY_DEV_TRACE=1` and restart the content
-to emit the same secret-free diagnostics; remove or set it to `0` after troubleshooting.
+Production deployments can temporarily set `ACCESS_REGISTRY_DEV_TRACE=1` and restart the Connect
+content to emit secret-free login diagnostics; remove or set it to `0` after troubleshooting.
 
 ## Cookies under Connect / mount paths
 
@@ -76,7 +73,6 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 | No verification / reset mail | App not running, background task interrupted, or SMTP misconfigured | Confirm the request completed, check the app log and `EMAIL_BACKEND`/SMTP settings, then use `send-email` for one batch |
 | Links only in logs | `EMAIL_BACKEND=console` | Expected locally; use SMTP in production |
 | Messages stuck / dead-lettered | SMTP misconfig or attempt budget | Fix SMTP; `python -m app retry-email` |
-| Multiple app processes on SQLite | In-process tasks can race across independently started app processes | Use one app process with SQLite; use PostgreSQL when multiple app processes are required |
 
 ## Connections and status
 

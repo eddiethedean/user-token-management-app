@@ -21,8 +21,7 @@ retention cleanup.
 ## Real mode requirements
 
 - `DATA_MOVER_MODE=real`
-- PostgreSQL application database (`postgresql+psycopg://…`) for production or multiple app replicas;
-  SQLite is supported for a single-operator, session-scoped Workbench deployment
+- PostgreSQL application database (`postgresql+psycopg://…`);
 - `PIPELINE_SPOOL_ROOT` writable
 - `PIPELINE_ALLOWED_HTTPS_HOSTS` listing every Foundry hostname
 - Foundry writers remain off until `PIPELINE_ENABLE_MSS_WRITER` / `PIPELINE_ENABLE_MCSCOP_WRITER`
@@ -33,8 +32,7 @@ destination objects must not overlap, and destination writers must be enabled ex
 worker rechecks capabilities, object overlap, and writer policy from the frozen snapshot before
 opening either connector.
 
-Production refuses `DATA_MOVER_MODE=demo` and refuses SQLite. For Workbench SQLite/live mode, run
-one app process; its in-process background runtime serializes SQLite transfer and retention work.
+Production refuses `DATA_MOVER_MODE=demo` and refuses SQLite.
 
 The spool directory must exist before startup and be writable by the app process. It is a local
 staging area, not a shared data store. Use the same application database and encryption key ring

@@ -1,6 +1,6 @@
 """Optional Docker + Posit Workbench integration tests.
 
-Opt-in only: ``ACCESS_REGISTRY_WORKBENCH_DOCKER=1`` plus ``POSIT_WORKBENCH_KEY`` in
+Opt-in only: ``ACCESS_REGISTRY_WORKBENCH_DOCKER=1`` plus ``PWB_LICENSE`` in
 ``.env`` and a working Docker engine. Use ``make workbench-test``.
 """
 
@@ -47,9 +47,9 @@ def _load_dotenv_key() -> str:
     if not ENV_FILE.is_file():
         return ""
     for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
-        if line.startswith("POSIT_WORKBENCH_KEY="):
+        if line.startswith(("PWB_LICENSE=", "POSIT_WORKBENCH_KEY=")):
             return line.split("=", 1)[1].strip().strip('"').strip("'")
-    return os.environ.get("POSIT_WORKBENCH_KEY", "").strip()
+    return os.environ.get("PWB_LICENSE", os.environ.get("POSIT_WORKBENCH_KEY", "")).strip()
 
 
 def _docker_available() -> bool:
@@ -70,7 +70,7 @@ def _docker_available() -> bool:
 WORKBENCH_KEY = _load_dotenv_key()
 OPT_IN = os.environ.get("ACCESS_REGISTRY_WORKBENCH_DOCKER", "").strip() == "1"
 SKIP_REASON = (
-    "Set ACCESS_REGISTRY_WORKBENCH_DOCKER=1 with Docker and POSIT_WORKBENCH_KEY "
+    "Set ACCESS_REGISTRY_WORKBENCH_DOCKER=1 with Docker and PWB_LICENSE "
     "in .env (see make workbench-test)."
 )
 

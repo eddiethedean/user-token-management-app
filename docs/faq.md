@@ -61,12 +61,6 @@ The GitHub repository is `user-token-management-app`. The installable package an
 **Which Python version do I need?**  
 Python 3.11 or newer. CI runs 3.11.
 
-**SQLite or PostgreSQL?**  
-SQLite can run the live connector, transfer, and email-invite path for one session-scoped Workbench
-operator when `APP_ENV=development`, `DATA_MOVER_MODE=real`, and a writable spool directory are
-configured. Run one app process with that mode. Concurrent users, backups,
-and production require PostgreSQL (`postgresql+psycopg://…`).
-
 **What CSV files can I use as pipeline sources?**
 UTF-8 `.csv` files up to 5 MB. Data Mover validates the header and row shape, then detects column names,
 completeness, examples, and conservative data types before the pipeline can be saved. The detailed

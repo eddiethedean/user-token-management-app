@@ -34,7 +34,7 @@ for those values.
 The committed defaults plus the development-only secret placeholders in
 `.env.example` are enough for the Quick start:
 
-- SQLite stores the disposable local database.
+- SQLite stores the disposable local development database.
 - `ALLOWED_EMAIL_DOMAINS` stays in `.env` because it is deployment policy; the
   example value allows the local Quick start to create an administrator.
 - `EMAIL_BACKEND=console` puts verification and reset links in the app output instead of sending
@@ -42,13 +42,6 @@ The committed defaults plus the development-only secret placeholders in
 - `DATA_MOVER_MODE=demo` uses fake connectors and cannot be used by production.
 - The example secrets and encryption key are for local work only. Generate new,
   independent values before sharing a database or deploying anywhere.
-
-For a session-scoped Workbench operation, `APP_ENV=development` with SQLite and
-`DATA_MOVER_MODE=real` is also supported. It performs live connector checks and transfers and can
-send invitations through SMTP, but it requires generated application secrets, `COOKIE_SECURE=true`,
-Email delivery, transfers, lease recovery, and retention cleanup run in the web process's FastAPI
-background runtime. It is not a production or multi-user database. See the
-[operational Workbench deployment](deploy.md#operational-workbench-deployment).
 
 ### Production
 

@@ -111,8 +111,7 @@ log during routine review or incident investigation.
 - Not a public JSON/OpenAPI resource API (cookie-session HTMX UI only)
 - Not identity proofing, clearance verification, or CAC replacement by itself
 - Demo mode does not contact remote endpoints; production real mode requires PostgreSQL, a spool
-  directory, and an HTTPS host allowlist. A single-process, session-scoped Workbench real-mode
-  deployment may use SQLite
+  directory, and an HTTPS host allowlist
 - CSV uploads are limited to UTF-8 files of 5 MB or less until streaming quotas exist
 - Not a general-purpose run supervisor for arbitrary workloads (see SD-24)
 - Advana and MongoDB are not first-class transfer providers in this release
@@ -124,7 +123,6 @@ log during routine review or incident investigation.
 | [Quick start](#quick-start) (this README) | New operators |
 | [docs/user-guide.md](docs/user-guide.md) | People configuring connections and running pipelines |
 | [demo-app/README.md](demo-app/README.md) | Minimal Posit Workbench / Connect confidence check |
-| [docs/connect-sqlite-demo.md](docs/connect-sqlite-demo.md) | Full app, disposable Connect demo with SQLite |
 | [docs/auth-modes.md](docs/auth-modes.md) | Choosing password vs trusted-header |
 | [docs/deploy.md](docs/deploy.md) | Posit Connect / Workbench production |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Common failures |
@@ -247,7 +245,7 @@ Schema must be current before `create-admin` or `serve` (startup checks).
 | `make posit-check` | Validate HedronPosit deployment and cookie-path matrix |
 | `make hedron-build` | Build the production Hedron asset manifest |
 | `make demo-check` | Run the dependency-isolated demo-app tests |
-| `make workbench-up` | Start licensed Posit Workbench + app Docker stack (needs `POSIT_WORKBENCH_KEY`) |
+| `make workbench-up` | Start licensed Posit Workbench + app Docker stack (needs `PWB_LICENSE`) |
 | `make workbench-test` | Opt-in Workbench Docker integration tests |
 | `make workbench-logs` | Show recent Workbench/app container logs |
 | `make workbench-down` | Graceful stop (important for license-key deactivation) |
@@ -265,64 +263,31 @@ SMTP, rate limits, and more). Checklist: [SECURITY.md — Production security ga
 
 ## Posit Workbench and Connect
 
-For a disposable evaluation of the full app, use the dedicated
-[Connect SQLite demo guide](docs/connect-sqlite-demo.md). The full
-[step-by-step Posit guide](docs/deploy.md) covers the local and operational Workbench paths, the
-SQLite Connect evaluation, and production Connect deployment. It includes Python 3.11 setup,
-installation, configuration, migrations, administrator bootstrap, Workbench session URLs,
-production secrets, SMTP invitations, directory email checks, Hedron assets, `.env`-driven Connect
-publishing, in-process email delivery, the
-in-process transfer and retention runtime, and verification. Connect 2025.06.0
-and 2026.07 have both passed licensed, proxy-free application-cookie acceptance tests. Access
-Data Mover keeps its own users and sessions rather than treating Connect identity as application
-identity.
+For Posit Workbench live deployment, use the [two-path deployment guide](docs/deploy.md). The
+Workbench path uses real provider connections, PostgreSQL, and one session-scoped app process.
 
-Workbench demo setup is one command after the shared install:
+For a local fake-connector demo:
 
 ```bash
 source .venv/bin/activate
 make demo
 ```
 
-Workbench email configuration (the root `.env`, console versus SMTP, and in-process delivery) is
-documented in [the deployment guide](docs/deploy.md#configure-env-and-email).
-
-The seed step is development-only. It creates missing bundles, refreshes recognized legacy demo
-bundles, revalidates stale current demo bundles, and preserves unknown or real credentials unless
-`--replace` is explicitly supplied. This makes the three demo providers immediately available on
-Pipeline across repeated runs. The disposable Connect SQLite guide
-uses the same step before bundling its database; production Connect explicitly omits it.
-
-For live connector checks, transfers, and SMTP invitations from Workbench, follow the
-[operational Workbench deployment](docs/deploy.md#operational-workbench-deployment). That path
-supports session-scoped SQLite/live operation for one operator or PostgreSQL/live operation when
-the database and provider access are approved. Its commands are:
-
-```bash
-scripts/run-workbench.sh migrate
-scripts/run-workbench.sh admin --email admin@example.gov
-scripts/run-workbench.sh web
-```
+For Posit Connect, use the short [Connect deployment guide](docs/deploy.md). The supported path
+uses PostgreSQL, direct `rsconnect` commands, native Connect cookie handling, and the app's
+in-process email, transfer, recovery, and retention runtime. There is no SQLite Connect path.
 
 Optional local regression against a real Workbench image (put a trial key in `.env` only —
 never commit it):
 
 ```bash
-# POSIT_WORKBENCH_KEY=… in .env
+# PWB_LICENSE=… in .env
 make workbench-up
 make workbench-test
 make workbench-down
 ```
 
 Details: [docker/README.md](docker/README.md).
-
-The SQLite Connect path is a single-process, disposable demo whose data resets on redeployment. Do
-not promote that configuration to production. The production path requires PostgreSQL, SMTP, strong
-secrets, secure cookies, migrations before startup, a Hedron build, a
-protected pipeline spool directory. Transfers, email, lease recovery, and retention cleanup run
-inside the Hedron app process; no external worker or janitor service is required.
-Follow every production Connect step in the deployment guide before publishing
-`app.main:app` for operational use.
 
 ## Contributing
 

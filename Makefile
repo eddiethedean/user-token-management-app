@@ -54,7 +54,7 @@ posit-check:
 hedron-build:
 	$(PYTHON) -m hedron build
 
-# Posit Workbench Docker integration (requires POSIT_WORKBENCH_KEY in .env).
+# Posit Workbench Docker integration (requires PWB_LICENSE in .env).
 # Prefer `make workbench-down` over docker kill so license-key slots can deactivate.
 workbench-up:
 	bash docker/workbench-compose.sh up -d --build --wait

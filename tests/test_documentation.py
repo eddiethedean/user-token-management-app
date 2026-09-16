@@ -32,7 +32,6 @@ def test_current_docs_describe_capability_routes_and_repeatable_demo_seeding() -
         "CONTRIBUTING.md",
         "SECURITY.md",
         "docs/architecture.md",
-        "docs/connect-sqlite-demo.md",
         "docs/troubleshooting.md",
     )
     content = "\n".join(_read(name) for name in maintained_docs)

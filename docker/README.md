@@ -5,13 +5,18 @@ image beside Data Mover, plus a small proxy that reproduces the SOCOM rewrite of
 path-absolute `Location: /s/…` responses. Data Mover emits relative redirects so both Workbench
 entry points remain valid.
 
+These Docker commands are regression harnesses, not deployment paths. The supported live paths are
+documented in [docs/deploy.md](../docs/deploy.md); they use real provider connections and
+PostgreSQL. The Workbench harness uses a disposable development database and reserved test
+credentials so it can exercise the UI and proxy safely.
+
 ## Prerequisites
 
 1. Docker Desktop / Engine
 2. A Workbench trial/eval key in `.env` (never commit it):
 
 ```bash
-POSIT_WORKBENCH_KEY=XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
+PWB_LICENSE=XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
 ```
 
 3. Project venv with app deps installed (`make install`)
@@ -37,6 +42,9 @@ The command is idempotent unless `--replace` is supplied. It stores reserved `.d
 values only in the development app database and is rejected in production.
 
 ## Posit Connect deployment smoke test
+
+This smoke test validates native Connect publishing, cookies, authentication, health, and cleanup;
+it does not validate provider transfers.
 
 With a `CONNECT_LICENSE` key in the repository `.env`, run:
 

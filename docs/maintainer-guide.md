@@ -363,7 +363,7 @@ pytest -m postgres
 PYTEST_MONGO_NOPROC=1 pytest -m mongodb
 # Requires an approved live Foundry environment and credentials.
 DATA_MOVER_LIVE_FOUNDRY=1 pytest -m live_foundry
-# Requires POSIT_WORKBENCH_KEY and Docker.
+# Requires PWB_LICENSE and Docker.
 make workbench-up
 make workbench-test
 make workbench-down

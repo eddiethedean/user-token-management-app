@@ -1,165 +1,61 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_DOC = PROJECT_ROOT / "docs" / "deploy.md"
-CONNECT_DEPLOY_SCRIPT = PROJECT_ROOT / "scripts" / "deploy-connect.sh"
 
 
-def _section(source: str, heading: str, next_heading: str) -> str:
-    start = source.index(heading)
-    end = source.index(next_heading, start + len(heading))
-    return source[start:end]
-
-
-def test_postgres_workbench_instructions_do_not_require_password_blocklist() -> None:
+def test_deployment_guide_has_only_workbench_and_connect_paths() -> None:
     deploy = DEPLOY_DOC.read_text(encoding="utf-8")
-    workbench = _section(
-        deploy,
-        "## Operational Workbench deployment",
-        "## Production deployment",
-    )
 
-    assert "PASSWORD_BLOCKLIST_PATH" not in workbench
-    assert "password-blocklist.txt" not in workbench
+    assert "## Workbench" in deploy
+    assert "## Connect" in deploy
+    assert "## Operational Workbench deployment" not in deploy
+    assert "SQLite Connect" not in deploy
+    assert "connect-sqlite-demo.md" not in deploy
 
 
-def test_workbench_real_mode_documents_matching_encryption_key_ids() -> None:
+def test_connect_deployment_is_postgres_only() -> None:
     deploy = DEPLOY_DOC.read_text(encoding="utf-8")
-    workbench = _section(
-        deploy,
-        "## Operational Workbench deployment",
-        "## Production deployment",
-    )
 
-    assert "API_TOKEN_ENCRYPTION_KEYS" in workbench
-    assert "API_TOKEN_ACTIVE_KEY_ID" in workbench
-    assert "active key ID must exactly match" in workbench
+    assert "Connect** for the persistent PostgreSQL-backed application" in deploy
+    assert "PostgreSQL `DATABASE_URL`" in deploy
+    assert "sqlite:///" not in deploy
 
 
-def test_connect_instructions_retain_spool_directory_in_file_only_bundle() -> None:
+def test_connect_deployment_uses_native_rsconnect_commands() -> None:
     deploy = DEPLOY_DOC.read_text(encoding="utf-8")
-    production = deploy[deploy.index("## Production deployment") :]
-    committed_spool_files = (
-        list((PROJECT_ROOT / "deployment" / "spool").rglob("*"))
-        if (PROJECT_ROOT / "deployment" / "spool").is_dir()
-        else []
-    )
-    retained_by_repository = any(path.is_file() for path in committed_spool_files)
-    retained_by_instructions = re.search(
-        r"(?m)^(?:touch|install|printf\b.*>)\s+[^\n]*deployment/spool/[^/\s]+\s*$",
-        production,
-    )
 
-    assert retained_by_repository or retained_by_instructions, (
-        "Connect setup must put at least one file in deployment/spool so rsconnect's "
-        "file-only bundle retains the directory"
-    )
+    assert "rsconnect add" in deploy
+    assert "rsconnect deploy fastapi" in deploy
+    assert "deploy-connect.sh" not in deploy
+    assert "DATA_MOVER_SOURCE_DIR" not in deploy
+    assert "DATA_MOVER_ENV_FILE" not in deploy
+    assert "make demo" not in deploy
+    assert "fake connectors" not in deploy
+    assert "DATA_MOVER_MODE=real" in deploy
+    assert "postgresql+psycopg://" in deploy
+    assert "scripts/run-workbench.sh web" in deploy
 
 
-def test_connect_instructions_include_start_and_redeploy_steps() -> None:
+def test_connect_deployment_has_direct_publish_safeguards() -> None:
     deploy = DEPLOY_DOC.read_text(encoding="utf-8")
-    production = deploy[deploy.index("## Production deployment") :]
 
-    assert "choose **Start**" in production
-    assert "python -m app migrate" in production
-    assert "/path/to/data-mover.production.env" not in production
+    for setting in (
+        "APP_ENV",
+        "DATABASE_URL",
+        "JWT_SECRET",
+        "SESSION_PEPPER",
+        "CSRF_SECRET",
+        "API_TOKEN_ENCRYPTION_KEYS",
+        "PIPELINE_SPOOL_ROOT",
+        "PIPELINE_ALLOWED_HTTPS_HOSTS",
+    ):
+        assert f"-E {setting}" in deploy
 
+    for excluded in (".env", ".venv", "**/*.db", "tests", "demo-app"):
+        assert f"--exclude '{excluded}'" in deploy
 
-def test_connect_deploy_excludes_generated_hedron_theme_bundle() -> None:
-    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
-
-    assert 'python_bin" -m hedron build' not in script
-    assert "--exclude .hedron/build" in script
-
-
-def test_connect_deploy_includes_configured_bundle_files() -> None:
-    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
-
-    assert "DIRECTORY_LOOKUP_CA_BUNDLE SMTP_CA_BUNDLE PIPELINE_CA_BUNDLE" in script
-    assert 'bundle_files+=("$value")' in script
-    assert 'deploy_args+=("$bundle_file")' in script
-    assert "must be a bundle-relative path for Connect deployment" in script
-    assert "export PASSWORD_BLOCKLIST_PATH=" in script
-
-
-def test_connect_deploy_prepares_bundle_relative_spool_directory() -> None:
-    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
-
-    assert 'mkdir -p "$spool_root"' in script
-    assert 'chmod u+rwx "$spool_root"' in script
-    assert 'spool_marker="$spool_root/.keep"' in script
-    assert 'bundle_files+=("$spool_marker")' in script
-    assert "Absolute PIPELINE_SPOOL_ROOT must already be a writable directory" in script
-
-
-def test_connect_deploy_clears_stale_optional_file_settings() -> None:
-    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
-
-    assert "Connect retains environment variables across redeployments" in script
-    assert 'export "$name="' in script
-    assert "import app.main; print('Application import validates')" in script
-
-
-def test_connect_deploy_bundles_the_current_checkout() -> None:
-    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
-
-    assert 'source_dir="${DATA_MOVER_SOURCE_DIR:-$PWD}"' in script
-    assert "printf 'Bundling source directory: %s (revision %s, %s)\\n'" in script
-    assert "Source directory does not look like a Data Mover checkout" in script
-
-
-def test_connect_deploy_can_force_a_new_content_item() -> None:
-    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
-
-    assert 'connect_new="${CONNECT_NEW:-false}"' in script
-    assert "deploy_args+=(--new)" in script
-    assert "CONNECT_NEW must be true or false" in script
-    assert 'if [[ "$connect_new" != true && "$connect_new" != false ]]; then' in script
-
-
-def test_connect_deploy_can_activate_without_url_verification() -> None:
-    script = CONNECT_DEPLOY_SCRIPT.read_text(encoding="utf-8")
-
-    assert 'connect_no_verify="${CONNECT_NO_VERIFY:-false}"' in script
-    assert "deploy_args+=(--no-verify)" in script
-    assert "CONNECT_NO_VERIFY must be true or false" in script
-    assert 'if [[ "$connect_no_verify" != true && "$connect_no_verify" != false ]]; then' in script
-
-
-def test_readme_operational_commands_use_one_in_process_app() -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
-    introduction = "Its commands are:"
-    start = readme.index(introduction) + len(introduction)
-    command_block = readme[start : readme.index("```", readme.index("```", start) + 3)]
-
-    assert "scripts/run-workbench.sh web" in command_block
-    assert "scripts/run-workbench.sh worker" not in command_block
-    assert "scripts/run-workbench.sh janitor" not in command_block
-
-
-def test_documented_database_provisioning_helpers_have_a_consumer() -> None:
-    env_example = (PROJECT_ROOT / ".env.example").read_text(encoding="utf-8")
-    helper_names = set(re.findall(r"(?m)^# (DB_[A-Z0-9_]+)=", env_example))
-    if not helper_names:
-        return
-
-    candidate_paths = [PROJECT_ROOT / "README.md", PROJECT_ROOT / "Makefile"]
-    candidate_paths.extend((PROJECT_ROOT / "scripts").rglob("*"))
-    candidate_paths.extend((PROJECT_ROOT / "docs").rglob("*.md"))
-    consumers: dict[str, list[Path]] = {name: [] for name in helper_names}
-    for path in candidate_paths:
-        if not path.is_file():
-            continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        for name in helper_names:
-            if name in text:
-                consumers[name].append(path.relative_to(PROJECT_ROOT))
-
-    unused = sorted(name for name, paths in consumers.items() if not paths)
-    assert not unused, (
-        ".env.example says its PostgreSQL DB_* values are provisioning inputs, but these "
-        f"variables have no documented or scripted consumer: {unused}"
-    )
+    assert "deployment/spool/.keep" in deploy
+    assert "No separate worker, email service, janitor, cookie proxy, or Nginx rule" in deploy

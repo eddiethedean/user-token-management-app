@@ -1,5 +1,5 @@
 # Local Posit Workbench stack for Data Mover proxy integration tests.
-# Requires POSIT_WORKBENCH_KEY in the project .env (never commit that file).
+# Requires PWB_LICENSE in the project .env (never commit that file).
 #
 # Usage:
 #   make workbench-up
@@ -13,11 +13,14 @@ name: access-registry-workbench
 services:
   workbench:
     image: ${PWB_IMAGE:-posit/workbench:latest}
+    # The published ARM64 latest variant has no executable entrypoint. Use the
+    # tested AMD64 image under Docker Desktop emulation on ARM64 hosts.
+    platform: ${PWB_PLATFORM:-linux/amd64}
     stop_grace_period: 120s
     ports:
       - "${PWB_HOST_PORT:-8787}:8787"
     environment:
-      PWB_LICENSE: ${POSIT_WORKBENCH_KEY:?Set POSIT_WORKBENCH_KEY in .env}
+      PWB_LICENSE: ${PWB_LICENSE:?Set PWB_LICENSE in .env}
       PWB_TESTUSER: ${PWB_TESTUSER:-posit}
       # Must be ≥8 chars and must not contain the username (PAM policy in the image).
       # Compose requires $$ to preserve the literal $ in the default password.
