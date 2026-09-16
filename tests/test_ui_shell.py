@@ -104,7 +104,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Continue to workspace")
     assert_html_contains(response, "Test demo workspace")
     assert_html_contains(response, "Test environment · Transfers are simulated")
-    assert_html_contains(response, "Version 150926.0")
+    assert_html_contains(response, "Version 160926.0")
     assert_html_contains(response, "Demo mode")
     assert response.body.index('name="password"') < response.body.index("Forgot password?")
     assert "Sandbox" not in response.body
@@ -138,7 +138,7 @@ def test_live_production_shell_reports_effective_runtime_mode() -> None:
     assert "Transfers use configured endpoints and may change remote systems" in rendered
     assert "Production environment · Remote systems may be changed" in rendered
     assert "Live transfers" in rendered
-    assert "Version 150926.0" in rendered
+    assert "Version 160926.0" in rendered
     assert "Demo" not in rendered
     assert "Sandbox" not in rendered
 

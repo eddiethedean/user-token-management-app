@@ -22,6 +22,18 @@
 - Removed the unused SMTP transport-security toggle and always connect using the approved relay's
   configured host and port.
 
+## [160926.0] — 2026-09-16
+
+### Changed
+
+- Completed the SOLID refactor across connector, application, service, worker, and UI boundaries.
+- Split the connector contract into focused source, destination, catalog, inspection, counting,
+  connection-testing, and dataset-provisioning ports with capability-driven registry resolution.
+- Added explicit application commands and injectable policy, clock, and sleep dependencies for
+  pipeline saves, run enqueueing, and transfer execution.
+- Decomposed pipeline interaction routes and run-status presentation into focused modules, removing
+  unused compatibility helpers and enforcing writer policy consistently in demo and live modes.
+
 ## [150926.0] — 2026-09-15
 
 ### Added
