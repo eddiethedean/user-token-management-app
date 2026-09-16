@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import re
 import smtplib
-import ssl
 import threading
 from dataclasses import dataclass
 from datetime import timedelta
@@ -238,34 +237,28 @@ def _send_smtp(message: EmailOutbox, settings: Settings) -> None:
     email["Subject"] = message.subject
     email.set_content(message.body_text)
     email.add_alternative(_html_body(message, settings), subtype="html")
-    client, use_starttls = _connect_smtp(settings)
+    client = _connect_smtp(settings)
     with client:
-        if use_starttls:
-            tls_context = ssl.create_default_context(cafile=settings.smtp_ca_bundle or None)
-            client.starttls(context=tls_context)
         if settings.smtp_username:
             client.login(settings.smtp_username, settings.smtp_password)
         client.send_message(email)
 
 
-def _connect_smtp(settings: Settings) -> tuple[smtplib.SMTP, bool]:
+def _connect_smtp(settings: Settings) -> smtplib.SMTP:
     try:
-        return (
-            smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20),
-            settings.smtp_starttls,
-        )
+        return smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20)
     except (ConnectionRefusedError, smtplib.SMTPConnectError):
         if (
             not settings.smtp_allow_legacy_port25_fallback
             or settings.smtp_username
-            or (settings.smtp_port == 25 and not settings.smtp_starttls)
+            or settings.smtp_port == 25
         ):
             raise
         log.warning(
             "Primary SMTP connection failed; using configured unauthenticated port 25 fallback",
             extra={"smtp_host": settings.smtp_host},
         )
-        return smtplib.SMTP(settings.smtp_host, 25, timeout=20), False
+        return smtplib.SMTP(settings.smtp_host, 25, timeout=20)
 
 
 def _html_body(message: EmailOutbox, settings: Settings) -> str:

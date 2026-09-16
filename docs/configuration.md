@@ -66,10 +66,9 @@ Set or confirm all of the following:
 7. Set a real `ALLOWED_EMAIL_DOMAINS` list. This is an enrollment allowlist,
    not proof that the user completed CAC authentication.
 8. Configure SMTP with `EMAIL_BACKEND=smtp`, the approved `SMTP_HOST`, the
-   correct port and relay security settings, and `EMAIL_REDACT_SENT_BODIES=true`.
-   `SMTP_STARTTLS` may be `false` when the approved relay requires an internal
-   plaintext connection. Email is delivered by an in-process FastAPI background
-   task; no email worker service or scheduler is required.
+   correct port, and `EMAIL_REDACT_SENT_BODIES=true`. The app connects to the
+   configured relay without a TLS upgrade. Email is delivered by an in-process
+   FastAPI background task; no email worker service or scheduler is required.
 9. Set `DATA_MOVER_MODE=real`, a writable `PIPELINE_SPOOL_ROOT`, and an
    explicit `PIPELINE_ALLOWED_HTTPS_HOSTS` allowlist. Writers for MSS and
    MCSCOP remain opt-in until their integrations are approved and tested.
@@ -131,9 +130,8 @@ allowed ranges, production restrictions, and compatibility aliases remain author
 
 ## Naming and precedence notes
 
-- Canonical names are preferred: `EMAIL_FROM`, `SMTP_STARTTLS`,
-  `DIRECTORY_LOOKUP_TIMEOUT_SECONDS`, and `DIRECTORY_LOOKUP_VERIFY_TLS`.
-  Compatibility aliases `SMTP_FROM_EMAIL`, `SMTP_USE_TLS`,
+- Canonical names are preferred: `EMAIL_FROM`, `DIRECTORY_LOOKUP_TIMEOUT_SECONDS`,
+  and `DIRECTORY_LOOKUP_VERIFY_TLS`. Compatibility aliases `SMTP_FROM_EMAIL`,
   `DIRECTORY_LOOKUP_TIMEOUT_S`, and `DIRECTORY_LOOKUP_VERIFY_SSL` are accepted
   for environments shared with `jwt-user-management`.
 - The Connect deployment helper forwards only variables that are actually set

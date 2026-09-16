@@ -53,8 +53,8 @@ authorization evidence.
 - [ ] The NIPR and SIPR authorization boundaries, data flows, administrators, secrets, databases,
       SMTP relays, logs, backups, and pipelines are separate and documented.
 - [ ] `APP_ENV=production`, `COOKIE_SECURE=true`, the stable HTTPS `PUBLIC_BASE_URL`, PostgreSQL
-      `DATABASE_URL`, exact `ALLOWED_EMAIL_DOMAINS`, approved issuer/audience values, SMTP with
-      STARTTLS, and sent-body redaction are set. Production startup validation passes.
+      `DATABASE_URL`, exact `ALLOWED_EMAIL_DOMAINS`, approved issuer/audience values, SMTP relay
+      configuration, and sent-body redaction are set. Production startup validation passes.
 - [ ] If directory validation is enabled, the source's authority, attribute currency, privacy use,
       exact URL/response contract, CA trust, bearer-secret handling, fail-open/fail-closed policy,
       DNS behavior, and network egress allowlist are approved and monitored. It is not represented as
@@ -732,12 +732,12 @@ affects descendant hosts.
 - [Starlette StaticFiles](https://www.starlette.io/staticfiles/) confirms that mounted static
   directories serve existing files through normal ASGI middleware without SPA fallback.
 
-### SD-17 — Require TLS and production-safe startup configuration
+### SD-17 — Require secure production startup configuration
 
 **Status:** Implemented fail-fast checks; TLS itself is a deployment control.
 
 **Decision:** Production configuration refuses to start with insecure cookies, a non-HTTPS or
-malformed public URL, SQLite, console email, SMTP without a host and STARTTLS, missing domain
+malformed public URL, SQLite, console email, SMTP without a host, missing domain
 allowlists, weak placeholder application secrets, retained delivered email bodies, disabled
 application rate limits, or `DIRECTORY_LOOKUP_REQUIRED` without
 a configured HTTPS directory URL. PostgreSQL must use the installed `psycopg` driver. Invalid ports,
@@ -795,8 +795,8 @@ deployment control.
 to successful email-producing responses. The task claims due rows atomically with PostgreSQL
 `FOR UPDATE SKIP LOCKED`, sends outside the claim transaction, applies bounded exponential backoff,
 and marks exhausted messages as dead letters. Operators can explicitly requeue all or one approved
-dead letter. The SMTP backend uses STARTTLS with hostname and certificate validation through the system
-trust store or `SMTP_CA_BUNDLE`, plus optional relay authentication. The application sends
+dead letter. The SMTP backend connects to the configured approved relay, plus optional relay
+authentication. The application sends
 registration/invitation/reset URLs and account-status or password-change notifications (including
 authenticated password changes from the security page), never passwords.
 
@@ -804,9 +804,9 @@ authenticated password changes from the security page), never passwords.
 commits. Change notifications give users an independent signal of possible compromise.
 
 **Limitations:** SMTP delivery is at-least-once: a process failure after relay acceptance but before
-the final database commit can produce a duplicate message. Production startup requires SMTP,
-STARTTLS, and post-delivery body redaction, but application validation cannot prove the relay's
-certificate issuance policy or operational approval. Pending and dead-lettered bodies still contain
+the final database commit can produce a duplicate message. Production startup requires SMTP and
+post-delivery body redaction, but application validation cannot prove the relay's operational
+approval. Pending and dead-lettered bodies still contain
 capability URLs and require strict access and retention controls.
 
 **Deployment control:** require an approved enclave-local relay and protected route, verify TLS and

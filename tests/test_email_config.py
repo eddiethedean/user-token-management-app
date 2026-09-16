@@ -9,16 +9,13 @@ import pytest
 from app.config import Settings
 
 
-def test_reference_smtp_environment_names_are_accepted(monkeypatch):
+def test_reference_smtp_from_environment_name_is_accepted(monkeypatch):
     monkeypatch.delenv("EMAIL_FROM", raising=False)
-    monkeypatch.delenv("SMTP_STARTTLS", raising=False)
     monkeypatch.setenv("SMTP_FROM_EMAIL", "Data Mover <relay@example.gov>")
-    monkeypatch.setenv("SMTP_USE_TLS", "false")
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
     assert settings.email_from == "Data Mover <relay@example.gov>"
-    assert settings.smtp_starttls is False
 
 
 def test_reference_directory_environment_names_are_accepted(monkeypatch):
@@ -50,7 +47,6 @@ def test_production_rejects_plaintext_port_25_fallback() -> None:
             email_backend="smtp",
             email_redact_sent_bodies=True,
             smtp_host="smtp.example.gov",
-            smtp_starttls=True,
             smtp_allow_legacy_port25_fallback=True,
             password_only_production_risk_accepted=True,
             password_blocklist_path=str(Path("tests/fixtures/password-blocklist.txt").resolve()),
@@ -73,7 +69,6 @@ def test_production_allows_missing_optional_password_blocklist(tmp_path: Path) -
         email_backend="smtp",
         email_redact_sent_bodies=True,
         smtp_host="smtp.example.gov",
-        smtp_starttls=False,
         password_only_production_risk_accepted=True,
         data_mover_mode="real",
         pipeline_spool_root=str(tmp_path),
@@ -82,4 +77,3 @@ def test_production_allows_missing_optional_password_blocklist(tmp_path: Path) -
     )
 
     assert settings.password_blocklist_path == ""
-    assert settings.smtp_starttls is False

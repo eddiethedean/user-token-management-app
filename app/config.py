@@ -69,7 +69,6 @@ class ConfigDefaults:
     email_claim_timeout_seconds: int = 300
     email_from: str = "Data Mover <no-reply@example.gov>"
     smtp_port: int = 25
-    smtp_starttls: bool = True
     smtp_allow_legacy_port25_fallback: bool = False
     password_hash_scheme: Literal["argon2", "pbkdf2_sha256"] = "argon2"
     pbkdf2_iterations: int = 600_000
@@ -209,12 +208,7 @@ class Settings(BaseSettings):
     )
     smtp_host: str = ""
     smtp_port: int = Field(default=CONFIG_DEFAULTS.smtp_port, ge=1, le=65535)
-    smtp_starttls: bool = Field(
-        default=CONFIG_DEFAULTS.smtp_starttls,
-        validation_alias=AliasChoices("SMTP_STARTTLS", "SMTP_USE_TLS"),
-    )
     smtp_allow_legacy_port25_fallback: bool = CONFIG_DEFAULTS.smtp_allow_legacy_port25_fallback
-    smtp_ca_bundle: str = ""
     smtp_username: str = ""
     smtp_password: str = ""
 
@@ -398,8 +392,6 @@ class Settings(BaseSettings):
                 )
         if self.directory_lookup_ca_bundle and not Path(self.directory_lookup_ca_bundle).is_file():
             raise ValueError("DIRECTORY_LOOKUP_CA_BUNDLE must identify a readable file")
-        if self.smtp_ca_bundle and not Path(self.smtp_ca_bundle).is_file():
-            raise ValueError("SMTP_CA_BUNDLE must identify a readable file")
         if self.email_retry_max_seconds < self.email_retry_base_seconds:
             raise ValueError("EMAIL_RETRY_MAX_SECONDS must be at least EMAIL_RETRY_BASE_SECONDS")
         if not re.fullmatch(r"[a-z0-9-]{1,64}", self.trusted_identity_header):

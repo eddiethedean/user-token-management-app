@@ -31,16 +31,12 @@ class _FakeSmtp:
         self.host = host
         self.port = port
         self.timeout = timeout
-        self.starttls_called = False
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, traceback):
         return None
-
-    def starttls(self, *, context):
-        self.starttls_called = True
 
     def login(self, username, password):
         return None
@@ -166,7 +162,6 @@ def test_retry_failed_requeues_dead_letter(access_app, monkeypatch):
 def test_smtp_delivery_is_multipart_with_branded_html(access_app, monkeypatch):
     monkeypatch.setenv("EMAIL_BACKEND", "smtp")
     monkeypatch.setenv("SMTP_HOST", "smtp.example.gov")
-    monkeypatch.setenv("SMTP_STARTTLS", "true")
     get_settings.cache_clear()
     settings = get_settings()
     _FakeSmtp.sent.clear()
