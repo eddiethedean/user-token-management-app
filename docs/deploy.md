@@ -152,7 +152,6 @@ rsconnect deploy fastapi \
   --name my-connect \
   --title "Data Mover" \
   --entrypoint app.main:app \
-  --requirements-file requirements.txt \
   --new \
   --no-verify \
   -E APP_ENV \
@@ -189,7 +188,9 @@ rsconnect deploy fastapi \
 
 The `-E NAME` options send values from the current shell without putting secret values in the
 command line. The extra `.keep` file ensures the writable spool directory is included in the
-bundle. Add `-E NAME` for any optional settings used by this deployment, such as
+bundle. `rsconnect-python` discovers the root `requirements.txt` automatically, so this command
+does not require the newer `--requirements-file` option. Add `-E NAME` for any optional settings
+used by this deployment, such as
 `SMTP_USERNAME`, `SMTP_PASSWORD`, or a CA bundle path.
 
 After the first deployment, set `PUBLIC_BASE_URL` to the exact Connect content URL in the app's
@@ -214,7 +215,6 @@ rsconnect deploy fastapi \
   --name my-connect \
   --app-id YOUR_EXISTING_CONTENT_GUID \
   --entrypoint app.main:app \
-  --requirements-file requirements.txt \
   --exclude '.env' \
   --exclude '.venv' \
   --exclude '.hedron/build' \
