@@ -417,14 +417,16 @@ class PostgresConnector:
         except Exception:
             try:
                 conn.rollback()
-            except Exception:
-                log.warning(
-                    "PostgreSQL destination rollback failed during preparation", exc_info=True
+            except Exception as exc:
+                _log_postgres_cleanup_failure(
+                    "PostgreSQL destination rollback failed during preparation", exc
                 )
             try:
                 conn.close()
-            except Exception:
-                log.warning("PostgreSQL destination close failed during preparation", exc_info=True)
+            except Exception as exc:
+                _log_postgres_cleanup_failure(
+                    "PostgreSQL destination close failed during preparation", exc
+                )
             raise
         self._load_conn = conn
         self._load_credentials = dict(credentials)
@@ -578,9 +580,9 @@ class PostgresConnector:
             self._load_conn = None
             try:
                 conn.close()
-            except Exception:
-                log.warning(
-                    "PostgreSQL destination close failed after uncertain commit", exc_info=True
+            except Exception as close_exc:
+                _log_postgres_cleanup_failure(
+                    "PostgreSQL destination close failed after uncertain commit", close_exc
                 )
             raise ConnectorError(
                 TransferErrorCode.PUBLISH_UNCERTAIN,
@@ -590,10 +592,10 @@ class PostgresConnector:
         self._load_conn = None
         try:
             conn.close()
-        except Exception:
+        except Exception as exc:
             # COMMIT was confirmed. A cleanup failure must not turn a completed
             # destination write into a retryable or ambiguous publication.
-            log.warning("PostgreSQL destination close failed after commit", exc_info=True)
+            _log_postgres_cleanup_failure("PostgreSQL destination close failed after commit", exc)
         return manifest
 
     def abort(self, load_session: LoadSession) -> None:
@@ -605,14 +607,14 @@ class PostgresConnector:
             # rollback removes uncommitted staging and preserves live data.
             try:
                 conn.rollback()
-            except Exception:
-                log.warning("PostgreSQL destination rollback failed", exc_info=True)
+            except Exception as exc:
+                _log_postgres_cleanup_failure("PostgreSQL destination rollback failed", exc)
         finally:
             self._load_conn = None
             try:
                 conn.close()
-            except Exception:
-                log.warning("PostgreSQL destination close failed", exc_info=True)
+            except Exception as exc:
+                _log_postgres_cleanup_failure("PostgreSQL destination close failed", exc)
 
 
 def _pg_type(data_type: str) -> str:
@@ -666,6 +668,16 @@ def _postgres_connector_error(exc: psycopg.Error, *, operation: str) -> Connecto
         code,
         f"PostgreSQL rejected the {operation}{detail}.",
         retryable=code == TransferErrorCode.PROVIDER_UNAVAILABLE,
+    )
+
+
+def _log_postgres_cleanup_failure(message: str, exc: Exception) -> None:
+    exception_type = type(exc).__name__
+    log.warning(
+        "%s (%s)",
+        message,
+        exception_type,
+        extra={"exception_type": exception_type},
     )
 
 
