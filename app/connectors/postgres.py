@@ -326,6 +326,10 @@ class PostgresConnector:
         conn = connect(credentials, self.settings)
         try:
             conn.autocommit = False
+            # Set the transaction snapshot before declaring the server-side
+            # cursor; psycopg cannot execute SET through that cursor.
+            with conn.cursor() as transaction_cursor:
+                transaction_cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             with conn.cursor(name=f"dm_{locator.table}") as cursor:
                 query = sql.SQL("SELECT {} FROM {}").format(
                     sql.SQL(", ").join(sql.Identifier(name) for name in names),

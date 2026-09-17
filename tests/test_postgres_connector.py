@@ -181,6 +181,44 @@ def test_postgres_extract_mixed_types_nulls_and_batches(postgres_credentials) ->
     assert combined["unit_name"].to_list() == ["Alpha", "Bravo", "Charlie"]
 
 
+def test_postgres_extract_uses_repeatable_read_snapshot(postgres_credentials, monkeypatch) -> None:
+    assert _fetchall(postgres_credentials, "SHOW default_transaction_isolation") == [
+        ("read committed",)
+    ]
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.snapshot_events (event_id BIGINT, unit_name TEXT)",
+    )
+    _execute(
+        postgres_credentials,
+        "INSERT INTO public.snapshot_events VALUES (1, 'Alpha'), (2, 'Bravo')",
+    )
+
+    original_connect = connect
+    captured = {}
+
+    def capture_connection(credentials, settings):
+        connection = original_connect(credentials, settings)
+        captured["connection"] = connection
+        return connection
+
+    monkeypatch.setattr("app.connectors.postgres.connect", capture_connection)
+    connector = PostgresConnector(connector_settings())
+    iterator = connector.extract(
+        postgres_credentials,
+        postgres_table("public", "snapshot_events"),
+        batch_rows=1,
+        batch_bytes=1024,
+    )
+    first = next(iterator)
+    with captured["connection"].cursor() as cursor:
+        cursor.execute("SHOW transaction_isolation")
+        assert cursor.fetchone()[0] == "repeatable read"
+    remaining = list(iterator)
+
+    assert [first.row_count, *[batch.row_count for batch in remaining]] == [1, 1]
+
+
 def test_postgres_append_creates_schema_and_staging(postgres_credentials) -> None:
     locator = postgres_table("ops", "events")
     manifest = _load(postgres_credentials, locator, PostgresAppendPolicy(), _frame(), "append-1")
