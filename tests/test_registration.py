@@ -6,7 +6,14 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import AuditEvent, Invitation, RegistrationVerification, User, UserStatus
+from app.models import (
+    AuditEvent,
+    EmailOutbox,
+    Invitation,
+    RegistrationVerification,
+    User,
+    UserStatus,
+)
 from app.services.auth import create_invitation
 from tests.helpers import (
     ADMIN_EMAIL,
@@ -204,6 +211,11 @@ def test_invitation_accept_and_revoke(client) -> None:
             inviter=admin,
         )
         invitation_id = invitation.id
+        email_message = db.scalar(
+            select(EmailOutbox).where(EmailOutbox.recipient == "invitee@example.gov")
+        )
+        assert email_message is not None
+        assert email_message.cc_recipient == ADMIN_EMAIL
 
     page = client.get(f"/invitations/accept?token={raw_token}")
     assert page.status_code == 200
@@ -255,6 +267,26 @@ def test_invitation_accept_and_revoke(client) -> None:
     with SessionLocal() as db:
         invitation = db.get(Invitation, invitation_id)
         assert invitation is not None and invitation.revoked_at is not None
+
+
+def test_invitation_skips_cc_when_inviter_has_no_email(client) -> None:
+    settings = get_settings()
+    with SessionLocal() as db:
+        admin = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert admin is not None
+        admin.email = ""
+        invitation, _ = create_invitation(
+            db,
+            settings,
+            email="no.cc.invitee@example.gov",
+            role_name="user",
+            inviter=admin,
+        )
+        message = db.scalar(
+            select(EmailOutbox).where(EmailOutbox.recipient == "no.cc.invitee@example.gov")
+        )
+        assert message is not None
+        assert message.cc_recipient is None
 
 
 def test_expired_and_forged_registration_links_do_not_set_credentials(client) -> None:

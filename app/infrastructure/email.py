@@ -17,7 +17,11 @@ _URL_PATTERN = r"https?://[^\s<>]+"
 
 class ConsoleEmailTransport:
     def send(self, message: OutboundEmail) -> None:
-        print(f"\n--- EMAIL TO {message.recipient} ---\n{message.subject}\n\n{message.body_text}\n")
+        cc = f"\nCC: {message.cc_recipient}" if message.cc_recipient else ""
+        print(
+            f"\n--- EMAIL TO {message.recipient}{cc} ---\n"
+            f"{message.subject}\n\n{message.body_text}\n"
+        )
 
 
 class SmtpEmailTransport:
@@ -28,6 +32,8 @@ class SmtpEmailTransport:
         email = EmailMessage()
         email["From"] = self.settings.email_from
         email["To"] = message.recipient
+        if message.cc_recipient:
+            email["Cc"] = message.cc_recipient
         email["Subject"] = message.subject
         email.set_content(message.body_text)
         email.add_alternative(self._html_body(message), subtype="html")

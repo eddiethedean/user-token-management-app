@@ -71,6 +71,7 @@ def create_invitation(
         "You have been invited to an approved government application.\n\n"
         f"Open this link on the approved network to continue:\n{accept_url}\n\n"
         "This invitation expires in 48 hours. If you did not expect it, contact the service desk.",
+        cc_recipient=inviter.email or None,
     )
     record_event(
         db,

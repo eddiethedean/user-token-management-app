@@ -291,7 +291,8 @@ conspicuously fake secrets. Demo seeding is blocked when `APP_ENV=production` or
 - **Connections** contains only remote credential and connection-status controls.
 - Administrators can use **Team** for invitations, approvals, enable/disable actions, and account
   management. New invitations default to the **User** role; choose **Administrator** only when the
-  recipient needs team-management and application-wide audit access.
+  recipient needs team-management and application-wide audit access. The inviter is copied on the
+  invitation email when the inviter has an email address.
 - Administrators can use **Audit log** to review application-wide events, including connection,
   CSV, pipeline, authentication, and account-management changes.
 

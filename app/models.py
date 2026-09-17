@@ -198,6 +198,7 @@ class EmailOutbox(Base):
     recipient: Mapped[str] = mapped_column(String(320), index=True)
     subject: Mapped[str] = mapped_column(String(240))
     body_text: Mapped[str] = mapped_column(Text)
+    cc_recipient: Mapped[str | None] = mapped_column(String(320), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

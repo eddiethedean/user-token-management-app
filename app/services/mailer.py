@@ -72,13 +72,21 @@ def deliver_pending_background(
             log.exception("Background email delivery cycle failed")
 
 
-def queue_email(db: Session, recipient: str, subject: str, body_text: str) -> EmailOutbox:
+def queue_email(
+    db: Session,
+    recipient: str,
+    subject: str,
+    body_text: str,
+    *,
+    cc_recipient: str | None = None,
+) -> EmailOutbox:
     message_id = new_id()
     message = EmailOutbox(
         id=message_id,
         recipient=recipient,
         subject=subject,
         body_text=body_text,
+        cc_recipient=cc_recipient,
         delivery_state=EmailDeliveryState(message_id=message_id, next_attempt_at=utcnow()),
     )
     db.add(message)
@@ -149,6 +157,7 @@ def _deliver_claim(
                     recipient=message.recipient,
                     subject=message.subject,
                     body_text=message.body_text,
+                    cc_recipient=message.cc_recipient,
                 )
             )
         elif settings.email_backend == "console":
@@ -270,6 +279,8 @@ def _send_smtp(message: EmailOutbox, settings: Settings) -> None:
     email = EmailMessage()
     email["From"] = settings.email_from
     email["To"] = message.recipient
+    if message.cc_recipient:
+        email["Cc"] = message.cc_recipient
     email["Subject"] = message.subject
     email.set_content(message.body_text)
     email.add_alternative(_html_body(message, settings), subtype="html")
