@@ -134,8 +134,13 @@ def _demo_stage_pause(settings: Settings, *, sleeper: Sleeper = system_sleep) ->
 def _abort_quietly(destination, session) -> None:
     try:
         destination.abort(session)
-    except Exception:
-        log.warning("Destination cleanup failed", exc_info=True)
+    except Exception as exc:
+        exception_type = type(exc).__name__
+        log.warning(
+            "Destination cleanup failed (%s)",
+            exception_type,
+            extra={"exception_type": exception_type},
+        )
 
 
 def _validate_upsert_policy(

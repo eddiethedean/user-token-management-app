@@ -219,6 +219,7 @@ def test_worker_unexpected_failures_do_not_log_exception_values(access_app, capl
             )
 
     assert marker not in caplog.text
+    assert "RuntimeError" in caplog.text
     assert any(getattr(record, "exception_type", "") == "RuntimeError" for record in caplog.records)
     with SessionLocal() as db:
         failed = db.get(PipelineRun, run_id)

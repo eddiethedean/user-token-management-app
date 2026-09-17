@@ -181,6 +181,19 @@ def test_demo_stage_pause_uses_injected_sleeper() -> None:
     assert calls == [0.7]
 
 
+def test_destination_cleanup_does_not_log_exception_values(caplog) -> None:
+    marker = "AUDIT_SYNTHETIC_PRIVATE_CELL"
+
+    class FailingDestination:
+        def abort(self, session) -> None:
+            raise RuntimeError(marker)
+
+    transfer_engine._abort_quietly(FailingDestination(), object())
+
+    assert marker not in caplog.text
+    assert "RuntimeError" in caplog.text
+
+
 def test_failure_after_destination_commit_requires_reconciliation(monkeypatch) -> None:
     source = _Source()
     destination = _Destination()
