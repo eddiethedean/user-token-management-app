@@ -417,14 +417,16 @@ class PostgresConnector:
         except Exception:
             try:
                 conn.rollback()
-            except Exception:
-                log.warning(
-                    "PostgreSQL destination rollback failed during preparation", exc_info=True
+            except Exception as exc:
+                _log_postgres_cleanup_failure(
+                    "PostgreSQL destination rollback failed during preparation", exc
                 )
             try:
                 conn.close()
-            except Exception:
-                log.warning("PostgreSQL destination close failed during preparation", exc_info=True)
+            except Exception as exc:
+                _log_postgres_cleanup_failure(
+                    "PostgreSQL destination close failed during preparation", exc
+                )
             raise
         self._load_conn = conn
         self._load_credentials = dict(credentials)
@@ -467,9 +469,12 @@ class PostgresConnector:
             sql.Identifier(locator.schema_name, load_session.staging_name),
             sql.SQL(", ").join(sql.Identifier(name) for name in load_session.columns),
         )
-        with conn.cursor() as cursor:
-            with cursor.copy(copy_sql) as copy:
-                copy.write(buffer.getvalue())
+        try:
+            with conn.cursor() as cursor:
+                with cursor.copy(copy_sql) as copy:
+                    copy.write(buffer.getvalue())
+        except psycopg.Error as exc:
+            raise _postgres_connector_error(exc, operation="batch write") from None
         return BatchWriteResult(
             rows_acknowledged=batch.row_count, bytes_acknowledged=batch.byte_count
         )
@@ -486,81 +491,88 @@ class PostgresConnector:
         columns = sql.SQL(", ").join(sql.Identifier(name) for name in load_session.columns)
         dest = sql.Identifier(locator.schema_name, locator.table)
         stage = sql.Identifier(locator.schema_name, load_session.staging_name)
-        with conn.cursor() as cursor:
-            if isinstance(policy, PostgresAppendPolicy):
-                cursor.execute(
-                    sql.SQL("INSERT INTO {} ({}) SELECT {} FROM {}").format(
-                        dest, columns, columns, stage
-                    )
-                )
-                loaded = cursor.rowcount
-            elif isinstance(policy, PostgresUpsertPolicy):
-                conflict = sql.SQL(", ").join(
-                    sql.Identifier(name) for name in policy.conflict_columns
-                )
-                source = sql.SQL("SELECT {} FROM {}").format(columns, stage)
-                if load_session.metadata.get("staging_sequence"):
-                    source = sql.SQL(
-                        "SELECT DISTINCT ON ({conflict}) {columns} FROM {stage} "
-                        "ORDER BY {conflict}, {sequence} DESC"
-                    ).format(
-                        conflict=conflict,
-                        columns=columns,
-                        stage=stage,
-                        sequence=sql.Identifier("dm_row_number"),
-                    )
-                if policy.action == "ignore":
+        try:
+            with conn.cursor() as cursor:
+                if isinstance(policy, PostgresAppendPolicy):
                     cursor.execute(
-                        sql.SQL("INSERT INTO {} ({}) {} ON CONFLICT ({}) DO NOTHING").format(
-                            dest, columns, source, conflict
+                        sql.SQL("INSERT INTO {} ({}) SELECT {} FROM {}").format(
+                            dest, columns, columns, stage
                         )
                     )
-                else:
-                    update_columns = [
-                        name for name in load_session.columns if name not in policy.conflict_columns
-                    ]
-                    if update_columns:
-                        assignments = sql.SQL(", ").join(
-                            sql.SQL("{0} = EXCLUDED.{0}").format(sql.Identifier(name))
-                            for name in update_columns
+                    loaded = cursor.rowcount
+                elif isinstance(policy, PostgresUpsertPolicy):
+                    conflict = sql.SQL(", ").join(
+                        sql.Identifier(name) for name in policy.conflict_columns
+                    )
+                    source = sql.SQL("SELECT {} FROM {}").format(columns, stage)
+                    if load_session.metadata.get("staging_sequence"):
+                        source = sql.SQL(
+                            "SELECT DISTINCT ON ({conflict}) {columns} FROM {stage} "
+                            "ORDER BY {conflict}, {sequence} DESC"
+                        ).format(
+                            conflict=conflict,
+                            columns=columns,
+                            stage=stage,
+                            sequence=sql.Identifier("dm_row_number"),
                         )
-                        cursor.execute(
-                            sql.SQL(
-                                "INSERT INTO {} ({}) {} ON CONFLICT ({}) DO UPDATE SET {}"
-                            ).format(dest, columns, source, conflict, assignments)
-                        )
-                    else:
-                        # An upsert whose conflict key contains every column
-                        # has nothing to update. PostgreSQL rejects an empty
-                        # SET clause, so treat it as an idempotent no-op.
+                    if policy.action == "ignore":
                         cursor.execute(
                             sql.SQL("INSERT INTO {} ({}) {} ON CONFLICT ({}) DO NOTHING").format(
                                 dest, columns, source, conflict
                             )
                         )
-                loaded = cursor.rowcount
-            elif isinstance(policy, PostgresReplacePolicy) and policy.schema_policy == "recreate":
-                cursor.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(stage))
-                row = cursor.fetchone()
-                loaded = int(row[0]) if row else 0
-                cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(dest))
-                cursor.execute(
-                    sql.SQL("ALTER TABLE {} RENAME TO {}").format(
-                        stage, sql.Identifier(locator.table)
+                    else:
+                        update_columns = [
+                            name
+                            for name in load_session.columns
+                            if name not in policy.conflict_columns
+                        ]
+                        if update_columns:
+                            assignments = sql.SQL(", ").join(
+                                sql.SQL("{0} = EXCLUDED.{0}").format(sql.Identifier(name))
+                                for name in update_columns
+                            )
+                            cursor.execute(
+                                sql.SQL(
+                                    "INSERT INTO {} ({}) {} ON CONFLICT ({}) DO UPDATE SET {}"
+                                ).format(dest, columns, source, conflict, assignments)
+                            )
+                        else:
+                            # An upsert whose conflict key contains every column
+                            # has nothing to update. PostgreSQL rejects an empty
+                            # SET clause, so treat it as an idempotent no-op.
+                            cursor.execute(
+                                sql.SQL(
+                                    "INSERT INTO {} ({}) {} ON CONFLICT ({}) DO NOTHING"
+                                ).format(dest, columns, source, conflict)
+                            )
+                    loaded = cursor.rowcount
+                elif (
+                    isinstance(policy, PostgresReplacePolicy) and policy.schema_policy == "recreate"
+                ):
+                    cursor.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(stage))
+                    row = cursor.fetchone()
+                    loaded = int(row[0]) if row else 0
+                    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(dest))
+                    cursor.execute(
+                        sql.SQL("ALTER TABLE {} RENAME TO {}").format(
+                            stage, sql.Identifier(locator.table)
+                        )
                     )
-                )
-            else:
-                cursor.execute(sql.SQL("DELETE FROM {}").format(dest))
-                cursor.execute(
-                    sql.SQL("INSERT INTO {} ({}) SELECT {} FROM {}").format(
-                        dest, columns, columns, stage
+                else:
+                    cursor.execute(sql.SQL("DELETE FROM {}").format(dest))
+                    cursor.execute(
+                        sql.SQL("INSERT INTO {} ({}) SELECT {} FROM {}").format(
+                            dest, columns, columns, stage
+                        )
                     )
-                )
-                loaded = cursor.rowcount
-            if not (
-                isinstance(policy, PostgresReplacePolicy) and policy.schema_policy == "recreate"
-            ):
-                cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(stage))
+                    loaded = cursor.rowcount
+                if not (
+                    isinstance(policy, PostgresReplacePolicy) and policy.schema_policy == "recreate"
+                ):
+                    cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(stage))
+        except psycopg.Error as exc:
+            raise _postgres_connector_error(exc, operation="destination finalization") from None
         manifest = DestinationManifest(locator=locator, rows=int(loaded or 0), bytes=0)
         try:
             conn.commit()
@@ -568,9 +580,9 @@ class PostgresConnector:
             self._load_conn = None
             try:
                 conn.close()
-            except Exception:
-                log.warning(
-                    "PostgreSQL destination close failed after uncertain commit", exc_info=True
+            except Exception as close_exc:
+                _log_postgres_cleanup_failure(
+                    "PostgreSQL destination close failed after uncertain commit", close_exc
                 )
             raise ConnectorError(
                 TransferErrorCode.PUBLISH_UNCERTAIN,
@@ -580,10 +592,10 @@ class PostgresConnector:
         self._load_conn = None
         try:
             conn.close()
-        except Exception:
+        except Exception as exc:
             # COMMIT was confirmed. A cleanup failure must not turn a completed
             # destination write into a retryable or ambiguous publication.
-            log.warning("PostgreSQL destination close failed after commit", exc_info=True)
+            _log_postgres_cleanup_failure("PostgreSQL destination close failed after commit", exc)
         return manifest
 
     def abort(self, load_session: LoadSession) -> None:
@@ -595,14 +607,14 @@ class PostgresConnector:
             # rollback removes uncommitted staging and preserves live data.
             try:
                 conn.rollback()
-            except Exception:
-                log.warning("PostgreSQL destination rollback failed", exc_info=True)
+            except Exception as exc:
+                _log_postgres_cleanup_failure("PostgreSQL destination rollback failed", exc)
         finally:
             self._load_conn = None
             try:
                 conn.close()
-            except Exception:
-                log.warning("PostgreSQL destination close failed", exc_info=True)
+            except Exception as exc:
+                _log_postgres_cleanup_failure("PostgreSQL destination close failed", exc)
 
 
 def _pg_type(data_type: str) -> str:
@@ -634,6 +646,39 @@ def _pg_type(data_type: str) -> str:
     if folded.startswith("time"):
         return "TIME"
     return "TEXT"
+
+
+def _postgres_connector_error(exc: psycopg.Error, *, operation: str) -> ConnectorError:
+    """Convert provider diagnostics to a safe, SQLSTATE-only transfer error."""
+
+    sqlstate = getattr(exc, "sqlstate", None)
+    safe_sqlstate = (
+        sqlstate if isinstance(sqlstate, str) and re.fullmatch(r"[0-9A-Z]{5}", sqlstate) else ""
+    )
+    detail = f" (SQLSTATE {safe_sqlstate})" if safe_sqlstate else ""
+    if safe_sqlstate.startswith(("08", "40")):
+        code = TransferErrorCode.PROVIDER_UNAVAILABLE
+    elif safe_sqlstate.startswith("22"):
+        code = TransferErrorCode.SCHEMA_DRIFT
+    elif safe_sqlstate.startswith("23"):
+        code = TransferErrorCode.DESTINATION_CONFLICT
+    else:
+        code = TransferErrorCode.INTERNAL_ERROR
+    return ConnectorError(
+        code,
+        f"PostgreSQL rejected the {operation}{detail}.",
+        retryable=code == TransferErrorCode.PROVIDER_UNAVAILABLE,
+    )
+
+
+def _log_postgres_cleanup_failure(message: str, exc: Exception) -> None:
+    exception_type = type(exc).__name__
+    log.warning(
+        "%s (%s)",
+        message,
+        exception_type,
+        extra={"exception_type": exception_type},
+    )
 
 
 def _polars_type(data_type: str):

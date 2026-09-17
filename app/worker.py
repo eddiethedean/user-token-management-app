@@ -176,8 +176,14 @@ def process_one(
     except RunConflictError:
         db.rollback()
         log.warning("pipeline worker stopped after losing its lease", extra={"run_id": run_id})
-    except Exception:
-        log.exception("pipeline run %s failed", run_id)
+    except Exception as exc:
+        exception_type = type(exc).__name__
+        log.error(
+            "pipeline run %s failed unexpectedly (%s)",
+            run_id,
+            exception_type,
+            extra={"exception_type": exception_type},
+        )
         db.rollback()
         failed = db.get(PipelineRun, run_id)
         if failed is not None:

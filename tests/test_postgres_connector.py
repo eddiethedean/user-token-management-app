@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import LiteralString
 
@@ -193,6 +194,66 @@ def test_postgres_append_creates_schema_and_staging(postgres_credentials) -> Non
         "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'dm_stage_%'",
     )
     assert leftover == []
+
+
+def test_postgres_copy_errors_are_sanitized(postgres_credentials) -> None:
+    marker = "AUDIT_SYNTHETIC_PRIVATE_CELL"
+    _execute(postgres_credentials, "CREATE TABLE public.log_dest (id INTEGER)")
+    connector = PostgresConnector(connector_settings())
+    locator = postgres_table("public", "log_dest")
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(ColumnSchema(name="id", data_type="String"),),
+    )
+    session = connector.prepare_destination(
+        postgres_credentials, locator, schema, PostgresAppendPolicy(), run_id="safe-copy-error"
+    )
+    try:
+        with pytest.raises(ConnectorError) as excinfo:
+            connector.write_batch(
+                session,
+                TransferBatch(
+                    frame=pl.DataFrame({"id": [marker]}),
+                    row_count=1,
+                    byte_count=len(marker),
+                    sequence=1,
+                ),
+            )
+    finally:
+        connector.abort(session)
+
+    assert marker not in str(excinfo.value)
+    assert excinfo.value.code == TransferErrorCode.SCHEMA_DRIFT
+    assert "22P02" in str(excinfo.value)
+
+
+def test_postgres_abort_does_not_log_source_error_context(caplog) -> None:
+    marker = "AUDIT_SYNTHETIC_PRIVATE_CELL"
+
+    class FailingRollbackConnection:
+        def rollback(self) -> None:
+            raise RuntimeError("rollback failed")
+
+        def close(self) -> None:
+            return None
+
+    connector = PostgresConnector(connector_settings())
+    connector._load_conn = FailingRollbackConnection()  # type: ignore[assignment]
+    with caplog.at_level(logging.WARNING, logger="app.connectors.postgres"):
+        try:
+            raise ValueError(marker)
+        except ValueError:
+            connector.abort(
+                LoadSession(
+                    locator=postgres_table("public", "log_dest"),
+                    write_policy=PostgresAppendPolicy(),
+                    staging_name="dm_stage_test",
+                    columns=("id",),
+                )
+            )
+
+    assert marker not in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_postgres_upsert_composite_key_update_and_ignore(postgres_credentials) -> None:
