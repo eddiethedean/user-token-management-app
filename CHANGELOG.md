@@ -4,6 +4,17 @@
 
 Future changes will be listed here.
 
+## [170926.1] — 2026-09-17
+
+### Added
+
+- Invitation emails now copy the inviter when the inviter has an email address.
+
+### Fixed
+
+- Deployment instructions now work with older `rsconnect-python` clients that discover the root
+  `requirements.txt` automatically.
+
 ## [170926.0] — 2026-09-17
 
 ### Fixed
