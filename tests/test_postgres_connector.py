@@ -319,11 +319,11 @@ def test_postgres_abort_rolls_back_staging_and_janitor_drops_legacy_tables(
     _execute(postgres_credentials, "CREATE TABLE public.dm_stage_orphan (id INT)")
     _execute(
         postgres_credentials,
-        "CREATE TABLE public.dmxstageycustomer_data (id INT)",
+        "CREATE TABLE public.dmxstage_customer_data (id INT)",
     )
     _execute(
         postgres_credentials,
-        "INSERT INTO public.dmxstageycustomer_data VALUES (42)",
+        "INSERT INTO public.dmxstage_customer_data VALUES (42)",
     )
     dropped = drop_abandoned_staging(postgres_credentials, keep=set())
     assert dropped >= 1
@@ -334,7 +334,7 @@ def test_postgres_abort_rolls_back_staging_and_janitor_drops_legacy_tables(
     assert leftover == []
     preserved = _fetchall(
         postgres_credentials,
-        "SELECT id FROM public.dmxstageycustomer_data",
+        "SELECT id FROM public.dmxstage_customer_data",
     )
     assert preserved == [(42,)]
 

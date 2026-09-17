@@ -682,7 +682,7 @@ def drop_abandoned_staging(credentials: Mapping[str, str], *, keep: set[str] | N
                 FROM information_schema.tables
                 -- Escape the underscore so LIKE matches the literal staging
                 -- prefix instead of treating it as a one-character wildcard.
-                WHERE table_name LIKE 'dm_stage\\_%' ESCAPE '\\'
+                WHERE table_name LIKE 'dm\\_stage\\_%' ESCAPE '\\'
                 """
             )
             rows = list(cursor.fetchall())
