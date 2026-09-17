@@ -189,7 +189,11 @@ class FoundryClient:
                 response.status_code,
                 for_destination=for_destination or "/upload" in url,
             )
-            raise ConnectorError(code, f"Foundry returned HTTP {response.status_code}.")
+            raise ConnectorError(
+                code,
+                f"Foundry returned HTTP {response.status_code}.",
+                http_status=response.status_code,
+            )
         return response
 
     def list_files(self, dataset_rid: str, branch: str, cursor: str | None = None) -> dict:
@@ -372,7 +376,7 @@ class FoundryClient:
                     content=handle,
                 )
         except ConnectorError as exc:
-            if exc.code == TransferErrorCode.INTERNAL_ERROR:
+            if exc.code == TransferErrorCode.INTERNAL_ERROR and exc.http_status == 400:
                 # Older Foundry deployments used by the original NIPR scripts can
                 # reject the current committed-upload query unless preview=true is
                 # present. A 400 response is safe to retry because no transaction

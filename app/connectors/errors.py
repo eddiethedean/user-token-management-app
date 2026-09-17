@@ -48,6 +48,7 @@ class ConnectorError(Exception):
     summary: str
     retryable: bool | None = None
     provider_correlation_id: str = ""
+    http_status: int | None = None
 
     def __post_init__(self) -> None:
         if self.retryable is None:
