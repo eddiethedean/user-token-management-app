@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- PostgreSQL source extraction now explicitly starts a repeatable-read transaction before opening its
+  server-side cursor, so row batches use a stable source snapshot even when the database default is
+  read committed.
 - Posit Connect deployment now explicitly includes configured CA-bundle files, preventing
   production startup failures when those files live under the Git-ignored `deployment/` directory.
 - Production startup no longer depends on the optional password blocklist; unavailable configured

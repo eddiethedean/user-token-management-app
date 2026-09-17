@@ -30,7 +30,12 @@ Read namespaces and tables from `information_schema` / `pg_catalog`. Inspect col
 
 - `SELECT` with an explicit column list.
 - Server-side cursor and `fetchmany()` into bounded Polars frames (default 25,000 rows / 64 MiB).
-- Hold a repeatable-read snapshot for the extract so verification does not observe concurrent drift.
+- Open a dedicated connection, set `ISOLATION LEVEL REPEATABLE READ` before declaring the named
+  cursor, and keep that transaction open until all batches have been consumed. This is explicit even
+  when the database default is `READ COMMITTED`.
+- The snapshot covers row extraction only. Schema inspection occurs before extraction on a separate
+  connection, and destination verification uses the extracted totals and committed load manifest
+  rather than issuing a second source read.
 
 ## Destination load
 
@@ -50,12 +55,15 @@ Read namespaces and tables from `information_schema` / `pg_catalog`. Inspect col
 
 ## Verification
 
-Compare committed row effects (`loaded_rows`) against extracted totals. Optional key-count checks when an upsert conflict key is present. Do not invent checksums the destination did not confirm.
+Compare committed row effects (`loaded_rows`) against extracted totals from the repeatable-read
+extraction. Optional key-count checks apply when an upsert conflict key is present. Do not invent
+checksums the destination did not confirm.
 
 ## Testing
 
 Connector tests start an ephemeral PostgreSQL with
 [testing.postgresql](https://pypi.org/project/testing.postgresql/) (`tests/test_postgres_connector.py`).
-They cover health, catalog inspection, mixed-type extract with nulls, append/upsert/replace, abort,
-and in-process staging janitor cleanup. The suite skips when `initdb` and `postgres` are not available. Local
-trust auth uses `sslmode=disable`; production credentials still default to `sslmode=require`.
+They cover health, catalog inspection, mixed-type extract with nulls, the active repeatable-read
+isolation level, append/upsert/replace, abort, and in-process staging janitor cleanup. The suite skips
+when `initdb` and `postgres` are not available. Local trust auth uses `sslmode=disable`; production
+credentials still default to `sslmode=require`.
