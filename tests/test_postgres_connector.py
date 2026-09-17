@@ -317,6 +317,14 @@ def test_postgres_abort_rolls_back_staging_and_janitor_drops_legacy_tables(
     assert gone == []
 
     _execute(postgres_credentials, "CREATE TABLE public.dm_stage_orphan (id INT)")
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.dmxstage_customer_data (id INT)",
+    )
+    _execute(
+        postgres_credentials,
+        "INSERT INTO public.dmxstage_customer_data VALUES (42)",
+    )
     dropped = drop_abandoned_staging(postgres_credentials, keep=set())
     assert dropped >= 1
     leftover = _fetchall(
@@ -324,6 +332,11 @@ def test_postgres_abort_rolls_back_staging_and_janitor_drops_legacy_tables(
         "SELECT table_name FROM information_schema.tables WHERE table_name = 'dm_stage_orphan'",
     )
     assert leftover == []
+    preserved = _fetchall(
+        postgres_credentials,
+        "SELECT id FROM public.dmxstage_customer_data",
+    )
+    assert preserved == [(42,)]
 
 
 def test_postgres_unavailable_port_maps_error(postgres_credentials) -> None:
