@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -184,6 +185,45 @@ def test_worker_persists_writer_policy_denial_without_writing(
     after = row_counter_for("postgres").count_rows(credentials, destination_locator)
     assert after == before
     denied.assert_called_once_with("postgres", settings=settings)
+
+
+def test_worker_unexpected_failures_do_not_log_exception_values(access_app, caplog, monkeypatch):
+    from app import worker
+
+    marker = "AUDIT_SYNTHETIC_PRIVATE_CELL"
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        run = PipelineRun(
+            user_id=user.id,
+            status=PipelineRunStatus.QUEUED.value,
+            definition_snapshot_json="{}",
+        )
+        db.add(run)
+        db.commit()
+        run_id = run.id
+
+    monkeypatch.setattr(
+        worker,
+        "execute_transfer",
+        Mock(side_effect=RuntimeError(marker)),
+    )
+    monkeypatch.setattr(worker, "parse_snapshot", Mock(return_value=Mock()))
+    with caplog.at_level(logging.ERROR, logger="app.worker"):
+        with SessionLocal() as db:
+            assert process_one(
+                db,
+                get_settings(),
+                run_id=run_id,
+                credential_resolver=lambda *args, **kwargs: {},
+            )
+
+    assert marker not in caplog.text
+    assert any(getattr(record, "exception_type", "") == "RuntimeError" for record in caplog.records)
+    with SessionLocal() as db:
+        failed = db.get(PipelineRun, run_id)
+        assert failed is not None
+        assert failed.error_summary == "The transfer failed unexpectedly."
 
 
 def test_cancel_before_claim_marks_run_cancelled(client, demo_connections) -> None:

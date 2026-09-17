@@ -195,6 +195,37 @@ def test_postgres_append_creates_schema_and_staging(postgres_credentials) -> Non
     assert leftover == []
 
 
+def test_postgres_copy_errors_are_sanitized(postgres_credentials) -> None:
+    marker = "AUDIT_SYNTHETIC_PRIVATE_CELL"
+    _execute(postgres_credentials, "CREATE TABLE public.log_dest (id INTEGER)")
+    connector = PostgresConnector(connector_settings())
+    locator = postgres_table("public", "log_dest")
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(ColumnSchema(name="id", data_type="String"),),
+    )
+    session = connector.prepare_destination(
+        postgres_credentials, locator, schema, PostgresAppendPolicy(), run_id="safe-copy-error"
+    )
+    try:
+        with pytest.raises(ConnectorError) as excinfo:
+            connector.write_batch(
+                session,
+                TransferBatch(
+                    frame=pl.DataFrame({"id": [marker]}),
+                    row_count=1,
+                    byte_count=len(marker),
+                    sequence=1,
+                ),
+            )
+    finally:
+        connector.abort(session)
+
+    assert marker not in str(excinfo.value)
+    assert excinfo.value.code == TransferErrorCode.SCHEMA_DRIFT
+    assert "22P02" in str(excinfo.value)
+
+
 def test_postgres_upsert_composite_key_update_and_ignore(postgres_credentials) -> None:
     _execute(
         postgres_credentials,
