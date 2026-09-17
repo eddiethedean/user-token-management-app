@@ -393,6 +393,32 @@ def test_upload_timeout_is_publish_uncertain(foundry_sim, tmp_path, monkeypatch)
     assert getattr(excinfo.value, "code", None) == TransferErrorCode.PUBLISH_UNCERTAIN
 
 
+def test_upload_does_not_retry_non_400_client_errors(tmp_path) -> None:
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx2.Response(422, request=request, json={"error": "invalid payload"})
+
+    client = FoundryClient(
+        {"endpoint": "http://localhost:8765", "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+    client._client.close()
+    client._client = httpx2.Client(transport=httpx2.MockTransport(handler), follow_redirects=False)
+    payload = tmp_path / "output.snappy.parquet"
+    pl.DataFrame({"event_id": [1]}).write_parquet(payload, compression="snappy")
+
+    with pytest.raises(ConnectorError) as excinfo:
+        client.upload_file(DATASET, payload.name, payload)
+
+    assert excinfo.value.code == TransferErrorCode.INTERNAL_ERROR
+    assert excinfo.value.http_status == 422
+    assert len(requests) == 1
+    assert "preview" not in requests[0].url.query.decode()
+    client.close()
+
+
 def test_standard_upload_commits_without_preview_query(foundry_sim, tmp_path) -> None:
     parquet = tmp_path / "out.snappy.parquet"
     pl.DataFrame({"event_id": [1]}).write_parquet(parquet, compression="snappy")
