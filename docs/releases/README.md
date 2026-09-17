@@ -6,7 +6,8 @@ tags, so entries below describe repository milestones rather than asserting exte
 
 | Release note | Status | Scope |
 |---|---|---|
-| [Data Mover 160926.0](../../CHANGELOG.md#1609260) | Current repository release | SOLID connector boundaries, explicit application policies, and decomposed pipeline interactions |
+| [Data Mover 170926.0](../../CHANGELOG.md#1709260) | Current repository release | PostgreSQL repeatable-read extraction, complete configuration reference, and deployment fixes |
+| [Data Mover 160926.0](../../CHANGELOG.md#1609260) | Historical repository release | SOLID connector boundaries, explicit application policies, and decomposed pipeline interactions |
 | [Data Mover 150926.0](../../CHANGELOG.md#1509260) | Historical repository release | Flexible capability-driven pipelines, repeatable demos, and aligned controls |
 | [Data Mover 140926.1](../../CHANGELOG.md#1409261) | Historical repository release | Pipeline workflow and login interaction fixes |
 | [Data Mover 140926.0](../../CHANGELOG.md#1409260) | Historical repository release | Desktop workspace and connection setup redesign |

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+Future changes will be listed here.
+
+## [170926.0] — 2026-09-17
+
 ### Fixed
 
 - PostgreSQL source extraction now explicitly starts a repeatable-read transaction before opening its
