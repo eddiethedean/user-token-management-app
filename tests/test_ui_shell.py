@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
@@ -259,19 +258,17 @@ def test_hedron_theme_export_preserves_native_component_appearances(access_app) 
     assert 'href="/hedron-static/hedron-default.css"' not in fixture.get("/login").body
 
 
-@pytest.mark.parametrize("custom_theme_enabled", [False, True])
-def test_document_head_uses_native_styles_and_optional_nav_fix(custom_theme_enabled) -> None:
+def test_document_head_uses_native_styles_only() -> None:
     rendered = render_html(
         document_head(
             request=_request(),
             page_title="Theme experiment",
             app_name="Data Mover",
-            custom_theme_enabled=custom_theme_enabled,
         )
     )
     assert "/assets/theme.css" not in rendered
     assert "/app-assets/hedron-desktop.css" in rendered
-    assert ("/assets/navigation.css" in rendered) is custom_theme_enabled
+    assert "/assets/navigation.css" not in rendered
 
 
 def test_hedron_063_design_system_and_action_recipe() -> None:
@@ -296,14 +293,6 @@ def test_hedron_063_design_system_and_action_recipe() -> None:
     rendered = render_html(submit_button("Run transfer"))
     assert 'data-hedron-appearance="solid"' in rendered
     assert 'data-hedron-emphasis="primary"' in rendered
-
-
-def test_folio_compatibility_styles_are_limited_to_navigation(access_app) -> None:
-    stylesheet = (Path(__file__).parents[1] / "app/static/navigation.css").read_text()
-    assert "[data-hedron-nav-toggle]" in stylesheet
-    assert ".hedron-app-shell-header" not in stylesheet
-    assert "ProcessFlow" not in stylesheet
-    assert "data-mover-login" not in stylesheet
 
 
 def test_hedron_066_typography_and_context_contract(access_app) -> None:
@@ -481,6 +470,7 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
     assert 'class="hedron-account-summary data-mover-account-summary"' in signed_in.text
     assert 'class="hedron-account-copy"' in signed_in.text
     assert 'data-hedron-nav-collapse="user"' in signed_in.text
+    assert 'data-hedron-nav-toggle="ghost"' in signed_in.text
     assert re.search(
         r'<a[^>]*href="/profile"[^>]*data-hedron-account-summary="true"',
         signed_in.text,

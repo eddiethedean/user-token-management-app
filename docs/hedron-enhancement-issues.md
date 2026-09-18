@@ -2,9 +2,13 @@
 
 ## Native Folio desktop follow-ups — 2026-09-18
 
-The native-first visual pass verified these presentation gaps against installed Hedron 1.0.18
+The native-first visual pass verified these presentation gaps against installed Hedron 1.1.0
 and upstream main `fd7b9c083850430795fd579b80e7c8375cbfab09`. These issues request bounded native
 features, not application-owned CSS or alternate state/persistence authorities.
+
+Hedron 1.1.0 now includes the requested native presentation capabilities. The links below remain
+the upstream implementation record; Data Mover is pinned to the released feature line and uses
+native ProcessFlow and AppShell presentation in the pipeline surfaces.
 
 New issues:
 
@@ -20,10 +24,10 @@ Already open; not duplicated:
 - [#941 Brand name/subtitle typography slots](https://github.com/eddiethedean/hedron/issues/941)
 - [#942 Transparent custom Brand marks](https://github.com/eddiethedean/hedron/issues/942)
 
-Current app alternatives: sign-in uses an unboxed Grid/Inline/Text composition rather than
+Current app composition: sign-in uses an unboxed Grid/Inline/Text composition rather than
 status cards; affected credential fields use Stack wrappers; the header scrolls naturally;
-the mode switch retains its visible native label. Only the collapse chevron still needs a
-small compatibility stylesheet. See [Hedron integration](hedron.md) for the current styling audit.
+the mode switch retains its visible native label; AppShell owns the collapse control.
+See [Hedron integration](hedron.md) for the current styling audit.
 
 ## Historical migration proposals
 

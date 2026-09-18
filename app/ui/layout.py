@@ -198,7 +198,6 @@ def document_head(
     request: Request,
     page_title: str,
     app_name: str,
-    custom_theme_enabled: bool,
     preference: ThemePreference | None = None,
 ) -> Fragment:
     preference = preference or ThemePreference(
@@ -222,15 +221,6 @@ def document_head(
             href=asset_href(request, f"/app-assets/hedron-desktop.css?v={APP_VERSION}"),
         ),
     ]
-    # Keep the legacy config argument compatible with existing deployments.
-    # Only the collapse control needs a compatibility layer in Hedron 1.0.18.
-    if custom_theme_enabled:
-        nodes.append(
-            html.link(
-                rel="stylesheet",
-                href=asset_href(request, f"/assets/navigation.css?v={APP_VERSION}"),
-            )
-        )
     return Fragment(*nodes)
 
 
@@ -513,6 +503,8 @@ def app_shell(
                                 banner_spacing="standard",
                                 header_density="standard",
                                 footer_density="compact",
+                                nav_toggle="ghost",
+                                nav_footer_collapsed="hide",
                             ),
                             app_footer=AppFooter(
                                 settings.app_name,
@@ -630,7 +622,6 @@ def app_shell(
             request=request,
             page_title=page_title,
             app_name=settings.app_name,
-            custom_theme_enabled=settings.custom_theme_enabled,
             preference=preference,
         ),
         scripts=(asset_src(request, f"/assets/app.js?v={APP_VERSION}"),),

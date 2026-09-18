@@ -18,12 +18,12 @@ subsystems.
 | Public rendering APIs | Pages use `render_component_response` and declare application JavaScript through `Page.scripts`; interactions use `render_interaction`. |
 | Typed response behavior | Redirects, retargets, reswaps, cache policy, and approved extra headers are carried by `InteractionResult`; exception rendering uses a dedicated policy for Hedron's reserved toast sink. |
 | Security policy integration | Hedron is told that Data Mover owns CSRF and response headers; fragment targets still fail closed. |
-| Production assets | Connect ships Hedron's complete native stylesheet directly; `.hedron/build` is excluded. Only a small navigation-toggle compatibility stylesheet remains application-owned. |
+| Production assets | Connect ships Hedron's complete native stylesheet directly; `.hedron/build` is excluded. No application stylesheet is loaded. |
 | Diagnostics | `make hedron-check` fails on Hedron warnings or errors, and `python -m hedron --app app.main:app routes` exposes the registered UI contract. |
 | 0.56 security plane | Data Mover publishes the `hedron-security-1` control-plane profile, bounded request budgets, and deny-by-default egress posture while retaining ownership of CSRF and response headers. |
 | Security posture | `make hedron-security-check` produces a strict SARIF posture report for CI/security review. |
 | 1.0.0 presentation contract | The app's Data Mover recipe catalog uses Hedron's typed control/surface/data/status/content families, scoped auth/workspace defaults, and the built-in Folio theme's accessibility contract. |
-| 1.0 release train | Runtime is bounded to the tested compatible line: `hedron>=1.0.18,<1.1` and `hedron-posit>=1.0.9,<1.1`. |
+| 1.1 release train | Runtime is bounded to the tested compatible line: `hedron>=1.1.0,<2` and `hedron-posit>=1.0.10,<2`; native ProcessFlow presentation and updated shell controls are enabled. |
 | 0.61 action lifecycle | Pipeline start, poll, cancel, retry, and reconciliation responses project Hedron `ActionState`/`ActionTrace` metadata with stable `OperationIdentity` values. |
 | 0.61 async regions | The live pipeline monitor uses the server-authored `AsyncRegion` to expose pending, success, error, cancelled, and conflict phases without application CSS or browser state. |
 | 0.61 busy controls | Pipeline run forms opt into Hedron's region busy lifecycle (`data-hedron-busy="region"`), which coordinates accessibility state and the global request indicator. |
@@ -41,7 +41,7 @@ subsystems.
   application has server-side refresh-session revocation, security-version invalidation,
   pre-authentication CSRF, proxy trust rules, and a product-specific CSP.
 - Hedron's complete native stylesheet and built-in Folio theme are always loaded.
-  `CUSTOM_THEME_ENABLED=false` omits only the optional navigation-collapse compatibility asset.
+  `CUSTOM_THEME_ENABLED` remains accepted for deployment compatibility and has no styling effect.
 - Explorer stays off in production to avoid exposing a component-development surface.
 - Hedron's production plugin allowlist is explicitly empty; this app does not depend on runtime
   plugin discovery.
@@ -58,9 +58,9 @@ subsystems.
   product requirements. Add one only with a concrete feature need and a security review.
 - `hedron-native` acceleration is optional and unnecessary at the current rendering volume.
 
-## Hedron 1.0 status update
+## Hedron 1.1 status update
 
-Data Mover uses a bounded Hedron 1.0 train (`hedron>=1.0.18,<1.1` and `hedron-posit>=1.0.9,<1.1`). The app deliberately keeps its existing
+Data Mover uses the Hedron 1.1 train (`hedron>=1.1.0,<2` and `hedron-posit>=1.0.10,<2`). The app deliberately keeps its existing
 application-owned CSRF/session and response-header middleware, but opts into the new shared
 security-plane composition metadata so Hedron diagnostics and future integrations see the same
 control-plane posture. The request budget is intentionally bounded to the app's 5 MiB upload
@@ -91,7 +91,7 @@ uses its own leased SQL worker and durable run/event tables, so adopting a secon
 would weaken cancellation and reconciliation guarantees. SSE job helpers are similarly deferred;
 the existing mount-aware HTMX polling is sufficient for the current deployment boundaries.
 
-Run `make hedron-security-check` after installing the 1.0.0 environment.
+Run `make hedron-security-check` after installing the 1.1.0 environment.
 
 The 1.0 HDJ parity surface is intentionally excluded. This application is Python-component-first;
 no production route enables template execution, dynamic dependencies, foreign namespaces, or
@@ -119,13 +119,9 @@ override Folio tokens or generate scoped workflow CSS.
 - `Nav`, `NavGroup`, and `NavLink` own active navigation treatment; application
   current-item styling is removed.
 
-The former `app/static/theme.css` and `/app-assets/data-mover-components.css`
-layer are removed. The only application CSS is `app/static/navigation.css`, a small
-compatibility treatment for the collapse chevron and collapsed rail status.
-Hedron 1.0.18 generates a text-only primary toggle and exposes no appearance/icon
-props; its text overflows the native collapsed width. This exception preserves
-Hedron-owned state, persistence, keyboard behavior, focus, and accessible naming.
-`CUSTOM_THEME_ENABLED=false` disables only that compatibility treatment.
+The former `app/static/theme.css`, `/app-assets/data-mover-components.css`, and navigation
+compatibility layer are removed. Hedron 1.1 owns the shell toggle, collapsed rail, footer
+behavior, and focus/accessibility states through `AppShellChrome`.
 
 Production always serves Hedron's complete native stylesheet at the mount-aware,
 versioned `/app-assets/hedron-desktop.css` endpoint. Native component assets are
@@ -181,14 +177,14 @@ See [hedron-enhancement-issues.md](hedron-enhancement-issues.md) for detailed is
 
 ## Base-theme experiment
 
-Run the full demo without Data Mover's custom stylesheet:
+Run the full demo with Hedron's native stylesheet and shell controls:
 
 ```bash
-CUSTOM_THEME_ENABLED=false make demo
+make demo
 ```
 
-This omits only `app/static/navigation.css`; Hedron's bundled Folio and component styles remain
-active. The native collapsed-navigation toggle may overflow its rail in Hedron 1.0.18.
+Hedron's bundled Folio and component styles remain active for every surface; no application CSS
+is loaded.
 
 The 0.60 migration now uses Hedron's first-class skip link, request indicator, application shell,
 page header, cards, grids, action groups, buttons, process flow, and statuses. These replace the

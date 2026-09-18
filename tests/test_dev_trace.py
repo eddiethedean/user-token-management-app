@@ -30,7 +30,7 @@ def test_dev_trace_respects_app_env_when_forced_off_cleared(monkeypatch) -> None
 
 
 def test_static_scope_path_detection() -> None:
-    assert is_static_scope_path("/assets/navigation.css")
+    assert is_static_scope_path("/assets/app.js")
     assert is_static_scope_path("/hedron-static/htmx.js")
     assert not is_static_scope_path("/login")
     assert not is_static_scope_path("/s/session/p/1/login")

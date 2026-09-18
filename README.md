@@ -67,7 +67,7 @@ shell, navigation, primary controls, and status details.
 
 ### Sign in
 
-![Full-page Data Mover sign-in screen showing the light desktop theme, Data Mover and CDAO branding, demo protections, and account access form](docs/screenshots/login.jpg)
+![Full-page Data Mover sign-in screen showing the dark desktop theme, Data Mover and CDAO branding, demo protections, and account access form](docs/screenshots/login.jpg)
 
 The sign-in screen introduces the secure transfer workspace before requesting credentials. It keeps
 the Data Mover and CDAO identities visible, explains the protections applied to transfers, and

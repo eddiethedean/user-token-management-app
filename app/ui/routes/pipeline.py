@@ -2631,6 +2631,7 @@ def _pipeline_body(
         direction="horizontal",
         collapse="never",
         density="compact",
+        appearance="plain",
     )
     return [
         PageHeader(
@@ -3877,6 +3878,7 @@ def _run_status_fragment(
             direction="horizontal",
             collapse="never",
             density="compact",
+            appearance="plain",
         ),
         Alert(
             stage_description,

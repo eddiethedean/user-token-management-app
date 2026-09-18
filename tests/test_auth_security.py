@@ -621,7 +621,7 @@ def test_login_mount_prefixes_forms_and_assets(client) -> None:
 
     from starlette.requests import Request
 
-    from app.ui.urls import form_action, mounted_path, page_href
+    from app.ui.urls import form_action, mounted_path
 
     mounted = Request(
         {
@@ -642,9 +642,6 @@ def test_login_mount_prefixes_forms_and_assets(client) -> None:
     assert mounted_path(mounted, "/login") == "/content/abc/login"
     assert mounted_path(mounted, "/") == "/content/abc"
     assert str(form_action(mounted, "login")).endswith("/content/abc/login")
-    assert str(page_href(mounted, "/assets/navigation.css")).endswith(
-        "/content/abc/assets/navigation.css"
-    )
 
 
 def test_workbench_redirects_are_relative_for_both_entry_points() -> None:

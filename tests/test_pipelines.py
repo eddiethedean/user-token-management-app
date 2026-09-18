@@ -81,6 +81,7 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     assert response.status_code == 200
     assert "3/3 connections ready" in response.text
     assert "hedron-process-flow" in response.text
+    assert 'data-hedron-flow-appearance="plain"' in response.text
     assert "hedron-alert-success" in response.text
     assert "hedron-badge-success" in response.text
     assert 'value="mss"' in response.text

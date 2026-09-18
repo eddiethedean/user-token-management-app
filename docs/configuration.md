@@ -112,9 +112,8 @@ requirement justify a change.
 
 ### Complete override inventory
 
-`CUSTOM_THEME_ENABLED` is retained for deployment compatibility. Folio is always the theme;
-this flag now controls only the small navigation-collapse compatibility stylesheet, not a
-separate product theme. Leave it enabled to retain the subtle collapse chevron.
+`CUSTOM_THEME_ENABLED` is retained for deployment compatibility and has no styling effect. Folio
+is always the theme, and Hedron owns the navigation collapse control.
 
 Every `Settings` field can be supplied through the matching case-insensitive environment variable.
 The inventory below is intentionally complete so this page and `.env.example` can be checked against

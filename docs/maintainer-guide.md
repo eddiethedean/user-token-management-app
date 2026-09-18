@@ -191,8 +191,8 @@ Keep routes thin and make domain rules testable without a browser or database wh
 ### UI visual changes
 
 Use current Hedron primitives, recipes, the built-in Folio theme, and named spacing tokens for new
-presentation. Do not add a product theme stylesheet; the only current compatibility CSS is
-`app/static/navigation.css` for Hedron 1.0.18's collapse toggle. Component behavior
+presentation. Do not add a product theme stylesheet; Hedron 1.1 owns the shell collapse toggle.
+Component behavior
 and interaction states remain owned by Hedron. For a desktop visual pass, exercise the primary
 auth, workspace, form, data, and administration surfaces in both light and dark modes, including
 keyboard focus and browser console output.
