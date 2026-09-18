@@ -82,10 +82,17 @@ def _execute(credentials, statement: LiteralString) -> None:
         conn.close()
 
 
-def _load(credentials, locator, policy, frame: pl.DataFrame, run_id: str):
+def _load(
+    credentials,
+    locator,
+    policy,
+    frame: pl.DataFrame,
+    run_id: str,
+    schema: ObjectSchema | None = None,
+):
     connector = PostgresConnector(connector_settings())
     session = connector.prepare_destination(
-        credentials, locator, _schema(locator), policy, run_id=run_id
+        credentials, locator, schema or _schema(locator), policy, run_id=run_id
     )
     connector.write_batch(
         session,
@@ -179,6 +186,54 @@ def test_postgres_extract_mixed_types_nulls_and_batches(postgres_credentials) ->
     assert combined.height == 3
     assert combined["event_id"].null_count() == 1
     assert combined["unit_name"].to_list() == ["Alpha", "Bravo", "Charlie"]
+    assert combined.to_dicts() == [
+        {
+            "event_id": 1,
+            "unit_name": "Alpha",
+            "ready": True,
+            "score": 1.5,
+            "occurred": date(2026, 1, 15),
+        },
+        {
+            "event_id": 2,
+            "unit_name": "Bravo",
+            "ready": False,
+            "score": None,
+            "occurred": date(2026, 2, 1),
+        },
+        {
+            "event_id": None,
+            "unit_name": "Charlie",
+            "ready": None,
+            "score": 3.25,
+            "occurred": None,
+        },
+    ]
+
+
+def test_postgres_extract_preserves_special_text_values(postgres_credentials) -> None:
+    _execute(postgres_credentials, "CREATE TABLE public.special_values (value TEXT)")
+    values = [None, "", r"\N", 'a,"quoted"\nline']
+    conn = connect(postgres_credentials, connector_settings())
+    try:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                "INSERT INTO public.special_values VALUES (%s)", [(value,) for value in values]
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    batches = list(
+        PostgresConnector(connector_settings()).extract(
+            postgres_credentials,
+            postgres_table("public", "special_values"),
+            batch_rows=10,
+            batch_bytes=10_000,
+        )
+    )
+
+    assert pl.concat([batch.frame for batch in batches])["value"].to_list() == values
 
 
 def test_postgres_extract_uses_repeatable_read_snapshot(postgres_credentials, monkeypatch) -> None:
@@ -342,15 +397,17 @@ def test_postgres_upsert_composite_key_update_and_ignore(postgres_credentials) -
 
 def test_postgres_replace_recreate_drops_prior_schema(postgres_credentials) -> None:
     locator = postgres_table("public", "replaced_events")
-    _load(postgres_credentials, locator, PostgresAppendPolicy(), _key_frame(), "replace-seed")
-    slim = pl.DataFrame(
-        {
-            "event_id": [99],
-            "unit_name": ["Zulu"],
-            "ready": [True],
-            "score": [0.5],
-            "occurred": [date(2026, 3, 1)],
-        }
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.replaced_events (event_id BIGINT, legacy_only TEXT)",
+    )
+    slim = pl.DataFrame({"event_id": [99], "replacement_only": ["new"]})
+    replacement_schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="event_id", data_type="Int64"),
+            ColumnSchema(name="replacement_only", data_type="String"),
+        ),
     )
     manifest = _load(
         postgres_credentials,
@@ -358,10 +415,22 @@ def test_postgres_replace_recreate_drops_prior_schema(postgres_credentials) -> N
         PostgresReplacePolicy(schema_policy="recreate"),
         slim,
         "replace-1",
+        schema=replacement_schema,
     )
     assert manifest.rows == 1
-    rows = _fetchall(postgres_credentials, "SELECT event_id, unit_name FROM public.replaced_events")
-    assert rows == [(99, "Zulu")]
+    rows = _fetchall(
+        postgres_credentials, "SELECT event_id, replacement_only FROM public.replaced_events"
+    )
+    assert rows == [(99, "new")]
+    assert _fetchall(
+        postgres_credentials,
+        """
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'replaced_events'
+        ORDER BY ordinal_position
+        """,
+    ) == [("event_id", "bigint"), ("replacement_only", "text")]
 
 
 def test_postgres_replace_abort_preserves_live_table(postgres_credentials) -> None:
