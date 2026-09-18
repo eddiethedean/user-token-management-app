@@ -82,10 +82,11 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=3"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=18"')
-    assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=12"')
-    assert_html_contains(response, 'src="/assets/app.js?v=13"')
-    assert response.body.count('src="/assets/app.js?v=13"') == 1
+    assert_html_contains(response, 'href="/assets/theme.css?v=20"')
+    assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=13"')
+    assert_html_contains(response, 'src="/assets/app.js?v=14"')
+    assert response.body.count('src="/assets/app.js?v=14"') == 1
+    assert_html_contains(response, 'data-hedron-theme="folio"')
     assert_html_contains(
         response,
         'type="image/png" href="/assets/brand/data-mover-mark.png?v=1" rel="icon"',
@@ -202,30 +203,13 @@ def test_hedron_theme_export_preserves_native_component_appearances(access_app) 
     fixture = fastapi_fixture(access_app)
     response = fixture.get("/app-assets/data-mover-components.css")
     assert response.status_code == 200
-    assert DATA_MOVER_THEME_EXPORT.css in response.body
+    assert DATA_MOVER_SCOPED_STYLES.css in response.body
+    assert DATA_MOVER_THEME_EXPORT.css not in response.body
     # Generic component bundle rules would override the native appearance
     # selectors and make secondary/danger controls look like primary actions.
     assert "button.hedron-button {" not in response.body
-    assert "--hedron-color-bg: #f4f6fb" in response.body
-    assert "--hedron-color-fg: #17213d" in response.body
-    assert "--hedron-color-accent: #4053d6" in response.body
-    assert "--hedron-color-danger: #bd363d" in response.body
-    assert "--hedron-color-danger-soft: #fdecee" in response.body
-    assert "--hedron-color-danger-soft: rgb(255 140 166 / 12%)" in response.body
-    assert "--hedron-color-link: #aab6ff" in response.body
-    assert "--hedron-color-selection-bg: #5969d8" in response.body
-    assert "--hedron-color-bg: #080d16" in response.body
-    assert "--hedron-type-display-size" in response.body
-    assert "--hedron-geometry-control-height" in response.body
-    assert "--hedron-glass-opacity: 78%" in response.body
-    assert "--hedron-glass-blur: 18px" in response.body
-    assert "--hedron-surface-glass-opacity: 78%" in response.body
-    assert "--hedron-data-table-header-background" in response.body
-    assert "--hedron-motion-elevate: 180ms" in response.body
-    assert "--hedron-type-measure-narrow: 18ch" in response.body
-    assert "--hedron-type-measure-narrow: 12ch" in response.body
-    assert "--hedron-elevation-focus: 0 12px 32px rgb(2 8 23 / 14%)" in response.body
-    assert "--hedron-color-surface" in response.body
+    assert "--hedron-color-bg:" not in response.body
+    assert "--hedron-color-accent:" not in response.body
     login_page = fixture.get("/login")
     assert 'data-hedron-environment-banner="true"' in login_page.body
     assert 'data-hedron-max-width="xl"' in login_page.body
@@ -239,20 +223,8 @@ def test_hedron_theme_export_preserves_native_component_appearances(access_app) 
     assert ".hedron-app-shell-nav" not in theme.body
     assert ".hedron-card::before" not in theme.body
     assert '[data-hedron-mark="color-mode-toggle"] input::before' in theme.body
-    assert '.data-mover-app-shell[data-nav-collapsed="true"]' in theme.body
-    assert "@media (max-width: 48rem)" in theme.body
-    assert ".data-mover-app-shell {" in theme.body
-    assert ".data-mover-app-shell > .hedron-main-panel" in theme.body
-    assert ":root[data-hedron-theme] form" in theme.body
-    assert ".hedron-button:not(.hedron-icon-button)" in theme.body
-    assert 'input:not([type="hidden"])' in theme.body
-    assert "align-items: stretch" in theme.body
+    assert ".data-mover-password-field > input" not in theme.body
     assert "@media (min-width: 36rem)" in theme.body
-    assert "border-block-start: 1px solid" in theme.body
-    assert "color: transparent" in theme.body
-    assert ".data-mover-admin-split" in theme.body
-    assert "@media (min-width: 72rem)" in theme.body
-    assert ".data-mover-nav-footer" in theme.body
     assert "> .data-mover-nav-footer" not in theme.body
     assert ".data-mover-side-nav > :last-child" not in theme.body
     assert "stroke='%23b66a00'" in theme.body
@@ -345,6 +317,7 @@ def test_hedron_066_typography_and_context_contract(access_app) -> None:
     fixture = fastapi_fixture(access_app)
     login = fixture.get("/login")
     assert 'data-hedron-presentation="PageHeader.description=data-mover-auth-copy;' in login.body
+    assert 'data-hedron-theme="folio"' in login.body
     assert "data-mover-auth-title" in login.body
     assert 'data-hedron-type-effect="none"' in login.body
 
@@ -458,7 +431,7 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
     assert 'hx-swap="none"' in signed_in.text
     assert 'class="hedron-account-summary data-mover-account-summary"' in signed_in.text
     assert 'class="hedron-account-copy"' in signed_in.text
-    assert 'data-hedron-nav-collapse="never"' in signed_in.text
+    assert 'data-hedron-nav-collapse="user"' in signed_in.text
     assert 'data-hedron-mobile-collapse="off"' not in signed_in.text
     assert re.search(
         r'<a[^>]*href="/profile"[^>]*data-hedron-account-summary="true"',
@@ -468,7 +441,6 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
         r'<a[^>]*href="/profile"[^>]*data-hedron-brand="true"',
         signed_in.text,
     )
-    assert "data-mover-sign-out" in signed_in.text
     assert 'data-hedron-mark-size="lg"' in signed_in.text
     assert 'data-hedron-mark-shape="circle"' in signed_in.text
     initial_switch = signed_in.text.split('name="dark_mode"', 1)[1].split(">", 1)[0]
@@ -480,7 +452,7 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
         "/preferences/theme",
         data={
             "csrf_token": csrf,
-            "theme": "data-mover",
+            "theme": "folio",
             "next": "/profile",
         },
         headers={"HX-Request": "true"},
@@ -813,8 +785,8 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, 'id="side-nav"')
     assert_html_contains(profile, 'class="hedron-app-shell-nav data-mover-side-nav"')
     assert profile.body.count('data-hedron-variant="workspace"') >= 2
-    assert_html_contains(profile, 'id="side-nav-toggle"')
-    assert_html_contains(profile, 'aria-label="Collapse navigation"')
+    assert_html_contains(profile, 'data-hedron-nav-toggle="true"')
+    assert_html_contains(profile, 'data-hedron-nav-preference="data-mover-nav-collapsed"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-pipeline"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-connections"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-account"')
@@ -902,7 +874,6 @@ def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:
     assert_fragment_body(adapter, contains="main-panel")
     assert_html_contains(adapter, "security-tabs")
     assert_html_contains(adapter, "hx-swap-oob")
-    assert_html_contains(adapter, 'id="side-nav-toggle"')
     assert_html_contains(adapter, "data-mover-nav-footer")
     assert_html_contains(adapter, "Demo mode · Credentials encrypted")
     assert_html_contains(adapter, 'data-hedron-icon="data-mover-team"')

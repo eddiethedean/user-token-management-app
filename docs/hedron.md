@@ -18,17 +18,17 @@ subsystems.
 | Public rendering APIs | Pages use `render_component_response` and declare application JavaScript through `Page.scripts`; interactions use `render_interaction`. |
 | Typed response behavior | Redirects, retargets, reswaps, cache policy, and approved extra headers are carried by `InteractionResult`; exception rendering uses a dedicated policy for Hedron's reserved toast sink. |
 | Security policy integration | Hedron is told that Data Mover owns CSRF and response headers; fragment targets still fail closed. |
-| Production assets | Connect ships the app-owned desktop and component stylesheets directly; `.hedron/build` is excluded so a stale default-theme bundle cannot override the selected Data Mover theme. |
+| Production assets | Connect ships the app-owned desktop stylesheet and bounded interaction styles directly; `.hedron/build` is excluded so the selected Folio theme remains the source of component presentation. |
 | Diagnostics | `make hedron-check` fails on Hedron warnings or errors, and `python -m hedron --app app.main:app routes` exposes the registered UI contract. |
 | 0.56 security plane | Data Mover publishes the `hedron-security-1` control-plane profile, bounded request budgets, and deny-by-default egress posture while retaining ownership of CSRF and response headers. |
 | Security posture | `make hedron-security-check` produces a strict SARIF posture report for CI/security review. |
-| 1.0.0 presentation contract | The app's `data-mover` brand is authored with Hedron `Color`, `ThemeBuilder`, validated `ThemeSpec`, accessibility modes, theme variants, typed recipe families, named control/surface/data/status/content recipes, and scoped auth/workspace recipe defaults. |
-| 1.0 release train | Runtime is bounded to the tested compatible line: `hedron>=1.0.10,<1.1` and `hedron-posit>=1.0.9,<1.1`. |
+| 1.0.0 presentation contract | The app's Data Mover recipe catalog uses Hedron's typed control/surface/data/status/content families, scoped auth/workspace defaults, and the built-in Folio theme's accessibility contract. |
+| 1.0 release train | Runtime is bounded to the tested compatible line: `hedron>=1.0.18,<1.1` and `hedron-posit>=1.0.9,<1.1`. |
 | 0.61 action lifecycle | Pipeline start, poll, cancel, retry, and reconciliation responses project Hedron `ActionState`/`ActionTrace` metadata with stable `OperationIdentity` values. |
 | 0.61 async regions | The live pipeline monitor uses the server-authored `AsyncRegion` to expose pending, success, error, cancelled, and conflict phases without application CSS or browser state. |
 | 0.61 busy controls | Pipeline run forms opt into Hedron's region busy lifecycle (`data-hedron-busy="region"`), which coordinates accessibility state and the global request indicator. |
 | 0.61 native navigation tabs | `NavigationTabs` delegates to Hedron `Tabs` with first-class `appearance="underline"` and `density="compact"`; the former tab-label synchronization script is removed. |
-| 1.0.0 styling contract | The app validates `DATA_MOVER_THEME` through Hedron's CSS/design-token export and 1.0.0 presentation contract, using typed Brand mark controls, `AmbientBackdrop`, presentation scales, native control/data tokens, canonical selection/link tokens, and compatibility aliases for the default stylesheet. |
+| 1.0.0 styling contract | The app uses Hedron's built-in Folio theme for the visual foundation, while the Data Mover design system supplies typed recipes, Brand mark controls, presentation mappings, and bounded workflow styles. |
 | 0.65 scoped styling | The product stylesheet is registered as an application-owned cascade-layer style; the workflow's current step uses a bounded public `ProcessFlow.step` recipe with the named `elevate` motion fallback. |
 | 1.0 typography | Page headers and auth/workspace scopes use bounded measure/effect props and contextual presentation mappings for readable, accessible title and supporting-copy treatment. |
 | Native styling | `AppShell`, `Container`, `PageHeader`, `SkipLink`, `RequestIndicator`, typed buttons, links, grids, actions, alerts, badges, tabs, tables, dialogs, `Avatar`, `ConnectorFlow`, `ConnectorNode`, `ConnectorTrack`, `ProcessFlow`, `ScrollRegion`, `ToggleSwitch`, and `Status` own the UI structure and behavior. `app/static/theme.css` adds the product-level Data Mover art direction without owning component behavior. |
@@ -42,8 +42,8 @@ subsystems.
   application has server-side refresh-session revocation, security-version invalidation,
   pre-authentication CSRF, proxy trust rules, and a product-specific CSP.
 - Hedron's complete native stylesheet is always loaded so native components remain usable without
-  the product layer across desktop and mobile viewports. Data Mover's registered Hedron theme is
-  enabled by default; the
+  the product layer across desktop and mobile viewports. Hedron's built-in Folio theme is enabled
+  by default; the
   `CUSTOM_THEME_ENABLED=false` switch omits the optional product art-direction asset.
 - Explorer stays off in production to avoid exposing a component-development surface.
 - Hedron's production plugin allowlist is explicitly empty; this app does not depend on runtime
@@ -63,25 +63,24 @@ subsystems.
 
 ## Hedron 1.0 status update
 
-Data Mover uses a bounded Hedron 1.0 train (`hedron>=1.0.10,<1.1` and `hedron-posit>=1.0.9,<1.1`). The app deliberately keeps its existing
+Data Mover uses a bounded Hedron 1.0 train (`hedron>=1.0.18,<1.1` and `hedron-posit>=1.0.9,<1.1`). The app deliberately keeps its existing
 application-owned CSRF/session and response-header middleware, but opts into the new shared
 security-plane composition metadata so Hedron diagnostics and future integrations see the same
 control-plane posture. The request budget is intentionally bounded to the app's 5 MiB upload
 limit and current long-running UI responses; connector-specific egress allowlists remain owned by
 the provider credential/configuration layer rather than being guessed globally.
 
-The 1.0.0 presentation layer is active: the Data Mover brand compiler starts from Hedron's bundled
-Aurora theme with an OKLCH accent, then passes through an immutable `ThemeSpec` with aliases,
-groups, flow recipes, forced-colors/more-contrast modes, metadata, and workflow conformance
-validation before bridging to the runtime `Theme`. `StyleScope` marks the authenticated
+The 1.0.0 presentation layer is active: the application selects Hedron's built-in Folio theme at
+the page and scope boundaries, then layers the Data Mover design system's typed recipes, groups,
+flow vocabulary, and workflow presentation mappings over it. `StyleScope` marks the authenticated
 workspace and auth density boundaries and carries explicit recipe defaults.
 The app also uses the named gap vocabulary so strict-CSP rendering fails closed on
 unsupported ad-hoc layout values.
 
 Authenticated pages expose Hedron's native `ToggleSwitch` for the supported light/dark color
 modes. The selected mode is persisted on the user and in host-owned cookies, while the page emits
-native theme markers before content renders. The internal `data-mover`/`aurora` theme allowlist is
-retained for compatibility, but the application does not render a user-facing `ThemePicker`.
+native Folio theme markers before content renders. Theme selection is intentionally fixed to Folio;
+the application does not render a user-facing `ThemePicker`.
 
 The pipeline monitor now projects every persisted run into Hedron's unified server-first action
 lifecycle. A run id is the bounded operation id, its retry attempt is the generation, and the
@@ -111,18 +110,18 @@ pages retain their standard presentation. Login notices distinguish demo from li
 and the same layout supports local-password and trusted-header sign-in without changing
 CSRF, credential handling or redirect behavior.
 
-The September 2026 desktop pass uses compact `AppShellChrome`, a 14rem native navigation token,
+The September 2026 desktop pass uses editorial `AppShellChrome`, a 14rem native navigation token,
 subdued ambient/elevation tokens, solid Card recipes, and wide, undecorated page headings.
-The `/app-assets/data-mover-components.css` compatibility endpoint now serves the theme export
-and bounded scoped styles only. Loading an additional generic component bundle there overrides
-native secondary, outline, ghost, and danger button appearances through the cascade layers.
-Hedron's complete native stylesheet remains the source of component presentation.
+The `/app-assets/data-mover-components.css` compatibility endpoint now serves only bounded scoped
+workflow styles. Hedron's complete native stylesheet and built-in Folio theme remain the source of
+component presentation.
 
-Pipeline pairs use `Grid`'s supported `lg` breakpoint in Hedron 1.0.10. Connection setup uses
+Pipeline pairs use `Grid`'s supported `lg` breakpoint in Hedron 1.0.18. Connection setup uses
 a two-column Foundry grid followed by a full-width PostgreSQL panel, with `FormGrid` grouping
-server, identity, and transport settings. Product CSS is limited to heading sizes, desktop
-outer spacing, utility-link treatment, full-width compact password rows, and dialog text
-alignment where the installed typed component API does not expose those controls.
+server, identity, and transport settings. Product CSS is limited to desktop outer spacing, login
+art direction, the workflow connector, the PostgreSQL label track, account identity separation,
+dialog text alignment, and browser-level artwork/accessibility details where the installed typed
+component API does not expose those controls.
 
 The established visual pass, validated against the checked-out Hedron source rather than cached
 documentation, moved the remaining standard composition patterns onto Hedron's first-class
@@ -139,6 +138,10 @@ A second desktop inspection replaced additional product CSS with mature built-in
 
 - `AppShell` now owns the authenticated header, environment slot, account slot, sidebar, and main
   layout, while `Nav` provides the single navigation landmark;
+- `AppShell`'s user navigation collapse owns the toggle, persistence, collapsed rail, and responsive
+  label treatment;
+- `Surface`, `Card`, `Alert`, `ActionGroup`, and named Folio typography props own the login card,
+  login icon treatments, notices, action rows, and page-header hierarchy;
 - `Timeline` owns account security activity and its semantic ordered-list presentation;
 - `Alert` owns pipeline readiness, transfer-safety, and connection-availability notices;
 - `Badge` owns live OOB counts, verification, connection mode/state, write-policy, upload state,
@@ -241,7 +244,7 @@ Run the full demo without Data Mover's custom stylesheet:
 CUSTOM_THEME_ENABLED=false make demo
 ```
 
-This omits `app/static/theme.css`; Hedron's bundled default and component styles remain
+This omits `app/static/theme.css`; Hedron's bundled Folio and component styles remain
 active. Shared structure, controls, identity, feedback, ambient backdrop, and glass-surface
 presentation are rendered by native Hedron components, so the application remains fully usable
 without the product art-direction stylesheet.

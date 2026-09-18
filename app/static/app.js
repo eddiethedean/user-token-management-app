@@ -1,42 +1,4 @@
 const colorModeFormSelector = 'form[data-color-mode-form="true"]';
-const navCollapseStorageKey = "data-mover-nav-collapsed";
-
-function storedNavCollapsePreference() {
-  try {
-    return window.localStorage.getItem(navCollapseStorageKey) === "true";
-  } catch {
-    return false;
-  }
-}
-
-function setNavCollapsed(collapsed, { persist = true } = {}) {
-  const shell = document.querySelector(".data-mover-app-shell");
-  const toggle = document.getElementById("side-nav-toggle");
-  if (!shell || !toggle) return;
-
-  shell.dataset.navCollapsed = String(collapsed);
-  toggle.setAttribute("aria-controls", "side-nav");
-  toggle.setAttribute("aria-expanded", String(!collapsed));
-  toggle.setAttribute(
-    "aria-label",
-    collapsed ? "Expand navigation" : "Collapse navigation",
-  );
-  toggle.title = collapsed ? "Expand navigation" : "Collapse navigation";
-  const icon = toggle.querySelector("span");
-  if (icon) icon.textContent = collapsed ? "›" : "‹";
-
-  if (persist) {
-    try {
-      window.localStorage.setItem(navCollapseStorageKey, String(collapsed));
-    } catch {
-      // Storage can be unavailable in privacy-restricted browser contexts.
-    }
-  }
-}
-
-function initializeNavCollapse() {
-  setNavCollapsed(storedNavCollapsePreference(), { persist: false });
-}
 
 function applyColorMode(mode) {
   const normalized = mode === "dark" ? "dark" : "light";
@@ -206,7 +168,6 @@ function syncNewDestinationName() {
 }
 
 document.addEventListener("htmx:afterSettle", () => {
-  initializeNavCollapse();
   syncNewDestinationName();
   syncPipelineEditor();
 });
@@ -227,13 +188,6 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 document.addEventListener("click", (event) => {
-  const navToggle = event.target.closest("#side-nav-toggle");
-  if (navToggle) {
-    const shell = navToggle.closest(".data-mover-app-shell");
-    setNavCollapsed(shell?.dataset.navCollapsed !== "true");
-    return;
-  }
-
   const toggle = event.target.closest("[data-compact-password-toggle]");
   if (!toggle) return;
   queueMicrotask(() => {
@@ -271,6 +225,5 @@ document.addEventListener("change", (event) => {
   modeToggle.form.requestSubmit();
 });
 
-initializeNavCollapse();
 syncNewDestinationName();
 syncPipelineEditor();

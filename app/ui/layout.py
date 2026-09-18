@@ -23,7 +23,6 @@ from hedron import (
     Fragment,
     Header,
     HtmxLink,
-    IconButton,
     Image,
     Inline,
     Nav,
@@ -64,7 +63,7 @@ from app.ui.icons import NAV_ICONS
 from app.ui.urls import asset_href, asset_src, form_action, hx_attrs, page_href
 
 INDICATOR = "#global-request-indicator"
-THEME_CHOICES = ("data-mover", "aurora")
+THEME_CHOICES = ("folio",)
 UI_PREFERENCE_MAX_AGE = 31536000
 
 BadgeTone = Literal["neutral", "info", "success", "warning", "danger"]
@@ -222,13 +221,13 @@ def document_head(
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=18"),
+                href=asset_href(request, "/assets/theme.css?v=20"),
             )
         )
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/app-assets/data-mover-components.css?v=12"),
+                href=asset_href(request, "/app-assets/data-mover-components.css?v=13"),
             )
         )
     return Fragment(*nodes)
@@ -299,7 +298,6 @@ def sign_out_action(request: Request, *, csrf_token: str) -> ActionGroup:
             submit_button("Sign out", quiet=True, size="sm"),
             action=form_action(request, "logout"),
             method="post",
-            class_="data-mover-sign-out",
         ),
         gap="xs",
         collapse="never",
@@ -339,21 +337,7 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
         link("/security", "Connections", icon="connections"),
         link("/profile", "Account", icon="account"),
     ]
-    children: list[NodeLike] = [
-        html.div(
-            IconButton(
-                "Collapse navigation",
-                icon="‹",
-                size="sm",
-                appearance="ghost",
-                emphasis="neutral",
-                id="side-nav-toggle",
-                class_="data-mover-nav-toggle",
-            ),
-            class_="data-mover-nav-toggle-row",
-        ),
-        NavGroup("Workspace", *workspace, class_="data-mover-nav-group"),
-    ]
+    children: list[NodeLike] = [NavGroup("Workspace", *workspace, class_="data-mover-nav-group")]
     if "administrator" in auth.user.role_names:
         children.append(
             NavGroup(
@@ -516,15 +500,15 @@ def app_shell(
                         ),
                         nav_footer=shell_nav_footer(settings),
                         chrome=AppShellChrome(
-                            preset="compact",
+                            preset="editorial",
                             header_behavior="sticky",
                             nav_behavior="sticky",
                             nav_offset="header",
-                            shell_gap="standard",
-                            content_inset="compact",
-                            banner_spacing="tight",
-                            header_density="compact",
-                            footer_density="compact",
+                            shell_gap="editorial",
+                            content_inset="standard",
+                            banner_spacing="standard",
+                            header_density="standard",
+                            footer_density="standard",
                         ),
                         app_footer=AppFooter(
                             settings.app_name,
@@ -532,6 +516,8 @@ def app_shell(
                         ),
                         content_width="wide",
                         mobile_collapse=True,
+                        nav_collapse="user",
+                        nav_preference_key="data-mover-nav-collapsed",
                         class_="data-mover-app-shell",
                     ),
                     layers=(
@@ -547,7 +533,7 @@ def app_shell(
                             tone="muted",
                             intensity="subtle",
                             placement="fixed-canvas",
-                            scale="lg",
+                            scale="md",
                             order=1,
                         ),
                     ),
@@ -655,28 +641,30 @@ def app_shell(
             custom_theme_enabled=settings.custom_theme_enabled,
             preference=preference,
         ),
-        scripts=(asset_src(request, "/assets/app.js?v=13"),),
+        scripts=(asset_src(request, "/assets/app.js?v=14"),),
     )
 
 
 def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> PageHeader:
-    """Use Hedron's native page header while preserving optional page actions."""
+    """Use Folio's native editorial header while preserving optional page actions."""
     return PageHeader(
         title,
         eyebrow=eyebrow,
         description=lead,
         meta=extra[0] if len(extra) == 1 else None,
-        density="compact",
+        density="comfortable",
         title_measure="wide",
         description_measure="default",
         title_effect="none",
         description_effect="none",
+        eyebrow_tone="accent",
+        eyebrow_tracking="wide",
     )
 
 
 def main_panel(
     *body: NodeLike,
-    theme: str = "data-mover",
+    theme: str = "folio",
     color_mode: str | None = None,
 ) -> Component[Any]:
     """Authenticated main panel root used for in-shell HTMX navigation swaps."""

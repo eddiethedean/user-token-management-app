@@ -41,9 +41,7 @@ from app.schema import assert_schema_current
 from app.security.cookies import APPLICATION_COOKIE_NAMES
 from app.services.auth import ensure_default_roles
 from app.ui.design_system import (
-    DATA_MOVER_DESIGN,
     DATA_MOVER_SCOPED_STYLES,
-    DATA_MOVER_THEME_EXPORT,
     surface_card,
 )
 from app.ui.hedron_styles import desktop_default_styles
@@ -186,7 +184,7 @@ app = HedronPosit(
     enable_sessions=False,
     htmx_extensions=("preload", "sse", "head-support"),
     explorer="off",
-    theme=DATA_MOVER_DESIGN,
+    theme="folio",
     default_styles=False,
     external_base_url=settings.public_base_url,
     posit=PositConfig(
@@ -227,13 +225,12 @@ def hedron_desktop_styles() -> Response:
 
 @app.get("/app-assets/data-mover-components.css", include_in_schema=False)
 def data_mover_component_styles() -> Response:
-    """Layer brand tokens over native CSS without resetting component appearances."""
+    """Serve bounded Data Mover interaction styles alongside Hedron's Folio theme."""
 
-    # Hedron's complete native stylesheet already defines every component.
-    # The minimal component bundle's generic rules override native secondary,
-    # danger, ghost and surface appearances because its layer takes precedence.
+    # Hedron's complete native stylesheet owns the component visual language;
+    # this compatibility endpoint only carries the app's scoped workflow rules.
     return Response(
-        DATA_MOVER_THEME_EXPORT.css + DATA_MOVER_SCOPED_STYLES.css,
+        DATA_MOVER_SCOPED_STYLES.css,
         media_type="text/css",
         headers={"Cache-Control": "public, max-age=3600"},
     )
@@ -375,7 +372,7 @@ def create_app(settings_override=None) -> HedronPosit:
         enable_sessions=False,
         htmx_extensions=("preload", "sse", "head-support"),
         explorer="off",
-        theme=DATA_MOVER_DESIGN,
+        theme="folio",
         default_styles=False,
         external_base_url=settings_override.public_base_url,
         posit=PositConfig(
@@ -447,8 +444,10 @@ def create_app(settings_override=None) -> HedronPosit:
 
     @instance.get("/app-assets/data-mover-components.css", include_in_schema=False)
     def composed_data_mover_component_styles() -> Response:
+        """Serve bounded Data Mover interaction styles alongside Folio."""
+
         return Response(
-            DATA_MOVER_THEME_EXPORT.css + DATA_MOVER_SCOPED_STYLES.css,
+            DATA_MOVER_SCOPED_STYLES.css,
             media_type="text/css",
             headers={"Cache-Control": "public, max-age=3600"},
         )

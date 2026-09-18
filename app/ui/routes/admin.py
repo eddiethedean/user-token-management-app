@@ -193,8 +193,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                 ),
                 ratio="2:1",
                 gap="lg",
-                collapse="never",
-                class_="data-mover-admin-split",
+                collapse="lg",
             ),
         ]
         return await render_authenticated_view(

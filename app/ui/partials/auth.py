@@ -17,6 +17,7 @@ from hedron import (
     LinkButton,
     SplitView,
     Stack,
+    Surface,
     Text,
     TextInput,
     html,
@@ -114,7 +115,7 @@ def render_login_page(
     )
 
     intro = Stack(
-        Badge("SECURE TRANSFER WORKSPACE", tone="info"),
+        Badge("SECURE TRANSFER WORKSPACE", tone="info", size="sm", appearance="soft"),
         html.h2(
             "Move data.",
             html.br(),
@@ -124,15 +125,19 @@ def render_login_page(
         Text(
             "Connect your systems. Build your route. Move forward with a clear view of every transfer.",
             role="body",
-            effect="none",
-            class_="data-mover-login-lead",
+            effect="subtle",
+            measure="default",
         ),
         html.figure(
             Grid(
                 *[
                     Stack(
-                        html.div(
+                        Surface(
                             Icon(NAV_ICONS[icon], size="lg", decorative=True),
+                            appearance="raised",
+                            density="comfortable",
+                            padding="md",
+                            elevation="none",
                             class_="data-mover-login-node-icon",
                         ),
                         Text(label, role="label", effect="none"),
@@ -153,23 +158,30 @@ def render_login_page(
             html.figcaption("From source to destination. One controlled workflow."),
             class_="data-mover-login-illustration",
         ),
-        Inline(
-            Icon(NAV_ICONS["account"], size="sm", decorative=True),
-            Text(
-                "Encrypted credentials. Approved access. Traceable transfers.",
-                role="caption",
-                effect="none",
+        Stack(
+            Divider(),
+            Inline(
+                Icon(NAV_ICONS["account"], size="sm", decorative=True),
+                Text(
+                    "Encrypted credentials. Approved access. Traceable transfers.",
+                    role="caption",
+                    effect="subtle",
+                ),
+                gap="sm",
             ),
-            gap="sm",
-            class_="data-mover-login-assurance",
+            gap="md",
         ),
         gap="lg",
         class_="data-mover-login-intro",
     )
 
     card_children: list[NodeLike] = [
-        html.div(
+        Surface(
             Icon(NAV_ICONS["account"], size="lg", decorative=True),
+            appearance="raised",
+            density="compact",
+            padding="sm",
+            elevation="none",
             class_="data-mover-login-access-icon",
         ),
         PageHeader(
@@ -249,9 +261,16 @@ def render_login_page(
         card_children.append(
             Stack(
                 Divider(),
-                html.p(
-                    "Need an account? ",
-                    Link("Request access", href=page_href(request, "register")),
+                ActionGroup(
+                    Text("Need an account?", as_="span", role="caption"),
+                    LinkButton(
+                        "Request access",
+                        href=page_href(request, "register"),
+                        appearance="ghost",
+                        size="sm",
+                    ),
+                    align="center",
+                    gap="xs",
                 ),
                 Text(
                     "A verified email and administrator approval are required.",
@@ -259,7 +278,6 @@ def render_login_page(
                     overflow="wrap",
                 ),
                 gap="xs",
-                class_="data-mover-login-access-note",
             )
         )
 
@@ -273,13 +291,15 @@ def render_login_page(
             primary=intro,
             secondary=Stack(
                 login_card,
-                Text(
-                    "Demo workspace · No external systems are contacted."
-                    if settings.is_demo_mode
-                    else "Live workspace · Transfers may change remote systems.",
-                    role="caption",
-                    effect="none",
-                    class_="data-mover-login-mode-note",
+                ActionGroup(
+                    Text(
+                        "Demo workspace · No external systems are contacted."
+                        if settings.is_demo_mode
+                        else "Live workspace · Transfers may change remote systems.",
+                        role="caption",
+                        effect="subtle",
+                    ),
+                    align="center",
                 ),
                 gap="md",
             ),
@@ -289,7 +309,7 @@ def render_login_page(
             class_="data-mover-login-split",
         ),
         max_width="lg",
-        class_="data-mover-login",
+        padding="lg",
     )
     page = app_shell(
         layout,

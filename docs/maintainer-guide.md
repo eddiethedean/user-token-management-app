@@ -190,13 +190,11 @@ Keep routes thin and make domain rules testable without a browser or database wh
 
 ### UI visual changes
 
-Use current Hedron primitives, recipes, component bundles, and named spacing tokens for new
+Use current Hedron primitives, recipes, the built-in Folio theme, and named spacing tokens for new
 presentation. Keep only product-level art direction in `app/static/theme.css`; component behavior
-and interaction states remain owned by Hedron. Data Mover loads Hedron's responsive native
-stylesheet, so the supported visual pass includes wide and medium desktop plus narrow mobile
-layouts, including expanded and collapsed navigation. Exercise both light and dark modes, keyboard
-focus, forced-colors behavior, and browser console output. Keep mobile overrides scoped to genuine
-product-specific behavior rather than reimplementing Hedron components.
+and interaction states remain owned by Hedron. For a desktop visual pass, exercise the primary
+auth, workspace, form, data, and administration surfaces in both light and dark modes, including
+keyboard focus and browser console output.
 
 Run `make demo` for the browser pass. Use the seeded account and fake providers; never put real
 credentials into a visual test. Reload after server-side changes when the server is not running in

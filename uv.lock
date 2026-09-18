@@ -10,7 +10,7 @@ resolution-markers = [
 
 [[package]]
 name = "access-registry"
-version = "150926.0"
+version = "170926.1"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -51,7 +51,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=42.0.8" },
     { name = "email-validator", specifier = ">=2.0.0" },
     { name = "fastapi", specifier = ">=0.133.0" },
-    { name = "hedron", specifier = ">=1.0.10,<1.1" },
+    { name = "hedron", specifier = ">=1.0.18,<1.1" },
     { name = "hedron-posit", specifier = ">=1.0.9,<1.1" },
     { name = "httpx2", specifier = ">=2.9.1" },
     { name = "polars", specifier = ">=1.21" },
@@ -636,7 +636,7 @@ wheels = [
 
 [[package]]
 name = "hedron"
-version = "1.0.10"
+version = "1.0.18"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi" },
@@ -647,23 +647,23 @@ dependencies = [
     { name = "python-multipart" },
     { name = "starlette" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/65/12/e2a7d16fee73b7d3d300fac5ebbcd05df585ccb4a2e48a4d09c6806f667b/hedron-1.0.10.tar.gz", hash = "sha256:520fdbeecdadcfdf34a1bcbe78513c16562fdc95250e1fc49512c6f4ce0f6d35", size = 331528, upload-time = "2026-09-05T15:57:35.134Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6f/45/de49ca4bb8aaef6aca0fea8f5c8c3dd828e6c22743647008da76dabef6d2/hedron-1.0.18.tar.gz", hash = "sha256:fd7ed34ee562c890765788396992c0fda3f322b67124a05aec6eee6f59976586", size = 336027, upload-time = "2026-09-18T02:15:41.815Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5c/3e/c6c1f0ab9dc1ca995ecb7e9aa18c87931ad2b4ef5f422022b768058c87e3/hedron-1.0.10-py3-none-any.whl", hash = "sha256:98ddcd702c44e1f1ae3306aaf8ed1934a7847a4d275b549632fe7572cc70321f", size = 401677, upload-time = "2026-09-05T15:57:33.8Z" },
+    { url = "https://files.pythonhosted.org/packages/82/8a/9e9d01ade832421dc9100c5a83c6386e096e558461b01a1e9a4b52e5f2f1/hedron-1.0.18-py3-none-any.whl", hash = "sha256:10b67133fb1365c36e6229c8d2c884aa940c32c879d95c48886ab2dd4691e94b", size = 405769, upload-time = "2026-09-18T02:15:40.526Z" },
 ]
 
 [[package]]
 name = "hedron-core"
-version = "1.0.10"
+version = "1.0.18"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b1/e3/bdbbbd3b8562c019fc39d99196e1128c271fe5f2b85b02d7117b15099718/hedron_core-1.0.10.tar.gz", hash = "sha256:3e860d6300bb791aaf40a495cf94a9b9d5b5dc65eb12b9768bee0ab4933c1239", size = 575056, upload-time = "2026-09-05T15:57:32.821Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c1/87/3aeaaf0b3faf1588ee41ace591eb2f66c78d93c4cd2bd1fe52c033f4afa8/hedron_core-1.0.18.tar.gz", hash = "sha256:c3a8c100f9eed647cb794a8b3d9b0dc18624967d264faaf5f3a00f779cd94cd3", size = 582443, upload-time = "2026-09-18T02:15:39.332Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/e7/d61a361c8edd87c53dc1f3df72333ab257c002bb4dba3a3061411e2cfcd5/hedron_core-1.0.10-py3-none-any.whl", hash = "sha256:ac79f2864441c0c2ae76d4eee3c1aca1781ca1b49de28ecffafcfd404ec2910f", size = 692602, upload-time = "2026-09-05T15:57:31.531Z" },
+    { url = "https://files.pythonhosted.org/packages/29/1c/f9efe7842bcbbfc37f73cfa99ab0b4217ff348fd541113a86cf3fd65ba52/hedron_core-1.0.18-py3-none-any.whl", hash = "sha256:7b22b73edc01e238016f2ac4daaced91d2d7f64dcf3fe7e024afe499e88ce333", size = 699796, upload-time = "2026-09-18T02:15:37.849Z" },
 ]
 
 [[package]]

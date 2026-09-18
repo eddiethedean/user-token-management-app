@@ -1,0 +1,282 @@
+{
+  "items": [
+    {
+      "key": "nullable",
+      "title": "[BUG] PostgreSQL upserts silently discard rows with NULL unique keys",
+      "queries": [
+        "\"upsert\" \"NULL\"",
+        "\"DISTINCT ON\"",
+        "\"finalize\" \"nullable\""
+      ],
+      "bodyFile": "/Volumes/T7/coding/user-token-managment-app/artifacts/bug-hunt-2026-09-17/nullable.md",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/25",
+      "number": 25
+    },
+    {
+      "key": "cleanup",
+      "title": "[BUG] Staging cleanup can drop unrelated PostgreSQL tables",
+      "queries": [
+        "\"drop_abandoned_staging\"",
+        "\"dm_stage_\" \"delete\"",
+        "\"cleanup\" \"unrelated\""
+      ],
+      "bodyFile": "/Volumes/T7/coding/user-token-managment-app/artifacts/bug-hunt-2026-09-17/cleanup.md",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/26",
+      "number": 26
+    },
+    {
+      "key": "temporal",
+      "title": "[BUG] PostgreSQL transfers discard timestamptz semantics and shift instants",
+      "queries": [
+        "\"timestamptz\"",
+        "\"_pg_type\" \"Datetime\"",
+        "\"timestamp\" \"timezone\""
+      ],
+      "bodyFile": "/Volumes/T7/coding/user-token-managment-app/artifacts/bug-hunt-2026-09-17/temporal.md",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/27",
+      "number": 27
+    },
+    {
+      "key": "datetime",
+      "title": "[BUG] Parquet datetime columns become TEXT in new PostgreSQL destinations",
+      "queries": [
+        "\"_pg_type\" \"Datetime\"",
+        "\"datetime\" \"TEXT\"",
+        "\"Parquet\" \"timestamp\""
+      ],
+      "bodyFile": "/Volumes/T7/coding/user-token-managment-app/artifacts/bug-hunt-2026-09-17/datetime.md",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/29",
+      "number": 29
+    },
+    {
+      "key": "generated",
+      "title": "[BUG] PostgreSQL loads copy into generated columns and fail",
+      "queries": [
+        "\"generated column\"",
+        "\"INCLUDING GENERATED\"",
+        "\"write_batch\" \"InvalidColumnReference\""
+      ],
+      "bodyFile": "/Volumes/T7/coding/user-token-managment-app/artifacts/bug-hunt-2026-09-17/generated.md",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/31",
+      "number": 31
+    },
+    {
+      "key": "collision",
+      "title": "[BUG] PostgreSQL upserts fail when the destination has a dm_row_number column",
+      "queries": [
+        "\"dm_row_number\"",
+        "\"DuplicateColumn\"",
+        "\"upsert\" \"column name\""
+      ],
+      "bodyFile": "/Volumes/T7/coding/user-token-managment-app/artifacts/bug-hunt-2026-09-17/collision.md",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/32",
+      "number": 32
+    },
+    {
+      "key": "catalog",
+      "title": "[BUG] A CSV file breaks MCS-COP destination catalog listing",
+      "queries": [
+        "\"list_objects\" \"csv\"",
+        "\"FoundryUploadLocator\" \"ValidationError\"",
+        "\"MCS-COP\" \"catalog\""
+      ],
+      "bodyFile": "/Volumes/T7/coding/user-token-managment-app/artifacts/bug-hunt-2026-09-17/catalog.md",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/30",
+      "number": 30
+    },
+    {
+      "key": "logging",
+      "title": "[BUG] Transfer failures expose source cell values in application logs",
+      "queries": [
+        "\"process_one\" \"logging\"",
+        "\"COPY\" \"sensitive\"",
+        "\"source\" \"cell\" \"logs\""
+      ],
+      "bodyFile": "/Volumes/T7/coding/user-token-managment-app/artifacts/bug-hunt-2026-09-17/logging.md",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/28",
+      "number": 28
+    },
+    {
+      "key": "unmapped",
+      "existing": 17,
+      "title": "PostgreSQL source schema mapping rejects valid non-text values",
+      "queries": [
+        "\"_polars_type\"",
+        "\"could not append value\"",
+        "\"jsonb\" \"extract\""
+      ],
+      "bodyFile": "/Volumes/T7/coding/user-token-managment-app/artifacts/bug-hunt-2026-09-17/unmapped.md",
+      "commentUrl": "https://github.com/eddiethedean/user-token-management-app/issues/17#issuecomment-5713837248",
+      "number": 17,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/17"
+    },
+    {
+      "key": "empty",
+      "existing": 20,
+      "title": "Empty Foundry source files still fail before destination finalization",
+      "queries": [
+        "\"Foundry\" \"empty\"",
+        "\"dataset has no CSV or Parquet files\"",
+        "\"extract\" \"zero-row\""
+      ],
+      "bodyFile": "/Volumes/T7/coding/user-token-managment-app/artifacts/bug-hunt-2026-09-17/empty.md",
+      "commentUrl": "https://github.com/eddiethedean/user-token-management-app/issues/20#issuecomment-5713837473",
+      "number": 20,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/20"
+    },
+    {
+      "key": "csv",
+      "existing": 15,
+      "title": "CSV inspection and extraction disagree on all-empty rows",
+      "queries": [
+        "\"inspect_csv\"",
+        "\"CSV\" \"blank rows\"",
+        "\"CsvSourceConnector\" \"row count\""
+      ],
+      "bodyFile": "/Volumes/T7/coding/user-token-managment-app/artifacts/bug-hunt-2026-09-17/csv.md",
+      "commentUrl": "https://github.com/eddiethedean/user-token-management-app/issues/15#issuecomment-5713837746",
+      "number": 15,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/15"
+    }
+  ],
+  "verification": [
+    {
+      "status": "fulfilled",
+      "value": {
+        "key": "nullable",
+        "number": 25,
+        "state": "OPEN",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/25",
+        "labels": [
+          "bug"
+        ],
+        "verified": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "key": "cleanup",
+        "number": 26,
+        "state": "OPEN",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/26",
+        "labels": [
+          "bug"
+        ],
+        "verified": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "key": "temporal",
+        "number": 27,
+        "state": "OPEN",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/27",
+        "labels": [
+          "bug"
+        ],
+        "verified": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "key": "datetime",
+        "number": 29,
+        "state": "OPEN",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/29",
+        "labels": [
+          "bug"
+        ],
+        "verified": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "key": "generated",
+        "number": 31,
+        "state": "OPEN",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/31",
+        "labels": [
+          "bug"
+        ],
+        "verified": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "key": "collision",
+        "number": 32,
+        "state": "OPEN",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/32",
+        "labels": [
+          "bug"
+        ],
+        "verified": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "key": "catalog",
+        "number": 30,
+        "state": "OPEN",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/30",
+        "labels": [
+          "bug"
+        ],
+        "verified": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "key": "logging",
+        "number": 28,
+        "state": "OPEN",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/28",
+        "labels": [
+          "bug"
+        ],
+        "verified": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "key": "unmapped",
+        "number": 17,
+        "state": "CLOSED",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/17",
+        "commentUrl": "https://github.com/eddiethedean/user-token-management-app/issues/17#issuecomment-5713837248",
+        "verified": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "key": "empty",
+        "number": 20,
+        "state": "CLOSED",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/20",
+        "commentUrl": "https://github.com/eddiethedean/user-token-management-app/issues/20#issuecomment-5713837473",
+        "verified": true
+      }
+    },
+    {
+      "status": "fulfilled",
+      "value": {
+        "key": "csv",
+        "number": 15,
+        "state": "CLOSED",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/15",
+        "commentUrl": "https://github.com/eddiethedean/user-token-management-app/issues/15#issuecomment-5713837746",
+        "verified": true
+      }
+    }
+  ]
+}
+

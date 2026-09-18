@@ -26,13 +26,13 @@ from hedron_core import (
     motion_recipes,
     presentation_contract,
 )
-from hedron_core.theme import aurora_theme
+from hedron_core.theme import folio_theme
 
 _ComponentT = TypeVar("_ComponentT", bound=Component)
 
 
 class DataMoverPageHeader(PageHeader):
-    """PageHeader with product typography expressed through native Hedron props."""
+    """PageHeader with product typography expressed through native Folio props."""
 
     def __init__(self, title: str, **kwargs: Any) -> None:
         kwargs.setdefault("title_measure", "wide")
@@ -41,17 +41,18 @@ class DataMoverPageHeader(PageHeader):
         kwargs.setdefault("description_effect", "none")
         kwargs.setdefault("title_tracking", "tight")
         kwargs.setdefault("title_wrap", "balance")
-        kwargs["class_"] = " ".join(filter(None, ("data-mover-page-heading", kwargs.get("class_"))))
+        kwargs.setdefault("eyebrow_tone", "accent")
+        kwargs.setdefault("eyebrow_tracking", "wide")
         super().__init__(title, **kwargs)
 
 
 # Build a first-party Data Mover brand from Hedron's 1.0.0 typed design system.
-# Aurora remains the accessibility-tested base; the brand compiler owns the
+# Folio remains the accessibility-tested base; the brand compiler owns the
 # palette, geometry, typography, motion, and navigation groups.
 _BRAND_DESIGN = DesignSystem.brand(
     "data-mover",
     accent=Color.oklch(0.68, 0.18, 275),
-    base=aurora_theme(),
+    base=folio_theme(),
     density="comfortable",
     geometry="soft",
     typography="system-sans",
@@ -354,6 +355,7 @@ DATA_MOVER_DESIGN = DesignSystem.from_theme(DATA_MOVER_THEME).with_recipes(
         density="comfortable",
         padding="md",
         elevation="sm",
+        responsive={"padding": {"lg": "lg"}},
     ),
     StyleRecipe.surface(
         "data-mover-auth-panel",
@@ -361,6 +363,7 @@ DATA_MOVER_DESIGN = DesignSystem.from_theme(DATA_MOVER_THEME).with_recipes(
         density="spacious",
         padding="md",
         elevation="lg",
+        responsive={"padding": {"lg": "lg"}},
     ),
     StyleRecipe.surface(
         "data-mover-inset",

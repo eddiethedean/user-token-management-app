@@ -4,6 +4,14 @@
 
 Future changes will be listed here.
 
+### Changed
+
+- Upgraded the Hedron runtime to 1.0.18 while retaining the compatible 1.0 release line.
+- Switched the application shell to Hedron's built-in Folio theme and refreshed desktop auth,
+  workspace, connection, account, team, and audit surfaces around its typography and palette.
+- Replaced bespoke navigation collapse, split-layout, password-field, form-control, login-surface,
+  and dataset-feedback styling with Hedron's native components and presentation props where available.
+
 ## [170926.1] — 2026-09-17
 
 ### Added

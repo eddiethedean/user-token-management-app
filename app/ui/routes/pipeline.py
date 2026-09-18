@@ -1014,11 +1014,10 @@ def _dataset_creator(
         return html.div(**attrs)
     feedback: NodeLike | None = None
     if created_name:
-        feedback = Inline(
-            Badge("Dataset ready", tone="success"),
-            html.span(f"“{created_name}” is selected. Name its first file below."),
-            gap="sm",
-            class_="data-mover-dataset-ready",
+        feedback = Alert(
+            f"Dataset ready · “{created_name}” is selected. Name its first file below.",
+            tone="success",
+            appearance="soft",
         )
     elif error:
         feedback = Alert(error, tone="danger")

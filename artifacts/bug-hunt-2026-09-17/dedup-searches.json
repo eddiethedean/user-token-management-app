@@ -1,0 +1,256 @@
+[
+  {
+    "status": "fulfilled",
+    "value": {
+      "key": "nullable",
+      "searches": [
+        {
+          "query": "\"upsert\" \"NULL\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"DISTINCT ON\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"finalize\" \"nullable\"",
+          "exit_code": 0,
+          "output": "[{\"number\":12,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL COPY silently turns literal backslash-N strings into SQL NULL\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/12\"}]\n[]\n"
+        }
+      ]
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "key": "cleanup",
+      "searches": [
+        {
+          "query": "\"drop_abandoned_staging\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"dm_stage_\" \"delete\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"cleanup\" \"unrelated\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        }
+      ]
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "key": "temporal",
+      "searches": [
+        {
+          "query": "\"timestamptz\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"_pg_type\" \"Datetime\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"timestamp\" \"timezone\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        }
+      ]
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "key": "generated",
+      "searches": [
+        {
+          "query": "\"generated column\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"INCLUDING GENERATED\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"write_batch\" \"InvalidColumnReference\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        }
+      ]
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "key": "collision",
+      "searches": [
+        {
+          "query": "\"dm_row_number\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"DuplicateColumn\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"upsert\" \"column name\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        }
+      ]
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "key": "catalog",
+      "searches": [
+        {
+          "query": "\"list_objects\" \"csv\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"FoundryUploadLocator\" \"ValidationError\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"MCS-COP\" \"catalog\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        }
+      ]
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "key": "logging",
+      "searches": [
+        {
+          "query": "\"process_one\" \"logging\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"COPY\" \"sensitive\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"source\" \"cell\" \"logs\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        }
+      ]
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "key": "unmapped",
+      "searches": [
+        {
+          "query": "\"_polars_type\"",
+          "exit_code": 0,
+          "output": "[{\"number\":17,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL extraction fails when the first 100 values are NULL\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/17\"}]\n[]\n"
+        },
+        {
+          "query": "\"could not append value\"",
+          "exit_code": 0,
+          "output": "[{\"number\":17,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL extraction fails when the first 100 values are NULL\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/17\"}]\n[]\n"
+        },
+        {
+          "query": "\"jsonb\" \"extract\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        }
+      ]
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "key": "empty",
+      "searches": [
+        {
+          "query": "\"Foundry\" \"empty\"",
+          "exit_code": 0,
+          "output": "[{\"number\":20,\"state\":\"CLOSED\",\"title\":\"[BUG] Foundry destinations cannot finalize valid zero-row sources\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/20\"},{\"number\":14,\"state\":\"CLOSED\",\"title\":\"[BUG] Cancellation during the final batch is ignored before destination commit\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/14\"}]\n[]\n"
+        },
+        {
+          "query": "\"dataset has no CSV or Parquet files\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"extract\" \"zero-row\"",
+          "exit_code": 0,
+          "output": "[{\"number\":20,\"state\":\"CLOSED\",\"title\":\"[BUG] Foundry destinations cannot finalize valid zero-row sources\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/20\"}]\n[]\n"
+        }
+      ]
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "key": "csv",
+      "searches": [
+        {
+          "query": "\"inspect_csv\"",
+          "exit_code": 0,
+          "output": "[{\"number\":15,\"state\":\"CLOSED\",\"title\":\"[BUG] CSV transfers ignore the delimiter and normalized headers shown by upload inspection\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/15\"},{\"number\":19,\"state\":\"CLOSED\",\"title\":\"[BUG] CSV files accepted as mixed text fail execution when text occurs after row 10000\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/19\"},{\"number\":22,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL credentials accept an invalid connection timeout and fail only when tested\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/22\"},{\"number\":17,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL extraction fails when the first 100 values are NULL\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/17\"},{\"number\":21,\"state\":\"CLOSED\",\"title\":\"[BUG] New PostgreSQL tables with uppercase names cannot be inspected by the same connector\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/21\"},{\"number\":20,\"state\":\"CLOSED\",\"title\":\"[BUG] Foundry destinations cannot finalize valid zero-row sources\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/20\"},{\"number\":23,\"state\":\"CLOSED\",\"title\":\"[BUG] Non-ASCII CSRF form values raise TypeError and return HTTP 500\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/23\"},{\"number\":18,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL unique-key inspection mixes in columns from another table’s constraint\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/18\"},{\"number\":13,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL COPY stores Python byte-string representations instead of original bytes\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/13\"},{\"number\":12,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL COPY silently turns literal backslash-N strings into SQL NULL\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/12\"},{\"number\":11,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL destination creation silently converts exact decimals to floating point\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/11\"},{\"number\":16,\"state\":\"CLOSED\",\"title\":\"[BUG] Upsert ignore fails on duplicate source keys before ON CONFLICT is reached\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/16\"},{\"number\":14,\"state\":\"CLOSED\",\"title\":\"[BUG] Cancellation during the final batch is ignored before destination commit\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/14\"},{\"number\":10,\"state\":\"CLOSED\",\"title\":\"[BUG] Queued transfers still execute after their owner account is disabled\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/10\"},{\"number\":9,\"state\":\"CLOSED\",\"title\":\"[BUG] Uncommitted batch events block the independent lease heartbeat during destination writes\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/9\"},{\"number\":8,\"state\":\"CLOSED\",\"title\":\"[BUG] Synchronous provider calls in async routes block the application event loop\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/8\"}]\n[]\n"
+        },
+        {
+          "query": "\"CSV\" \"blank rows\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"CsvSourceConnector\" \"row count\"",
+          "exit_code": 0,
+          "output": "[{\"number\":12,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL COPY silently turns literal backslash-N strings into SQL NULL\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/12\"},{\"number\":11,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL destination creation silently converts exact decimals to floating point\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/11\"},{\"number\":21,\"state\":\"CLOSED\",\"title\":\"[BUG] New PostgreSQL tables with uppercase names cannot be inspected by the same connector\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/21\"},{\"number\":13,\"state\":\"CLOSED\",\"title\":\"[BUG] PostgreSQL COPY stores Python byte-string representations instead of original bytes\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/13\"},{\"number\":16,\"state\":\"CLOSED\",\"title\":\"[BUG] Upsert ignore fails on duplicate source keys before ON CONFLICT is reached\",\"url\":\"https://github.com/eddiethedean/user-token-management-app/issues/16\"}]\n[]\n"
+        }
+      ]
+    }
+  },
+  {
+    "status": "fulfilled",
+    "value": {
+      "key": "datetime",
+      "searches": [
+        {
+          "query": "\"_pg_type\" \"Datetime\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"datetime\" \"TEXT\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        },
+        {
+          "query": "\"Parquet\" \"timestamp\"",
+          "exit_code": 0,
+          "output": "[]\n[]\n"
+        }
+      ]
+    }
+  }
+]
+
