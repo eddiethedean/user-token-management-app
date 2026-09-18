@@ -283,7 +283,9 @@ def test_app_login_page_under_session_mount(workbench_stack) -> None:
     )
     assert response.status_code == 200
     assert "Sign in" in response.text
-    assert 'href="/s/docker-session/p/8000/assets/theme.css?v=180926.2"' in response.text
+    assert (
+        'href="/s/docker-session/p/8000/app-assets/hedron-desktop.css?v=180926.3"' in response.text
+    )
     assert (
         'src="/s/docker-session/p/8000/assets/brand/data-mover-mark-dark.png?v=1"' in response.text
     )
@@ -295,7 +297,7 @@ def test_app_login_page_under_session_mount(workbench_stack) -> None:
 
 def test_app_mounted_assets_include_brand_images(workbench_stack) -> None:
     css = httpx2.get(
-        f"{workbench_stack['app']}/assets/theme.css",
+        f"{workbench_stack['app']}/app-assets/hedron-desktop.css",
         timeout=15.0,
         trust_env=False,
     )

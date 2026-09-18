@@ -7,8 +7,6 @@ from typing import Any, Literal
 
 from hedron import ActionPhase, ActionState, ActionTrace, FlowStep, Metric, OperationIdentity
 
-from app.ui.design_system import PROCESS_FLOW_STEP_STYLE_CLASS
-
 _RUN_PROGRESS = {
     "queued": 4,
     "validating": 16,
@@ -172,7 +170,6 @@ def run_flow_steps(flow_statuses: tuple[str, str, str, str]) -> tuple[FlowStep, 
     return tuple(
         FlowStep(
             label,
-            class_=PROCESS_FLOW_STEP_STYLE_CLASS,
             status=step_status,
             description=description,
             status_text=status_text[step_status],

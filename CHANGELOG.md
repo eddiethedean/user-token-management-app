@@ -2,7 +2,23 @@
 
 ## [Unreleased]
 
-Future changes will be listed here.
+### Changed
+
+- Removed the product theme stylesheet and scoped workflow CSS in favor of stock Folio,
+  native Hedron recipes, typography, grids, surfaces, process flows, and color-mode controls.
+- Balanced shell branding with native container padding and account separation with a Divider.
+- Made the workspace header scroll naturally, eliminating sticky-header content overlap.
+- Retained only a navigation-collapse compatibility stylesheet because Hedron 1.0.18 does not
+  expose toggle appearance/icon props.
+- Simplified the sign-in workflow illustration into a compact native icon-and-caption row,
+  removing oversized status cards, sequence numbers, and decorative tracks.
+
+## [180926.3] — 2026-09-18
+
+### Changed
+
+- Bumped the release version for the Folio-native desktop visual refinement and verified
+  production live-mode banner contrast in light and dark themes.
 
 ## [180926.2] — 2026-09-18
 

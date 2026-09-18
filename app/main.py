@@ -40,10 +40,7 @@ from app.logging_config import bind_request_id, clear_request_id, configure_logg
 from app.schema import assert_schema_current
 from app.security.cookies import APPLICATION_COOKIE_NAMES
 from app.services.auth import ensure_default_roles
-from app.ui.design_system import (
-    DATA_MOVER_SCOPED_STYLES,
-    surface_card,
-)
+from app.ui.design_system import surface_card
 from app.ui.hedron_styles import desktop_default_styles
 from app.ui.interactions import (
     ERROR_RESPONSE_POLICY,
@@ -201,16 +198,6 @@ app.state.runtime_lifecycle = "not_started"
 
 static_directory = Path(__file__).resolve().parent / "static"
 
-# Register product CSS with Hedron's 0.65 application-style catalog so future
-# Registry inspection sees its provenance without exposing a host path.
-app.styles(
-    name="data-mover-art-direction",
-    source=static_directory / "theme.css",
-    global_=True,
-    layer="application",
-    allowed_roots=(static_directory.parent.parent,),
-)
-
 
 @app.get("/app-assets/hedron-desktop.css", include_in_schema=False)
 def hedron_desktop_styles() -> Response:
@@ -218,19 +205,6 @@ def hedron_desktop_styles() -> Response:
 
     return Response(
         desktop_default_styles(),
-        media_type="text/css",
-        headers={"Cache-Control": "public, max-age=3600"},
-    )
-
-
-@app.get("/app-assets/data-mover-components.css", include_in_schema=False)
-def data_mover_component_styles() -> Response:
-    """Serve bounded Data Mover interaction styles alongside Hedron's Folio theme."""
-
-    # Hedron's complete native stylesheet owns the component visual language;
-    # this compatibility endpoint only carries the app's scoped workflow rules.
-    return Response(
-        DATA_MOVER_SCOPED_STYLES.css,
         media_type="text/css",
         headers={"Cache-Control": "public, max-age=3600"},
     )
@@ -394,13 +368,6 @@ def create_app(settings_override=None) -> HedronPosit:
         return getattr(request.state, "settings", settings_override)
 
     instance.dependency_overrides[settings_dependency] = composed_settings
-    instance.styles(
-        name="data-mover-art-direction",
-        source=static_directory / "theme.css",
-        global_=True,
-        layer="application",
-        allowed_roots=(static_directory.parent.parent,),
-    )
     instance.mount("/assets", StaticFiles(directory=static_directory), name="assets")
     register_routes(
         instance,
@@ -438,16 +405,6 @@ def create_app(settings_override=None) -> HedronPosit:
     def composed_hedron_desktop_styles() -> Response:
         return Response(
             desktop_default_styles(),
-            media_type="text/css",
-            headers={"Cache-Control": "public, max-age=3600"},
-        )
-
-    @instance.get("/app-assets/data-mover-components.css", include_in_schema=False)
-    def composed_data_mover_component_styles() -> Response:
-        """Serve bounded Data Mover interaction styles alongside Folio."""
-
-        return Response(
-            DATA_MOVER_SCOPED_STYLES.css,
             media_type="text/css",
             headers={"Cache-Control": "public, max-age=3600"},
         )

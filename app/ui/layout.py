@@ -19,6 +19,7 @@ from hedron import (
     Brand,
     Component,
     Container,
+    Divider,
     EnvironmentBanner,
     Fragment,
     Header,
@@ -56,7 +57,6 @@ from app import APP_VERSION
 from app.config import Settings
 from app.dependencies import AuthContext
 from app.security.cookies import COLOR_MODE_COOKIE, THEME_COOKIE, set_application_cookie
-from app.ui.design_system import APP_SHELL_NAV_STYLE_CLASS
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.icons import NAV_ICONS
@@ -222,20 +222,13 @@ def document_head(
             href=asset_href(request, f"/app-assets/hedron-desktop.css?v={APP_VERSION}"),
         ),
     ]
+    # Keep the legacy config argument compatible with existing deployments.
+    # Only the collapse control needs a compatibility layer in Hedron 1.0.18.
     if custom_theme_enabled:
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, f"/assets/theme.css?v={APP_VERSION}"),
-            )
-        )
-        nodes.append(
-            html.link(
-                rel="stylesheet",
-                href=asset_href(
-                    request,
-                    f"/app-assets/data-mover-components.css?v={APP_VERSION}",
-                ),
+                href=asset_href(request, f"/assets/navigation.css?v={APP_VERSION}"),
             )
         )
     return Fragment(*nodes)
@@ -264,6 +257,7 @@ def color_mode_toggle(request: Request, *, csrf_token: str) -> NodeLike:
             "Dark mode",
             checked=preference.color_mode == "dark",
             mark="color-mode-toggle",
+            enhance="native",
         ),
         html.noscript(submit_button("Apply mode", quiet=True, size="sm")),
         action=form_action(request, "/preferences/theme"),
@@ -333,7 +327,6 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
                 indicator=INDICATOR,
                 preload="mouseover",
                 active=bool(active),
-                class_=APP_SHELL_NAV_STYLE_CLASS,
                 leading_icon=NAV_ICONS[icon],
             ),
             class_="data-mover-nav-item",
@@ -482,50 +475,56 @@ def app_shell(
         content = Container(
             StyleScope(
                 AmbientCanvas(
-                    AppShell(
-                        nav=side_nav(request, auth),
-                        body=main_panel(
-                            *body,
-                            theme=preference.theme,
-                            color_mode=(
-                                preference.color_mode if preference.color_mode != "system" else None
+                    Stack(
+                        banner,
+                        AppShell(
+                            nav=side_nav(request, auth),
+                            body=main_panel(
+                                *body,
+                                theme=preference.theme,
+                                color_mode=(
+                                    preference.color_mode
+                                    if preference.color_mode != "system"
+                                    else None
+                                ),
                             ),
+                            panel_id="main-content",
+                            brand=Container(Inline(brand, cdao_identity, gap="lg"), padding="sm"),
+                            account=(
+                                Inline(
+                                    transfer_mode_badge,
+                                    color_mode_toggle(request, csrf_token=csrf_token),
+                                    Divider(orientation="vertical"),
+                                    account_summary(request, auth),
+                                    sign_out_action(request, csrf_token=csrf_token),
+                                    gap="sm",
+                                )
+                                if csrf_token
+                                else None
+                            ),
+                            nav_footer=shell_nav_footer(settings),
+                            chrome=AppShellChrome(
+                                preset="editorial",
+                                header_behavior="static",
+                                nav_behavior="sticky",
+                                nav_offset="none",
+                                shell_gap="standard",
+                                content_inset="standard",
+                                banner_spacing="standard",
+                                header_density="standard",
+                                footer_density="compact",
+                            ),
+                            app_footer=AppFooter(
+                                settings.app_name,
+                                html.span(f"{runtime.footer} · Version {APP_VERSION}"),
+                            ),
+                            content_width="wide",
+                            mobile_collapse=False,
+                            nav_collapse="user",
+                            nav_preference_key="data-mover-nav-collapsed",
+                            class_="data-mover-app-shell",
                         ),
-                        panel_id="main-content",
-                        banner=banner,
-                        brand=Inline(brand, cdao_identity, gap="lg"),
-                        account=(
-                            Inline(
-                                transfer_mode_badge,
-                                color_mode_toggle(request, csrf_token=csrf_token),
-                                account_summary(request, auth),
-                                sign_out_action(request, csrf_token=csrf_token),
-                                gap="sm",
-                            )
-                            if csrf_token
-                            else None
-                        ),
-                        nav_footer=shell_nav_footer(settings),
-                        chrome=AppShellChrome(
-                            preset="editorial",
-                            header_behavior="sticky",
-                            nav_behavior="sticky",
-                            nav_offset="header",
-                            shell_gap="standard",
-                            content_inset="standard",
-                            banner_spacing="standard",
-                            header_density="standard",
-                            footer_density="compact",
-                        ),
-                        app_footer=AppFooter(
-                            settings.app_name,
-                            html.span(f"{runtime.footer} · Version {APP_VERSION}"),
-                        ),
-                        content_width="wide",
-                        mobile_collapse=True,
-                        nav_collapse="user",
-                        nav_preference_key="data-mover-nav-collapsed",
-                        class_="data-mover-app-shell",
+                        gap="md",
                     ),
                     layers=(
                         AmbientLayer(
@@ -562,15 +561,10 @@ def app_shell(
                         gap="sm",
                         collapse="never",
                     ),
-                    appearance="plain" if auth_presentation == "login" else "raised",
+                    appearance="plain",
                     density="comfortable",
                     padding="sm",
-                    elevation="none" if auth_presentation == "login" else "sm",
-                    class_=(
-                        "data-mover-login-header"
-                        if auth_presentation == "login"
-                        else "hedron-surface--glass"
-                    ),
+                    elevation="none",
                 ),
                 max_width="xl",
             ),
@@ -670,7 +664,7 @@ def main_panel(
         SwapReveal(
             StyleScope(
                 Container(
-                    Section(*body, id="main-panel"),
+                    Section(Stack(*body, gap="lg"), id="main-panel"),
                     query="inline-size",
                     name="workspace",
                     max_width="full",
@@ -685,7 +679,6 @@ def main_panel(
                     "control": "data-mover-primary-action",
                     "surface": "data-mover-panel",
                     "data": "data-mover-compact-data",
-                    "flow": "data-mover-flow",
                 },
                 presentation={
                     "PageHeader.title": "data-mover-page-title",

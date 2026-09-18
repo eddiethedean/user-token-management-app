@@ -94,7 +94,6 @@ from app.services.pipelines import list_pipelines, locators_overlap
 from app.services.secrets import list_user_secrets
 from app.ui.design_system import (
     DATA_MOVER_DESIGN,
-    PROCESS_FLOW_STEP_STYLE_CLASS,
     apply_data_recipe,
     stacked_surface,
     surface_card,
@@ -1048,7 +1047,6 @@ def _dataset_creator(
                             maxlength="240",
                             placeholder="ri.compass.main.folder…",
                             autocomplete="off",
-                            class_="data-mover-rid-input",
                         ),
                     ),
                     FormField(
@@ -2599,7 +2597,6 @@ def _pipeline_body(
     setup_flow = ProcessFlow(
         FlowStep(
             "Connect",
-            class_=PROCESS_FLOW_STEP_STYLE_CLASS,
             status=("complete" if connections and ready_count == len(connections) else "current"),
             description=(
                 f"{ready_count} of {len(connections)} connections validated."
@@ -2616,14 +2613,12 @@ def _pipeline_body(
         ),
         FlowStep(
             "Configure",
-            class_=PROCESS_FLOW_STEP_STYLE_CLASS,
             status="complete" if pipeline_id else "current",
             description="Choose the source, destination, and write policy.",
             status_text="Saved" if pipeline_id else "In progress",
         ),
         FlowStep(
             "Run",
-            class_=PROCESS_FLOW_STEP_STYLE_CLASS,
             status="current" if pipeline_id and initial_run_ready else "pending",
             description=(
                 "Start a transfer and follow each persisted worker event."

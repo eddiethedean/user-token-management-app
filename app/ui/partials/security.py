@@ -216,10 +216,11 @@ def secret_slot(
             FormGrid(*credential_fields[:3], columns=3, gap="sm"),
             FormGrid(*credential_fields[3:5], columns=2, gap="sm"),
             FormGrid(
-                *credential_fields[5:],
-                columns=3,
+                # A native Stack keeps each field's rows at their natural height
+                # when a neighboring field has optional help text.
+                *[Stack(field, gap="xs") for field in credential_fields[5:]],
+                columns=2,
                 gap="sm",
-                class_="data-mover-postgres-options-grid",
             ),
             gap="md",
         )

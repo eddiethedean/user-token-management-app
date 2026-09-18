@@ -16,12 +16,10 @@ from hedron import (
     Inline,
     Link,
     LinkButton,
-    SplitView,
     Stack,
     Surface,
     Text,
     TextInput,
-    html,
 )
 from hedron import (
     Form as HedronForm,
@@ -134,34 +132,33 @@ def render_login_page(
             effect="subtle",
             measure="default",
         ),
-        html.figure(
+        Stack(
             Grid(
                 *[
                     Stack(
-                        Surface(
-                            Icon(NAV_ICONS[icon], size="lg", decorative=True),
-                            appearance="raised",
-                            density="comfortable",
-                            padding="md",
-                            elevation="none",
-                            class_="data-mover-login-node-icon",
+                        Inline(
+                            Icon(NAV_ICONS[icon], size="md", decorative=True),
+                            Text(label, role="label", effect="none"),
+                            gap="sm",
                         ),
-                        Text(label, role="label", effect="none"),
                         Text(detail, role="caption", effect="none"),
                         gap="xs",
-                        class_=f"data-mover-login-node data-mover-login-node-{kind}",
                     )
-                    for icon, label, detail, kind in (
-                        ("connections", "Connect", "Approved systems", "source"),
-                        ("pipeline", "Transfer", "Your configured route", "transfer"),
-                        ("activity", "Verify", "A clear audit trail", "destination"),
+                    for icon, label, detail in (
+                        ("connections", "Connect", "Approved systems"),
+                        ("pipeline", "Transfer", "Your configured route"),
+                        ("activity", "Verify", "A clear audit trail"),
                     )
                 ],
                 columns=3,
-                gap="sm",
-                class_="data-mover-login-flow",
+                gap="md",
             ),
-            html.figcaption("From source to destination. One controlled workflow."),
+            Text(
+                "From source to destination. One controlled workflow.",
+                role="caption",
+                effect="none",
+            ),
+            gap="sm",
             class_="data-mover-login-illustration",
         ),
         Stack(
@@ -250,16 +247,20 @@ def render_login_page(
                         autocomplete="username",
                     ),
                 ),
-                Stack(
-                    html.label("Password", for_="password"),
-                    password_control,
+                FormField(
+                    name="password",
+                    label="Password",
+                    id="password",
+                    required=True,
+                    control=password_control,
+                ),
+                ActionGroup(
                     Link(
                         "Forgot password?",
                         href=page_href(request, "password/forgot"),
-                        class_="data-mover-login-forgot-link",
                     ),
+                    align="end",
                     gap="xs",
-                    class_="data-mover-login-password-field",
                 ),
                 submit_button("Continue to workspace", width="full", size="lg"),
                 action=form_action(request, "login"),
@@ -295,9 +296,9 @@ def render_login_page(
         class_="data-mover-login-card",
     )
     layout = Container(
-        SplitView(
-            primary=intro,
-            secondary=Stack(
+        Grid(
+            Container(intro, padding="lg"),
+            Stack(
                 login_card,
                 ActionGroup(
                     Text(
@@ -311,13 +312,11 @@ def render_login_page(
                 ),
                 gap="md",
             ),
-            ratio="1:1",
+            columns=2,
             gap="xl",
-            collapse="never",
-            class_="data-mover-login-split",
         ),
         max_width="lg",
-        padding="lg",
+        padding="md",
     )
     page = app_shell(
         layout,

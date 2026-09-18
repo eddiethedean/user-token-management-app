@@ -57,8 +57,9 @@ def user_table(
     total_users: int | None = None,
     page_size: int = 50,
 ) -> Component[Any]:
-    """Directory body with Hedron Table; action cells keep Form/Dialog nodes."""
+    """Directory with native table actions and independently composed dialogs."""
     rows: list[list[NodeLike]] = []
+    dialogs: list[NodeLike] = []
     for user in users:
         actions: list[NodeLike] = []
         if user.status == UserStatus.PENDING.value:
@@ -107,24 +108,26 @@ def user_table(
             )
             if is_active:
                 actions.append(
-                    html.div(
-                        Button(
-                            action_label,
-                            type="button",
-                            variant="secondary",
-                            size="sm",
-                            attrs={"data-hedron-dialog-open": f"#{dialog_id}"},
+                    Button(
+                        action_label,
+                        type="button",
+                        variant="secondary",
+                        size="sm",
+                        attrs={"data-hedron-dialog-open": f"#{dialog_id}"},
+                    )
+                )
+                # Outside the end-aligned cell, native dialog copy cannot inherit
+                # table alignment and no application text-align override is needed.
+                dialogs.append(
+                    Dialog(
+                        "Disable account",
+                        html.p(
+                            f"Disable {user.email_original}? "
+                            "Active sessions for this account will be revoked."
                         ),
-                        Dialog(
-                            "Disable account",
-                            html.p(
-                                f"Disable {user.email_original}? "
-                                "Active sessions for this account will be revoked."
-                            ),
-                            toggle_form,
-                            id=dialog_id,
-                            open=False,
-                        ),
+                        toggle_form,
+                        id=dialog_id,
+                        open=False,
                     )
                 )
             else:
@@ -199,6 +202,7 @@ def user_table(
         )
     return Stack(
         table,
+        *dialogs,
         hedron_pagination(
             page=page,
             page_size=page_size,
