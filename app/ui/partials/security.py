@@ -20,6 +20,7 @@ from hedron import (
     FormField,
     FormGrid,
     Grid,
+    GridItem,
     Heading,
     Inline,
     Lazy,
@@ -721,15 +722,18 @@ def account_tabs(
                 "Password",
                 surface_card(
                     Grid(
-                        PageHeader(
-                            "Change password",
-                            eyebrow="Account security",
-                            description=(
-                                "Changing your password signs out every active session, "
-                                "including this one."
+                        GridItem(
+                            PageHeader(
+                                "Change password",
+                                eyebrow="Account security",
+                                description=(
+                                    "Changing your password signs out every active session, "
+                                    "including this one."
+                                ),
+                                level=2,
+                                density="compact",
                             ),
-                            level=2,
-                            density="compact",
+                            align="start",
                         ),
                         password_form(
                             request,
