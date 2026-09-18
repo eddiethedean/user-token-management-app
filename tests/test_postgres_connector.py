@@ -19,9 +19,9 @@ from app.connectors.locators import (
     postgres_table,
 )
 from app.connectors.postgres import PostgresConnector, connect, drop_abandoned_staging
-from tests.postgres_support import connector_settings, requires_postgres
+from tests.postgres_support import connector_settings
 
-pytestmark = [pytest.mark.postgres, requires_postgres]
+pytestmark = pytest.mark.postgres
 
 
 def _schema(locator) -> ObjectSchema:
