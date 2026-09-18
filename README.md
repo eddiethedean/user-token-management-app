@@ -61,9 +61,9 @@ configured providers.
 
 These desktop screenshots were captured from the local `make demo` environment. Demo connectors
 are simulated, remote endpoints are not contacted, and the images contain no real credentials. The
-workflow captures are full-page; the collapsed-navigation view uses a fixed desktop viewport to make
-the rail behavior easy to compare. Together they show the shell, navigation, primary content,
-controls, status details, and footer.
+images were refreshed on September 18, 2026. Pipeline and collapsed-navigation captures use a fixed
+desktop viewport; shorter pages include their complete content and footer. Together they show the
+shell, navigation, primary controls, and status details.
 
 ### Sign in
 
@@ -75,7 +75,7 @@ clearly identifies the local environment as a controlled demo.
 
 ### Pipeline workspace
 
-![Full-page Data Mover Pipeline workspace showing a succeeded live transfer, stage cards, metrics, event feed, and Run again action](docs/screenshots/pipeline-live.jpg)
+![Data Mover Pipeline workspace showing a succeeded live transfer, source and destination, progress, and Run again action](docs/screenshots/pipeline-live.jpg)
 
 The Pipeline workspace combines route setup, saved routes, and live transfer monitoring. The live
 view shows the source and destination, transfer progress, stage completion, row/byte counters, and

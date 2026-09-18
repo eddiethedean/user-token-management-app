@@ -205,14 +205,26 @@ set_run(intro.add_run(
 
 meta = doc.add_paragraph()
 meta.paragraph_format.space_before = Pt(18)
-set_run(meta.add_run("Version 1  ·  Demo environment  ·  August 18, 2026"), 10, MUTED)
+set_run(meta.add_run("Version 1  ·  Demo environment  ·  September 18, 2026"), 10, MUTED)
+
+# Normalize browser exports to real PNGs and refresh every derived image.
+for source in sorted(SHOT_DIR.glob("*.png")):
+    with Image.open(source) as image:
+        normalized = image.convert("RGB")
+    normalized.save(source, "PNG", optimize=True)
+
+for _, filename, _ in PAGES:
+    stem = Path(filename).stem
+    refreshed = set(split_image(SHOT_DIR / filename, stem))
+    for previous in CHUNK_DIR.glob(f"{stem}-[0-9][0-9].jpg"):
+        if previous not in refreshed:
+            previous.unlink()
 
 for page_index, (heading, filename, message) in enumerate(PAGES):
     # Every section uses one complete desktop viewport. Connections uses a
     # wider 1680px capture so its two-column layout is fully visible.
-    # Preserve screenshot detail with a lossless PNG working image. The source
-    # captures are JPEGs, so re-saving them as JPEG here would add a second
-    # generation of compression and soften small interface text.
+    # Preserve screenshot detail with a lossless PNG working image rather than
+    # adding another generation of JPEG compression to small interface text.
     viewport_path = CHUNK_DIR / f"{Path(filename).stem}-full-screen.png"
     CHUNK_DIR.mkdir(parents=True, exist_ok=True)
     source_path = SHOT_DIR / filename
@@ -224,6 +236,7 @@ for page_index, (heading, filename, message) in enumerate(PAGES):
         else:
             viewport = image.convert("RGB").crop((0, 0, image.width, min(880, image.height)))
         viewport.save(viewport_path, "PNG", optimize=True)
+        viewport.save(viewport_path.with_suffix(".jpg"), "JPEG", quality=94, optimize=True)
     chunks = [viewport_path]
     for chunk_index, chunk in enumerate(chunks):
         doc.add_page_break()
