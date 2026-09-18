@@ -4,6 +4,12 @@
 
 Future changes will be listed here.
 
+## [180926.1] — 2026-09-18
+
+### Changed
+
+- Bumped the release version for the Connect styling cache-busting deployment fix.
+
 ## [180926.0] — 2026-09-18
 
 ### Changed
@@ -16,6 +22,8 @@ Future changes will be listed here.
 - Refreshed documentation screenshots and the demo screenshot guide for the desktop visual update.
 - Made dark mode the consistent default across sign-in, onboarding, and workspace pages while
   preserving saved user preferences; newly created accounts start in dark mode.
+- Versioned application-owned CSS and JavaScript URLs with the release version so Connect redeploys
+  cannot reuse stale cached styling assets.
 
 ## [170926.1] — 2026-09-17
 

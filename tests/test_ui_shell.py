@@ -82,11 +82,14 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Sign in")
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
-    assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=3"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=27"')
-    assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=14"')
-    assert_html_contains(response, 'src="/assets/app.js?v=15"')
-    assert response.body.count('src="/assets/app.js?v=15"') == 1
+    assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=180926.1"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=180926.1"')
+    assert_html_contains(
+        response,
+        'href="/app-assets/data-mover-components.css?v=180926.1"',
+    )
+    assert_html_contains(response, 'src="/assets/app.js?v=180926.1"')
+    assert response.body.count('src="/assets/app.js?v=180926.1"') == 1
     assert_html_contains(response, 'data-hedron-theme="folio"')
     assert_html_contains(
         response,
@@ -106,7 +109,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Continue to workspace")
     assert_html_contains(response, "Test demo workspace")
     assert_html_contains(response, "Test environment · Transfers are simulated")
-    assert_html_contains(response, "Version 180926.0")
+    assert_html_contains(response, "Version 180926.1")
     assert_html_contains(response, "Demo mode")
     assert response.body.index('name="password"') < response.body.index("Forgot password?")
     assert "Sandbox" not in response.body
@@ -166,7 +169,7 @@ def test_live_production_shell_reports_effective_runtime_mode() -> None:
     assert "Transfers use configured endpoints and may change remote systems" in rendered
     assert "Production environment · Remote systems may be changed" in rendered
     assert "Live transfers" in rendered
-    assert "Version 180926.0" in rendered
+    assert "Version 180926.1" in rendered
     assert "Demo" not in rendered
     assert "Sandbox" not in rendered
 

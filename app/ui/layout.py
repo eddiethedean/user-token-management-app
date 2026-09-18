@@ -219,20 +219,23 @@ def document_head(
         ),
         html.link(
             rel="stylesheet",
-            href=asset_href(request, "/app-assets/hedron-desktop.css?v=3"),
+            href=asset_href(request, f"/app-assets/hedron-desktop.css?v={APP_VERSION}"),
         ),
     ]
     if custom_theme_enabled:
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=27"),
+                href=asset_href(request, f"/assets/theme.css?v={APP_VERSION}"),
             )
         )
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/app-assets/data-mover-components.css?v=14"),
+                href=asset_href(
+                    request,
+                    f"/app-assets/data-mover-components.css?v={APP_VERSION}",
+                ),
             )
         )
     return Fragment(*nodes)
@@ -636,7 +639,7 @@ def app_shell(
             custom_theme_enabled=settings.custom_theme_enabled,
             preference=preference,
         ),
-        scripts=(asset_src(request, "/assets/app.js?v=15"),),
+        scripts=(asset_src(request, f"/assets/app.js?v={APP_VERSION}"),),
     )
 
 
