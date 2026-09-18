@@ -70,7 +70,11 @@ def test_foundry_client_builds_the_real_request_contract(tmp_path) -> None:
             "token": "contract-test-token",
             "dataset_rid": "ri.foundry.main.dataset.example",
         },
-        Settings(_env_file=None, data_mover_mode="demo", pipeline_spool_root=str(tmp_path)),
+        Settings(  # pyright: ignore[reportCallIssue]
+            _env_file=None,  # pyright: ignore[reportCallIssue]
+            data_mover_mode="demo",
+            pipeline_spool_root=str(tmp_path),
+        ),
     )
     client._client.close()
     client._client = httpx2.Client(
