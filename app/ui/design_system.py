@@ -12,7 +12,9 @@ from hedron import (
     DesignSystem,
     PageHeader,
     RecipeFamily,
+    Stack,
     StyleRecipe,
+    Surface,
     Theme,
     ThemeBuilder,
     export_theme,
@@ -41,6 +43,7 @@ class DataMoverPageHeader(PageHeader):
         kwargs.setdefault("description_effect", "none")
         kwargs.setdefault("title_tracking", "tight")
         kwargs.setdefault("title_wrap", "balance")
+        kwargs.setdefault("description_wrap", "pretty")
         kwargs.setdefault("eyebrow_tone", "accent")
         kwargs.setdefault("eyebrow_tracking", "wide")
         super().__init__(title, **kwargs)
@@ -351,23 +354,23 @@ DATA_MOVER_DESIGN = DesignSystem.from_theme(DATA_MOVER_THEME).with_recipes(
     ),
     StyleRecipe.surface(
         "data-mover-panel",
-        appearance="raised",
+        appearance="solid",
         density="comfortable",
         padding="md",
-        elevation="sm",
-        responsive={"padding": {"lg": "lg"}},
+        elevation="none",
+        responsive={"padding": {"xl": "lg"}},
     ),
     StyleRecipe.surface(
         "data-mover-auth-panel",
         appearance="raised",
         density="spacious",
         padding="md",
-        elevation="lg",
+        elevation="sm",
         responsive={"padding": {"lg": "lg"}},
     ),
     StyleRecipe.surface(
         "data-mover-inset",
-        appearance="soft",
+        appearance="raised",
         density="comfortable",
         padding="md",
         elevation="none",
@@ -391,26 +394,26 @@ DATA_MOVER_DESIGN = DesignSystem.from_theme(DATA_MOVER_THEME).with_recipes(
     StyleRecipe.content(
         "data-mover-page-title",
         role="title",
-        measure="narrow",
-        effect="display",
+        measure="wide",
+        effect="none",
     ),
     StyleRecipe.content(
         "data-mover-page-copy",
         role="body",
         measure="default",
-        effect="subtle",
+        effect="none",
     ),
     StyleRecipe.content(
         "data-mover-auth-title",
         role="title",
-        measure="narrow",
-        effect="display",
+        measure="wide",
+        effect="none",
     ),
     StyleRecipe.content(
         "data-mover-auth-copy",
         role="body",
         measure="default",
-        effect="subtle",
+        effect="none",
     ),
 )
 
@@ -440,6 +443,12 @@ def surface_card(
     )
 
 
+def stacked_surface(*nodes: Any, gap: str = "md", **kwargs: Any) -> Surface:
+    """Compose a native surface with explicit native spacing between its children."""
+
+    return Surface(Stack(*nodes, gap=gap), **kwargs)
+
+
 def apply_data_recipe(
     component: _ComponentT,
     *,
@@ -466,4 +475,5 @@ __all__ = [
     "apply_data_recipe",
     "apply_action_recipe",
     "surface_card",
+    "stacked_surface",
 ]

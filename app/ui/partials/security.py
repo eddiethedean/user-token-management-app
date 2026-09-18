@@ -15,6 +15,7 @@ from hedron import (
     ComponentRef,
     Dialog,
     ErrorState,
+    Expander,
     Form,
     FormField,
     FormGrid,
@@ -28,10 +29,8 @@ from hedron import (
     ResourceRow,
     Section,
     Select,
-    SplitView,
     Stack,
     StateView,
-    Surface,
     Text,
     TextInput,
     Timeline,
@@ -43,7 +42,7 @@ from app.dependencies import AuthContext
 from app.models import AuditEvent, RefreshSession
 from app.services.catalogs import require_catalog_provider
 from app.services.secrets import CredentialField, SecretProvider
-from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
+from app.ui.design_system import DATA_MOVER_DESIGN, stacked_surface, surface_card
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import compact_password_input, csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, alert_box
@@ -116,7 +115,7 @@ def password_form(
                 autocomplete="new-password",
                 error=field_errors.get("new_password_confirm", ""),
             ),
-            submit_button("Change password"),
+            ActionGroup(submit_button("Change password"), align="end"),
             action=form_action(request, "profile/password"),
             method="post",
             **hx_attrs(
@@ -233,7 +232,7 @@ def secret_slot(
 
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
-        Surface(
+        stacked_surface(
             ActionGroup(
                 Inline(
                     Avatar(
@@ -258,11 +257,11 @@ def secret_slot(
             ),
             alert_box(error),
             alert_box(success, kind="success"),
-            Surface(
+            Expander(
+                "Where to find connection details",
                 Text(provider.setup_hint, role="caption", effect="none"),
-                appearance="plain",
-                padding="sm",
-                elevation="none",
+                open=False,
+                enhance="native",
             )
             if provider.setup_hint
             else None,
@@ -663,7 +662,7 @@ def security_tabs(
                             for p, s in secret_slots
                             if p.name != "postgres"
                         ],
-                        columns={"base": 1, "lg": 2},
+                        columns={"base": 1, "xl": 2},
                         gap="md",
                     ),
                     *[
@@ -720,8 +719,8 @@ def account_tabs(
             (
                 "Password",
                 surface_card(
-                    SplitView(
-                        primary=PageHeader(
+                    Grid(
+                        PageHeader(
                             "Change password",
                             eyebrow="Account security",
                             description=(
@@ -731,15 +730,14 @@ def account_tabs(
                             level=2,
                             density="compact",
                         ),
-                        secondary=password_form(
+                        password_form(
                             request,
                             csrf_token=csrf_token,
                             error=password_error,
                             field_errors=password_field_errors,
                         ),
-                        ratio="2:3",
+                        columns={"base": 1, "xl": 2},
                         gap="xl",
-                        collapse="never",
                     ),
                 ),
             )

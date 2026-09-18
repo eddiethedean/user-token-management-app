@@ -102,6 +102,37 @@ unregistered live handles.
 
 ## Styling audit
 
+The September 18 desktop refinement keeps stock Folio active, including its green
+accent, warm light surfaces, dark palette, and editorial serif headings. It does
+not activate the separately exported Data Mover brand theme. Native shell chrome
+uses standard header density, compact footer density, and a full-width outer container; native grids
+stack account, team, credential, and route-review panels below the `xl` breakpoint.
+Cards use restrained native elevation, and inset forms use neutral raised surfaces
+with explicit `Stack` spacing. Login display typography is now a native `Heading`;
+connection setup help and the CSV alternative use native `Expander` disclosures.
+The CSV disclosure opens when CSV becomes the selected source. Product CSS no longer
+owns login headline sizing, form spacing, or dataset-disclosure appearance. Desktop
+QA covers 1120px, 1440px, and 1920px, with light/dark and collapsed-navigation checks.
+The quiet navigation chevron uses a small product rule on the public
+`data-hedron-nav-toggle` marker because Hedron 1.0.18 has no toggle appearance/icon
+props. AppShell still owns state, persistence, keyboard behavior, and `aria-expanded`;
+the original native text remains the control's accessible name.
+The product lockup matches its image to Brand's native 36px mark, uses Folio's
+display font for the name, and gives the subtitle a quieter weight. CDAO sits
+beside it in a native `Inline`, rather than inside the shell environment pill.
+The application shell gets a Folio-token horizontal gutter shared by header,
+navigation, content, and footer because native shell density controls only vertical
+padding. The rail keeps its native expanded/collapsed width and cards retain native
+surface padding.
+The header uses balanced 12px block padding and a 12px trailing inset through
+Folio spacing tokens; native standard density alone adds only bottom padding.
+Ambient layers use native `fixed-canvas` placement for an edge-to-edge viewport
+fade on workspace and authentication pages. The header background is transparent
+so it does not create a solid rectangle over that fade; component borders remain.
+The shell banner wrapper adds no padding or paint around `EnvironmentBanner`,
+so the native status surface aligns with the shared shell gutter without a second
+nested surface.
+
 The login page has its own desktop presentation boundary (`auth_presentation="login"`).
 It uses native `SplitView`, `Grid`, `Icon`, `Badge`, `Text`, form controls and Card recipes;
 scoped product CSS supplies the two-line headline, static transfer illustration and panel

@@ -11,6 +11,7 @@ from hedron import (
     Divider,
     FormField,
     Grid,
+    Heading,
     Icon,
     Inline,
     Link,
@@ -51,10 +52,10 @@ def _auth_heading(eyebrow: str, title: str, description: str) -> PageHeader:
         description=description,
         level=1,
         density="compact",
-        title_measure="narrow",
+        title_measure="wide",
         description_measure="default",
-        title_effect="display",
-        description_effect="subtle",
+        title_effect="none",
+        description_effect="none",
     )
 
 
@@ -115,12 +116,17 @@ def render_login_page(
     )
 
     intro = Stack(
-        Badge("SECURE TRANSFER WORKSPACE", tone="info", size="sm", appearance="soft"),
-        html.h2(
-            "Move data.",
-            html.br(),
-            html.span("Keep control.", class_="data-mover-login-accent"),
-            class_="data-mover-login-headline",
+        ActionGroup(
+            Badge("SECURE TRANSFER WORKSPACE", tone="info", size="sm", appearance="soft"),
+        ),
+        Heading(
+            "Move data. Keep control.",
+            level=2,
+            role="display",
+            measure="narrow",
+            tracking="tight",
+            wrap="balance",
+            effect="none",
         ),
         Text(
             "Connect your systems. Build your route. Move forward with a clear view of every transfer.",
@@ -176,13 +182,15 @@ def render_login_page(
     )
 
     card_children: list[NodeLike] = [
-        Surface(
-            Icon(NAV_ICONS["account"], size="lg", decorative=True),
-            appearance="raised",
-            density="compact",
-            padding="sm",
-            elevation="none",
-            class_="data-mover-login-access-icon",
+        ActionGroup(
+            Surface(
+                Icon(NAV_ICONS["account"], size="lg", decorative=True),
+                appearance="raised",
+                density="compact",
+                padding="sm",
+                elevation="none",
+                class_="data-mover-login-access-icon",
+            )
         ),
         PageHeader(
             "Welcome back",

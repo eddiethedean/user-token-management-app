@@ -591,7 +591,8 @@ def test_fastapi_fixture_admin_round_trip(access_app, make_user) -> None:
     assert_page_document(users)
     assert_html_contains(users, "fixture.roundtrip@example.gov")
     assert_html_contains(users, "hedron-dialog")
-    assert_html_contains(users, 'data-hedron-split-collapse="lg"')
+    assert_html_contains(users, 'data-hedron-columns="1" data-hedron-columns-xl="3"')
+    assert_html_contains(users, 'data-hedron-span="1" data-hedron-span-xl="2"')
     assert_html_contains(users, "data-mover-app-shell")
     assert_html_contains(users, "data-mover-nav-group")
 

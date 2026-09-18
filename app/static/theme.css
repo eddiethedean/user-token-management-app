@@ -11,6 +11,50 @@
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
 
+/* Brand has native mark geometry but no copy typography props in 1.0.18.
+ * Keep this small product lockup on Folio's own display/muted tokens. */
+.data-mover-brand [data-hedron-mark-tone="neutral"] {
+  background: transparent;
+}
+
+.data-mover-brand strong {
+  font-family: var(--hedron-font-display, Georgia, serif);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.data-mover-brand small {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 1.5;
+}
+
+/* Shell chrome exposes vertical density, but no horizontal inset option.
+ * Inset the whole shell so header, navigation, and footer share a gutter.
+ * Keep the rail's native width intact, including when collapsed. */
+.data-mover-app-shell {
+  padding-inline: var(--hedron-space-3, 0.75rem);
+}
+
+/* Native standard density is bottom-only; keep a compact, balanced header
+ * and give the trailing account actions a little room inside its edge. */
+.data-mover-app-shell [data-hedron-app-shell-header] {
+  padding-block: var(--hedron-space-3, 0.75rem);
+  padding-inline-end: var(--hedron-space-3, 0.75rem);
+  background: transparent;
+}
+
+/* EnvironmentBanner already owns its tone and inner padding. Avoid the
+ * shell wrapper adding a second surface and inset around that native banner. */
+.data-mover-app-shell [data-hedron-app-banner] {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
 /* Desktop workspace composition. Hedron owns the controls and surfaces;
  * these bounded overrides supply page-level sizing absent from PageHeader. */
 @media (min-width: 64rem) {
@@ -23,6 +67,54 @@
 .data-mover-account-summary {
   text-decoration: none;
   color: var(--hedron-color-fg);
+}
+
+/* AppShell owns collapse, persistence, and aria-expanded. Hedron 1.0.18 does
+ * not expose toggle appearance/icon props, so this one public marker gets a
+ * small ghost chevron. The native text remains its accessible name. */
+.data-mover-app-shell [data-hedron-nav-toggle] {
+  position: absolute;
+  inset-block-start: 0.5rem;
+  inset-inline-end: 0.5rem;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  inline-size: 2rem;
+  min-block-size: 2rem;
+  margin: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--hedron-color-muted, var(--hedron-default-muted));
+  font-size: 0;
+  box-shadow: none;
+}
+
+.data-mover-app-shell [data-hedron-nav-toggle]::before {
+  content: "";
+  inline-size: 0.45rem;
+  block-size: 0.45rem;
+  border-inline-start: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.data-mover-app-shell [data-hedron-nav-toggle][aria-expanded="false"]::before {
+  transform: rotate(225deg);
+}
+
+.data-mover-app-shell [data-hedron-nav-toggle]:hover {
+  background: var(--hedron-color-surface-muted, var(--hedron-default-surface-muted));
+  color: var(--hedron-color-fg, var(--hedron-default-fg));
+  transform: none;
+}
+
+.data-mover-app-shell[data-hedron-nav-collapsed="true"] [data-hedron-app-nav] {
+  padding-block-start: 3rem;
+}
+
+.data-mover-app-shell[data-hedron-nav-collapsed="true"] [data-hedron-nav-status] {
+  display: none;
 }
 
 /* The PostgreSQL options row mixes one-line labels, a wrapped label, and
@@ -61,24 +153,6 @@
 
 .data-mover-login-split > [role="separator"] {
   visibility: hidden;
-}
-
-.data-mover-login-headline {
-  margin: 0;
-  font-size: clamp(3rem, 4.8vw, 4.5rem);
-  font-weight: 700;
-  letter-spacing: -0.055em;
-  line-height: 1.06;
-}
-
-.data-mover-login-accent {
-  color: var(--hedron-color-accent);
-}
-
-.data-mover-login-intro > .hedron-badge {
-  justify-self: start;
-  inline-size: fit-content;
-  letter-spacing: 0.12em;
 }
 
 .data-mover-login-illustration {
@@ -120,11 +194,6 @@
   text-align: center;
   font-size: 0.75rem;
   color: var(--hedron-color-muted);
-}
-
-.data-mover-login-card form {
-  gap: 1.25rem;
-  margin-block-start: 0.5rem;
 }
 
 .data-mover-login-password-field {
@@ -188,33 +257,6 @@
 
 /* Foundry provisioning is an optional sub-flow, so it reads as a focused
  * inset rather than another full form section. */
-.data-mover-dataset-creator {
-  display: grid;
-  gap: var(--hedron-space-2, 0.5rem);
-}
-
-.data-mover-dataset-creator details {
-  border-color: color-mix(
-    in srgb,
-    var(--hedron-color-accent, var(--hedron-default-accent)) 32%,
-    var(--hedron-color-border, var(--hedron-default-border))
-  );
-  background: color-mix(
-    in srgb,
-    var(--hedron-color-accent, var(--hedron-default-accent)) 3%,
-    var(--hedron-color-surface, var(--hedron-default-surface))
-  );
-}
-
-.data-mover-dataset-creator details[open] {
-  box-shadow: inset 0.2rem 0 0
-    var(--hedron-color-accent, var(--hedron-default-accent));
-}
-
-.data-mover-dataset-creator summary {
-  color: var(--hedron-color-accent, var(--hedron-default-accent));
-}
-
 .data-mover-rid-input {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.875rem;

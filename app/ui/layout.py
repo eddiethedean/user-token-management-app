@@ -198,10 +198,10 @@ def document_head(
     custom_theme_enabled: bool,
     preference: ThemePreference | None = None,
 ) -> Fragment:
-    preference = preference or ThemePreference()
+    preference = preference or ThemePreference(theme=THEME_CHOICES[0])
     title = f"{page_title} · {app_name}" if page_title else app_name
     color_scheme = preference.color_mode
-    theme_color = "#080d1a" if preference.color_mode == "dark" else "#f4f6fb"
+    theme_color = "#191a1b" if preference.color_mode == "dark" else "#f4f2eb"
     nodes: list[NodeLike] = [
         html.meta(name="color-scheme", content=color_scheme),
         html.meta(name="theme-color", content=theme_color),
@@ -221,13 +221,13 @@ def document_head(
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=20"),
+                href=asset_href(request, "/assets/theme.css?v=27"),
             )
         )
         nodes.append(
             html.link(
                 rel="stylesheet",
-                href=asset_href(request, "/app-assets/data-mover-components.css?v=13"),
+                href=asset_href(request, "/app-assets/data-mover-components.css?v=14"),
             )
         )
     return Fragment(*nodes)
@@ -281,7 +281,7 @@ def account_summary(request: Request, auth: AuthContext, *, oob: bool = False) -
         detail=user.email_original if user.full_name else None,
         href=page_href(request, "/profile"),
         mark_text=(user.full_name or user.email_original or "?")[:1].upper(),
-        mark_size="lg",
+        mark_size="md",
         mark_shape="circle",
         mark_tone="accent",
         id="account-summary",
@@ -403,16 +403,16 @@ def data_mover_mark(request: Request, preference: ThemePreference) -> NodeLike:
     light_src = asset_src(request, "/assets/brand/data-mover-mark-light.png?v=1")
     dark_src = asset_src(request, "/assets/brand/data-mover-mark-dark.png?v=1")
     if preference.color_mode == "dark":
-        return Image(dark_src, alt="", width=48)
+        return Image(dark_src, alt="", width=36)
     if preference.color_mode == "light":
-        return Image(light_src, alt="", width=48)
+        return Image(light_src, alt="", width=36)
     return html.picture(
         html.source(
             srcset=dark_src,
             media="(prefers-color-scheme: dark)",
             type="image/png",
         ),
-        Image(light_src, alt="", width=48),
+        Image(light_src, alt="", width=36),
     )
 
 
@@ -485,8 +485,7 @@ def app_shell(
                         ),
                         panel_id="main-content",
                         banner=banner,
-                        brand=brand,
-                        env_badge=cdao_identity,
+                        brand=Inline(brand, cdao_identity, gap="lg"),
                         account=(
                             Inline(
                                 transfer_mode_badge,
@@ -504,11 +503,11 @@ def app_shell(
                             header_behavior="sticky",
                             nav_behavior="sticky",
                             nav_offset="header",
-                            shell_gap="editorial",
+                            shell_gap="standard",
                             content_inset="standard",
                             banner_spacing="standard",
                             header_density="standard",
-                            footer_density="standard",
+                            footer_density="compact",
                         ),
                         app_footer=AppFooter(
                             settings.app_name,
@@ -525,16 +524,9 @@ def app_shell(
                             pattern="radial",
                             tone="accent",
                             intensity="subtle",
+                            placement="fixed-canvas",
                             scale="lg",
                             order=0,
-                        ),
-                        AmbientLayer(
-                            pattern="grid",
-                            tone="muted",
-                            intensity="subtle",
-                            placement="fixed-canvas",
-                            scale="md",
-                            order=1,
                         ),
                     ),
                 ),
@@ -544,7 +536,7 @@ def app_shell(
                 variant="workspace",
                 design="data-mover",
             ),
-            max_width="xl",
+            max_width="full",
         )
     else:
         header = Header(
@@ -599,14 +591,12 @@ def app_shell(
                         gap="md",
                     ),
                     layers=(
-                        AmbientLayer(pattern="radial", tone="accent", intensity="soft", order=0),
                         AmbientLayer(
-                            pattern="grid",
-                            tone="muted",
+                            pattern="radial",
+                            tone="accent",
                             intensity="subtle",
                             placement="fixed-canvas",
-                            scale="lg",
-                            order=1,
+                            order=0,
                         ),
                     ),
                 ),
@@ -641,7 +631,7 @@ def app_shell(
             custom_theme_enabled=settings.custom_theme_enabled,
             preference=preference,
         ),
-        scripts=(asset_src(request, "/assets/app.js?v=14"),),
+        scripts=(asset_src(request, "/assets/app.js?v=15"),),
     )
 
 

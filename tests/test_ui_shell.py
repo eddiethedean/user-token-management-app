@@ -33,6 +33,7 @@ from app.ui.design_system import (
     DATA_MOVER_THEME_EXPORT,
     PROCESS_FLOW_STEP_STYLE_CLASS,
     DataMoverPageHeader,
+    stacked_surface,
 )
 from app.ui.forms import submit_button
 from app.ui.hedron_styles import desktop_default_styles
@@ -82,10 +83,10 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
     assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=3"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=20"')
-    assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=13"')
-    assert_html_contains(response, 'src="/assets/app.js?v=14"')
-    assert response.body.count('src="/assets/app.js?v=14"') == 1
+    assert_html_contains(response, 'href="/assets/theme.css?v=27"')
+    assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=14"')
+    assert_html_contains(response, 'src="/assets/app.js?v=15"')
+    assert response.body.count('src="/assets/app.js?v=15"') == 1
     assert_html_contains(response, 'data-hedron-theme="folio"')
     assert_html_contains(
         response,
@@ -95,7 +96,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="color-scheme" content="dark"')
     assert_html_contains(response, 'src="/assets/brand/data-mover-mark-dark.png?v=1"')
     assert_html_contains(response, 'class="hedron-brand data-mover-brand"')
-    assert_html_contains(response, 'width="48"')
+    assert_html_contains(response, 'width="36"')
     assert_html_contains(response, 'src="/assets/brand/cdao-mark.png?v=1"')
     assert_html_contains(response, "Chief Digital and Artificial Intelligence Office")
     assert_html_contains(response, 'data-hedron-max-width="lg"')
@@ -326,6 +327,60 @@ def test_hedron_064_theme_export_is_conformant() -> None:
     exported = DATA_MOVER_THEME_EXPORT.to_dict()
     assert exported["design_tokens"]
     assert exported["conformance"]["ok"] is True
+
+
+def test_folio_visual_pass_uses_native_display_and_surface_composition(access_app) -> None:
+    fixture = fastapi_fixture(access_app)
+    login = fixture.get("/login")
+    assert 'data-hedron-theme="folio"' in login.body
+    assert 'class="hedron-heading hedron-type-display"' in login.body
+    assert "Move data. Keep control." in login.body
+    assert 'data-hedron-ambient-pattern="grid"' not in login.body
+    assert 'data-hedron-ambient-placement="fixed-canvas"' in login.body
+
+    styles = fixture.get("/assets/theme.css").body
+    assert ".data-mover-login-headline" not in styles
+    assert ".data-mover-login-card form" not in styles
+    assert ".data-mover-dataset-creator details" not in styles
+    assert '[data-hedron-nav-toggle][aria-expanded="false"]::before' in styles
+    assert '[data-hedron-nav-collapsed="true"] [data-hedron-app-nav]' in styles
+    assert ".data-mover-app-shell {" in styles
+    assert "padding-inline: var(--hedron-space-3, 0.75rem)" in styles
+    assert ".data-mover-app-shell [data-hedron-app-banner]" in styles
+    assert "padding-block: var(--hedron-space-3, 0.75rem)" in styles
+    assert "padding-inline-end: var(--hedron-space-3, 0.75rem)" in styles
+
+    inset = render_html(
+        DATA_MOVER_DESIGN.apply("data-mover-inset", stacked_surface("Heading", "Body"))
+    )
+    assert 'data-hedron-appearance="raised"' in inset
+    assert 'data-hedron-elevation="none"' in inset
+    assert 'class="hedron-stack" data-hedron-gap="md"' in inset
+
+
+@pytest.mark.parametrize(
+    ("path", "columns"),
+    [("/profile", 3), ("/admin/users", 3), ("/security", 2), ("/pipeline", 2)],
+)
+def test_desktop_panels_reflow_with_native_folio_grids(access_app, path, columns) -> None:
+    fixture = fastapi_fixture(access_app)
+    login = fixture.get("/login")
+    page = fixture.post(
+        "/login",
+        data={
+            "email": "admin@example.gov",
+            "password": "Tr0pic-Maple!River92",
+            "preauth_csrf_token": _preauth_token(login.body),
+            "next": path,
+        },
+    )
+    assert_page_document(page)
+    assert 'data-hedron-theme="folio"' in page.body
+    assert f'data-hedron-columns="1" data-hedron-columns-xl="{columns}"' in page.body
+    assert 'data-hedron-shell-header-density="standard"' in page.body
+    assert 'data-hedron-ambient-placement="fixed-canvas"' in page.body
+    assert 'data-hedron-ambient-pattern="grid"' not in page.body
+    assert_ui_targets_subset_of_regions(page.body, APP_REGIONS)
 
 
 def test_hedron_064_presentation_contract_is_available() -> None:

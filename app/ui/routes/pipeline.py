@@ -96,6 +96,7 @@ from app.ui.design_system import (
     DATA_MOVER_DESIGN,
     PROCESS_FLOW_STEP_STYLE_CLASS,
     apply_data_recipe,
+    stacked_surface,
     surface_card,
 )
 from app.ui.design_system import DataMoverPageHeader as PageHeader
@@ -1005,7 +1006,8 @@ def _dataset_creator(
 ) -> NodeLike:
     attrs: dict[str, Any] = {
         "id": "pipeline-dataset-creator",
-        "class_": "data-mover-dataset-creator",
+        "class_": "hedron-stack data-mover-dataset-creator",
+        "data-hedron-gap": "sm",
     }
     if oob:
         attrs["hx-swap-oob"] = "outerHTML:#pipeline-dataset-creator"
@@ -1250,7 +1252,7 @@ def _capability_surface(
 
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
-        Surface(
+        stacked_surface(
             PageHeader(
                 "Route capabilities",
                 eyebrow="What will be known before and after the run",
@@ -1261,7 +1263,7 @@ def _capability_surface(
             Grid(
                 facts(source_catalog),
                 facts(destination_catalog, destination=True),
-                columns=2,
+                columns={"base": 1, "xl": 2},
                 gap="md",
             ),
             appearance="plain",
@@ -1616,7 +1618,7 @@ def _schema_preview_surface(
     status_label = "Ready to compare" if preview_complete else "Limited preview"
     status_tone = "success" if preview_complete else "warning"
     limitation = limitations[0] if limitations else None
-    return Surface(
+    return stacked_surface(
         PageHeader(
             title,
             eyebrow="Destination schema" if destination else "Source schema",
@@ -1684,7 +1686,7 @@ def _pipeline_schema_preview_panel(
     )
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
-        Surface(
+        stacked_surface(
             PageHeader(
                 "Schema & row counts",
                 eyebrow="Pre-run review",
@@ -1695,7 +1697,7 @@ def _pipeline_schema_preview_panel(
             Grid(
                 _schema_preview_surface("Source", source),
                 _schema_preview_surface("Destination", destination, destination=True),
-                columns=2,
+                columns={"base": 1, "xl": 2},
                 gap="sm",
             ),
             id="pipeline-schema-preview" if include_id else None,
@@ -2752,7 +2754,7 @@ def _pipeline_body(
                         Grid(
                             DATA_MOVER_DESIGN.apply(
                                 "data-mover-inset",
-                                Surface(
+                                stacked_surface(
                                     PageHeader(
                                         "Source",
                                         eyebrow="Read from",
@@ -2849,7 +2851,8 @@ def _pipeline_body(
                                             source_provider,
                                             source_schema_name,
                                         ),
-                                        Surface(
+                                        Expander(
+                                            "CSV alternative · Upload a local file",
                                             PageHeader(
                                                 "CSV alternative",
                                                 eyebrow="Local source",
@@ -2870,9 +2873,9 @@ def _pipeline_body(
                                                 if source_provider == "csv"
                                                 else None,
                                             ),
-                                            appearance="plain",
-                                            padding="sm",
-                                            elevation="none",
+                                            open=source_provider == "csv",
+                                            enhance="native",
+                                            id="pipeline-csv-alternative",
                                         ),
                                         gap="md",
                                     ),
@@ -2880,7 +2883,7 @@ def _pipeline_body(
                             ),
                             DATA_MOVER_DESIGN.apply(
                                 "data-mover-inset",
-                                Surface(
+                                stacked_surface(
                                     PageHeader(
                                         "Destination",
                                         eyebrow="Write to",
@@ -3050,7 +3053,7 @@ def _pipeline_body(
                                     ),
                                 ),
                             ),
-                            columns={"base": 1, "lg": 2},
+                            columns={"base": 1, "xl": 2},
                             gap="md",
                         ),
                         ConnectorFlow(
@@ -3489,7 +3492,7 @@ def _run_schema_results(run):
     differences = schema_diff(source_manifest, destination_manifest)
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
-        Surface(
+        stacked_surface(
             PageHeader(
                 "Run schema & row counts",
                 eyebrow="After-run review",
@@ -3502,7 +3505,7 @@ def _run_schema_results(run):
                 Grid(
                     _run_schema_surface("Source", source_manifest, f"{int(source_rows):,}"),
                     _run_schema_surface("Destination", destination_manifest, destination_rows),
-                    columns={"base": 1, "lg": 2},
+                    columns={"base": 1, "xl": 2},
                     gap="sm",
                 ),
                 open=False,

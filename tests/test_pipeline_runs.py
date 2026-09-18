@@ -97,7 +97,7 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert "Persisted schema" in queued.text
     assert "event_id" in queued.text
     assert 'data-hedron-columns="2" data-hedron-columns-xl="4"' in queued.text
-    assert 'data-hedron-columns="1" data-hedron-columns-lg="2"' in queued.text
+    assert 'data-hedron-columns="1" data-hedron-columns-xl="2"' in queued.text
     assert 'data-hedron-columns="2" data-hedron-columns-lg="3"' in queued.text
     assert 'data-hedron-async-region="true"' in queued.text
     assert 'data-hedron-action-phase="success"' in queued.text
