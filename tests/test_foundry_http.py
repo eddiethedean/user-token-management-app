@@ -419,6 +419,106 @@ def test_upload_does_not_retry_non_400_client_errors(tmp_path) -> None:
     client.close()
 
 
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (401, TransferErrorCode.AUTHENTICATION_FAILED),
+        (403, TransferErrorCode.PERMISSION_DENIED),
+        (409, TransferErrorCode.DESTINATION_CONFLICT),
+        (429, TransferErrorCode.RATE_LIMITED),
+        (503, TransferErrorCode.PROVIDER_UNAVAILABLE),
+    ],
+)
+def test_upload_does_not_retry_non_400_statuses(tmp_path, status, code) -> None:
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx2.Response(status, request=request, json={"error": "failure"})
+
+    client = FoundryClient(
+        {"endpoint": "http://localhost:8765", "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+    client._client.close()
+    client._client = httpx2.Client(transport=httpx2.MockTransport(handler), follow_redirects=False)
+    payload = tmp_path / "output.snappy.parquet"
+    payload.write_bytes(b"parquet")
+
+    with pytest.raises(ConnectorError) as excinfo:
+        client.upload_file(DATASET, payload.name, payload)
+
+    assert excinfo.value.code == code
+    assert len(requests) == 1
+    assert "preview" not in requests[0].url.query.decode()
+    client.close()
+
+
+def test_upload_retries_only_the_documented_400_preview_compatibility(tmp_path) -> None:
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx2.Response(400, request=request, json={"error": "legacy"})
+        return httpx2.Response(
+            200,
+            request=request,
+            json={"path": "output.snappy.parquet", "sizeBytes": 7},
+        )
+
+    client = FoundryClient(
+        {"endpoint": "http://localhost:8765", "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+    client._client.close()
+    client._client = httpx2.Client(transport=httpx2.MockTransport(handler), follow_redirects=False)
+    payload = tmp_path / "output.snappy.parquet"
+    payload.write_bytes(b"parquet")
+
+    result = client.upload_file(DATASET, payload.name, payload, branch="release")
+
+    assert result["_publication"] == "legacy_preview_upload"
+    assert len(requests) == 2
+    assert "preview" not in requests[0].url.query.decode()
+    assert requests[1].url.params["preview"] == "true"
+    assert requests[1].url.params["branchName"] == "release"
+    client.close()
+
+
+def test_upload_uses_v1_fallback_only_for_http_404(tmp_path) -> None:
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if "/api/v2/" in request.url.path:
+            return httpx2.Response(404, request=request, json={"error": "missing"})
+        return httpx2.Response(
+            200,
+            request=request,
+            json={"filePath": "output.snappy.parquet", "sizeBytes": 7},
+        )
+
+    client = FoundryClient(
+        {"endpoint": "http://localhost:8765", "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+    client._client.close()
+    client._client = httpx2.Client(transport=httpx2.MockTransport(handler), follow_redirects=False)
+    payload = tmp_path / "output.snappy.parquet"
+    payload.write_bytes(b"parquet")
+
+    result = client.upload_file(DATASET, payload.name, payload, branch="release")
+
+    assert result["_api_version"] == 1
+    assert len(requests) == 2
+    assert requests[1].url.path.endswith(
+        "/api/v1/datasets/ri.foundry.main.dataset.example/files:upload"
+    )
+    assert requests[1].url.params["branchId"] == "release"
+    client.close()
+
+
 def test_standard_upload_commits_without_preview_query(foundry_sim, tmp_path) -> None:
     parquet = tmp_path / "out.snappy.parquet"
     pl.DataFrame({"event_id": [1]}).write_parquet(parquet, compression="snappy")
