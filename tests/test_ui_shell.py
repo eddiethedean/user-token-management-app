@@ -82,14 +82,14 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Sign in")
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
-    assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=180926.1"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=180926.1"')
+    assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=180926.2"')
+    assert_html_contains(response, 'href="/assets/theme.css?v=180926.2"')
     assert_html_contains(
         response,
-        'href="/app-assets/data-mover-components.css?v=180926.1"',
+        'href="/app-assets/data-mover-components.css?v=180926.2"',
     )
-    assert_html_contains(response, 'src="/assets/app.js?v=180926.1"')
-    assert response.body.count('src="/assets/app.js?v=180926.1"') == 1
+    assert_html_contains(response, 'src="/assets/app.js?v=180926.2"')
+    assert response.body.count('src="/assets/app.js?v=180926.2"') == 1
     assert_html_contains(response, 'data-hedron-theme="folio"')
     assert_html_contains(
         response,
@@ -109,7 +109,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Continue to workspace")
     assert_html_contains(response, "Test demo workspace")
     assert_html_contains(response, "Test environment · Transfers are simulated")
-    assert_html_contains(response, "Version 180926.1")
+    assert_html_contains(response, "Version 180926.2")
     assert_html_contains(response, "Demo mode")
     assert response.body.index('name="password"') < response.body.index("Forgot password?")
     assert "Sandbox" not in response.body
@@ -169,7 +169,7 @@ def test_live_production_shell_reports_effective_runtime_mode() -> None:
     assert "Transfers use configured endpoints and may change remote systems" in rendered
     assert "Production environment · Remote systems may be changed" in rendered
     assert "Live transfers" in rendered
-    assert "Version 180926.1" in rendered
+    assert "Version 180926.2" in rendered
     assert "Demo" not in rendered
     assert "Sandbox" not in rendered
 
@@ -376,8 +376,10 @@ def test_folio_visual_pass_uses_native_display_and_surface_composition(access_ap
     assert ".data-mover-app-shell {" in styles
     assert "padding-inline: var(--hedron-space-3, 0.75rem)" in styles
     assert ".data-mover-app-shell [data-hedron-app-banner]" in styles
+    assert ".data-mover-app-shell .hedron-app-shell-header" in styles
     assert "padding-block: var(--hedron-space-3, 0.75rem)" in styles
     assert "padding-inline-end: var(--hedron-space-3, 0.75rem)" in styles
+    assert "background: var(--hedron-default-bg, var(--hedron-color-bg))" in styles
 
     inset = render_html(
         DATA_MOVER_DESIGN.apply("data-mover-inset", stacked_surface("Heading", "Body"))

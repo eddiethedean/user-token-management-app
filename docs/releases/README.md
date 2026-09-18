@@ -6,7 +6,8 @@ tags, so entries below describe repository milestones rather than asserting exte
 
 | Release note | Status | Scope |
 |---|---|---|
-| [Data Mover 180926.1](../../CHANGELOG.md#1809261) | Current repository release | Connect styling cache-busting release following the Folio desktop visual refresh |
+| [Data Mover 180926.2](../../CHANGELOG.md#1809262) | Current repository release | Sticky workspace header contrast and Connect styling cache-busting fix |
+| [Data Mover 180926.1](../../CHANGELOG.md#1809261) | Historical repository release | Connect styling cache-busting release following the Folio desktop visual refresh |
 | [Data Mover 180926.0](../../CHANGELOG.md#1809260) | Historical repository release | Folio desktop visual refresh, updated documentation screenshots, and consistent dark-mode defaults |
 | [Data Mover 170926.1](../../CHANGELOG.md#1709261) | Historical repository release | Invitation email CC support and older rsconnect deployment compatibility |
 | [Data Mover 170926.0](../../CHANGELOG.md#1709260) | Historical repository release | PostgreSQL repeatable-read extraction, complete configuration reference, and deployment fixes |

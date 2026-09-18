@@ -40,11 +40,15 @@
 }
 
 /* Native standard density is bottom-only; keep a compact, balanced header
- * and give the trailing account actions a little room inside its edge. */
-.data-mover-app-shell [data-hedron-app-shell-header] {
+ * and give the trailing account actions a little room inside its edge. Keep
+ * the sticky header opaque so scrolled panels cannot show through its chrome. */
+.data-mover-app-shell .hedron-app-shell-header {
   padding-block: var(--hedron-space-3, 0.75rem);
   padding-inline-end: var(--hedron-space-3, 0.75rem);
-  background: transparent;
+  background: var(--hedron-default-bg, var(--hedron-color-bg));
+  border-block-end: 1px solid var(--hedron-default-border, var(--hedron-color-border));
+  box-shadow: var(--hedron-default-shadow, none);
+  isolation: isolate;
 }
 
 /* EnvironmentBanner already owns its tone and inner padding. Avoid the

@@ -4,6 +4,13 @@
 
 Future changes will be listed here.
 
+## [180926.2] — 2026-09-18
+
+### Fixed
+
+- Kept the sticky workspace header opaque while scrolling so page content cannot bleed through
+  the header controls.
+
 ## [180926.1] — 2026-09-18
 
 ### Changed
