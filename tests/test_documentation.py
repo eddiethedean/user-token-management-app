@@ -17,6 +17,9 @@ def test_calendar_release_versions_are_recorded_in_order() -> None:
     changelog = _read("CHANGELOG.md")
 
     assert configuration["project"]["version"] == APP_VERSION
+    lockfile = tomllib.loads(_read("uv.lock"))
+    package = next(item for item in lockfile["package"] if item["name"] == "access-registry")
+    assert package["version"] == APP_VERSION
     positions = [
         changelog.index(f"## [{version}]") for version in (APP_VERSION, "140926.1", "140926.0")
     ]

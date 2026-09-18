@@ -4,6 +4,8 @@
 
 Future changes will be listed here.
 
+## [180926.0] — 2026-09-18
+
 ### Changed
 
 - Upgraded the Hedron runtime to 1.0.18 while retaining the compatible 1.0 release line.
@@ -11,6 +13,9 @@ Future changes will be listed here.
   workspace, connection, account, team, and audit surfaces around its typography and palette.
 - Replaced bespoke navigation collapse, split-layout, password-field, form-control, login-surface,
   and dataset-feedback styling with Hedron's native components and presentation props where available.
+- Refreshed documentation screenshots and the demo screenshot guide for the desktop visual update.
+- Made dark mode the consistent default across sign-in, onboarding, and workspace pages while
+  preserving saved user preferences; newly created accounts start in dark mode.
 
 ## [170926.1] — 2026-09-17
 

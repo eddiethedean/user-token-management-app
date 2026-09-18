@@ -6,7 +6,8 @@ tags, so entries below describe repository milestones rather than asserting exte
 
 | Release note | Status | Scope |
 |---|---|---|
-| [Data Mover 170926.1](../../CHANGELOG.md#1709261) | Current repository release | Invitation email CC support and older rsconnect deployment compatibility |
+| [Data Mover 180926.0](../../CHANGELOG.md#1809260) | Current repository release | Folio desktop visual refresh, updated documentation screenshots, and consistent dark-mode defaults |
+| [Data Mover 170926.1](../../CHANGELOG.md#1709261) | Historical repository release | Invitation email CC support and older rsconnect deployment compatibility |
 | [Data Mover 170926.0](../../CHANGELOG.md#1709260) | Historical repository release | PostgreSQL repeatable-read extraction, complete configuration reference, and deployment fixes |
 | [Data Mover 160926.0](../../CHANGELOG.md#1609260) | Historical repository release | SOLID connector boundaries, explicit application policies, and decomposed pipeline interactions |
 | [Data Mover 150926.0](../../CHANGELOG.md#1509260) | Historical repository release | Flexible capability-driven pipelines, repeatable demos, and aligned controls |
