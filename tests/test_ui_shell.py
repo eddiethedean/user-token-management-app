@@ -119,6 +119,32 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(light, 'src="/assets/brand/data-mover-mark-light.png?v=1"')
 
 
+@pytest.mark.parametrize("path", ["/login", "/register", "/password/forgot"])
+@pytest.mark.parametrize("cookie", [None, "invalid"])
+def test_auth_pages_default_to_dark_without_valid_preference(access_app, path, cookie) -> None:
+    fixture = fastapi_fixture(access_app)
+    cookies = {} if cookie is None else {"data_mover_color_mode": cookie}
+    response = fixture.get(path, cookies=cookies)
+    assert_html_contains(response, 'data-theme="dark"')
+    assert_html_contains(response, 'name="color-scheme" content="dark"')
+    assert_html_contains(response, 'src="/assets/brand/data-mover-mark-dark.png?v=1"')
+
+
+def test_shell_defaults_to_dark_without_browser_preference() -> None:
+    settings = Settings.model_construct(app_env="test", app_name="Data Mover")
+    rendered = render_html(
+        app_shell(
+            "Workspace content",
+            request=_request(),
+            settings=settings,
+            auth=None,
+            page_title="Workspace",
+        )
+    )
+    assert 'data-theme="dark"' in rendered
+    assert 'name="color-scheme" content="dark"' in rendered
+
+
 def test_live_production_shell_reports_effective_runtime_mode() -> None:
     live_settings = Settings.model_construct(
         app_env="production",

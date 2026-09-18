@@ -64,6 +64,7 @@ from app.ui.urls import asset_href, asset_src, form_action, hx_attrs, page_href
 
 INDICATOR = "#global-request-indicator"
 THEME_CHOICES = ("folio",)
+DEFAULT_COLOR_MODE: Literal["light", "dark"] = "dark"
 UI_PREFERENCE_MAX_AGE = 31536000
 
 BadgeTone = Literal["neutral", "info", "success", "warning", "danger"]
@@ -143,13 +144,15 @@ HTMX_CONFIG = (
 def theme_preference_for_request(
     request: Request,
     *,
-    default_color_mode: str = "light",
+    default_color_mode: str = DEFAULT_COLOR_MODE,
 ) -> ThemePreference:
     """Resolve the allowlisted Hedron 1.0.0 light/dark preference."""
 
     color_mode = request.cookies.get(COLOR_MODE_COOKIE)
     if color_mode not in {"light", "dark"}:
-        color_mode = default_color_mode if default_color_mode in {"light", "dark"} else "light"
+        color_mode = (
+            default_color_mode if default_color_mode in {"light", "dark"} else DEFAULT_COLOR_MODE
+        )
 
     return resolve_theme_preference(
         request.cookies.get(THEME_COOKIE),
@@ -167,7 +170,7 @@ def set_color_mode_cookie(
 ) -> None:
     """Persist a validated account color mode in the current browser."""
 
-    mode = color_mode if color_mode in {"light", "dark"} else "light"
+    mode = color_mode if color_mode in {"light", "dark"} else DEFAULT_COLOR_MODE
     path = "/" if settings.cookie_path == "auto" else settings.cookie_path
     if path not in {None, "/"}:
         # Remove cookies produced by older deployments before mount-aware paths
@@ -198,7 +201,9 @@ def document_head(
     custom_theme_enabled: bool,
     preference: ThemePreference | None = None,
 ) -> Fragment:
-    preference = preference or ThemePreference(theme=THEME_CHOICES[0])
+    preference = preference or ThemePreference(
+        theme=THEME_CHOICES[0], color_mode=DEFAULT_COLOR_MODE
+    )
     title = f"{page_title} · {app_name}" if page_title else app_name
     color_scheme = preference.color_mode
     theme_color = "#191a1b" if preference.color_mode == "dark" else "#f4f2eb"
@@ -423,7 +428,7 @@ def app_shell(
     auth: AuthContext | None,
     page_title: str,
     csrf_token: str = "",
-    default_color_mode: str = "light",
+    default_color_mode: str = DEFAULT_COLOR_MODE,
     auth_presentation: Literal["standard", "login"] = "standard",
 ) -> Page:
     preference = theme_preference_for_request(

@@ -325,7 +325,6 @@ def render_login_page(
         settings=settings,
         auth=None,
         page_title="Sign in",
-        default_color_mode="dark",
         auth_presentation="login",
     )
     response = render_page(page, request=request, status_code=status_code)
