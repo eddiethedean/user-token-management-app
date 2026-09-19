@@ -181,6 +181,46 @@ def test_postgres_extract_mixed_types_nulls_and_batches(postgres_credentials) ->
     assert combined["unit_name"].to_list() == ["Alpha", "Bravo", "Charlie"]
 
 
+def test_postgres_creates_timestamp_for_parameterized_polars_datetime(
+    postgres_credentials,
+) -> None:
+    frame = pl.DataFrame({"occurred": [date(2026, 9, 17)]}).with_columns(
+        pl.col("occurred").cast(pl.Datetime("us"))
+    )
+    locator = postgres_table("public", "datetime_destination")
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(ColumnSchema(name="occurred", data_type=str(frame.schema["occurred"])),),
+    )
+    connector = PostgresConnector(connector_settings())
+    session = connector.prepare_destination(
+        postgres_credentials,
+        locator,
+        schema,
+        PostgresAppendPolicy(),
+        run_id="parameterized-datetime",
+    )
+    connector.write_batch(
+        session,
+        TransferBatch(
+            frame=frame,
+            row_count=frame.height,
+            byte_count=int(frame.estimated_size()),
+            sequence=1,
+        ),
+    )
+    connector.finalize(session)
+
+    assert _fetchall(
+        postgres_credentials,
+        """
+        SELECT data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'datetime_destination'
+        """,
+    ) == [("timestamp without time zone",)]
+
+
 def test_postgres_extract_uses_repeatable_read_snapshot(postgres_credentials, monkeypatch) -> None:
     assert _fetchall(postgres_credentials, "SHOW default_transaction_isolation") == [
         ("read committed",)

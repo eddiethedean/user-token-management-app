@@ -632,6 +632,8 @@ def _pg_type(data_type: str) -> str:
             if scale_text.casefold() != "none"
             else "NUMERIC"
         )
+    if folded.startswith("datetime"):
+        return "TIMESTAMP"
     for dtype, mapped in _POLARS_TO_PG.items():
         if str(dtype).casefold() == folded:
             return mapped
