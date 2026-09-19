@@ -181,6 +181,50 @@ def test_postgres_extract_mixed_types_nulls_and_batches(postgres_credentials) ->
     assert combined["unit_name"].to_list() == ["Alpha", "Bravo", "Charlie"]
 
 
+def test_postgres_skips_generated_destination_columns(postgres_credentials) -> None:
+    _execute(
+        postgres_credentials,
+        """
+        CREATE TABLE public.generated_destination (
+            id INTEGER,
+            doubled INTEGER GENERATED ALWAYS AS (id * 2) STORED
+        )
+        """,
+    )
+    locator = postgres_table("public", "generated_destination")
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="id", data_type="Int32"),
+            ColumnSchema(name="doubled", data_type="Int32"),
+        ),
+    )
+    connector = PostgresConnector(connector_settings())
+    session = connector.prepare_destination(
+        postgres_credentials,
+        locator,
+        schema,
+        PostgresAppendPolicy(),
+        run_id="generated-destination",
+    )
+    connector.write_batch(
+        session,
+        TransferBatch(
+            frame=pl.DataFrame({"id": [3], "doubled": [6]}),
+            row_count=1,
+            byte_count=16,
+            sequence=1,
+        ),
+    )
+    manifest = connector.finalize(session)
+
+    assert manifest.rows == 1
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT id, doubled FROM public.generated_destination",
+    ) == [(3, 6)]
+
+
 def test_postgres_extract_uses_repeatable_read_snapshot(postgres_credentials, monkeypatch) -> None:
     assert _fetchall(postgres_credentials, "SHOW default_transaction_isolation") == [
         ("read committed",)
