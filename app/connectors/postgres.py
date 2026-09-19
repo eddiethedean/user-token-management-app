@@ -371,6 +371,7 @@ class PostgresConnector:
         staging = f"dm_stage_{run_id.replace('-', '')[:12]}"
         conn = connect(credentials, self.settings)
         columns = [column.name for column in schema.columns]
+        staging_sequence = ""
         col_defs = sql.SQL(", ").join(
             sql.SQL("{} {}").format(
                 sql.Identifier(column.name),
@@ -413,11 +414,26 @@ class PostgresConnector:
                     )
                     if isinstance(write_policy, PostgresUpsertPolicy):
                         cursor.execute(
+                            """
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_schema = %s AND table_name = %s
+                            """,
+                            (locator.schema_name, locator.table),
+                        )
+                        used_names = {str(row[0]) for row in cursor.fetchall()}
+                        candidate = "dm_row_number"
+                        suffix = 1
+                        while candidate in used_names:
+                            candidate = f"dm_row_number_{suffix}"
+                            suffix += 1
+                        cursor.execute(
                             sql.SQL("ALTER TABLE {} ADD COLUMN {} BIGSERIAL").format(
                                 sql.Identifier(locator.schema_name, staging),
-                                sql.Identifier("dm_row_number"),
+                                sql.Identifier(candidate),
                             )
                         )
+                        staging_sequence = candidate
         except Exception:
             try:
                 conn.rollback()
@@ -440,9 +456,7 @@ class PostgresConnector:
             staging_name=staging,
             columns=tuple(columns),
             metadata={
-                "staging_sequence": "dm_row_number"
-                if isinstance(write_policy, PostgresUpsertPolicy)
-                else ""
+                "staging_sequence": staging_sequence,
             },
         )
 
@@ -517,7 +531,7 @@ class PostgresConnector:
                             conflict=conflict,
                             columns=columns,
                             stage=stage,
-                            sequence=sql.Identifier("dm_row_number"),
+                            sequence=sql.Identifier(load_session.metadata["staging_sequence"]),
                         )
                     if policy.action == "ignore":
                         cursor.execute(
