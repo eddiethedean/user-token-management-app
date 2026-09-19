@@ -632,6 +632,10 @@ def _pg_type(data_type: str) -> str:
             if scale_text.casefold() != "none"
             else "NUMERIC"
         )
+    if folded.startswith("datetime"):
+        return "TIMESTAMPTZ" if "time_zone=" in folded and "none" not in folded else "TIMESTAMP"
+    if folded.startswith("timestamp"):
+        return "TIMESTAMPTZ" if "with time zone" in folded else "TIMESTAMP"
     for dtype, mapped in _POLARS_TO_PG.items():
         if str(dtype).casefold() == folded:
             return mapped
@@ -645,8 +649,6 @@ def _pg_type(data_type: str) -> str:
         return "BOOLEAN"
     if folded in {"date"}:
         return "DATE"
-    if folded.startswith("timestamp"):
-        return "TIMESTAMP"
     if folded.startswith("time"):
         return "TIME"
     return "TEXT"
@@ -704,7 +706,9 @@ def _polars_type(data_type: str):
     if folded == "date":
         return pl.Date
     if folded.startswith("timestamp"):
-        return pl.Datetime("us")
+        return (
+            pl.Datetime("us", time_zone="UTC") if "with time zone" in folded else pl.Datetime("us")
+        )
     if folded.startswith("time"):
         return pl.Time
     if folded == "bytea":

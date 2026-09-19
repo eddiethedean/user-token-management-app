@@ -181,6 +181,64 @@ def test_postgres_extract_mixed_types_nulls_and_batches(postgres_credentials) ->
     assert combined["unit_name"].to_list() == ["Alpha", "Bravo", "Charlie"]
 
 
+def test_postgres_preserves_timezone_aware_timestamps(postgres_credentials) -> None:
+    _execute(postgres_credentials, "CREATE TABLE public.timezone_source (occurred TIMESTAMPTZ)")
+    _execute(
+        postgres_credentials,
+        "INSERT INTO public.timezone_source VALUES ('2026-09-17 08:00:00-04')",
+    )
+    connector = PostgresConnector(connector_settings())
+    source_locator = postgres_table("public", "timezone_source")
+    source_schema = connector.inspect_object(postgres_credentials, source_locator)
+    batch = next(
+        connector.extract(
+            postgres_credentials,
+            source_locator,
+            batch_rows=100,
+            batch_bytes=10_000,
+        )
+    )
+
+    destination_locator = postgres_table("public", "timezone_destination")
+    session = connector.prepare_destination(
+        postgres_credentials,
+        destination_locator,
+        source_schema,
+        PostgresAppendPolicy(),
+        run_id="timezone-destination",
+    )
+    connector.write_batch(session, batch)
+    connector.finalize(session)
+
+    assert batch.frame.schema["occurred"] == pl.Datetime("us", time_zone="UTC")
+    assert _fetchall(
+        postgres_credentials,
+        """
+        SELECT data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'timezone_destination'
+        """,
+    ) == [("timestamp with time zone",)]
+    assert (
+        _fetchall(
+            postgres_credentials,
+            """
+        SELECT EXTRACT(EPOCH FROM destination.occurred),
+               EXTRACT(EPOCH FROM source.occurred)
+        FROM public.timezone_destination AS destination,
+             public.timezone_source AS source
+        """,
+        )[0][0]
+        == _fetchall(
+            postgres_credentials,
+            """
+        SELECT EXTRACT(EPOCH FROM source.occurred)
+        FROM public.timezone_source AS source
+        """,
+        )[0][0]
+    )
+
+
 def test_postgres_extract_uses_repeatable_read_snapshot(postgres_credentials, monkeypatch) -> None:
     assert _fetchall(postgres_credentials, "SHOW default_transaction_isolation") == [
         ("read committed",)
