@@ -82,10 +82,17 @@ def _execute(credentials, statement: LiteralString) -> None:
         conn.close()
 
 
-def _load(credentials, locator, policy, frame: pl.DataFrame, run_id: str):
+def _load(
+    credentials,
+    locator,
+    policy,
+    frame: pl.DataFrame,
+    run_id: str,
+    schema: ObjectSchema | None = None,
+):
     connector = PostgresConnector(connector_settings())
     session = connector.prepare_destination(
-        credentials, locator, _schema(locator), policy, run_id=run_id
+        credentials, locator, schema or _schema(locator), policy, run_id=run_id
     )
     connector.write_batch(
         session,
@@ -338,6 +345,40 @@ def test_postgres_upsert_composite_key_update_and_ignore(postgres_credentials) -
         postgres_credentials, "SELECT score FROM public.keyed_events ORDER BY event_id"
     )
     assert [row[0] for row in scores] == [9.9, 9.9]
+
+
+def test_postgres_upsert_preserves_rows_with_nullable_unique_keys(postgres_credentials) -> None:
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.nullable_keys (id INTEGER UNIQUE, value TEXT)",
+    )
+    locator = postgres_table("public", "nullable_keys")
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="id", data_type="Int32"),
+            ColumnSchema(name="value", data_type="String"),
+        ),
+    )
+    frame = pl.DataFrame(
+        {"id": [None, None], "value": ["first", "second"]},
+        schema={"id": pl.Int32, "value": pl.String},
+    )
+
+    manifest = _load(
+        postgres_credentials,
+        locator,
+        PostgresUpsertPolicy(conflict_columns=["id"], action="ignore"),
+        frame,
+        "nullable-upsert",
+        schema=schema,
+    )
+
+    assert manifest.rows == 2
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT id, value FROM public.nullable_keys ORDER BY value",
+    ) == [(None, "first"), (None, "second")]
 
 
 def test_postgres_replace_recreate_drops_prior_schema(postgres_credentials) -> None:
