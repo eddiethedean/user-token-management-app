@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Added user-feedback and troubleshooting outcomes for sign-in, account recovery, connection
+  readiness, and pipeline execution. Added opaque support references, structured redacted events,
+  JSON/level logging configuration, and migration `0017_connection_feedback`.
 - Removed the product theme stylesheet and scoped workflow CSS in favor of stock Folio,
   native Hedron recipes, typography, grids, surfaces, process flows, and color-mode controls.
 - Balanced shell branding with native container padding and account separation with a Divider.

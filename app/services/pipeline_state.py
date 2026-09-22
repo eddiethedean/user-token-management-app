@@ -41,6 +41,7 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
         {
             PipelineRunStatus.EXTRACTING.value,
             PipelineRunStatus.FAILED.value,
+            PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
             PipelineRunStatus.CANCELLED.value,
         }
     ),
@@ -48,6 +49,7 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
         {
             PipelineRunStatus.LOADING.value,
             PipelineRunStatus.FAILED.value,
+            PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
             PipelineRunStatus.CANCELLED.value,
         }
     ),
@@ -63,6 +65,7 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
         {
             PipelineRunStatus.SUCCEEDED.value,
             PipelineRunStatus.FAILED.value,
+            PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
             PipelineRunStatus.CANCELLED.value,
         }
     ),

@@ -172,8 +172,8 @@ def test_mss_connection_without_dataset_remains_untested(client, make_user) -> N
         },
     )
     assert retested.status_code == 200
-    assert "Untested" in retested.text
-    assert "connection check is incomplete" in retested.text
+    assert "Needs setup" in retested.text
+    assert "default dataset RID" in retested.text
     assert 'id="security-activity"' not in retested.text
 
     with SessionLocal() as db:
@@ -185,6 +185,35 @@ def test_mss_connection_without_dataset_remains_untested(client, make_user) -> N
         )
         assert stored is not None
         assert stored.validation_status == "untested"
+
+
+def test_native_connection_test_failure_stays_visible_with_status_and_reference(
+    client, make_user, monkeypatch
+) -> None:
+    user = make_user("native.connection.failure@example.gov")
+    web_login(client, user.email, USER_PASSWORD)
+    page = client.get("/security")
+    client.post(
+        "/security/secrets/mss",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "endpoint": "https://mss.example",
+            "token": MSS_TOKEN,
+        },
+    )
+
+    def fail_connection(*args, **kwargs):
+        raise SecretStorageError("credential storage is unavailable")
+
+    monkeypatch.setattr("app.ui.routes.security.test_user_connection", fail_connection)
+    response = client.post(
+        "/security/secrets/mss/test",
+        data={"csrf_token": csrf_from(client.get("/security").text)},
+    )
+
+    assert response.status_code == 503
+    assert "connection test could not be completed" in response.text.casefold()
+    assert "ref-" in response.text
 
 
 def test_mcscop_credentials_are_validated_encrypted_and_available_at_run_boundary(
@@ -301,9 +330,14 @@ def test_secret_validation_ownership_and_tampering(client, make_user) -> None:
 
     whitespace = client.post(
         "/security/secrets/mss",
-        data={"csrf_token": csrf, "token": " token-with-whitespace "},
+        data={
+            "csrf_token": csrf,
+            "endpoint": "https://mss.example",
+            "token": " token-with-whitespace ",
+        },
     )
     assert whitespace.status_code == 400
+    assert "API tokens must contain" in whitespace.text
 
     unknown = client.post(
         "/security/secrets/custom",

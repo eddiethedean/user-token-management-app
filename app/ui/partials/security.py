@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Literal, cast
 
 from fastapi import Request
@@ -11,6 +12,7 @@ from hedron import (
     Avatar,
     Badge,
     Button,
+    ClipboardCopy,
     Component,
     ComponentRef,
     Dialog,
@@ -47,6 +49,7 @@ from app.ui.design_system import DATA_MOVER_DESIGN, stacked_surface, surface_car
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import compact_password_input, csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, alert_box
+from app.ui.presenters.feedback import connection_outcome
 from app.ui.regions import SECURITY_ACTIVITY
 from app.ui.tabs import NavigationTabs
 from app.ui.urls import form_action, hx_attrs, mounted_path, page_href
@@ -139,8 +142,11 @@ def secret_slot(
     csrf_token: str,
     error: str = "",
     success: str = "",
+    field_errors: dict[str, str] | None = None,
 ) -> Component[Any]:
     configured = secret is not None
+    field_errors = field_errors or {}
+    top_error = error if error and not field_errors else ""
     if configured:
         validation_message = secret.validation_message.rstrip(".")
         metadata = (
@@ -187,6 +193,7 @@ def secret_slot(
             label=field.label,
             id=field_id,
             required=field.required,
+            error=field_errors.get(field.name) or None,
             help="Optional" if not field.required else None,
             control=control,
         )
@@ -257,7 +264,7 @@ def secret_slot(
                 align="between",
                 collapse="never",
             ),
-            alert_box(error),
+            alert_box(top_error),
             alert_box(success, kind="success"),
             Expander(
                 "Where to find connection details",
@@ -343,13 +350,19 @@ def connection_status_list(
     for provider, secret in secret_slots:
         catalog = require_catalog_provider(provider.name)
         configured = secret is not None
+        outcome = connection_outcome(secret)
         connected = configured and secret.validation_status == "connected"
         failed = configured and secret.validation_status == "failed"
+        incomplete = bool(
+            configured and outcome is not None and str(outcome.code) == "connection_test_incomplete"
+        )
         status_label = (
             "Connected"
             if connected
             else "Failed"
             if failed
+            else "Needs setup"
+            if incomplete
             else "Untested"
             if configured
             else "Not configured"
@@ -360,17 +373,24 @@ def connection_status_list(
             else "danger"
             if failed
             else "warning"
+            if incomplete
+            else "warning"
             if configured
             else "neutral"
         )
         if configured and secret.validated_at:
             detail = (
-                f"{secret.validation_message} · Checked "
+                f"{outcome.title} {outcome.message} · Checked "
+                f"{secret.validated_at.strftime('%b %d at %H:%M')}"
+                if outcome
+                else f"{secret.validation_message} · Checked "
                 f"{secret.validated_at.strftime('%b %d at %H:%M')}"
             )
         elif configured:
             detail = (
-                "Credentials are saved. Test the connection before browsing objects or running."
+                outcome.message
+                if outcome
+                else "Test the connection before browsing objects or running."
             )
         else:
             detail = "Add credentials before Data Mover can inspect remote objects."
@@ -397,11 +417,18 @@ def connection_status_list(
                     ),
                 )
             )
+        if outcome is not None and outcome.reference_id:
+            actions.append(ClipboardCopy(outcome.reference_id, label="Copy reference"))
 
         rows.append(
             ResourceRow(
                 provider.label,
-                description=f"{catalog.technology} · {detail}",
+                description=(
+                    f"{catalog.technology} · {detail}"
+                    + (f" Reference: {outcome.reference_id}." if outcome.reference_id else "")
+                    if outcome
+                    else f"{catalog.technology} · {detail}"
+                ),
                 mark=provider.mark,
                 meta=Badge(status_label, tone=status_tone),
                 actions=ActionGroup(
@@ -641,7 +668,21 @@ def security_tabs(
     *,
     csrf_token: str,
     secret_slots,
+    secret_feedback: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> NavigationTabs:
+    secret_feedback = secret_feedback or {}
+
+    def render_slot(provider, secret) -> NodeLike:
+        feedback = secret_feedback.get(provider.name, {})
+        return secret_slot(
+            request,
+            provider,
+            secret,
+            csrf_token=csrf_token,
+            error=str(feedback.get("error", "")),
+            field_errors=dict(feedback.get("field_errors", {})),
+        )
+
     panels: list[tuple[str, NodeLike]] = [
         (
             "Credentials",
@@ -659,19 +700,11 @@ def security_tabs(
                 ),
                 Stack(
                     Grid(
-                        *[
-                            secret_slot(request, p, s, csrf_token=csrf_token)
-                            for p, s in secret_slots
-                            if p.name != "postgres"
-                        ],
+                        *[render_slot(p, s) for p, s in secret_slots if p.name != "postgres"],
                         columns={"base": 1, "xl": 2},
                         gap="md",
                     ),
-                    *[
-                        secret_slot(request, p, s, csrf_token=csrf_token)
-                        for p, s in secret_slots
-                        if p.name == "postgres"
-                    ],
+                    *[render_slot(p, s) for p, s in secret_slots if p.name == "postgres"],
                     gap="md",
                 ),
             ),

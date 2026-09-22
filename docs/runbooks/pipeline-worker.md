@@ -67,13 +67,24 @@ return the same run and create only one queued event.
 When a run is `failed_needs_reconciliation`, inspect the destination using the provider's native
 tools and compare it with the run's persisted row counts, schema manifest, remote ID, and event
 feed. In the Pipeline monitor, use **Record reconciliation review** only after that inspection.
-This records an operator event for auditability; it intentionally does not clear the safety state or
-authorize an automatic retry. A new run should be started only after the operator has confirmed the
-destination state and chosen a safe write policy.
+This records an operator event for auditability and unlocks the explicit **Run again** control; it
+does not mutate the destination or claim that an uncertain write was safe. A new run should be
+started only after the operator has confirmed the destination state and chosen a safe write policy.
 
 ## Logs
 
 Never log tokens, passwords, DSNs, or cell values. Connector errors use the stable taxonomy in
-`app/connectors/errors.py`. The in-process janitor drops expired events, terminal runs, catalog cache
-rows, and old spool files. Restart the app after correcting a runtime failure so the lifecycle
-supervisor can resume recovery and cleanup.
+`app/connectors/errors.py`. Set `LOG_FORMAT=json` for ingestion and keep `LOG_LEVEL=INFO` during
+normal operation. The run ID is the primary reference after enqueue; the enqueue request's
+`reference_id` is still useful for locating the original submission.
+
+Important events are `pipeline.run.queued`, `pipeline.run.completed`, `pipeline.run.failed`,
+`pipeline.run.cancelled`, and `pipeline.lease.heartbeat_failed`. Search by `run_id` and inspect
+`stage`, `error_code`, `retryable`, and `data_impact`. A `data_impact` of `uncertain` is a safety
+stop, not a suggestion to retry. Use the provider's native tools and the persisted manifests/events
+before recording reconciliation review.
+
+The in-process janitor drops expired events, terminal runs, catalog cache rows, and old spool files.
+Restart the app after correcting a runtime failure so the lifecycle supervisor can resume recovery
+and cleanup. See the [diagnostic event dictionary](../diagnostics-event-dictionary.md) for the
+allowlisted schema and permitted traceback behavior.

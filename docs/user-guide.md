@@ -45,6 +45,11 @@ entering real credentials.
 6. Select **Run transfer** to enqueue a durable run, then open **Live transfer** to follow persisted
    status and in-process task events.
 
+When an action fails, read the persistent feedback panel rather than relying on a disappearing
+toast. It states what happened, the next action, the known destination impact, and an opaque
+**Reference** for support. Connection references remain on the status card; pipeline references are
+the durable run IDs. Never paste credentials or a reset link into a support request.
+
 In demo mode, connectors never contact the hostnames you type. A demo health result says
 **Emulated connection only**, reports no network latency, and proves only that the saved fields can
 exercise the local emulator—not that the hostname is reachable or the credential is valid. In real
@@ -234,7 +239,9 @@ background task records a terminal state. Retry is shown only for failures marke
 task loses its lease after destination work begins, a Foundry upload outcome is uncertain, or final
 run-state persistence fails after the destination commits, the run enters **Failed / reconciliation
 needed** and the monitor provides **Record reconciliation review**. Inspect the destination first;
-recording the review does not clear the safety block or make an uncertain write safe automatically.
+recording the review unlocks the explicit retry control, but does not clear the persisted uncertainty
+or make an uncertain write safe automatically. The enqueue guard still requires that review for every
+retry path.
 
 ### Transfer lifecycle
 
@@ -245,7 +252,7 @@ recording the review does not clear the safety block or make an uncertain write 
 | **Extracting** | Rows are being read from the source. | Monitor source counts and the event log. |
 | **Loading** | Batches are being written to the destination. | Avoid changing the destination outside the pipeline while it runs. |
 | **Verifying** | The destination is being checked against the transfer manifest. | Wait for success or inspect the verification event. |
-| **Succeeded** | The run completed and persisted its final counts. | Review the destination and keep the run for audit history. |
+| **Succeeded** | The run completed and persisted its final counts. The monitor states whether the provider supplied exact counts or only a local manifest. | Review the destination and keep the run for audit history. |
 | **Failed** | The run stopped before a successful final state. | Read the error summary; correct the pipeline or connection before retrying. |
 | **Cancelled** | A cancellation request was honored. | Start a new run when the source and destination are ready. |
 | **Failed / reconciliation needed** | Destination effects may exist but the app could not prove a safe terminal result—for example a lease loss during loading/verifying, an uncertain Foundry upload, or failure after destination commit. | Do not blindly retry; have an operator inspect the destination first. |

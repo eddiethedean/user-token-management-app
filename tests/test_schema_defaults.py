@@ -134,6 +134,73 @@ def test_event_sequence_migration_backfills_existing_runs(tmp_path) -> None:
     assert next_sequence == 7
 
 
+def test_reconciliation_migration_backfills_legacy_verification_facts(tmp_path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'pipeline-reconciliation.db'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "0017_connection_feedback")
+    engine = create_engine(database_url)
+
+    with engine.begin() as connection:
+        _insert_user(
+            connection,
+            user_id="reconciliation-user",
+            email="reconciliation@example.gov",
+            include_color_mode=False,
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO pipeline_runs (
+                    id, user_id, definition_snapshot_json, status, stage, attempt, queued_at,
+                    source_rows, source_bytes, loaded_rows, loaded_bytes, error_code,
+                    verification_json, retryable, created_at, updated_at
+                ) VALUES (
+                    :uncertain_id, 'reconciliation-user', '{}', 'failed', 'failed', 1,
+                    '2026-08-26 00:00:00', 0, 0, 0, 0, 'publish_uncertain',
+                    :uncertain_facts, 0, '2026-08-26 00:00:00', '2026-08-26 00:00:00'
+                ), (
+                    :safe_id, 'reconciliation-user', '{}', 'failed', 'failed', 1,
+                    '2026-08-26 00:00:00', 0, 0, 0, 0, 'schema_drift',
+                    :safe_facts, 0, '2026-08-26 00:00:00', '2026-08-26 00:00:00'
+                ), (
+                    :malformed_id, 'reconciliation-user', '{}', 'failed', 'loading', 1,
+                    '2026-08-26 00:00:00', 0, 0, 0, 0, 'internal_error',
+                    :malformed_facts, 0, '2026-08-26 00:00:00', '2026-08-26 00:00:00'
+                )
+                """
+            ),
+            {
+                "uncertain_id": "legacy-uncertain",
+                "safe_id": "legacy-safe",
+                "safe_facts": '{"data_impact":"unchanged","last_safe_stage":"inspect"}',
+                "malformed_id": "legacy-malformed",
+                "malformed_facts": "{not-json",
+                "uncertain_facts": (
+                    '{"data_impact":"uncertain",'
+                    '"reconciliation_required":true,"last_safe_stage":"transfer"}'
+                ),
+            },
+        )
+
+    command.upgrade(config, "head")
+
+    with engine.begin() as connection:
+        rows = {
+            row[0]: row[1:]
+            for row in connection.execute(
+                text(
+                    "SELECT id, last_safe_stage, data_impact, reconciliation_required "
+                    "FROM pipeline_runs ORDER BY id"
+                )
+            ).all()
+        }
+    engine.dispose()
+
+    assert rows["legacy-uncertain"] == ("transfer", "uncertain", True)
+    assert rows["legacy-safe"] == ("inspect", "unchanged", False)
+    assert rows["legacy-malformed"] == ("unknown", "uncertain", True)
+
+
 def test_pipeline_locator_fields_support_flexible_values(tmp_path) -> None:
     database_url = f"sqlite:///{tmp_path / 'pipeline-locators.db'}"
     config = alembic_config(database_url)

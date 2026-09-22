@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from collections.abc import Callable
 from datetime import timedelta
@@ -17,6 +18,8 @@ from app.connectors.errors import TransferErrorCode
 from app.connectors.locators import DefinitionSnapshot
 from app.connectors.redaction import redact_mapping, redact_text
 from app.connectors.registry import route_allowed, writer_enabled
+from app.domain.feedback import DataImpact
+from app.logging_config import log_event
 from app.models import (
     PipelineDefinition,
     PipelineRun,
@@ -38,6 +41,7 @@ from app.services.pipeline_state import (
 )
 
 _STATE_MACHINE = PipelineRunStateMachine()
+log = logging.getLogger(__name__)
 
 __all__ = [
     "ACTIVE_STATUSES",
@@ -67,6 +71,60 @@ def enqueue_run(
     route_policy: Callable[[str, str], bool] | None = None,
     writer_policy: Callable[[str], bool] | None = None,
 ) -> PipelineRun:
+    # Serialize this safety decision with the pipeline row so every enqueue
+    # path observes the same unresolved-destination guard.
+    locked_pipeline = db.scalar(
+        select(PipelineDefinition).where(PipelineDefinition.id == pipeline.id).with_for_update()
+    )
+    if locked_pipeline is None or locked_pipeline.user_id != user.id:
+        raise LookupError("That pipeline is no longer available.")
+    safety_candidates = list(
+        db.scalars(
+            select(PipelineRun)
+            .where(
+                PipelineRun.user_id == user.id,
+                PipelineRun.pipeline_definition_id == pipeline.id,
+                PipelineRun.status.in_(
+                    (
+                        PipelineRunStatus.FAILED.value,
+                        PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
+                        PipelineRunStatus.CANCELLED.value,
+                    )
+                ),
+            )
+            .order_by(PipelineRun.created_at.desc())
+        ).all()
+    )
+    unresolved = [
+        candidate
+        for candidate in safety_candidates
+        if _run_requires_reconciliation_review(candidate)
+        and not _reconciliation_reviewed(candidate)
+    ]
+    if unresolved:
+        raise ValueError(
+            "The previous transfer has uncertain destination state. Record reconciliation review before retrying."
+        )
+    latest_pipeline_run = db.scalar(
+        select(PipelineRun)
+        .where(
+            PipelineRun.user_id == user.id,
+            PipelineRun.pipeline_definition_id == pipeline.id,
+        )
+        .order_by(PipelineRun.created_at.desc(), PipelineRun.id.desc())
+        .limit(1)
+    )
+    reviewed_parent = next(
+        (
+            candidate
+            for candidate in safety_candidates
+            if _run_requires_reconciliation_review(candidate)
+            and _reconciliation_reviewed(candidate)
+            and latest_pipeline_run is not None
+            and candidate.id == latest_pipeline_run.id
+        ),
+        None,
+    )
     if pipeline.legacy_unsupported:
         raise ValueError("That saved pipeline uses an unsupported provider and cannot be run.")
     is_route_allowed = route_policy or route_allowed
@@ -82,8 +140,8 @@ def enqueue_run(
         definition_snapshot_json=snapshot.model_dump_json(),
         status=PipelineRunStatus.QUEUED.value,
         stage=STAGE_FOR_STATUS[PipelineRunStatus.QUEUED.value],
-        attempt=attempt,
-        parent_run_id=parent_run_id,
+        attempt=max(attempt, (reviewed_parent.attempt + 1) if reviewed_parent else attempt),
+        parent_run_id=parent_run_id or (reviewed_parent.id if reviewed_parent else None),
         idempotency_token=idempotency_token,
     )
     if idempotency_token:
@@ -98,6 +156,7 @@ def enqueue_run(
             "attempt": run.attempt,
             "parent_run_id": run.parent_run_id,
             "idempotency_token": run.idempotency_token,
+            "reconciliation_required": False,
         }
         if dialect_name == "postgresql":
             from sqlalchemy.dialects.postgresql import insert
@@ -154,9 +213,46 @@ def enqueue_run(
         target=user,
         detail={"run_id": run.id, "pipeline_id": pipeline.id},
     )
+    log_event(
+        log,
+        "pipeline.run.queued",
+        outcome="success",
+        reference_id=run.id,
+        run_id=run.id,
+        pipeline_id=pipeline.id,
+        user_id=user.id,
+        attempt=run.attempt,
+        operation="enqueue",
+        stage=run.stage,
+        provider=_run_provider_summary(run),
+    )
     db.commit()
     db.refresh(run)
     return run
+
+
+def _run_provider_summary(run: PipelineRun) -> str:
+    """Return safe source/destination provider context for diagnostic events."""
+
+    try:
+        snapshot = json.loads(getattr(run, "definition_snapshot_json", "") or "{}")
+    except (TypeError, ValueError):
+        return ""
+    if not isinstance(snapshot, dict):
+        return ""
+    source = str(snapshot.get("source_provider") or "")
+    destination = str(snapshot.get("destination_provider") or "")
+    if source and destination:
+        return f"{source}->{destination}"
+    return destination or source
+
+
+def _run_duration_ms(run: PipelineRun) -> int | None:
+    started_at = getattr(run, "started_at", None)
+    finished_at = getattr(run, "finished_at", None)
+    if started_at is None or finished_at is None:
+        return None
+    return max(0, int((finished_at - started_at).total_seconds() * 1000))
 
 
 def request_cancel(db: Session, *, user: User, run_id: str) -> PipelineRun:
@@ -165,8 +261,43 @@ def request_cancel(db: Session, *, user: User, run_id: str) -> PipelineRun:
         return run
     run.cancel_requested_at = utcnow()
     if run.status == PipelineRunStatus.QUEUED.value:
+        failure_stage = run.stage
+        resolved_impact = DataImpact.UNCHANGED
+        run.last_safe_stage = failure_stage
+        run.data_impact = resolved_impact.value
+        run.reconciliation_required = False
+        run.reconciliation_reviewed_at = None
+        run.error_code = TransferErrorCode.CANCELLED_BY_USER.value
+        run.error_summary = "The transfer was cancelled before a worker claimed it."
+        run.retryable = False
         _set_status(run, PipelineRunStatus.CANCELLED.value, lease_token=run.lease_token)
         append_event(db, run, "Run cancelled before a worker claimed it.", stage="cancelled")
+        run.verification_json = json.dumps(
+            _failure_facts(
+                run,
+                TransferErrorCode.CANCELLED_BY_USER.value,
+                resolved_impact,
+                reconciliation_required=False,
+                last_safe_stage=failure_stage,
+            ),
+            separators=(",", ":"),
+        )
+        log_event(
+            log,
+            "pipeline.run.cancelled",
+            outcome="cancelled",
+            reference_id=run.id,
+            run_id=run.id,
+            pipeline_id=run.pipeline_definition_id or "",
+            user_id=run.user_id,
+            attempt=run.attempt,
+            operation="transfer",
+            stage="cancelled",
+            provider=_run_provider_summary(run),
+            duration_ms=_run_duration_ms(run),
+            data_impact=resolved_impact.value,
+            cause=run.error_summary,
+        )
     else:
         append_event(db, run, "Cancellation requested.", stage=run.stage)
     db.commit()
@@ -178,15 +309,17 @@ def record_reconciliation_review(db: Session, *, user: User, run_id: str) -> Pip
     """Record that an operator reviewed an uncertain destination before retrying."""
 
     run = owned_run(db, user=user, run_id=run_id)
-    if run.status != PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value:
-        return run
+    if not _run_requires_reconciliation_review(run):
+        raise ValueError("This pipeline run does not require reconciliation review.")
     try:
         verification = json.loads(run.verification_json or "{}")
     except (TypeError, ValueError):
         verification = {}
     if not isinstance(verification, dict):
         verification = {}
-    verification["reconciliation_reviewed_at"] = utcnow().isoformat()
+    reviewed_at = utcnow()
+    verification["reconciliation_reviewed_at"] = reviewed_at.isoformat()
+    run.reconciliation_reviewed_at = reviewed_at
     run.verification_json = json.dumps(redact_mapping(verification), separators=(",", ":"))
     append_event(db, run, "Operator recorded reconciliation review.", stage="reconcile")
     db.commit()
@@ -420,8 +553,29 @@ def complete_run(
         redact_mapping(destination_manifest or {}), separators=(",", ":")
     )
     run.verification_json = json.dumps(redact_mapping(verification or {}), separators=(",", ":"))
+    run.last_safe_stage = run.stage
+    verification_level = str((verification or {}).get("verification_level", "")).casefold()
+    completion_impact = DataImpact.VERIFIED if verification_level == "exact" else DataImpact.CHANGED
+    run.data_impact = completion_impact.value
+    run.reconciliation_required = False
+    run.reconciliation_reviewed_at = None
     _set_status(run, PipelineRunStatus.SUCCEEDED.value, lease_token=lease_token)
     append_event(db, run, "Transfer succeeded.", stage="verify")
+    log_event(
+        log,
+        "pipeline.run.completed",
+        outcome="success",
+        reference_id=run.id,
+        run_id=run.id,
+        pipeline_id=run.pipeline_definition_id or "",
+        user_id=run.user_id,
+        attempt=run.attempt,
+        operation="transfer",
+        stage="verify",
+        provider=_run_provider_summary(run),
+        duration_ms=_run_duration_ms(run),
+        data_impact=completion_impact.value,
+    )
     db.commit()
 
 
@@ -433,30 +587,240 @@ def fail_run(
     summary: str,
     retryable: bool = False,
     needs_reconciliation: bool = False,
+    data_impact: DataImpact | None = None,
     lease_token: str | None = None,
+    provider_correlation_id: str = "",
+    http_status: int | None = None,
+    sqlstate: str = "",
+    exception_type: str = "",
 ) -> None:
     if lease_token:
         _refresh_and_require_lease(db, run, lease_token)
-    run.error_code = str(code)
+    code_value = str(code)
+    failure_stage = run.stage
+    effective_needs_reconciliation = needs_reconciliation or _failure_requires_reconciliation(
+        run, code_value
+    )
+    resolved_impact = data_impact or _failure_data_impact(
+        run, code_value, needs_reconciliation=effective_needs_reconciliation
+    )
+    run.error_code = code_value
     run.error_summary = redact_text(summary)[:500]
-    run.retryable = retryable and not needs_reconciliation
+    run.retryable = retryable and not effective_needs_reconciliation
     status = (
         PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value
-        if needs_reconciliation
+        if effective_needs_reconciliation
         else PipelineRunStatus.FAILED.value
     )
+    run.last_safe_stage = failure_stage
+    run.data_impact = str(resolved_impact)
+    run.reconciliation_required = effective_needs_reconciliation
+    run.reconciliation_reviewed_at = None
     _set_status(run, status, lease_token=lease_token)
+    run.verification_json = json.dumps(
+        _failure_facts(
+            run,
+            code_value,
+            resolved_impact,
+            reconciliation_required=effective_needs_reconciliation,
+            last_safe_stage=failure_stage,
+        ),
+        separators=(",", ":"),
+    )
     append_event(
-        db, run, run.error_summary or "The transfer failed.", stage=run.stage, level="error"
+        db, run, run.error_summary or "The transfer failed.", stage=failure_stage, level="error"
+    )
+    log_event(
+        log,
+        "pipeline.run.failed",
+        outcome="uncertain" if resolved_impact == DataImpact.UNCERTAIN else "failed",
+        error_code=code_value,
+        reference_id=run.id,
+        run_id=run.id,
+        pipeline_id=run.pipeline_definition_id or "",
+        user_id=run.user_id,
+        attempt=run.attempt,
+        operation="transfer",
+        stage=failure_stage,
+        provider=_run_provider_summary(run),
+        duration_ms=_run_duration_ms(run),
+        retryable=run.retryable,
+        data_impact=str(resolved_impact),
+        cause=run.error_summary or "",
+        provider_correlation_id=provider_correlation_id,
+        http_status=http_status,
+        sqlstate=sqlstate,
+        exception_type=exception_type,
     )
     db.commit()
 
 
-def cancel_claimed_run(db: Session, run: PipelineRun, *, lease_token: str) -> None:
+def cancel_claimed_run(
+    db: Session,
+    run: PipelineRun,
+    *,
+    lease_token: str,
+    data_impact: DataImpact | None = None,
+) -> None:
     _refresh_and_require_lease(db, run, lease_token)
-    _set_status(run, PipelineRunStatus.CANCELLED.value, lease_token=lease_token)
-    append_event(db, run, "Run cancelled.", stage="cancelled")
+    resolved_impact = data_impact or (
+        DataImpact.UNCERTAIN if run.loaded_rows else DataImpact.UNCHANGED
+    )
+    failure_stage = run.stage
+    reconciliation_required = resolved_impact == DataImpact.UNCERTAIN
+    terminal_status = (
+        PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value
+        if reconciliation_required
+        else PipelineRunStatus.CANCELLED.value
+    )
+    run.last_safe_stage = failure_stage
+    run.data_impact = str(resolved_impact)
+    run.reconciliation_required = reconciliation_required
+    run.reconciliation_reviewed_at = None
+    run.error_code = TransferErrorCode.CANCELLED_BY_USER.value
+    run.error_summary = "The transfer was cancelled."
+    _set_status(run, terminal_status, lease_token=lease_token)
+    run.verification_json = json.dumps(
+        _failure_facts(
+            run,
+            TransferErrorCode.CANCELLED_BY_USER.value,
+            resolved_impact,
+            reconciliation_required=reconciliation_required,
+            last_safe_stage=failure_stage,
+        ),
+        separators=(",", ":"),
+    )
+    append_event(
+        db,
+        run,
+        "Run cancelled; inspect the destination before retrying."
+        if reconciliation_required
+        else "Run cancelled.",
+        stage="reconcile" if reconciliation_required else "cancelled",
+        level="error" if reconciliation_required else "info",
+    )
+    log_event(
+        log,
+        "pipeline.run.cancelled",
+        outcome="uncertain" if reconciliation_required else "cancelled",
+        reference_id=run.id,
+        run_id=run.id,
+        pipeline_id=run.pipeline_definition_id or "",
+        user_id=run.user_id,
+        attempt=run.attempt,
+        operation="transfer",
+        stage="reconcile" if reconciliation_required else "cancelled",
+        provider=_run_provider_summary(run),
+        duration_ms=_run_duration_ms(run),
+        data_impact=str(resolved_impact),
+        cause=run.error_summary or "",
+    )
     db.commit()
+
+
+_RECONCILIATION_CODES = frozenset(
+    {
+        TransferErrorCode.PARTIAL_WRITE.value,
+        TransferErrorCode.PUBLISH_UNCERTAIN.value,
+        TransferErrorCode.VERIFICATION_FAILED.value,
+        TransferErrorCode.WORKER_LOST.value,
+    }
+)
+
+
+def _failure_requires_reconciliation(run: PipelineRun, code: str) -> bool:
+    if code in _RECONCILIATION_CODES:
+        return True
+    if code == TransferErrorCode.RUN_TIMEOUT.value:
+        return bool(run.loaded_rows or run.stage in {"transfer", "verify"})
+    if code == TransferErrorCode.INTERNAL_ERROR.value:
+        return bool(run.loaded_rows or run.stage in {"transfer", "verify"})
+    # A future connector or deployment may introduce a code this version does
+    # not understand. Once the run has reached destination work, the absence
+    # of a mapping is itself uncertainty and must not become a safe retry.
+    try:
+        TransferErrorCode(code)
+    except ValueError:
+        return bool(run.loaded_rows or run.stage in {"loading", "transfer", "verifying", "verify"})
+    return False
+
+
+def _failure_data_impact(run: PipelineRun, code: str, *, needs_reconciliation: bool) -> DataImpact:
+    if needs_reconciliation:
+        return DataImpact.UNCERTAIN
+    if code == TransferErrorCode.CANCELLED_BY_USER.value:
+        return DataImpact.UNCERTAIN if run.loaded_rows else DataImpact.UNCHANGED
+    if code in {
+        TransferErrorCode.DESTINATION_CONFLICT.value,
+        TransferErrorCode.SCHEMA_DRIFT.value,
+    }:
+        return DataImpact.UNCHANGED
+    return DataImpact.UNCHANGED
+
+
+def _failure_facts(
+    run: PipelineRun,
+    code: str,
+    data_impact: DataImpact,
+    *,
+    reconciliation_required: bool,
+    last_safe_stage: str | None = None,
+) -> dict[str, object]:
+    try:
+        existing = json.loads(run.verification_json or "{}")
+    except (TypeError, ValueError):
+        existing = {}
+    facts = dict(existing) if isinstance(existing, dict) else {}
+    facts.update(
+        {
+            "failure_code": code,
+            "data_impact": str(data_impact),
+            "reconciliation_required": reconciliation_required,
+            "last_safe_stage": last_safe_stage or run.last_safe_stage or run.stage,
+            "loaded_rows": int(run.loaded_rows or 0),
+        }
+    )
+    return redact_mapping(facts)
+
+
+def _run_requires_reconciliation_review(run: PipelineRun) -> bool:
+    if run.status == PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value:
+        return True
+    if run.reconciliation_required:
+        return True
+    try:
+        facts = json.loads(run.verification_json or "{}")
+    except (TypeError, ValueError):
+        return run.status in {
+            PipelineRunStatus.FAILED.value,
+            PipelineRunStatus.CANCELLED.value,
+        }
+    if not isinstance(facts, dict):
+        return run.status in {
+            PipelineRunStatus.FAILED.value,
+            PipelineRunStatus.CANCELLED.value,
+        }
+    if str(getattr(run, "data_impact", "") or "").casefold() == DataImpact.UNCERTAIN.value:
+        return True
+    if str(facts.get("data_impact") or "").casefold() == DataImpact.UNCERTAIN.value:
+        return True
+    if facts.get("reconciliation_required"):
+        return True
+    if run.status in {PipelineRunStatus.FAILED.value, PipelineRunStatus.CANCELLED.value}:
+        known_safety_keys = {"data_impact", "reconciliation_required", "last_safe_stage"}
+        if not known_safety_keys.intersection(facts):
+            return True
+    return False
+
+
+def _reconciliation_reviewed(run: PipelineRun) -> bool:
+    if run.reconciliation_reviewed_at is not None:
+        return True
+    try:
+        facts = json.loads(run.verification_json or "{}")
+    except (TypeError, ValueError):
+        facts = {}
+    return bool(isinstance(facts, dict) and facts.get("reconciliation_reviewed_at"))
 
 
 def snapshot_from_definition(pipeline: PipelineDefinition) -> DefinitionSnapshot:
@@ -503,9 +867,18 @@ def janitor(db: Session, settings) -> dict[str, int]:
     event_cutoff = now - timedelta(days=settings.pipeline_event_retention_days)
     run_cutoff = now - timedelta(days=settings.pipeline_run_retention_days)
     events_deleted = 0
+    protected_event_run_ids = {
+        run.id
+        for run in db.scalars(
+            select(PipelineRun).where(PipelineRun.status.in_(TERMINAL_STATUSES))
+        ).all()
+        if _run_requires_reconciliation_review(run) and not _reconciliation_reviewed(run)
+    }
     for event in db.scalars(
         select(PipelineRunEvent).where(PipelineRunEvent.occurred_at < event_cutoff)
     ).all():
+        if event.run_id in protected_event_run_ids:
+            continue
         db.delete(event)
         events_deleted += 1
     runs_deleted = 0
@@ -516,6 +889,8 @@ def janitor(db: Session, settings) -> dict[str, int]:
             PipelineRun.finished_at < run_cutoff,
         )
     ).all():
+        if _run_requires_reconciliation_review(run) and not _reconciliation_reviewed(run):
+            continue
         db.delete(run)
         runs_deleted += 1
     from app.models import PipelineCatalogCache

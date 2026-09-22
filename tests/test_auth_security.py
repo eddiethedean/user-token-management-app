@@ -398,7 +398,7 @@ def test_session_revoke_success(client, make_user, access_app) -> None:
 
 
 def test_login_lockout_is_generic_audited_and_blocks_correct_password(client) -> None:
-    for _ in range(5):
+    for _attempt in range(5):
         preauth = login_csrf_from(client.get("/login").text)
         rejected = client.post(
             "/login",
@@ -411,6 +411,7 @@ def test_login_lockout_is_generic_audited_and_blocks_correct_password(client) ->
         )
         assert rejected.status_code == 400
         assert "Unable to sign in" in rejected.text
+        assert "temporarily locked" not in rejected.text
 
     preauth = login_csrf_from(client.get("/login").text)
     locked = client.post(
@@ -424,6 +425,7 @@ def test_login_lockout_is_generic_audited_and_blocks_correct_password(client) ->
     )
     assert locked.status_code == 400
     assert "Unable to sign in" in locked.text
+    assert "temporarily locked" not in locked.text
 
     preauth = login_csrf_from(client.get("/login").text)
     unknown = client.post(
@@ -442,12 +444,13 @@ def test_login_lockout_is_generic_audited_and_blocks_correct_password(client) ->
         user = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
         assert user is not None
         assert user.failed_login_attempts == 5
+        assert user.locked_until is not None
         outcomes = db.scalars(
             select(AuditEvent.outcome)
             .where(AuditEvent.event_type == "auth.login")
             .order_by(AuditEvent.occurred_at)
         ).all()
-        assert outcomes == ["failure"] * 5 + ["locked"]
+        assert outcomes == ["failure"] * 4 + ["locked", "locked"]
 
 
 def test_htmx_unauthenticated_redirect_and_admin_error_retarget(client) -> None:

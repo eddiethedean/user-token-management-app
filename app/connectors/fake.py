@@ -17,6 +17,7 @@ import polars as pl
 
 from app.config import Settings
 from app.connectors.base import (
+    AbortResult,
     BatchWriteResult,
     CatalogPage,
     ColumnSchema,
@@ -662,8 +663,9 @@ class FakePostgresConnector:
         loaded, _ = self._backend.commit_postgres(pending)
         return DestinationManifest(locator=load_session.locator, rows=loaded, bytes=0)
 
-    def abort(self, load_session: LoadSession) -> None:
+    def abort(self, load_session: LoadSession) -> AbortResult:
         self._pending.pop(load_session.staging_name, None)
+        return AbortResult.ROLLED_BACK
 
 
 class FakeFoundryConnector:
@@ -935,8 +937,9 @@ class FakeFoundryConnector:
             details={"publication": pending.locator.publication},
         )
 
-    def abort(self, load_session: LoadSession) -> None:
+    def abort(self, load_session: LoadSession) -> AbortResult:
         self._pending.pop(load_session.staging_name, None)
+        return AbortResult.ROLLED_BACK
 
 
 class FakeCsvConnector(CsvSourceConnector):

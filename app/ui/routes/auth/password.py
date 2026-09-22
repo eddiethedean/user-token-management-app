@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron
 from starlette.responses import Response
 
+from app.application.feedback import account_failure
 from app.dependencies import DbSession, SettingsDep
+from app.logging_config import log_event
 from app.security.csrf import require_preauth_csrf
 from app.security.passwords import PasswordPolicyError
 from app.services.auth import (
@@ -28,6 +32,8 @@ from app.ui.params import (
 )
 from app.ui.partials.auth import render_forgot_page, render_reset_page
 from app.ui.urls import redirect_path
+
+log = logging.getLogger(__name__)
 
 
 def register_password_routes(app: Hedron) -> None:
@@ -76,15 +82,28 @@ def register_password_routes(app: Hedron) -> None:
         if settings.authentication_mode != "local_password":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
         error = ""
+        reference_id = ""
         try:
             get_valid_password_reset(db, settings, token)
         except TokenFlowError as exc:
-            error = str(exc)
+            reference_id = getattr(request.state, "support_reference", "")
+            outcome = account_failure(reason="link_invalid", reference_id=reference_id)
+            error = outcome.message
+            log_event(
+                log,
+                "auth.password_reset.rejected",
+                outcome="rejected",
+                error_code="auth_link_invalid",
+                reference_id=reference_id,
+                operation="password_reset_open",
+                exception_type=type(exc).__name__,
+            )
         return render_reset_page(
             request,
             settings,
             token=token,
             error=error,
+            error_reference=reference_id if error else "",
             status_code=status.HTTP_400_BAD_REQUEST if error else status.HTTP_200_OK,
         )
 
@@ -102,7 +121,7 @@ def register_password_routes(app: Hedron) -> None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
         try:
             if password != password_confirm:
-                raise PasswordPolicyError("Passwords do not match.")
+                raise PasswordPolicyError("Passwords do not match.", reason="mismatch")
             complete_password_reset(
                 db, settings, raw_token=token, password=password, request=request
             )
@@ -112,19 +131,50 @@ def register_password_routes(app: Hedron) -> None:
                 status_code=status.HTTP_303_SEE_OTHER,
             )
         except PasswordPolicyError as exc:
+            reference_id = getattr(request.state, "support_reference", "")
+            outcome = account_failure(
+                reason=(
+                    "password_mismatch"
+                    if getattr(exc, "reason", "policy") == "mismatch"
+                    else "password_policy"
+                ),
+                reference_id=reference_id,
+            )
+            log_event(
+                log,
+                "auth.password_reset.rejected",
+                outcome="rejected",
+                error_code="auth_invalid",
+                reference_id=reference_id,
+                operation="password_reset_submit",
+                exception_type=type(exc).__name__,
+            )
             return render_reset_page(
                 request,
                 settings,
                 token=token,
-                error=str(exc),
+                error=outcome.message,
+                error_reference=reference_id,
                 can_retry=True,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
         except TokenFlowError as exc:
+            reference_id = getattr(request.state, "support_reference", "")
+            outcome = account_failure(reason="link_invalid", reference_id=reference_id)
+            log_event(
+                log,
+                "auth.password_reset.rejected",
+                outcome="rejected",
+                error_code="auth_link_invalid",
+                reference_id=reference_id,
+                operation="password_reset_submit",
+                exception_type=type(exc).__name__,
+            )
             return render_reset_page(
                 request,
                 settings,
                 token=token,
-                error=str(exc),
+                error=outcome.message,
+                error_reference=reference_id,
                 status_code=status.HTTP_400_BAD_REQUEST,
             )

@@ -700,6 +700,14 @@ IDs, and requires protection against unauthorized access, modification, and dele
 800-53 Rev. 5 controls AU-2, AU-3, AU-9, and AU-11 cover event selection, record content, protection,
 and retention in the [primary publication](https://doi.org/10.6028/NIST.SP.800-53r5).
 
+**Application diagnostic controls:** `app/logging_config.py` uses an allowlist for diagnostic fields,
+redacts rendered messages through the shared connector redaction authority, validates provider
+correlation IDs and SQLSTATE values, and supports compact text or JSON output. Known failures emit
+stable codes without tracebacks. Unexpected request failures include a redacted traceback and an
+opaque request reference in the browser. Run references are bound in worker threads so operators
+can follow a queued request through execution. The [diagnostic event dictionary](docs/diagnostics-event-dictionary.md)
+defines the released event names, fields, and support searches.
+
 ### SD-16 — Apply restrictive browser headers and self-host frontend assets
 
 **Status:** Implemented; HSTS scope remains a deployment decision.

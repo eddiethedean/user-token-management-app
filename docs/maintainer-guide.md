@@ -313,8 +313,9 @@ in `app/services/pipeline_metadata.py` own provenance labels and deterministic s
 
 The live monitor exposes cancellation, retryable-failure recovery, and reconciliation review. The
 reconciliation review is deliberately an operator acknowledgement, not a destination mutation or
-automatic retry. Preserve the `failed_needs_reconciliation` safety block unless a future provider
-contract adds a verified reconciliation operation.
+automatic retry. Persist the review separately from the uncertainty fact; it authorizes the explicit
+retry path only after operator inspection, while the run history continues to show that the original
+destination state was uncertain.
 
 Never log tokens, passwords, DSNs, raw CSV cells, or decrypted credential payloads. Use the stable
 connector error taxonomy in `app/connectors/errors.py` and redact provider responses before logging.

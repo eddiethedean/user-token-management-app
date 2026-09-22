@@ -65,7 +65,9 @@ def test_federated_login_page_and_proxy_allowlist(access_app) -> None:
                 data={"next": "/profile", "preauth_csrf_token": csrf},
                 headers={settings.trusted_identity_header: ADMIN_EMAIL},
             )
-            assert denied.status_code in {401, 403}
+            assert denied.status_code == 401
+            assert "Return through the approved sign-in entry point" in denied.text
+            assert "Reference:" in denied.text
     finally:
         settings.authentication_mode = original_mode
         settings.trusted_proxy_ips = original_proxies

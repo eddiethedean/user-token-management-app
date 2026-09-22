@@ -163,6 +163,31 @@ def test_toast_oob_appends_for_queueing() -> None:
     assert "First" in markup and "Second" in markup
 
 
+def test_request_feedback_oob_replaces_toast_with_persistent_reference() -> None:
+    from hedron import html
+    from hedron.testing import render_html
+    from hedron_core.interaction import InteractionResult, materialize_interaction_nodes
+
+    from app.ui.interactions import APP_POLICY, request_feedback_oob
+
+    result = InteractionResult(
+        content=html.div(),
+        oob=(
+            request_feedback_oob(
+                "The request could not be completed.",
+                reference_id="ref-123",
+            ),
+        ),
+        policy=APP_POLICY,
+    )
+    markup = render_html(materialize_interaction_nodes(result))
+
+    assert 'id="hedron-toast"' in markup
+    assert 'hx-swap-oob="innerHTML"' in markup
+    assert 'id="request-feedback"' in markup
+    assert "ref-123" in markup
+
+
 def test_application_toasts_expire_after_three_seconds() -> None:
     markup = render_html(toast_oob("Saved").content)
 

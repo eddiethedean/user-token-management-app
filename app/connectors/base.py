@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
 from app.connectors.errors import ConnectorError, TransferErrorCode
@@ -48,6 +49,11 @@ class ProviderCapabilities:
     verification_level: str = "exact"
     limitations: tuple[str, ...] = ()
     dataset_creation: bool = False
+
+
+class AbortResult(StrEnum):
+    ROLLED_BACK = "rolled_back"
+    UNCERTAIN = "uncertain"
 
 
 class RegisteredConnector(Protocol):
@@ -206,7 +212,7 @@ class DestinationWriter(ConnectionTester, Protocol):
 
     def finalize(self, load_session: LoadSession) -> DestinationManifest: ...
 
-    def abort(self, load_session: LoadSession) -> None: ...
+    def abort(self, load_session: LoadSession) -> AbortResult: ...
 
 
 @runtime_checkable

@@ -42,6 +42,7 @@ from hedron import (
     Surface,
     Table,
     TableColumn,
+    Text,
     Timeline,
     html,
 )
@@ -71,6 +72,7 @@ from app.connectors.registry import (
     writer_enabled,
 )
 from app.dependencies import Auth, DbSession, SettingsDep
+from app.domain.feedback import DataImpact
 from app.models import PipelineDefinition, PipelineUpload
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
@@ -103,6 +105,8 @@ from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.params import NoticeQuery
+from app.ui.partials.feedback import feedback_panel
+from app.ui.presenters.feedback import run_outcome, verification_summary
 from app.ui.presenters.pipeline import SavedPipelineFields, saved_pipeline_form_data
 from app.ui.presenters.run_status import (
     EVENT_STAGE_LABELS,
@@ -2548,7 +2552,25 @@ def _pipeline_body(
     target_runtime_ready = target_catalog is not None and _connection_runnable(
         connections[target_provider]
     )
-    initial_run_ready = source_runtime_ready and target_runtime_ready and not route_overlap
+    latest_loaded_run = (latest_runs or {}).get(loaded_pipeline.id) if loaded_pipeline else None
+    latest_facts = _run_manifest(getattr(latest_loaded_run, "verification_json", None))
+    reconciliation_blocked = bool(
+        latest_loaded_run is not None
+        and (
+            getattr(latest_loaded_run, "reconciliation_required", False)
+            or latest_facts.get("reconciliation_required")
+        )
+        and not (
+            getattr(latest_loaded_run, "reconciliation_reviewed_at", None)
+            or latest_facts.get("reconciliation_reviewed_at")
+        )
+    )
+    initial_run_ready = (
+        source_runtime_ready
+        and target_runtime_ready
+        and not route_overlap
+        and not reconciliation_blocked
+    )
     if route_overlap:
         availability_message = "Choose a destination object different from the source object."
     elif target_catalog is None:
@@ -2565,6 +2587,10 @@ def _pipeline_body(
         availability_message = f"Validate the {source_catalog.label} connection before running."
     elif not target_runtime_ready:
         availability_message = f"Validate the {target_catalog.label} connection before running."
+    elif reconciliation_blocked:
+        availability_message = (
+            "Review the previous destination state before starting another transfer."
+        )
     else:
         availability_message = "Source and destination connections are ready."
     if initial_run_ready and not pipeline_id:
@@ -3155,6 +3181,7 @@ def _pipeline_body(
                         level=2,
                         density="compact",
                     ),
+                    html.div(id="pipeline-run-feedback"),
                     run_monitor
                     or html.div(
                         StateView(
@@ -3577,11 +3604,20 @@ def _schema_diff_surface(differences: list[dict[str, str]]):
 
 def _run_recovery_surface(request: Request, run, *, csrf_token: str):
     run_status = str(run.status or "")
-    if run_status not in {"failed", "failed_needs_reconciliation"}:
+    facts = _run_manifest(run.verification_json)
+    reconciliation_required = bool(
+        getattr(run, "reconciliation_required", False) or facts.get("reconciliation_required")
+    )
+    if run_status not in {"failed", "failed_needs_reconciliation", "cancelled"}:
         return None
-    review_recorded = bool(_run_manifest(run.verification_json).get("reconciliation_reviewed_at"))
+    review_recorded = bool(
+        getattr(run, "reconciliation_reviewed_at", None) or facts.get("reconciliation_reviewed_at")
+    )
     retry_form = None
-    if run_status == "failed" and run.retryable and run.pipeline_definition_id:
+    can_retry = (run_status == "failed" and run.retryable) or (
+        reconciliation_required and review_recorded
+    )
+    if can_retry and run.pipeline_definition_id:
         retry_form = html.form(
             csrf_hidden(csrf_token),
             html.input(type="hidden", name="pipeline_id", value=run.pipeline_definition_id),
@@ -3604,7 +3640,7 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
             method="post",
         )
     review_form = None
-    if run_status == "failed_needs_reconciliation":
+    if reconciliation_required and not review_recorded:
         review_form = html.form(
             csrf_hidden(csrf_token),
             Button(
@@ -3627,6 +3663,8 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
             action=form_action(request, f"/pipeline/runs/{run.id}/reconcile"),
             method="post",
         )
+    outcome = run_outcome(run)
+    impact = outcome.data_impact if outcome is not None else DataImpact.UNCERTAIN
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
         Surface(
@@ -3634,18 +3672,20 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
                 "Recovery guidance",
                 eyebrow="Operator action required",
                 description=(
-                    "The transfer failed and can be retried safely."
-                    if run_status == "failed" and run.retryable
+                    "Review recorded. Start a deliberate retry only after confirming the destination state."
+                    if can_retry and reconciliation_required
+                    else "The transfer failed and is eligible for retry."
+                    if can_retry
+                    else "The destination was not changed. Correct the issue before starting another run."
+                    if impact == DataImpact.UNCHANGED
+                    else "The destination changes were rolled back. Start the transfer again when ready."
+                    if impact == DataImpact.ROLLED_BACK
                     else "Destination state may be uncertain. Inspect it before retrying."
                 ),
                 level=3,
                 density="compact",
             ),
-            Alert(
-                run.error_summary or "The transfer ended without a recoverable summary.",
-                title=run.error_code or "Transfer failure",
-                tone="danger" if run_status == "failed" else "warning",
-            ),
+            feedback_panel(outcome, label="Pipeline recovery feedback"),
             ActionGroup(retry_form, review_form, gap="sm", collapse="never")
             if retry_form or review_form
             else None,
@@ -3672,6 +3712,13 @@ def _run_status_fragment(
         "failed_needs_reconciliation",
     }
     run_status = (run.status or "idle").lower()
+    facts = _run_manifest(run.verification_json)
+    reconciliation_required = bool(
+        getattr(run, "reconciliation_required", False) or facts.get("reconciliation_required")
+    )
+    reconciliation_reviewed = bool(
+        getattr(run, "reconciliation_reviewed_at", None) or facts.get("reconciliation_reviewed_at")
+    )
     run_badge_text = "Standing by"
     run_badge_tone = "info"
     if run_status == "succeeded":
@@ -3702,7 +3749,9 @@ def _run_status_fragment(
     stage_label, stage_description = run_stage_copy(run_status)
     if not stage_description:
         stage_description = "Worker state persisted to the run log."
-    flow_statuses = run_flow_statuses(run_status)
+    flow_statuses = run_flow_statuses(
+        run_status, getattr(run, "last_safe_stage", "") or facts.get("last_safe_stage", "")
+    )
     snapshot = parse_snapshot(run.definition_snapshot_json)
     source_label = _provider_label(snapshot.source_provider)
     target_label = _provider_label(snapshot.destination_provider)
@@ -3751,7 +3800,7 @@ def _run_status_fragment(
                 disabled=(
                     monitor_active
                     or not run.pipeline_definition_id
-                    or run_status == "failed_needs_reconciliation"
+                    or (reconciliation_required and not reconciliation_reviewed)
                     or (run_status == "failed" and not run.retryable)
                 ),
                 attrs=hx_attrs(
@@ -3769,7 +3818,11 @@ def _run_status_fragment(
             id=f"pipeline-run-again-form-{run.id}",
         )
         if run.pipeline_definition_id
-        and (run_status not in {"failed", "failed_needs_reconciliation"} or run.retryable)
+        and (
+            run_status not in {"failed", "failed_needs_reconciliation"}
+            or run.retryable
+            or (reconciliation_required and reconciliation_reviewed)
+        )
         else None
     )
     cancel_form = (
@@ -3910,6 +3963,13 @@ def _run_status_fragment(
         ),
         _run_schema_results(run)
         if run_status in {"succeeded", "failed", "cancelled", "failed_needs_reconciliation"}
+        else None,
+        Text(
+            verification_summary(run),
+            role="caption",
+            overflow="wrap",
+        )
+        if run_status == "succeeded"
         else None,
         Expander(
             "Live event feed",

@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from hedron import ActionPhase, ActionState, ActionTrace, FlowStep, Metric, OperationIdentity
 
+from app.ui.presenters.feedback import run_outcome
+
 _RUN_PROGRESS = {
     "queued": 4,
     "validating": 16,
@@ -19,9 +21,13 @@ _RUN_PROGRESS = {
 _RUN_STAGE_INDEX = {
     "queued": 0,
     "validating": 0,
+    "authenticate": 0,
     "extracting": 1,
+    "inspect": 1,
     "loading": 2,
+    "transfer": 2,
     "verifying": 3,
+    "verify": 3,
 }
 
 _RUN_STAGE_COPY = {
@@ -30,7 +36,7 @@ _RUN_STAGE_COPY = {
     "extracting": ("Extracting", "Reading source batches and counting rows."),
     "loading": ("Loading", "Writing batches to the destination."),
     "verifying": ("Verifying", "Comparing persisted results with the source."),
-    "succeeded": ("Complete", "Transfer verified and ready for review."),
+    "succeeded": ("Complete", "Transfer completed; review the available provider verification."),
     "cancelled": ("Cancelled", "The transfer was stopped before completion."),
     "failed": ("Failed", "The worker stopped and recorded a failure."),
     "failed_needs_reconciliation": (
@@ -55,10 +61,13 @@ ToastTone = Literal["info", "success", "warning", "danger"]
 
 
 def run_status_toasts(run: Any) -> tuple[str | None, ToastTone]:
-    if run.status == "succeeded":
-        return "Transfer completed.", "success"
-    if run.status in {"failed", "cancelled", "failed_needs_reconciliation"}:
-        return "Transfer ended.", "warning"
+    outcome = run_outcome(run)
+    if outcome is not None and run.status == "succeeded":
+        return outcome.title, "success"
+    if outcome is not None and run.status == "cancelled":
+        return outcome.title, "warning"
+    if outcome is not None and run.status in {"failed", "failed_needs_reconciliation"}:
+        return outcome.title, "danger"
     return None, "success"
 
 
@@ -107,7 +116,14 @@ def run_action_state(
     status = str(run.status or "idle").lower()
     phase = run_action_phase(status)
     operation = run_operation(run, revision=revision)
-    message = run.error_summary if phase in {"error", "conflict"} else run_stage_copy(status)[0]
+    outcome = run_outcome(run) if getattr(run, "error_code", None) else None
+    message = (
+        outcome.message
+        if phase in {"error", "conflict"} and outcome is not None
+        else getattr(run, "error_summary", None)
+        if phase in {"error", "conflict"}
+        else run_stage_copy(status)[0]
+    )
     return ActionState(
         phase=ActionPhase(phase),
         operation=operation,
@@ -136,10 +152,15 @@ def run_action_metadata(run: Any, events: Any) -> tuple[ActionState, ActionTrace
     return state, run_action_trace(run, events, state)
 
 
-def run_flow_statuses(run_status: str) -> tuple[str, str, str, str]:
+def run_flow_statuses(run_status: str, last_safe_stage: str = "") -> tuple[str, str, str, str]:
     if run_status == "succeeded":
         return ("complete", "complete", "complete", "complete")
-    current = _RUN_STAGE_INDEX.get(run_status, 0)
+    current = _RUN_STAGE_INDEX.get(
+        last_safe_stage
+        if run_status in {"failed", "failed_needs_reconciliation", "cancelled"}
+        else run_status,
+        0,
+    )
     failed = run_status in {"failed", "failed_needs_reconciliation", "cancelled"}
     return tuple(
         "complete"

@@ -32,6 +32,17 @@ actions and may destroy data — they are not a supported “undo account” pat
 | Federated users cannot use password form | `AUTHENTICATION_MODE=trusted_header` | Sign in through the proxy; see [auth-modes.md](auth-modes.md) |
 | Header auth never sees the user | Proxy not injecting / stripping identity header | Fix proxy; ensure app is not reachable without it |
 
+Every failed access journey keeps the browser message generic enough to avoid account enumeration.
+The page or toast shows a **Reference** value when the application can correlate the failure. Give
+that value to an operator; do not send passwords, reset URLs, credentials, or copied provider
+responses. Operators should search `reference_id` first, then inspect the matching `error_code`,
+`operation`, and `exception_type` event.
+
+Expired or used registration, invitation, and password-reset links are represented as
+`auth_link_invalid`. Request a fresh link instead of retrying the old URL. A directory or mail
+service failure is represented as `auth_account_unavailable`; retry after checking the service and
+the event's reference.
+
 ## CSRF and forms
 
 Login, register, and forgot-password use signed pre-authentication CSRF tokens. If POSTs fail with
@@ -86,6 +97,11 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 | I need a fully populated local demo | The normal app starts without user-owned connections | Run `make demo`; it creates the printed local account and seeds fake `.demo.invalid` credentials for MSS, MCS-COP, and PostgreSQL |
 | A repeated demo run shows fewer than 3/3 connections ready | A reused database contains a recognized legacy bundle, a stale current fake bundle, or an intentionally preserved unknown/real bundle | Run the current `make demo` again. Recognized legacy bundles are refreshed and stale current demo bundles are revalidated. Unknown or real bundles are preserved; use `seed-demo-connections --replace` only for a disposable demo database |
 
+Connection test references are persistent in **Connections → Status**. Known failure categories are
+`connection_authentication_failed`, `connection_permission_denied`, `connection_endpoint_blocked`,
+`connection_tls_failed`, `connection_timeout`, and `connection_provider_unavailable`. The page gives
+the safe remediation; provider correlation IDs, HTTP status, and duration remain in logs only.
+
 ## Pipelines and saved routes
 
 | Symptom | Likely cause | Fix |
@@ -131,3 +147,16 @@ not block enrollment.
 Shared DB-backed limits return generic throttling responses. If legitimate traffic is blocked, review
 `RATE_LIMIT_*` windows or add ingress throttling rather than disabling limits in production
 (`RATE_LIMIT_ENABLED` must stay true).
+
+## Reference-based support handoff
+
+1. Capture the page screenshot and the visible request, connection-test, or run reference.
+2. Record the UTC time, provider name, route name, and whether the user saw **Connected**,
+   **Unchanged**, **Verified**, or **Destination requires review**.
+3. Search structured logs by `reference_id`, then narrow by `run_id`, `provider`, or `error_code`.
+4. For `data_impact=uncertain`, inspect the provider destination before authorizing another run.
+5. Never ask the user to paste a token, password, reset link, SQL statement, provider response body,
+   or uploaded row value.
+
+See the [diagnostic event dictionary](diagnostics-event-dictionary.md) for fields and example
+searches.

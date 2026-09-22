@@ -611,7 +611,12 @@ def app_shell(
             max_width="xl",
             class_="data-mover-login-shell" if auth_presentation == "login" else None,
         )
-    page_nodes: list[NodeLike] = [skip, indicator, toast_host(), dialog_host()]
+    page_nodes: list[NodeLike] = [
+        skip,
+        indicator,
+        toast_host(),
+        dialog_host(),
+    ]
     page_nodes.append(content)
     return Page(
         *page_nodes,

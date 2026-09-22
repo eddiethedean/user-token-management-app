@@ -98,6 +98,7 @@ def render_login_page(
     *,
     status_code: int = 200,
     error: str = "",
+    error_reference: str = "",
     email: str = "",
     next: str = "/pipeline",
     success: str = "",
@@ -211,6 +212,14 @@ def render_login_page(
         card_children.append(alert_box(bootstrap_hint, kind="info"))
     if error:
         card_children.append(alert_box(error))
+        if error_reference:
+            card_children.append(
+                Text(
+                    f"Reference: {error_reference}",
+                    role="caption",
+                    overflow="wrap",
+                )
+            )
     if federated:
         card_children.append(
             HedronForm(
@@ -337,6 +346,7 @@ def render_register_page(
     *,
     status_code: int = 200,
     error: str = "",
+    error_reference: str = "",
     success: str = "",
     email: str = "",
     full_name: str = "",
@@ -376,6 +386,8 @@ def render_register_page(
                 method="post",
             )
         )
+    if error_reference:
+        body.insert(2, Text(f"Reference: {error_reference}", role="caption", overflow="wrap"))
     body.append(_auth_footer_link(request, "Back to sign in", "login"))
     response = render_page(
         app_shell(
@@ -400,6 +412,7 @@ def render_verify_page(
     token: str = "",
     verification: RegistrationVerification | None = None,
     error: str = "",
+    error_reference: str = "",
     success: str = "",
     status_code: int = 200,
 ) -> Response:
@@ -451,6 +464,8 @@ def render_verify_page(
                 align="center",
             )
         )
+    if error_reference:
+        body.insert(2, Text(f"Reference: {error_reference}", role="caption", overflow="wrap"))
     return render_page(
         app_shell(
             auth_card(*body),
@@ -464,7 +479,14 @@ def render_verify_page(
     )
 
 
-def render_forgot_page(request: Request, settings: Settings, *, success: str = "") -> Response:
+def render_forgot_page(
+    request: Request,
+    settings: Settings,
+    *,
+    success: str = "",
+    error: str = "",
+    error_reference: str = "",
+) -> Response:
     preauth = issue_preauth_csrf(settings)
     body: list[NodeLike] = [
         _auth_heading(
@@ -473,6 +495,7 @@ def render_forgot_page(request: Request, settings: Settings, *, success: str = "
             "Enter your government email. If an eligible account exists, we will send "
             "a time-limited reset link.",
         ),
+        alert_box(error),
         alert_box(success, kind="success"),
     ]
     if not success:
@@ -491,6 +514,8 @@ def render_forgot_page(request: Request, settings: Settings, *, success: str = "
                 method="post",
             )
         )
+    if error_reference:
+        body.insert(3, Text(f"Reference: {error_reference}", role="caption", overflow="wrap"))
     body.append(_auth_footer_link(request, "Back to sign in", "login"))
     response = render_page(
         app_shell(
@@ -513,6 +538,7 @@ def render_reset_page(
     *,
     token: str = "",
     error: str = "",
+    error_reference: str = "",
     can_retry: bool = False,
     status_code: int = 200,
 ) -> Response:
@@ -556,6 +582,8 @@ def render_reset_page(
                 align="center",
             )
         )
+    if error_reference:
+        body.insert(2, Text(f"Reference: {error_reference}", role="caption", overflow="wrap"))
     return render_page(
         app_shell(
             auth_card(*body),
@@ -577,6 +605,7 @@ def render_invitation_page(
     invitation: Invitation | None = None,
     full_name: str = "",
     error: str = "",
+    error_reference: str = "",
     status_code: int = 200,
 ) -> Response:
     body: list[NodeLike] = [
@@ -648,6 +677,8 @@ def render_invitation_page(
                 align="center",
             )
         )
+    if error_reference:
+        body.insert(2, Text(f"Reference: {error_reference}", role="caption", overflow="wrap"))
     return render_page(
         app_shell(
             auth_card(*body),

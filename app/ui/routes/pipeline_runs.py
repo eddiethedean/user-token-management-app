@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from starlette.responses import Response
 
 import app.services.pipeline_runs as pipeline_run_service
+from app.application.feedback import preflight_failure
 from app.application.pipelines import (
     EnqueuePipelineCommand,
     PipelineCommands,
@@ -28,10 +29,15 @@ from app.services.pipeline_runs import (
     snapshot_from_definition,
 )
 from app.services.pipeline_tasks import schedule_pipeline_run
-from app.ui.interactions import interaction_response, ok_fragment
+from app.ui.interactions import (
+    interaction_response,
+    ok_fragment,
+    pipeline_run_feedback_clear_oob,
+)
 from app.ui.params import PipelineIdForm
+from app.ui.partials.feedback import feedback_panel
 from app.ui.presenters.run_status import run_action_metadata, run_status_toasts
-from app.ui.regions import PIPELINE_RUN_MONITOR, TOAST_HOST
+from app.ui.regions import PIPELINE_RUN_FEEDBACK, PIPELINE_RUN_MONITOR, TOAST_HOST
 from app.ui.urls import redirect_path
 
 
@@ -97,8 +103,22 @@ def register_pipeline_run_routes(
                 ),
             )
         except (ValueError, LookupError) as exc:
+            outcome = preflight_failure(
+                reason=str(exc), reference_id=getattr(request.state, "support_reference", "")
+            )
+            if is_htmx_request(request):
+                return await interaction_response(
+                    request,
+                    ok_fragment(
+                        feedback_panel(outcome, label="Pipeline preflight feedback"),
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        retarget="#pipeline-run-feedback",
+                        reswap="innerHTML",
+                    ),
+                )
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=outcome.message,
             ) from exc
         if settings.is_demo_mode and settings.app_env == "test":
             from app.worker import process_one
@@ -134,6 +154,7 @@ def register_pipeline_run_routes(
                     status_code=status.HTTP_202_ACCEPTED,
                     action_state=action_state,
                     action_trace=action_trace,
+                    oob=(pipeline_run_feedback_clear_oob(),),
                 ),
             )
             return response
@@ -144,7 +165,7 @@ def register_pipeline_run_routes(
 
     @app.action(
         "/pipeline/runs",
-        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST),
+        fragment_regions=(PIPELINE_RUN_FEEDBACK, PIPELINE_RUN_MONITOR, TOAST_HOST),
         include_in_schema=False,
     )
     async def pipeline_run_start(
@@ -158,9 +179,23 @@ def register_pipeline_run_routes(
         idempotency_token: PipelineIdForm = "",
     ) -> Response:
         if not pipeline_id:
+            outcome = preflight_failure(
+                reason="pipeline_id is required to start a pipeline run",
+                reference_id=getattr(request.state, "support_reference", ""),
+            )
+            if is_htmx_request(request):
+                return await interaction_response(
+                    request,
+                    ok_fragment(
+                        feedback_panel(outcome, label="Pipeline preflight feedback"),
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        retarget="#pipeline-run-feedback",
+                        reswap="innerHTML",
+                    ),
+                )
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail="pipeline_id is required to start a pipeline run",
+                detail=outcome.message,
             )
         return await _start_pipeline_run(
             request=request,
@@ -263,6 +298,8 @@ def register_pipeline_run_routes(
             run = record_reconciliation_review(db, user=auth.user, run_id=run_id)
         except LookupError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         run_events = _events_after(db, run=run, after_sequence=0)
         action_state, action_trace = run_action_metadata(run, run_events)
         return await interaction_response(
