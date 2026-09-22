@@ -284,7 +284,7 @@ def test_app_login_page_under_session_mount(workbench_stack) -> None:
     assert response.status_code == 200
     assert "Sign in" in response.text
     assert (
-        'href="/s/docker-session/p/8000/app-assets/hedron-desktop.css?v=180926.3&amp;shell=4"'
+        'href="/s/docker-session/p/8000/app-assets/hedron-desktop.css?v=220926.0&amp;shell=4"'
         in response.text
     )
     assert (

@@ -20,6 +20,13 @@
 - Simplified the sign-in workflow illustration into a compact native icon-and-caption row,
   removing oversized status cards, sequence numbers, and decorative tracks.
 
+## [220926.0] — 2026-09-22
+
+### Changed
+
+- Bumped the application version for the desktop feedback improvements to sign-in support,
+  invitation and audit details, and pipeline run status.
+
 ## [180926.3] — 2026-09-18
 
 ### Changed
