@@ -280,7 +280,7 @@ def secret_slot(
                 credential_layout,
                 ActionGroup(
                     Button(
-                        "Replace credentials" if configured else "Save connection",
+                        "Save and test changes" if configured else "Save and test connection",
                         size="sm",
                         type="submit",
                     ),

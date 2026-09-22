@@ -11,6 +11,8 @@ The baseline described here has been implemented. For current runtime behavior, 
 [Data pipeline lifecycle](data-pipelines.md), the [maintainer guide](maintainer-guide.md), and the
 [pipeline runtime runbook](runbooks/pipeline-worker.md). Requirements below preserve the original
 delivery intent; they are not a substitute for the current code and operational docs.
+The current product has since expanded the original matrix: MSS, MCS-COP, and PostgreSQL now support
+both source and destination roles, their writers default to enabled, and CSV remains source-only.
 The original `transfer_code/` evidence referenced below is now preserved under
 [`docs/archive/transfer_code/`](archive/transfer_code/).
 
@@ -58,7 +60,7 @@ Cursor may implement these without further product input:
 - MSS/MCS-COP locators use dataset/branch/file terminology.
 - production cannot enable demo connectors.
 - connector source/destination capabilities and destination writer flags are authoritative for the
-  current builder; section 2.1 records the original first-release rollout matrix.
+  current builder; section 2.1 records the current matrix and its original rollout boundary.
 - transfer secrets are decrypted only inside the claimed transfer execution; owner-authorized
   catalog browsing and connection testing are separate bounded web-process actions.
 - status, metrics, and logs shown in the UI must be persisted facts.
@@ -66,7 +68,8 @@ Cursor may implement these without further product input:
 These require evidence from Phase 0 and must not be guessed:
 
 - exact MSS/MCS-COP discovery, upload, commit, overwrite, and idempotency behavior;
-- whether MCS-COP can act as a source;
+- whether MCS-COP could act as a source (resolved after the original plan: the shared Foundry read
+  contract now supports it);
 - whether Foundry append can be represented safely;
 - required NIPR trust bootstrap and approved endpoint/network allowlists;
 - provider upload/download limits and pagination formats.
@@ -96,21 +99,24 @@ Do not treat the existing scripts as production-ready modules. They are protocol
 
 ### 2.1 Supported providers
 
-The first real-transfer release has these first-class providers:
+The implemented product has these first-class providers. The original rollout did not expose the
+MCS-COP source role, but it now uses the shared Foundry source contract:
 
 | Provider ID | UI label | Source | Destination | Remote object model |
 |---|---|---:|---:|---|
 | `postgres` | PostgreSQL | Yes | Yes | database → schema → table |
 | `mss` | MSS | Yes | Yes | dataset RID → branch → file |
-| `mcscop` | MCS-COP | No initially | Yes | dataset RID → branch/upload file |
+| `mcscop` | MCS-COP | Yes | Yes | dataset RID → branch → file |
 | `csv` | CSV upload | Yes | No | owner-scoped uploaded file |
 
-The original required first-release route matrix was:
+The current capability-derived route matrix is:
 
-- MSS → PostgreSQL;
-- PostgreSQL → MSS;
-- PostgreSQL → MCS-COP;
+- MSS, MCS-COP, or PostgreSQL → MSS, MCS-COP, or PostgreSQL;
 - CSV → PostgreSQL, MSS, or MCS-COP, because the local file source uses the same writer adapters.
+
+The original rollout required only MSS → PostgreSQL, PostgreSQL → MSS/MCS-COP, and CSV → any
+remote destination. Capability and protocol coverage subsequently expanded MCS-COP to a source and
+enabled same-system copies between distinct objects.
 
 Do not expose an unsupported route in the UI. Source capability and destination capability must
 come from connector metadata, not from a rule that every provider can do both.

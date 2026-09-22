@@ -24,11 +24,12 @@ retention cleanup.
 - PostgreSQL application database (`postgresql+psycopg://…`);
 - `PIPELINE_SPOOL_ROOT` writable
 - `PIPELINE_ALLOWED_HTTPS_HOSTS` listing every Foundry hostname
-- Foundry writers remain off until `PIPELINE_ENABLE_MSS_WRITER` / `PIPELINE_ENABLE_MCSCOP_WRITER`
+- PostgreSQL and Foundry writers default to enabled; an operator can disable one with its
+  `PIPELINE_ENABLE_*_WRITER` setting
 
-Route compatibility is derived from registered connector capabilities: MSS and PostgreSQL are
-source-capable, CSV is source-only, and MCS-COP is destination-only. Same-system source and
-destination objects must not overlap, and destination writers must be enabled explicitly. The
+Route compatibility is derived from registered connector capabilities: MSS, MCS-COP, and PostgreSQL
+are source- and destination-capable, while CSV is source-only. Same-system source and destination
+objects must not overlap, and destination writers must remain enabled. The
 worker rechecks capabilities, object overlap, and writer policy from the frozen snapshot before
 opening either connector.
 

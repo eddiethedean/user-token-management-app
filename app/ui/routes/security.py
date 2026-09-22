@@ -34,7 +34,7 @@ from app.services.secrets import (
     SecretStorageError,
     delete_user_secret,
     require_secret_provider,
-    store_user_credentials,
+    store_user_credentials_if_changed,
     test_user_connection,
 )
 from app.ui import partials as ui
@@ -116,7 +116,10 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
     ) -> Response:
         request.state.hedron_authenticated = True
         notices = {
-            "secret-saved": "The connection credentials were saved.",
+            "secret-saved": (
+                "The connection credentials were saved. Changed credentials are tested "
+                "automatically; the latest result appears under Connection status."
+            ),
             "secret-deleted": "The connection credentials were deleted.",
         }
         values = security_page_values(
@@ -344,13 +347,15 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
         _csrf: RequireCsrf,
     ) -> Response:
         field_errors: dict[str, str] = {}
+        changed = False
+        automatic_test_error = ""
         try:
             specification = require_secret_provider(provider)
             submitted = await request.form()
             credentials = {
                 field.name: str(submitted.get(field.name, "")) for field in specification.fields
             }
-            stored = store_user_credentials(
+            result = store_user_credentials_if_changed(
                 db,
                 settings,
                 user=auth.user,
@@ -358,6 +363,8 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 credentials=credentials,
                 request=request,
             )
+            stored = result.secret
+            changed = result.changed
             error = ""
             response_status = status.HTTP_200_OK
         except (ValueError, SecretStorageError) as exc:
@@ -407,6 +414,46 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 if isinstance(exc, SecretStorageError)
                 else status.HTTP_400_BAD_REQUEST
             )
+        if not error and changed:
+            try:
+                stored = await run_owned_sync(
+                    request,
+                    _test_user_connection_in_thread,
+                    settings,
+                    auth.user.id,
+                    provider,
+                    getattr(request.state, "request_id", ""),
+                    getattr(request.state, "support_reference", ""),
+                )
+            except SecretStorageError as exc:
+                reference_id = getattr(request.state, "support_reference", "")
+                outcome = connection_failure("internal_error", reference_id=reference_id)
+                automatic_test_error = (
+                    "The credentials were saved, but the connection test could not be completed."
+                )
+                if outcome.reference_id:
+                    automatic_test_error += f" Reference: {outcome.reference_id}."
+                response_status = status.HTTP_503_SERVICE_UNAVAILABLE
+                log_event(
+                    log,
+                    "connection.save_test.failed",
+                    outcome="failed",
+                    error_code="connection_test_unavailable",
+                    reference_id=reference_id,
+                    user_id=auth.user.id,
+                    provider=provider,
+                    operation="save_and_test_credentials",
+                    exception_type=type(exc).__name__,
+                )
+            finally:
+                db.expire_all()
+            if automatic_test_error:
+                stored = db.scalar(
+                    select(UserSecret).where(
+                        UserSecret.user_id == auth.user.id,
+                        UserSecret.provider == specification.name,
+                    )
+                )
         values = security_page_values(db, auth.user, settings)
         status_list = connection_status_oob(
             request,
@@ -418,9 +465,15 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
             specification,
             stored,
             csrf_token=auth.session.csrf_token,
-            error=error,
+            error=error or automatic_test_error,
             field_errors=field_errors,
-            success=f"{specification.label} credentials saved." if not error else "",
+            success=(
+                ""
+                if error
+                else f"{specification.label} credentials saved."
+                if changed
+                else "No credential changes detected. The connection was not retested."
+            ),
         )
         if error:
             if not is_htmx_request(request):
@@ -445,13 +498,57 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                     toast_tone="danger",
                 ),
             )
+        if automatic_test_error:
+            if not is_htmx_request(request):
+                request.state.security_page_feedback = connection_failure(
+                    "internal_error",
+                    reference_id=getattr(request.state, "support_reference", ""),
+                )
+                request.state.security_response_status = response_status
+                return await security_page(
+                    request=request,
+                    auth=auth,
+                    db=db,
+                    settings=settings,
+                    notice="",
+                )
+            return await interaction_response(
+                request,
+                ok_fragment(
+                    slot,
+                    oob=(status_list,),
+                    status_code=response_status,
+                    toast=automatic_test_error,
+                    toast_tone="danger",
+                ),
+            )
+        checked_outcome = connection_outcome(stored) if changed else None
+        toast = (
+            "No credential changes detected. The connection was not retested."
+            if not changed
+            else f"{specification.label} credentials saved and connection verified."
+            if stored is not None and stored.validation_status == "connected"
+            else checked_outcome.title
+            if checked_outcome is not None
+            else f"{specification.label} credentials saved and checked."
+        )
+        toast_tone = (
+            "info"
+            if not changed
+            else "success"
+            if stored is not None and stored.validation_status == "connected"
+            else "danger"
+            if stored is not None and stored.validation_status == "failed"
+            else "warning"
+        )
         return await mutation_response(
             request,
             redirect=redirect_path(request, "/security?notice=secret-saved"),
             fragment=ok_fragment(
                 slot,
                 oob=(status_list,),
-                toast=f"{specification.label} credentials saved.",
+                toast=toast,
+                toast_tone=toast_tone,
             ),
         )
 

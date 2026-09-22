@@ -92,8 +92,8 @@ class ConfigDefaults:
     pipeline_run_retention_days: int = 90
     pipeline_event_retention_days: int = 30
     pipeline_enable_postgres_writer: bool = True
-    pipeline_enable_mss_writer: bool = False
-    pipeline_enable_mcscop_writer: bool = False
+    pipeline_enable_mss_writer: bool = True
+    pipeline_enable_mcscop_writer: bool = True
     pipeline_apply_internal_ca_fix: bool = False
 
 

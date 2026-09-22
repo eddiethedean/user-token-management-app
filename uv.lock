@@ -51,7 +51,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=42.0.8" },
     { name = "email-validator", specifier = ">=2.0.0" },
     { name = "fastapi", specifier = ">=0.133.0" },
-    { name = "hedron", specifier = ">=1.1.0,<2" },
+    { name = "hedron", specifier = ">=1.1.1,<2" },
     { name = "hedron-posit", specifier = ">=1.0.10,<2" },
     { name = "httpx2", specifier = ">=2.9.1" },
     { name = "polars", specifier = ">=1.21" },
@@ -636,7 +636,7 @@ wheels = [
 
 [[package]]
 name = "hedron"
-version = "1.1.0"
+version = "1.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi" },
@@ -647,9 +647,9 @@ dependencies = [
     { name = "python-multipart" },
     { name = "starlette" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/97/d5e8d0261e0efdf9c3864dfaafb1f02956f1ff74216a221fb9f8446a14e4/hedron-1.1.0.tar.gz", hash = "sha256:a39269e9ebcf80581501100e5d8d4227b696771771b0503816f09c6be7077c74", size = 336819, upload-time = "2026-09-18T18:08:26.208Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/41/57/ea2d7a0504078d5e2457ab2ee5e1ecd23e46eb6563563edf6c317673fa25/hedron-1.1.1.tar.gz", hash = "sha256:b6b5b33887fd04bdafd0e09575f4922969734cef9449d2b6f6424af2f79e7aea", size = 337757, upload-time = "2026-09-19T01:56:24.207Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6f/3f/10927252a38fab6f3e1f49044d78332b01f56dd262540c8c555d8b17f3c6/hedron-1.1.0-py3-none-any.whl", hash = "sha256:3758936f249e50c360279a1030e66fa9c66b31766623667f20502c2208c88e55", size = 406586, upload-time = "2026-09-18T18:08:24.706Z" },
+    { url = "https://files.pythonhosted.org/packages/40/27/53f2788b4cd3f92e1c54d36de869ce2dd3b966aff70a35fd73d7c0d1c2b7/hedron-1.1.1-py3-none-any.whl", hash = "sha256:0804df17aa6add91b51259d15a1502959eb6e74b0bb1e057154283e570f1b2d7", size = 407357, upload-time = "2026-09-19T01:56:22.499Z" },
 ]
 
 [[package]]

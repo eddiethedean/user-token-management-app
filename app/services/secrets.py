@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from hmac import compare_digest
 
 from fastapi import Request
 from sqlalchemy import delete, select
@@ -43,6 +45,7 @@ __all__ = [
     "list_user_secrets",
     "require_secret_provider",
     "store_user_credentials",
+    "store_user_credentials_if_changed",
     "store_user_secret",
     "test_user_connection",
 ]
@@ -53,6 +56,12 @@ log = logging.getLogger(__name__)
 
 class SecretStorageError(CredentialEnvelopeError):
     pass
+
+
+@dataclass(frozen=True)
+class StoredCredentials:
+    secret: UserSecret
+    changed: bool
 
 
 def _reserve_master_key_use(db: Session, settings: Settings, key_id: str) -> int:
@@ -127,6 +136,27 @@ def store_user_credentials(
     credentials: Mapping[str, str],
     request: Request | RequestMetadata | None = None,
 ) -> UserSecret:
+    return store_user_credentials_if_changed(
+        db,
+        settings,
+        user=user,
+        provider=provider,
+        credentials=credentials,
+        request=request,
+    ).secret
+
+
+def store_user_credentials_if_changed(
+    db: Session,
+    settings: Settings,
+    *,
+    user: User,
+    provider: str,
+    credentials: Mapping[str, str],
+    request: Request | RequestMetadata | None = None,
+) -> StoredCredentials:
+    """Store a normalized bundle only when its encrypted value would change."""
+
     specification = require_secret_provider(provider)
     normalized = _validate_credentials(specification, credentials)
     encoded_token = CredentialEnvelope.serialize(normalized)
@@ -151,7 +181,7 @@ def _store_encrypted_value(
     specification: SecretProvider,
     encoded_value: bytes,
     request: Request | RequestMetadata | None,
-) -> UserSecret:
+) -> StoredCredentials:
     # The user row is a stable lock target even when this provider has no secret yet.
     # This prevents concurrent first-time writes from racing the unique constraint.
     db.scalar(select(User).where(User.id == user.id).with_for_update())
@@ -161,6 +191,17 @@ def _store_encrypted_value(
         )
     )
     event_type = "api_token.replaced" if stored else "api_token.created"
+    if stored is not None:
+        try:
+            current = CredentialEnvelope.decrypt(settings, stored)
+        except CredentialEnvelopeError:
+            current = None
+        if current is not None and compare_digest(
+            CredentialEnvelope.serialize(current), encoded_value
+        ):
+            db.commit()
+            db.refresh(stored)
+            return StoredCredentials(secret=stored, changed=False)
     if not stored:
         stored = UserSecret(id=new_id(), user_id=user.id, provider=specification.name)
         db.add(stored)
@@ -186,7 +227,7 @@ def _store_encrypted_value(
     stored.validated_at = None
     stored.validation_code = "connection_saved_untested"
     stored.validation_reference = ""
-    stored.validation_message = "Saved. Test the connection before running a transfer."
+    stored.validation_message = "Saved. Connection check pending."
     stored.runtime_status = ""
     db.execute(
         delete(PipelineCatalogCache).where(
@@ -204,7 +245,7 @@ def _store_encrypted_value(
     )
     db.commit()
     db.refresh(stored)
-    return stored
+    return StoredCredentials(secret=stored, changed=True)
 
 
 def test_user_connection(

@@ -25,6 +25,8 @@ See [SECURITY.md](SECURITY.md).
 ## What it does
 
 - Saved, user-owned pipelines with provider-accurate locators (schema/table or dataset/branch/file)
+- MSS, MCS-COP, and PostgreSQL connections in either source or destination roles; CSV uploads are
+  source-only
 - In-app Foundry dataset creation for MSS and MCS-COP destination folders
 - Owner-scoped CSV sources with header discovery and inferred column data types
 - Durable pipeline runs with enqueue, cancel, and HTMX polling against persisted events
@@ -61,9 +63,8 @@ configured providers.
 
 These desktop screenshots were captured from the local `make demo` environment. Demo connectors
 are simulated, remote endpoints are not contacted, and the images contain no real credentials. The
-images were refreshed on September 18, 2026. Pipeline and collapsed-navigation captures use a fixed
-desktop viewport; shorter pages include their complete content and footer. Together they show the
-shell, navigation, primary controls, and status details.
+images were refreshed on September 22, 2026 from the current Folio shell. They use fixed desktop
+viewports and include the updated compact navigation, header spacing, status lines, and footer.
 
 ### Sign in
 
@@ -81,14 +82,13 @@ The Pipeline workspace combines route setup, saved routes, and live transfer mon
 view shows the source and destination, transfer progress, stage completion, row/byte counters, and
 the persisted event feed that operators can use to understand what happened during a run.
 
-### Collapsed navigation
+### Expanded navigation
 
-![Data Mover Pipeline workspace with the desktop navigation collapsed to stable icon links for Pipeline, Connections, Account, Team, and Audit log](docs/screenshots/navigation-collapsed.jpg)
+![Data Mover Pipeline workspace with the expanded desktop navigation for Pipeline, Connections, Account, Team, and Audit log](docs/screenshots/navigation-expanded.jpg)
 
-The desktop rail collapses to the same five route icons used in the expanded navigation. Their
-position and active-state treatment remain fixed while only the visible text labels are removed;
-accessible link names remain available to assistive technology, and the browser remembers the rail
-preference between visits.
+The desktop navigation is currently shown in its stable expanded state so route labels remain visible
+and users do not lose context. The collapse control is intentionally hidden while its layout treatment
+is being revisited.
 
 ### Connection status
 
@@ -97,6 +97,10 @@ preference between visits.
 The Connection status screen makes readiness explicit. Each provider shows its latest health-check
 result and offers an on-demand **Test connection** action; only connections that are saved and
 connected are available to Pipeline selectors.
+
+MSS, MCS-COP, and PostgreSQL can each be used as a source or destination. CSV uploads can only be
+used as sources. All three remote destination writers are enabled by default; an operator can
+disable an individual writer with its `PIPELINE_ENABLE_*_WRITER` deployment setting.
 
 ### Audit activity
 
@@ -198,7 +202,8 @@ After signing in:
 
 1. Open **Connections → Credentials** and review the seeded MSS, MCS-COP, and PostgreSQL
    connections. Every value is encrypted, and the saved plaintext is never displayed again.
-2. Open **Connections → Status** and select **Test connection**.
+2. Open **Connections → Status** and review the automatic checks from the saved connections. Use
+   **Test connection** to repeat a check without changing credentials.
 3. Open **Pipeline → Route setup** and choose existing source and destination objects from the
    demo catalogs. Only connections you have saved and validated appear. CSV files may also be
    uploaded, scanned, and used as sources.

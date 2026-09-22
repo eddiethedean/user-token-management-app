@@ -51,7 +51,7 @@ def test_project_requirements_only_bound_hedron_to_its_tested_feature_line() -> 
         assert "<" not in requirement
 
     assert [requirement for requirement in requirements if requirement.startswith("hedron")] == [
-        "hedron>=1.1.0,<2",
+        "hedron>=1.1.1,<2",
         "hedron-posit>=1.0.10,<2",
     ]
 

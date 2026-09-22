@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Enabled MSS, MCS-COP, and PostgreSQL as both pipeline sources and destinations by default while
+  keeping CSV source-only; operator writer flags can still disable individual remote destinations.
+- Connection saves now test new or changed credential bundles automatically. Identical normalized
+  submissions preserve the encrypted value and latest health result without retesting.
 - Added user-feedback and troubleshooting outcomes for sign-in, account recovery, connection
   readiness, and pipeline execution. Added opaque support references, structured redacted events,
   JSON/level logging configuration, and migration `0017_connection_feedback`.

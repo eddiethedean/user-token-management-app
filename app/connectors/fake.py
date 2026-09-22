@@ -965,7 +965,7 @@ def register() -> None:
             provider="mcscop",
             label="MCS-COP",
             mark="MCS",
-            source=False,
+            source=True,
             files=MCSCOP_FILES,
             backend=backend,
             settings=settings,

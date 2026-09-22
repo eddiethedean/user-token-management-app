@@ -101,9 +101,11 @@ prefer `.venv/bin/python` when that repository virtual environment exists, and o
 
 - health text must identify emulation, report zero network latency, and never claim remote
   authentication or reachability;
-- provider capabilities and metadata limitations must match the live adapters, except demo writers
-  are intentionally enabled;
+- provider capabilities and metadata limitations must match the live adapters; MSS, MCS-COP, and
+  PostgreSQL are source- and destination-capable, while CSV is source-only;
 - catalogs and frozen locators use the saved endpoint/database identity and Foundry branch;
+- credential saves compare normalized bundles, automatically test only new or changed values, and
+  preserve encryption, cache, timestamps, and health status for identical submissions;
 - destination state persists across connector instances for the lifetime of one registry load;
 - demo startup clears catalog-cache rows because emulated remote state does not survive a process
   restart;
@@ -227,6 +229,10 @@ is an intentional integration contract.
 ## Adding or changing a provider
 
 Provider work spans several contracts. Complete all of these before calling the provider supported:
+
+The built-in baseline is symmetric for remote providers: MSS, MCS-COP, and PostgreSQL each support
+source and destination roles, and all three writers default to enabled. CSV is the sole source-only
+provider. Preserve that matrix unless a provider's tested protocol changes.
 
 1. Add typed credential fields in `app/services/secrets_types.py` and register the provider in
    `app/services/secret_catalog.py`.

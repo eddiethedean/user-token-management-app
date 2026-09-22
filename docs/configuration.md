@@ -71,8 +71,10 @@ Set or confirm all of the following:
    configured relay without a TLS upgrade. Email is delivered by an in-process
    FastAPI background task; no email worker service or scheduler is required.
 9. Set `DATA_MOVER_MODE=real`, a writable `PIPELINE_SPOOL_ROOT`, and an
-   explicit `PIPELINE_ALLOWED_HTTPS_HOSTS` allowlist. Writers for MSS and
-   MCSCOP remain opt-in until their integrations are approved and tested.
+   explicit `PIPELINE_ALLOWED_HTTPS_HOSTS` allowlist. PostgreSQL, MSS, and MCS-COP writers are
+   enabled by default. Set a provider's `PIPELINE_ENABLE_*_WRITER=false` only when operator policy
+   must prevent that provider from being selected as a destination; the provider can still be used
+   as a source. CSV is always source-only.
 The full production sequence, including CA bundles, in-process runtime, migrations, and
 Connect publishing, is in
 [the deployment guide](deploy.md). The production gate is also summarized in

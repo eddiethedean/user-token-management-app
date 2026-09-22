@@ -36,9 +36,10 @@ If you are using a local demonstration, follow [Local seeded demo](#local-seeded
 entering real credentials.
 
 1. Sign in with an approved Data Mover account.
-2. Open **Connections** and add the systems you want to use.
-3. Select **Test connection** on **Connections → Status**. Save stores credentials as untested
-   until that check succeeds.
+2. Open **Connections** and add the systems you want to use. Saving a new or changed bundle runs its
+   connection check automatically; submitting an identical bundle does not retest it.
+3. Review the result on **Connections → Status**. Select **Test connection** whenever you want to
+   repeat the check without changing credentials.
 4. Open **Pipeline → Route setup**, choose a source and destination, and select existing objects or
    create a new destination table or Foundry file name.
 5. Name and save the pipeline. Saving makes the route reusable and enables **Run transfer**.
@@ -91,7 +92,9 @@ For MSS and MCS-COP, ask your platform administrator for the HTTPS API endpoint 
 least-privileged API token. In Foundry, open the dataset details to find its dataset RID and
 available branches.
 
-Saving a connection validates its field shape and stores an encrypted bundle as **untested**. Saved
+Saving a new or changed connection validates its field shape, stores the encrypted bundle, and runs
+the provider health check automatically. Submitting the same normalized bundle leaves its encrypted
+value, timestamps, and latest validation result unchanged and does not contact the provider. Saved
 values cannot be displayed again. To change them, enter a complete replacement bundle. Deleting a
 connection removes Data Mover's encrypted copy; it does not revoke or rotate the credential at the
 remote provider.
@@ -104,9 +107,10 @@ deployment.
 Open **Connections → Status** to see every provider in one place.
 
 - **Not configured** means no credential bundle is stored for that connection.
-- **Untested** means credentials are stored but have not been checked.
+- **Untested** means the automatic check could not establish readiness, such as a Foundry connection
+  without a default dataset RID.
 - **Connected** means the latest connector health check succeeded.
-- **Test connection** runs or repeats the health check.
+- **Test connection** repeats the health check without changing credentials.
 
 In demo mode the check is local emulation, not a network check. PostgreSQL requires a complete bundle;
 Foundry without a default dataset RID remains **Untested**, matching the live connector's inability
@@ -114,10 +118,12 @@ to verify dataset access. With a RID, **Connected** means ready for the emulator
 message says that no network request occurred. In real mode the check is a live `SELECT 1` or
 Foundry file list using the default dataset RID.
 
-If a status check fails, correct the complete credential bundle and choose **Test connection**.
-Data Mover does not reveal which saved value was previously entered. For a production credential
-rotation, replace the bundle in Data Mover and rotate or revoke the old credential at the remote
-provider according to that provider's process.
+If a status check fails because a saved value is wrong, correct the complete credential bundle and
+save it; the changed bundle is tested automatically. Use **Test connection** to retry transient
+provider or network failures without changing the bundle. Data Mover does not reveal which saved
+value was previously entered. For a production credential rotation, replace the bundle in Data
+Mover and rotate or revoke the old credential at the remote provider according to that provider's
+process.
 
 ## Build a pipeline
 
@@ -137,13 +143,13 @@ A remote provider normally appears in a source or destination menu only after th
 saved it and its validation status is **Connected**. MSS/MCS-COP is the narrow exception: an
 **Untested** saved connection may appear as a destination so the user can create its first dataset;
 successful creation validates that connection. The menu also removes destinations whose writer is
-disabled and providers that do not form a capability-compatible route with the selected opposite end. MCS-COP is
-destination-only. If no remote connection is ready, the source menu offers CSV only.
+disabled and providers that do not form a capability-compatible route with the selected opposite
+end. If no remote connection is ready, the source menu offers CSV only.
 
 ### Choose the source
 
-Remote sources are MSS and PostgreSQL. After choosing PostgreSQL, select an existing schema and
-table. For an MSS source, enter the source dataset RID directly and enter one or more supported
+Remote sources are MSS, MCS-COP, and PostgreSQL. After choosing PostgreSQL, select an existing
+schema and table. For a Foundry source, enter the source dataset RID directly and enter one or more supported
 file paths, separated by commas or new lines; the RID does not have to be the default RID saved with
 the connection. Known datasets and files are offered as suggestions, but custom paths remain
 available. Use **Swap direction** to exchange a compatible source and destination route. The
@@ -155,9 +161,9 @@ You may also choose **CSV file** and upload a local file. CSV is source-only.
 
 ### Choose the destination
 
-The builder derives compatible routes from provider capabilities. MSS, PostgreSQL, and CSV can feed
-any configured destination they support, including same-system copies between different objects;
-MCS-COP remains destination-only, and CSV remains source-only. PostgreSQL uses schema/table names; Foundry uses
+The builder derives compatible routes from provider capabilities. MSS, MCS-COP, PostgreSQL, and CSV
+can feed any configured destination they support, including same-system copies between different
+objects; CSV remains source-only. PostgreSQL uses schema/table names; Foundry uses
 dataset RID, branch, and a destination file name (Snappy Parquet). New PostgreSQL table names must:
 
 - contain 1–63 characters;
@@ -279,7 +285,7 @@ navigation or a wider desktop viewport; server-side validation remains the same.
 | A provider is missing from Pipeline | Confirm it is saved under **Connections → Credentials** and **Connected** under **Status**. |
 | Save or Run is disabled | Scan the CSV, choose different remote source/destination systems, and resolve every readiness message. |
 | A run stays queued | Check the app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; the in-process runtime recovers queued runs automatically. |
-| A connection says Untested | Select **Test connection**; saving alone never marks a connection connected. |
+| A connection says Untested | Complete missing provider setup, such as a default Foundry dataset RID, then save the changed bundle or select **Test connection** to retry. |
 | A saved pipeline says Connection required | The owner deleted or replaced a required connection; restore and test it, then reload the pipeline. |
 | An email link never arrives | Local deployments print links in the app log; production email is delivered by the app's in-process background task, so operators should check the app logs, `email_outbox`, and SMTP relay. |
 

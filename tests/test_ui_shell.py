@@ -78,7 +78,10 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Sign in")
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
-    assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=180926.3"')
+    assert_html_contains(
+        response,
+        'href="/app-assets/hedron-desktop.css?v=180926.3&amp;shell=5"',
+    )
     assert "/assets/theme.css" not in response.body
     assert "/app-assets/data-mover-components.css" not in response.body
     assert_html_contains(response, 'src="/assets/app.js?v=180926.3"')
@@ -255,6 +258,9 @@ def test_hedron_theme_export_preserves_native_component_appearances(access_app) 
     assert re.search(r"@media\s*\([^)]*hover\s*:\s*none", desktop_styles.body, re.IGNORECASE)
     assert re.search(r"@media\s*\([^)]*min-width\s*:", desktop_styles.body, re.IGNORECASE)
     assert "@media (prefers-reduced-motion: reduce)" in desktop_styles.body
+    assert "--hedron-nav-width: 12rem;" in desktop_styles.body
+    assert ".data-mover-app-shell {" not in desktop_styles.body
+    assert ".data-mover-nav-footer {" not in desktop_styles.body
     assert 'href="/hedron-static/hedron-default.css"' not in fixture.get("/login").body
 
 
@@ -361,6 +367,7 @@ def test_desktop_panels_reflow_with_native_folio_grids(access_app, path, columns
     assert 'data-hedron-shell-header-density="standard"' in page.body
     assert 'data-hedron-shell-header="static"' in page.body
     assert 'data-hedron-shell-nav-offset="none"' in page.body
+    assert 'data-hedron-nav-footer-collapsed="show"' in page.body
     assert 'data-hedron-ambient-placement="fixed-canvas"' in page.body
     assert 'data-hedron-ambient-pattern="grid"' not in page.body
     assert_ui_targets_subset_of_regions(page.body, APP_REGIONS)
@@ -469,8 +476,8 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
     assert 'hx-swap="none"' in signed_in.text
     assert 'class="hedron-account-summary data-mover-account-summary"' in signed_in.text
     assert 'class="hedron-account-copy"' in signed_in.text
-    assert 'data-hedron-nav-collapse="user"' in signed_in.text
-    assert 'data-hedron-nav-toggle="ghost"' in signed_in.text
+    assert 'data-hedron-nav-collapse="never"' in signed_in.text
+    assert 'class="hedron-app-shell-nav-toggle"' not in signed_in.text
     assert re.search(
         r'<a[^>]*href="/profile"[^>]*data-hedron-account-summary="true"',
         signed_in.text,
@@ -735,9 +742,11 @@ def test_session_list_and_secret_slot_render_html() -> None:
             csrf_token="sec-csrf",
         )
     )
-    assert "Replace credentials" in configured_slot
+    assert "Save and test changes" in configured_slot
     assert "Delete connection" in configured_slot
-    assert configured_slot.index("Replace credentials") < configured_slot.index("Delete connection")
+    assert configured_slot.index("Save and test changes") < configured_slot.index(
+        "Delete connection"
+    )
 
     postgres_provider = next(
         provider for provider in SECRET_PROVIDERS if provider.name == "postgres"
@@ -826,8 +835,8 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, 'id="side-nav"')
     assert_html_contains(profile, 'class="hedron-app-shell-nav data-mover-side-nav"')
     assert profile.body.count('data-hedron-variant="workspace"') >= 2
-    assert_html_contains(profile, 'data-hedron-nav-toggle="true"')
-    assert_html_contains(profile, 'data-hedron-nav-preference="data-mover-nav-collapsed"')
+    assert 'class="hedron-app-shell-nav-toggle"' not in profile.body
+    assert "data-hedron-nav-preference=" not in profile.body
     assert_html_contains(profile, 'data-hedron-icon="data-mover-pipeline"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-connections"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-account"')
@@ -916,7 +925,8 @@ def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:
     assert_html_contains(adapter, "security-tabs")
     assert_html_contains(adapter, "hx-swap-oob")
     assert_html_contains(adapter, "data-mover-nav-footer")
-    assert_html_contains(adapter, "Demo mode · Credentials encrypted")
+    assert_html_contains(adapter, "Demo mode")
+    assert_html_contains(adapter, "Credentials encrypted")
     assert_html_contains(adapter, 'data-hedron-icon="data-mover-team"')
     assert_html_contains(adapter, 'data-hedron-icon="data-mover-activity"')
     assert "<!doctype" not in security.text.lower()

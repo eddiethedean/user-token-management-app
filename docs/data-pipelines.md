@@ -73,6 +73,12 @@ test—or a confirmed first-dataset creation—to have succeeded. An untested MS
 shown only as a provisionable destination until that happens. CSV is a source-only option; its
 upload is scanned and stored before the route can be saved.
 
+Connection setup performs field validation first. A new or changed normalized credential bundle is
+encrypted, committed, and then tested automatically; the health check runs outside the request event
+loop and persists Connected, Failed, or Untested/Needs setup. Resubmitting an identical normalized
+bundle preserves its ciphertext, timestamps, catalog cache, and latest health result without
+contacting the provider. **Test connection** remains an explicit retry path.
+
 Route compatibility is derived from the registered connector capabilities. Any source-capable
 provider can feed any destination-capable provider, including a copy within the same system. The
 destination writer flag remains a separate operator-controlled gate:
@@ -85,20 +91,18 @@ routes from ingesting their own output on a later run.
 | Source | Capability-compatible destinations |
 |---|---|
 | MSS | MSS, PostgreSQL, MCS-COP |
+| MCS-COP | MSS, PostgreSQL, MCS-COP |
 | PostgreSQL | PostgreSQL, MSS, MCS-COP |
 | CSV upload | PostgreSQL, MSS, MCS-COP |
-| MCS-COP | None (destination-only) |
 
 CSV is source-only. A destination also remains unavailable unless its writer flag is enabled
 (`PIPELINE_ENABLE_POSTGRES_WRITER`, `PIPELINE_ENABLE_MSS_WRITER`, or
 `PIPELINE_ENABLE_MCSCOP_WRITER`). The UI filters the choices, and save/enqueue/runtime boundaries
 repeat the same checks.
 
-In real mode, PostgreSQL writes default to enabled; MSS and MCS-COP writes default to disabled.
-A successful connection check verifies connectivity, but does not enable a writer. To make MSS
-available as a destination, select PostgreSQL or CSV as the source and configure
-`PIPELINE_ENABLE_MSS_WRITER=true` in the deployment environment, then restart the app. The same
-applies to MCS-COP with `PIPELINE_ENABLE_MCSCOP_WRITER=true`.
+In real mode, PostgreSQL, MSS, and MCS-COP writes default to enabled. Operators can disable an
+individual writer with its `PIPELINE_ENABLE_*_WRITER` deployment setting. A successful connection
+check verifies connectivity independently of that operator policy.
 
 The source selector lists every validated source connection. Changing the source refreshes the
 destination choices and selects a compatible destination if the previous one is no longer valid.

@@ -1,14 +1,13 @@
-from pathlib import Path
 import math
+from pathlib import Path
 
-from PIL import Image
 from docx import Document
 from docx.enum.section import WD_ORIENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
-
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parent
 SHOT_DIR = ROOT / "page-screenshots"
@@ -205,7 +204,7 @@ set_run(intro.add_run(
 
 meta = doc.add_paragraph()
 meta.paragraph_format.space_before = Pt(18)
-set_run(meta.add_run("Version 1  ·  Demo environment  ·  September 18, 2026"), 10, MUTED)
+set_run(meta.add_run("Version 1  ·  Demo environment  ·  September 22, 2026"), 10, MUTED)
 
 # Normalize browser exports to real PNGs and refresh every derived image.
 for source in sorted(SHOT_DIR.glob("*.png")):
@@ -220,7 +219,7 @@ for _, filename, _ in PAGES:
         if previous not in refreshed:
             previous.unlink()
 
-for page_index, (heading, filename, message) in enumerate(PAGES):
+for _page_index, (heading, filename, message) in enumerate(PAGES):
     # Every section uses one complete desktop viewport. Connections uses a
     # wider 1680px capture so its two-column layout is fully visible.
     # Preserve screenshot detail with a lossless PNG working image rather than

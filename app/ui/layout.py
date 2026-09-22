@@ -66,6 +66,7 @@ INDICATOR = "#global-request-indicator"
 THEME_CHOICES = ("folio",)
 DEFAULT_COLOR_MODE: Literal["light", "dark"] = "dark"
 UI_PREFERENCE_MAX_AGE = 31536000
+UI_SHELL_STYLES_VERSION = "5"
 
 BadgeTone = Literal["neutral", "info", "success", "warning", "danger"]
 StatusTone = Literal["info", "success", "warning", "danger"]
@@ -218,7 +219,10 @@ def document_head(
         ),
         html.link(
             rel="stylesheet",
-            href=asset_href(request, f"/app-assets/hedron-desktop.css?v={APP_VERSION}"),
+            href=asset_href(
+                request,
+                f"/app-assets/hedron-desktop.css?v={APP_VERSION}&shell={UI_SHELL_STYLES_VERSION}",
+            ),
         ),
     ]
     return Fragment(*nodes)
@@ -351,13 +355,20 @@ def side_nav(request: Request, auth: AuthContext) -> Nav:
     )
 
 
-def shell_nav_footer(settings: Settings) -> NavStatus:
-    """Use Hedron's typed AppShell status slot for workspace health."""
+def shell_nav_footer(settings: Settings) -> Stack:
+    """Use Hedron's typed status and stack slots for workspace health."""
     runtime = runtime_presentation(settings)
-    return NavStatus(
-        runtime.nav_status,
-        tone=runtime.nav_tone,
-        mark="●",
+    status_lines = tuple(part.strip() for part in runtime.nav_status.split(" · ", 1))
+    return Stack(
+        *(
+            NavStatus(
+                line,
+                tone=runtime.nav_tone,
+                mark="●" if index == 0 else None,
+            )
+            for index, line in enumerate(status_lines)
+        ),
+        gap="xs",
         class_="data-mover-nav-footer",
     )
 
@@ -503,8 +514,9 @@ def app_shell(
                                 banner_spacing="standard",
                                 header_density="standard",
                                 footer_density="compact",
-                                nav_toggle="ghost",
-                                nav_footer_collapsed="hide",
+                                # Both workspace status lines must remain visible even if a
+                                # stale Hedron navigation preference marks the shell collapsed.
+                                nav_footer_collapsed="show",
                             ),
                             app_footer=AppFooter(
                                 settings.app_name,
@@ -512,8 +524,9 @@ def app_shell(
                             ),
                             content_width="wide",
                             mobile_collapse=False,
-                            nav_collapse="user",
-                            nav_preference_key="data-mover-nav-collapsed",
+                            # Keep the workspace navigation expanded until the collapse
+                            # interaction has a layout-safe treatment on every screen size.
+                            nav_collapse="never",
                             class_="data-mover-app-shell",
                         ),
                         gap="md",
@@ -619,7 +632,11 @@ def app_shell(
     ]
     page_nodes.append(content)
     return Page(
-        *page_nodes,
+        # Keep the support hosts and page content in one document frame. This
+        # lets Hedron's native body spacing apply once, instead of treating the
+        # empty dialog host as a separate top-level page and adding another
+        # block margin before the workspace.
+        html.div(*page_nodes),
         title=page_title or settings.app_name,
         data_theme=markers["data-theme"],
         data_hedron_theme=markers["data-hedron-theme"],
