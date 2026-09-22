@@ -372,6 +372,54 @@ def test_uncertain_cancellation_is_reviewable_and_blocks_enqueue(
         assert follow_up.attempt == 1
 
 
+def test_stale_preload_worker_cancellation_persists_safe_facts(access_app) -> None:
+    settings = get_settings()
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        run = PipelineRun(
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            status=PipelineRunStatus.EXTRACTING.value,
+            stage="inspect",
+            lease_token="stale-lease",
+            lease_expires_at=utcnow() - timedelta(seconds=1),
+            cancel_requested_at=utcnow(),
+        )
+        db.add(run)
+        db.commit()
+
+        assert (
+            claim_run(
+                db,
+                worker_id="recovery-worker",
+                lease_seconds=settings.pipeline_lease_seconds,
+                run_id=run.id,
+            )
+            is None
+        )
+        db.refresh(run)
+
+        assert run.status == PipelineRunStatus.CANCELLED.value
+        assert run.data_impact == "unchanged"
+        assert run.reconciliation_required is False
+        assert run.last_safe_stage == "inspect"
+        assert run.error_code == TransferErrorCode.CANCELLED_BY_USER.value
+        facts = json.loads(run.verification_json or "{}")
+        assert facts["data_impact"] == "unchanged"
+        assert facts["reconciliation_required"] is False
+        assert facts["last_safe_stage"] == "inspect"
+        assert _run_requires_reconciliation_review(run) is False
+        event = db.scalar(
+            select(PipelineRunEvent)
+            .where(PipelineRunEvent.run_id == run.id)
+            .order_by(PipelineRunEvent.sequence.desc())
+        )
+        assert event is not None
+        assert event.stage == "cancelled"
+        assert "cancelled before destination writes" in event.message
+
+
 def test_legacy_failed_run_with_loaded_rows_blocks_enqueue(access_app, demo_connections) -> None:
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.email == "admin@example.gov"))

@@ -255,48 +255,63 @@ def _run_duration_ms(run: PipelineRun) -> int | None:
     return max(0, int((finished_at - started_at).total_seconds() * 1000))
 
 
+def _cancel_before_destination_work(
+    db: Session,
+    run: PipelineRun,
+    *,
+    last_safe_stage: str,
+    message: str,
+) -> None:
+    """Persist a cancellation known to have occurred before destination writes."""
+    resolved_impact = DataImpact.UNCHANGED
+    run.last_safe_stage = last_safe_stage
+    run.data_impact = resolved_impact.value
+    run.reconciliation_required = False
+    run.reconciliation_reviewed_at = None
+    run.error_code = TransferErrorCode.CANCELLED_BY_USER.value
+    run.error_summary = message
+    run.retryable = False
+    _set_status(run, PipelineRunStatus.CANCELLED.value, lease_token=run.lease_token)
+    append_event(db, run, message, stage="cancelled")
+    run.verification_json = json.dumps(
+        _failure_facts(
+            run,
+            TransferErrorCode.CANCELLED_BY_USER.value,
+            resolved_impact,
+            reconciliation_required=False,
+            last_safe_stage=last_safe_stage,
+        ),
+        separators=(",", ":"),
+    )
+    log_event(
+        log,
+        "pipeline.run.cancelled",
+        outcome="cancelled",
+        reference_id=run.id,
+        run_id=run.id,
+        pipeline_id=run.pipeline_definition_id or "",
+        user_id=run.user_id,
+        attempt=run.attempt,
+        operation="transfer",
+        stage="cancelled",
+        provider=_run_provider_summary(run),
+        duration_ms=_run_duration_ms(run),
+        data_impact=resolved_impact.value,
+        cause=run.error_summary,
+    )
+
+
 def request_cancel(db: Session, *, user: User, run_id: str) -> PipelineRun:
     run = owned_run(db, user=user, run_id=run_id)
     if run.status in TERMINAL_STATUSES:
         return run
     run.cancel_requested_at = utcnow()
     if run.status == PipelineRunStatus.QUEUED.value:
-        failure_stage = run.stage
-        resolved_impact = DataImpact.UNCHANGED
-        run.last_safe_stage = failure_stage
-        run.data_impact = resolved_impact.value
-        run.reconciliation_required = False
-        run.reconciliation_reviewed_at = None
-        run.error_code = TransferErrorCode.CANCELLED_BY_USER.value
-        run.error_summary = "The transfer was cancelled before a worker claimed it."
-        run.retryable = False
-        _set_status(run, PipelineRunStatus.CANCELLED.value, lease_token=run.lease_token)
-        append_event(db, run, "Run cancelled before a worker claimed it.", stage="cancelled")
-        run.verification_json = json.dumps(
-            _failure_facts(
-                run,
-                TransferErrorCode.CANCELLED_BY_USER.value,
-                resolved_impact,
-                reconciliation_required=False,
-                last_safe_stage=failure_stage,
-            ),
-            separators=(",", ":"),
-        )
-        log_event(
-            log,
-            "pipeline.run.cancelled",
-            outcome="cancelled",
-            reference_id=run.id,
-            run_id=run.id,
-            pipeline_id=run.pipeline_definition_id or "",
-            user_id=run.user_id,
-            attempt=run.attempt,
-            operation="transfer",
-            stage="cancelled",
-            provider=_run_provider_summary(run),
-            duration_ms=_run_duration_ms(run),
-            data_impact=resolved_impact.value,
-            cause=run.error_summary,
+        _cancel_before_destination_work(
+            db,
+            run,
+            last_safe_stage=run.stage,
+            message="Run cancelled before a worker claimed it.",
         )
     else:
         append_event(db, run, "Cancellation requested.", stage=run.stage)
@@ -433,8 +448,9 @@ def claim_run(
     run = db.scalar(statement)
     if run is None:
         return None
+    cancellation_stage = run.stage
     if run.status in WORKER_OWNED_STATUSES and run.lease_expires_at is not None:
-        if run.stage in {"transfer", "verify"}:
+        if cancellation_stage in {"transfer", "verify"}:
             fail_run(
                 db,
                 run,
@@ -454,8 +470,12 @@ def claim_run(
         run.lease_expires_at = None
         append_event(db, run, "Stale worker lease recovered; run requeued.", stage="queued")
     if run.cancel_requested_at is not None:
-        _set_status(run, PipelineRunStatus.CANCELLED.value, lease_token=None)
-        append_event(db, run, "Run cancelled.", stage="cancelled")
+        _cancel_before_destination_work(
+            db,
+            run,
+            last_safe_stage=cancellation_stage,
+            message="Run cancelled before destination writes began.",
+        )
         db.commit()
         return None
     lease_token = new_id()
