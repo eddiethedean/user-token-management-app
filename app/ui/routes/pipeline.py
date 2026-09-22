@@ -119,6 +119,7 @@ from app.ui.presenters.run_status import (
 )
 from app.ui.regions import (
     MAIN_PANEL,
+    PIPELINE_SAVE_NOTICE,
     SIDE_NAV,
 )
 from app.ui.routes.pipeline_context import (
@@ -2671,9 +2672,12 @@ def _pipeline_body(
             density="compact",
         ),
         setup_flow,
-        alert_box(
-            "Pipeline saved. You can load or run it any time." if notice == "saved" else "",
-            kind="success",
+        html.div(
+            alert_box(
+                "Pipeline saved. You can load or run it any time." if notice == "saved" else "",
+                kind="success",
+            ),
+            id="pipeline-save-notice",
         ),
         NavigationTabs(
             (
@@ -3246,7 +3250,7 @@ def register_pipeline_routes(
 
     @app.page(
         "/pipeline",
-        fragment_regions=(MAIN_PANEL, SIDE_NAV),
+        fragment_regions=(MAIN_PANEL, SIDE_NAV, PIPELINE_SAVE_NOTICE),
         include_in_schema=False,
     )
     async def pipeline_page(
@@ -3556,6 +3560,12 @@ def _schema_diff_surface(differences: list[dict[str, str]]):
         "missing_destination": ("Missing at destination", "danger"),
         "extra_destination": ("Extra at destination", "info"),
     }
+    issues = sum(row["status"] != "match" for row in differences)
+    comparison_label = (
+        f"Review {issues} schema differences"
+        if issues
+        else f"All {len(differences)} columns match · view comparison"
+    )
     return Surface(
         PageHeader(
             "Schema comparison",
@@ -3564,37 +3574,42 @@ def _schema_diff_surface(differences: list[dict[str, str]]):
             level=3,
             density="compact",
         ),
-        ScrollRegion(
-            Table(
-                rows=[
-                    [
-                        Badge(
-                            status_labels.get(row["status"], ("Review", "warning"))[0],
-                            tone=cast(
-                                Literal["neutral", "info", "success", "warning", "danger"],
-                                status_labels.get(row["status"], ("Review", "warning"))[1],
+        Expander(
+            comparison_label,
+            ScrollRegion(
+                Table(
+                    rows=[
+                        [
+                            Badge(
+                                status_labels.get(row["status"], ("Review", "warning"))[0],
+                                tone=cast(
+                                    Literal["neutral", "info", "success", "warning", "danger"],
+                                    status_labels.get(row["status"], ("Review", "warning"))[1],
+                                ),
+                                size="sm",
                             ),
-                            size="sm",
-                        ),
-                        html.strong(row["name"]),
-                        f"{row['source_type']} · {row['source_nullable']}",
-                        f"{row['destination_type']} · {row['destination_nullable']}",
-                    ]
-                    for row in differences
-                ],
-                columns=[
-                    TableColumn(header="Status"),
-                    TableColumn(header="Column"),
-                    TableColumn(header="Source"),
-                    TableColumn(header="Destination"),
-                ],
-                density="compact",
-                sticky_header=True,
-                zebra=True,
+                            html.strong(row["name"]),
+                            f"{row['source_type']} · {row['source_nullable']}",
+                            f"{row['destination_type']} · {row['destination_nullable']}",
+                        ]
+                        for row in differences
+                    ],
+                    columns=[
+                        TableColumn(header="Status"),
+                        TableColumn(header="Column"),
+                        TableColumn(header="Source"),
+                        TableColumn(header="Destination"),
+                    ],
+                    density="compact",
+                    sticky_header=True,
+                    zebra=True,
+                ),
+                axis="block",
+                size="sm",
+                label="Schema comparison",
             ),
-            axis="block",
-            size="sm",
-            label="Schema comparison",
+            open=issues > 0,
+            enhance="native",
         ),
         appearance="plain",
         padding="sm",

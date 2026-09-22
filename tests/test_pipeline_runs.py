@@ -84,7 +84,9 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     queued = client.post(
         "/pipeline/runs",
         data={
-            "csrf_token": csrf_from(client.get("/pipeline").text),
+            "csrf_token": csrf_from(
+                client.get(f"/pipeline?notice=saved&pipeline_id={pipeline_id}").text
+            ),
             "pipeline_id": str(pipeline_id),
         },
         headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor", "Accept": "text/html"},
@@ -108,6 +110,8 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert 'data-hedron-columns="2" data-hedron-columns-lg="3"' in queued.text
     assert 'data-hedron-async-region="true"' in queued.text
     assert 'data-hedron-action-phase="success"' in queued.text
+    assert 'id="pipeline-save-notice" hx-swap-oob="outerHTML"' in queued.text
+    assert queued.headers.get("HX-Push-Url") == f"/pipeline?pipeline_id={pipeline_id}"
 
     restored = client.get(f"/pipeline?pipeline_id={pipeline_id}")
     assert "Live transfer" in restored.text

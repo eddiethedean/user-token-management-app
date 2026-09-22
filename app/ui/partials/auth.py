@@ -7,6 +7,7 @@ from hedron import (
     ActionGroup,
     Alert,
     Badge,
+    ClipboardCopy,
     Container,
     Divider,
     FormField,
@@ -214,10 +215,10 @@ def render_login_page(
         card_children.append(alert_box(error))
         if error_reference:
             card_children.append(
-                Text(
-                    f"Reference: {error_reference}",
-                    role="caption",
-                    overflow="wrap",
+                Inline(
+                    Text(f"Reference: {error_reference}", role="caption", overflow="wrap"),
+                    ClipboardCopy(error_reference, label="Copy support reference"),
+                    gap="xs",
                 )
             )
     if federated:

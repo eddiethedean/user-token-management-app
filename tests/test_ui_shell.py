@@ -221,6 +221,69 @@ def test_login_presentation_preserves_auth_and_runtime_contract(access_app, mode
         assert 'href="/register"' in rendered
 
 
+def test_login_support_reference_has_a_copy_action(access_app) -> None:
+    from app.dependencies import get_settings
+    from app.ui.partials.auth import render_login_page
+
+    request = _request()
+    request.scope["app"] = access_app
+    response = render_login_page(
+        request,
+        get_settings(),
+        error="We could not complete sign-in.",
+        error_reference="req-12345",
+    )
+    rendered = bytes(response.body).decode()
+
+    assert "Reference: req-12345" in rendered
+    assert "Copy support reference" in rendered
+
+
+def test_invitation_panel_uses_native_grid_and_spaced_history() -> None:
+    html = render_html(
+        ui.invitation_panel(
+            _request(),
+            [],
+            [SimpleNamespace(name="user")],  # pyright: ignore[reportArgumentType]
+            csrf_token="invite-csrf",  # pyright: ignore[reportArgumentType]
+        )
+    )
+
+    assert 'data-hedron-columns="2"' in html
+    assert "Send invitation" in html
+    assert "No invitations yet." in html
+    assert 'class="hedron-stack"' in html
+
+
+def test_audit_details_are_revealed_by_native_disclosure() -> None:
+    from datetime import datetime
+
+    audit_event = SimpleNamespace(
+        occurred_at=datetime(2026, 9, 22, 12, 0),
+        event_type="auth.login",
+        outcome="failure",
+        source_ip="127.0.0.1",
+        detail='{"reason":"invalid_credentials","reference_id":"req-12345"}',
+    )
+    rendered = render_html(
+        ui.audit_results_body(
+            _request(),
+            [audit_event],  # pyright: ignore[reportArgumentType]
+            event_type_filter="",
+            outcome_filter="",
+            current_page=1,
+            page_count=1,
+            total_events=1,
+        )
+    )
+
+    assert "View details" in rendered
+    assert '<details class="hedron-expander">' in rendered
+    assert "invalid_credentials" in rendered
+    assert "req-12345" in rendered
+    assert 'title="' not in rendered
+
+
 def test_login_success_notice_remains_visible(access_app):
     response = fastapi_fixture(access_app).get("/login?password=changed")
     assert "Password changed. Sign in with your new password." in response.body

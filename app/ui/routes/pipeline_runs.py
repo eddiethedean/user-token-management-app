@@ -33,12 +33,18 @@ from app.ui.interactions import (
     interaction_response,
     ok_fragment,
     pipeline_run_feedback_clear_oob,
+    pipeline_save_notice_clear_oob,
 )
 from app.ui.params import PipelineIdForm
 from app.ui.partials.feedback import feedback_panel
 from app.ui.presenters.run_status import run_action_metadata, run_status_toasts
-from app.ui.regions import PIPELINE_RUN_FEEDBACK, PIPELINE_RUN_MONITOR, TOAST_HOST
-from app.ui.urls import redirect_path
+from app.ui.regions import (
+    PIPELINE_RUN_FEEDBACK,
+    PIPELINE_RUN_MONITOR,
+    PIPELINE_SAVE_NOTICE,
+    TOAST_HOST,
+)
+from app.ui.urls import mounted_path, redirect_path
 
 
 class StatusFragment(Protocol):
@@ -154,7 +160,8 @@ def register_pipeline_run_routes(
                     status_code=status.HTTP_202_ACCEPTED,
                     action_state=action_state,
                     action_trace=action_trace,
-                    oob=(pipeline_run_feedback_clear_oob(),),
+                    oob=(pipeline_run_feedback_clear_oob(), pipeline_save_notice_clear_oob()),
+                    push_url=mounted_path(request, f"/pipeline?pipeline_id={pipeline.id}"),
                 ),
             )
             return response
@@ -165,7 +172,12 @@ def register_pipeline_run_routes(
 
     @app.action(
         "/pipeline/runs",
-        fragment_regions=(PIPELINE_RUN_FEEDBACK, PIPELINE_RUN_MONITOR, TOAST_HOST),
+        fragment_regions=(
+            PIPELINE_RUN_FEEDBACK,
+            PIPELINE_RUN_MONITOR,
+            PIPELINE_SAVE_NOTICE,
+            TOAST_HOST,
+        ),
         include_in_schema=False,
     )
     async def pipeline_run_start(

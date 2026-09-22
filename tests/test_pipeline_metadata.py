@@ -36,6 +36,29 @@ def test_schema_diff_classifies_missing_extra_and_changed_columns() -> None:
     ]
 
 
+def test_schema_comparison_disclosure_tracks_review_priority() -> None:
+    from hedron.testing import render_html
+
+    from app.ui.routes.pipeline import _schema_diff_surface
+
+    row = {
+        "name": "event_id",
+        "status": "match",
+        "source_type": "Int64",
+        "source_nullable": "Required",
+        "destination_type": "Int64",
+        "destination_nullable": "Required",
+    }
+    matching = render_html(_schema_diff_surface([row]))
+    assert "All 1 columns match · view comparison" in matching
+    assert '<details class="hedron-expander"><summary>All 1 columns match' in matching
+    assert "event_id" in matching
+
+    changed = render_html(_schema_diff_surface([{**row, "status": "changed"}]))
+    assert "Review 1 schema differences" in changed
+    assert '<details class="hedron-expander" open>' in changed
+
+
 def test_manifest_metadata_is_safe_and_explicit() -> None:
     assert manifest_metadata(
         rows=3,

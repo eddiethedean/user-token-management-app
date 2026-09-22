@@ -63,6 +63,7 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.PIPELINE_SCHEMA_PREVIEW,
     region_defs.PIPELINE_RUN_MONITOR,
     region_defs.PIPELINE_RUN_FEEDBACK,
+    region_defs.PIPELINE_SAVE_NOTICE,
     region_defs.PIPELINE_TARGET_NODE,
     region_defs.PIPELINE_TARGET_PROVIDER_LABEL,
     region_defs.INVITATION_PANEL,
@@ -178,6 +179,16 @@ def pipeline_run_feedback_clear_oob() -> OobUpdate:
     return OobUpdate(
         content=html.div(id="pipeline-run-feedback"),
         element_id="pipeline-run-feedback",
+        swap="outerHTML",
+    )
+
+
+def pipeline_save_notice_clear_oob() -> OobUpdate:
+    """Clear a stale save confirmation when the user starts a run."""
+
+    return OobUpdate(
+        content=html.div(id="pipeline-save-notice"),
+        element_id="pipeline-save-notice",
         swap="outerHTML",
     )
 

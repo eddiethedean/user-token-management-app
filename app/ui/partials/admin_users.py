@@ -379,40 +379,47 @@ def invitation_panel(
         alert_box(success, kind="success"),
         Form(
             csrf_hidden(csrf_token),
-            FormField(
-                name="email",
-                label="Government email",
-                id="invite_email",
-                required=True,
-                error=email_error or None,
-                control=TextInput(
-                    "email",
+            FormGrid(
+                FormField(
+                    name="email",
+                    label="Government email",
                     id="invite_email",
-                    type="email",
                     required=True,
-                ),
-            ),
-            FormField(
-                name="role",
-                label="Initial role",
-                id="invite_role",
-                required=True,
-                error=role_error or None,
-                control=Select(
-                    "role",
-                    [(role.name, role.name.title()) for role in roles],
-                    id="invite_role",
-                    required=True,
-                    value=(
-                        "user"
-                        if any(role.name == "user" for role in roles)
-                        else roles[0].name
-                        if roles
-                        else None
+                    error=email_error or None,
+                    control=TextInput(
+                        "email",
+                        id="invite_email",
+                        type="email",
+                        required=True,
                     ),
                 ),
+                FormField(
+                    name="role",
+                    label="Initial role",
+                    id="invite_role",
+                    required=True,
+                    error=role_error or None,
+                    control=Select(
+                        "role",
+                        [(role.name, role.name.title()) for role in roles],
+                        id="invite_role",
+                        required=True,
+                        value=(
+                            "user"
+                            if any(role.name == "user" for role in roles)
+                            else roles[0].name
+                            if roles
+                            else None
+                        ),
+                    ),
+                ),
+                columns=2,
+                gap="md",
             ),
-            Button("Send invitation", width="full", type="submit"),
+            ActionGroup(
+                Button("Send invitation", type="submit"),
+                align="end",
+            ),
             action=form_action(request, "admin/invitations"),
             method="post",
             **hx_attrs(
@@ -423,16 +430,19 @@ def invitation_panel(
                 indicator=INDICATOR,
             ),
         ),
-        ResourceList(
-            *pending_rows,
-            label="Invitation history",
-            density="comfortable",
-        )
-        if pending_rows
-        else StateView(
-            "No invitations yet.",
-            kind="empty",
-            description="Sent invitations and their current status will appear here.",
+        Stack(
+            ResourceList(
+                *pending_rows,
+                label="Invitation history",
+                density="comfortable",
+            )
+            if pending_rows
+            else StateView(
+                "No invitations yet.",
+                kind="empty",
+                description="Sent invitations and their current status will appear here.",
+            ),
+            gap="md",
         ),
         id="invitation-panel",
     )
