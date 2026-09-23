@@ -217,7 +217,7 @@ def test_append_reconciliation_still_flags_a_short_manifest() -> None:
         destination=_Destination(),
     )
 
-    assert level == "exact"
+    assert level == "provider_write_count"
     assert error is not None
     assert facts["expected_rows"] == 5
 
@@ -245,7 +245,7 @@ def test_replace_reconciliation_requires_exact_final_table_count() -> None:
 
     assert exact_level == "exact"
     assert exact_error is None
-    assert mismatch_level == "exact"
+    assert mismatch_level == "provider_write_count"
     assert mismatch_error is not None
 
 
