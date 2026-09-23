@@ -679,6 +679,8 @@ class PostgresConnector:
 
 def _pg_type(data_type: str) -> str:
     folded = data_type.casefold()
+    if folded == "bytea":
+        return "BYTEA"
     decimal = _DECIMAL.fullmatch(folded)
     if decimal:
         precision = int(decimal.group("precision"))

@@ -339,6 +339,58 @@ def test_postgres_preserves_timezone_aware_timestamps(postgres_credentials) -> N
     )
 
 
+def test_postgres_bytea_source_round_trips_into_a_new_destination(postgres_credentials) -> None:
+    source_values = [b"", b"\x00", b"\\", bytes(range(256))]
+    connection = connect(postgres_credentials, connector_settings())
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("CREATE TABLE public.bytea_source (id INTEGER, payload BYTEA)")
+            cursor.executemany(
+                "INSERT INTO public.bytea_source VALUES (%s, %s)",
+                list(enumerate(source_values)),
+            )
+        connection.commit()
+    finally:
+        connection.close()
+
+    connector = PostgresConnector(connector_settings())
+    source_locator = postgres_table("public", "bytea_source")
+    source_schema = connector.inspect_object(postgres_credentials, source_locator)
+    batch = next(
+        connector.extract(
+            postgres_credentials,
+            source_locator,
+            batch_rows=100,
+            batch_bytes=10_000,
+        )
+    )
+    destination_locator = postgres_table("public", "bytea_destination")
+    session = connector.prepare_destination(
+        postgres_credentials,
+        destination_locator,
+        source_schema,
+        PostgresAppendPolicy(),
+        run_id="bytea-destination",
+    )
+    connector.write_batch(session, batch)
+    manifest = connector.finalize(session)
+
+    assert manifest.rows == len(source_values)
+    assert _fetchall(
+        postgres_credentials,
+        """
+        SELECT data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'bytea_destination'
+          AND column_name = 'payload'
+        """,
+    ) == [("bytea",)]
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT id, payload FROM public.bytea_destination ORDER BY id",
+    ) == list(enumerate(source_values))
+
+
 def test_postgres_skips_generated_destination_columns(postgres_credentials) -> None:
     _execute(
         postgres_credentials,
