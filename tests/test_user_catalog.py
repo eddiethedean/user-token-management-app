@@ -215,9 +215,7 @@ def test_catalog_cache_is_scoped_expiring_and_invalidated_by_real_credentials(
         cache_two.put("postgres", "public", {"items": [{"name": "owner-two"}]})
 
         assert cache_one.get("postgres", "public") == {"items": [{"name": "owner-one"}]}
-        assert cache_one.get("postgres", "analytics") == {
-            "items": [{"name": "namespace-one"}]
-        }
+        assert cache_one.get("postgres", "analytics") == {"items": [{"name": "namespace-one"}]}
         assert cache_one.get("mss", "public") == {"items": [{"name": "mss-one"}]}
         assert cache_two.get("postgres", "public") == {"items": [{"name": "owner-two"}]}
         stored = db.scalar(
