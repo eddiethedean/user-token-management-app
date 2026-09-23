@@ -72,7 +72,19 @@ document.addEventListener("htmx:afterRequest", (event) => {
   }
 });
 
+let sideNavRequestPending = false;
+document.addEventListener("click", (event) => {
+  if (event.target.closest?.("#side-nav a[hx-get]")) sideNavRequestPending = true;
+}, true);
+
+document.addEventListener("htmx:afterSettle", (event) => {
+  if (!sideNavRequestPending || event.detail.target?.id !== "main-panel") return;
+  sideNavRequestPending = false;
+  requestAnimationFrame(() => window.scrollTo({ left: 0, top: 0, behavior: "instant" }));
+});
+
 document.addEventListener("htmx:responseError", (event) => {
+  sideNavRequestPending = false;
   restoreColorMode(event.detail.elt.closest(colorModeFormSelector));
 });
 
@@ -127,18 +139,27 @@ document.addEventListener("htmx:configRequest", (event) => {
   }
 });
 
-document.addEventListener("change", (event) => {
-  if (!event.target.matches('#pipeline-csv-file input[type="file"]')) return;
-  // Never keep a previous upload active while its replacement is being scanned.
+document.addEventListener("htmx:beforeRequest", (event) => {
+  const control = event.detail.elt;
+  const fileInput = control.matches?.('input[name="csv_file"]')
+    ? control
+    : control.querySelector?.('input[name="csv_file"]');
+  if (!fileInput?.files?.length) return;
+  // Clear a previous upload only when a replacement scan actually starts.
   const upload = document.getElementById("pipeline-source-upload-id");
   if (upload) upload.value = "";
-}, true);
+});
 
-document.addEventListener("htmx:afterRequest", (event) => {
-  if (!event.detail.elt.closest?.("#pipeline-csv-file")) return;
+document.addEventListener("htmx:afterSettle", (event) => {
+  const control = event.detail.elt;
+  if (
+    !control.matches?.('input[name="csv_file"]') &&
+    !control.closest?.("#pipeline-csv-file")
+  ) return;
   const source = document.getElementById("pipeline-source-select");
   const upload = document.getElementById("pipeline-source-upload-id");
-  if (event.detail.successful && source && upload?.value) {
+  const inspection = document.getElementById("pipeline-csv-inspection");
+  if (inspection?.dataset.csvReady === "true" && source && upload?.value) {
     source.value = "csv";
     source.dispatchEvent(new Event("change", { bubbles: true }));
   }

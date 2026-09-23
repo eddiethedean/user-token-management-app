@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urljoin
 
 from sqlalchemy import select
@@ -483,7 +483,8 @@ def test_stale_reset_session_cannot_complete_after_password_change(access_app) -
         assert stale_reset.used_at is not None
 
 
-def test_login_rate_limit_html(client, request_settings_override) -> None:
+def test_login_rate_limit_html(client, request_settings_override, monkeypatch) -> None:
+    monkeypatch.setattr("app.services.rate_limit.utcnow", lambda: datetime(2026, 9, 23, 12, 0, 15))
     settings = get_settings()
     original_source = settings.rate_limit_login_per_source
     original_account = settings.rate_limit_login_per_account
@@ -526,7 +527,8 @@ def test_login_rate_limit_html(client, request_settings_override) -> None:
         settings.rate_limit_login_per_account = original_account
 
 
-def test_registration_and_reset_rate_limits(client, request_settings_override) -> None:
+def test_registration_and_reset_rate_limits(client, request_settings_override, monkeypatch) -> None:
+    monkeypatch.setattr("app.services.rate_limit.utcnow", lambda: datetime(2026, 9, 23, 12, 0, 15))
     settings = get_settings()
     original_reg_source = settings.rate_limit_registration_per_source
     original_reg_account = settings.rate_limit_registration_per_account

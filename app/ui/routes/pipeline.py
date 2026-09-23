@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, cast
 
 from fastapi import HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from hedron import (
     ActionGroup,
     Alert,
@@ -46,6 +47,7 @@ from hedron import (
     Timeline,
     html,
 )
+from hedron.htmx import is_htmx_request
 from hedron_core import NodeLike
 from starlette.responses import Response
 
@@ -108,6 +110,7 @@ from app.ui.design_system import (
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
+from app.ui.interactions import ok_fragment
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.params import NoticeQuery
 from app.ui.partials.feedback import feedback_panel
@@ -125,6 +128,7 @@ from app.ui.presenters.run_status import (
 from app.ui.regions import (
     MAIN_PANEL,
     PIPELINE_SAVE_NOTICE,
+    PIPELINE_SAVED_ROUTES,
     SIDE_NAV,
 )
 from app.ui.routes.pipeline_context import (
@@ -134,7 +138,7 @@ from app.ui.routes.pipeline_context import (
     with_user_session,
 )
 from app.ui.tabs import NavigationTabs
-from app.ui.urls import form_action, hx_attrs
+from app.ui.urls import form_action, hx_attrs, redirect_path
 
 
 @dataclass(frozen=True)
@@ -602,6 +606,19 @@ def _source_namespace_control(
     )
 
 
+def _csv_source_summary_control(
+    *, field: str, control_id: str, value: str, display: str, label: str, oob: bool = False
+) -> NodeLike:
+    """Show the selected upload as read-only text while retaining its form value."""
+    return html.div(
+        Text(display, overflow="wrap"),
+        html.input(type="hidden", name=field, value=value),
+        id=control_id,
+        data={"field-label": label},
+        **({"hx-swap-oob": f"outerHTML:#{control_id}"} if oob else {}),
+    )
+
+
 def _eligible_destinations(
     connections,
     source_provider: str,
@@ -882,7 +899,10 @@ def _source_object_control(
     attrs = {
         "id": "pipeline-source-table-select",
         "name": "source_table",
-        "data": {"pipeline-control": "source-table"},
+        "data": {
+            "pipeline-control": "source-table",
+            "field-label": require_catalog_provider(provider).objects_label,
+        },
         **({"hx-swap-oob": "outerHTML:#pipeline-source-table-select"} if oob else {}),
         **hx_attrs(
             request,
@@ -959,7 +979,7 @@ def _swap_direction_button(
         Button(
             "Swap direction",
             variant="secondary",
-            size="sm",
+            size="md",
             type="button",
             attrs={
                 "data-pipeline-swap": "true",
@@ -2011,7 +2031,7 @@ def _schema_columns_table(
             zebra=True,
         ),
         axis="block",
-        size="sm",
+        size="lg",
         label=label,
     )
 
@@ -2094,7 +2114,7 @@ def _schema_preview_surface(
                 "Primary key",
                 ", ".join(str(item) for item in preview.get("primary_key") or []) or "None",
             ),
-            columns=3,
+            columns=2,
             gap="sm",
         ),
         StateView(
@@ -2117,7 +2137,7 @@ def _schema_preview_surface(
                 else "Choose Cast to to change the type sent to the destination. "
             )
             + (
-                "The new table uses the selected types. "
+                "The new target uses the selected types. "
                 if creating_target
                 else "An existing table keeps its column definitions. "
             )
@@ -2452,7 +2472,12 @@ def _csv_inspection(
     )
 
 
-def _csv_upload_control(request: Request, *, oob: bool = False) -> NodeLike:
+def _csv_upload_control(
+    request: Request,
+    *,
+    oob: bool = False,
+    status_text: str = "Select a file to inspect its schema.",
+) -> NodeLike:
     attrs = hx_attrs(
         request,
         path="/pipeline/csv/inspect",
@@ -2471,7 +2496,7 @@ def _csv_upload_control(request: Request, *, oob: bool = False) -> NodeLike:
             maximum_size=MAX_CSV_UPLOAD_BYTES,
             label="Choose CSV file",
             hint="UTF-8 CSV · scanned locally before use",
-            status="Select a file to inspect its schema.",
+            status=status_text,
             appearance="soft",
             density="comfortable",
         ),
@@ -2714,6 +2739,55 @@ def _saved_pipeline_cards(
     )
 
 
+def _saved_routes_panel(
+    request: Request,
+    pipelines: list[PipelineDefinition],
+    connections: dict[str, dict[str, Any]],
+    *,
+    csrf_token: str,
+    writer_policy: WriterPolicy,
+    latest_runs: dict[str, Any],
+    demo_mode: bool,
+) -> NodeLike:
+    return html.div(
+        surface_card(
+            PageHeader(
+                "Saved routes",
+                eyebrow="Reusable pipelines",
+                description="Load an existing route or start it immediately.",
+                level=2,
+                density="compact",
+                meta=Badge(f"{len(pipelines)} total", tone="neutral"),
+            ),
+            _saved_pipeline_cards(
+                request,
+                pipelines,
+                connections,
+                csrf_token=csrf_token,
+                writer_policy=writer_policy,
+                latest_runs=latest_runs,
+            ),
+            Alert(
+                (
+                    "Demo connectors stay on this host and never call external endpoints."
+                    if demo_mode
+                    else "The worker decrypts credentials only for the claimed run and records persisted facts."
+                ),
+                title="Safe to explore" if demo_mode else "Live transfers",
+                tone="warning" if demo_mode else "success",
+            ),
+        ),
+        id=PIPELINE_SAVED_ROUTES.id,
+        **hx_attrs(
+            request,
+            method="get",
+            path="/pipeline/saved-routes",
+            target=PIPELINE_SAVED_ROUTES.selector,
+            trigger="click from:#pipeline-workspace-tabs-tab-2",
+        ),
+    )
+
+
 def _pipeline_preview_fragment(
     *,
     request: Request,
@@ -2765,19 +2839,18 @@ def _pipeline_preview_fragment(
     target_runtime_ready = target_catalog is not None and _connection_runnable(
         connections[target_provider]
     )
-    availability_message = (
-        _destination_unavailable_message(connections, source_provider, writer_policy=writer_policy)
-        if target_catalog is None
-        else "Upload and scan a CSV source."
-        if source_provider == "csv" and not csv_ready
-        else "CSV source is ready. Configure destination settings."
-        if source_provider == "csv"
-        else f"Validate the {source_catalog.label} connection before running."
-        if not source_runtime_ready
-        else f"Validate the {target_catalog.label} connection before running."
-        if not target_runtime_ready
-        else "Source and destination connections are ready."
-    )
+    if target_catalog is None:
+        availability_message = _destination_unavailable_message(
+            connections, source_provider, writer_policy=writer_policy
+        )
+    elif source_provider == "csv" and not csv_ready:
+        availability_message = "Upload and scan a CSV source."
+    elif not source_runtime_ready:
+        availability_message = f"Validate the {source_catalog.label} connection before running."
+    elif not target_runtime_ready:
+        availability_message = f"Validate the {target_catalog.label} connection before running."
+    else:
+        availability_message = "Source and destination connections are ready."
     source_object_name = source_table
     table_name = (
         _committed_new_table_name(destination_table_new) or destination_table_new or target_table
@@ -2810,20 +2883,6 @@ def _pipeline_preview_fragment(
     if route_overlap:
         availability_message = "Choose a destination object different from the source object."
     field_count = len(csv_inspection.columns) if csv_ready and csv_inspection is not None else 0
-    source_table_options = (
-        [
-            _option(
-                "",
-                csv_inspection.filename
-                if csv_ready and csv_inspection is not None
-                else "Upload required",
-                selected=True,
-                disabled=True,
-            )
-        ]
-        if source_provider == "csv"
-        else None
-    )
     target_schema_options = (
         [_option("", "No connection available", selected=True, disabled=True)]
         if target_catalog is None
@@ -2906,19 +2965,13 @@ def _pipeline_preview_fragment(
                 oob=True,
             )
             if source_provider != "csv"
-            else _select_fragment(
-                request,
-                "pipeline-source-schema-select",
-                [
-                    _option(
-                        "uploaded",
-                        "Scanned CSV" if csv_ready else "Upload a CSV to inspect its schema",
-                        selected=True,
-                        disabled=True,
-                    )
-                ],
-                name="source_schema",
+            else _csv_source_summary_control(
+                field="source_schema",
+                control_id="pipeline-source-schema-select",
+                value="uploaded",
+                display="Scanned CSV" if csv_ready else "Upload required",
                 label="Upload",
+                oob=True,
             )
         ),
         (
@@ -2931,12 +2984,17 @@ def _pipeline_preview_fragment(
                 oob=True,
             )
             if source_provider != "csv"
-            else _select_fragment(
-                request,
-                "pipeline-source-table-select",
-                source_table_options or [],
-                name="source_table",
-                label=source_catalog.objects_label,
+            else _csv_source_summary_control(
+                field="source_table",
+                control_id="pipeline-source-table-select",
+                value=source_table if csv_ready else "",
+                display=(
+                    csv_inspection.filename
+                    if csv_ready and csv_inspection is not None
+                    else "Upload required"
+                ),
+                label="File",
+                oob=True,
             )
         ),
         *_source_catalog_suggestions(
@@ -3251,12 +3309,8 @@ def _pipeline_body(
         availability_message = _destination_unavailable_message(
             connections, source_provider, writer_policy=writer_policy
         )
-    elif source_provider == "csv":
-        availability_message = (
-            "Upload and scan a CSV source."
-            if not csv_source_ready
-            else "CSV source is ready. Configure destination settings."
-        )
+    elif source_provider == "csv" and not csv_source_ready:
+        availability_message = "Upload and scan a CSV source."
     elif not source_runtime_ready:
         availability_message = f"Validate the {source_catalog.label} connection before running."
     elif not target_runtime_ready:
@@ -3374,15 +3428,10 @@ def _pipeline_body(
                             level=2,
                             density="compact",
                             actions=ActionGroup(
-                                _swap_direction_button(
-                                    request,
-                                    can_swap=swap_eligibility.allowed,
-                                    reason=swap_eligibility.reason,
-                                ),
                                 Button(
                                     "Save pipeline",
                                     variant="secondary",
-                                    size="sm",
+                                    size="md",
                                     type="submit",
                                 ),
                                 *(
@@ -3399,21 +3448,32 @@ def _pipeline_body(
                                     if not pipeline_id
                                     else []
                                 ),
-                                Button(
-                                    "Run transfer",
-                                    type="button",
-                                    variant="primary",
-                                    size="md",
-                                    attrs={
-                                        "data-pipeline-start": "true",
-                                        **pipeline_run_attrs,
-                                        "aria-describedby": "pipeline-availability-note",
-                                    },
-                                    disabled=not initial_run_ready or not pipeline_id,
+                                *(
+                                    [
+                                        Button(
+                                            "Run transfer",
+                                            type="button",
+                                            variant="primary",
+                                            size="md",
+                                            attrs={
+                                                "data-pipeline-start": "true",
+                                                **pipeline_run_attrs,
+                                                "aria-describedby": "pipeline-availability-note",
+                                            },
+                                            disabled=not initial_run_ready,
+                                        )
+                                    ]
+                                    if pipeline_id
+                                    else []
                                 ),
                                 gap="sm",
                                 collapse="never",
                             ),
+                        ),
+                        _swap_direction_button(
+                            request,
+                            can_swap=swap_eligibility.allowed,
+                            reason=swap_eligibility.reason,
                         ),
                         html.div(
                             Alert(
@@ -3510,21 +3570,16 @@ def _pipeline_body(
                                                                     preferred_schema=source_schema_name,
                                                                 )
                                                                 if source_provider != "csv"
-                                                                else html.select(
-                                                                    _option(
-                                                                        "uploaded",
+                                                                else _csv_source_summary_control(
+                                                                    field="source_schema",
+                                                                    control_id="pipeline-source-schema-select",
+                                                                    value="uploaded",
+                                                                    display=(
                                                                         "Scanned CSV"
                                                                         if csv_source_ready
-                                                                        else "Upload required",
-                                                                        selected=True,
-                                                                        disabled=True,
+                                                                        else "Upload required"
                                                                     ),
-                                                                    id="pipeline-source-schema-select",
-                                                                    name="source_schema",
-                                                                    data={
-                                                                        "pipeline-control": "source-schema",
-                                                                        "field-label": "Upload",
-                                                                    },
+                                                                    label="Upload",
                                                                 )
                                                             ),
                                                         ),
@@ -3546,22 +3601,22 @@ def _pipeline_body(
                                                                     preferred_object=source_table_display,
                                                                 )
                                                                 if source_provider != "csv"
-                                                                else html.select(
-                                                                    _option(
-                                                                        "",
+                                                                else _csv_source_summary_control(
+                                                                    field="source_table",
+                                                                    control_id="pipeline-source-table-select",
+                                                                    value=(
+                                                                        source_table_display
+                                                                        if csv_source_ready
+                                                                        else ""
+                                                                    ),
+                                                                    display=(
                                                                         loaded_source_inspection.filename
                                                                         if csv_source_ready
                                                                         and loaded_source_inspection
                                                                         is not None
-                                                                        else "Upload required",
-                                                                        selected=True,
-                                                                        disabled=True,
+                                                                        else "Upload required"
                                                                     ),
-                                                                    id="pipeline-source-table-select",
-                                                                    name="source_table",
-                                                                    data={
-                                                                        "pipeline-control": "source-table"
-                                                                    },
+                                                                    label="File",
                                                                 )
                                                             ),
                                                         ),
@@ -3588,7 +3643,15 @@ def _pipeline_body(
                                                                 id="pipeline-csv-upload-state",
                                                             ),
                                                         ),
-                                                        _csv_upload_control(request),
+                                                        _csv_upload_control(
+                                                            request,
+                                                            status_text=(
+                                                                "Schema ready. Choose another CSV to replace it."
+                                                                if source_provider == "csv"
+                                                                and loaded_source_upload is not None
+                                                                else "Select a file to inspect its schema."
+                                                            ),
+                                                        ),
                                                         _csv_inspection(
                                                             loaded_source_upload
                                                             if source_provider == "csv"
@@ -3935,32 +3998,14 @@ def _pipeline_body(
             ),
             (
                 "Saved routes",
-                surface_card(
-                    PageHeader(
-                        "Saved routes",
-                        eyebrow="Reusable pipelines",
-                        description="Load an existing route or start it immediately.",
-                        level=2,
-                        density="compact",
-                        meta=Badge(f"{len(pipelines)} total", tone="neutral"),
-                    ),
-                    _saved_pipeline_cards(
-                        request,
-                        pipelines,
-                        connections,
-                        csrf_token=csrf_token,
-                        writer_policy=writer_policy,
-                        latest_runs=latest_runs,
-                    ),
-                    Alert(
-                        (
-                            "Demo connectors stay on this host and never call external endpoints."
-                            if demo_mode
-                            else "The worker decrypts credentials only for the claimed run and records persisted facts."
-                        ),
-                        title="Safe to explore" if demo_mode else "Live transfers",
-                        tone="warning" if demo_mode else "success",
-                    ),
+                _saved_routes_panel(
+                    request,
+                    pipelines,
+                    connections,
+                    csrf_token=csrf_token,
+                    writer_policy=writer_policy,
+                    latest_runs=latest_runs or {},
+                    demo_mode=demo_mode,
                 ),
             ),
             active=("Route setup" if notice == "saved" or run_monitor is None else "Live transfer"),
@@ -4076,6 +4121,45 @@ def register_pipeline_routes(
             headers={"Cache-Control": "no-store"},
         )
 
+    @fragment_router.view(
+        "/pipeline/saved-routes",
+        fragment_regions=(PIPELINE_SAVED_ROUTES,),
+        include_in_schema=False,
+    )
+    async def pipeline_saved_routes(
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
+    ):
+        request.state.hedron_authenticated = True
+        if not is_htmx_request(request):
+            return RedirectResponse(redirect_path(request, "/pipeline"), status_code=303)
+        connections = {
+            provider.name: {
+                "configured": secret is not None,
+                "validation": secret.validation_status if secret is not None else "unconfigured",
+                "runtime": secret.runtime_status if secret is not None else "",
+            }
+            for provider, secret in list_user_secrets(db, auth.user)
+        }
+        pipelines = list_pipelines(db, auth.user)
+        latest_runs = latest_run_map(
+            db, user=auth.user, pipeline_ids=[item.id for item in pipelines]
+        )
+        return ok_fragment(
+            _saved_routes_panel(
+                request,
+                pipelines,
+                connections,
+                csrf_token=auth.session.csrf_token,
+                writer_policy=lambda provider: writer_enabled(provider, settings=settings),
+                latest_runs=latest_runs,
+                demo_mode=settings.is_demo_mode,
+            ),
+            region_id=PIPELINE_SAVED_ROUTES.id,
+        )
+
     from app.ui.routes.pipeline_csv import register_pipeline_csv_routes
     from app.ui.routes.pipeline_datasets import register_pipeline_dataset_routes
     from app.ui.routes.pipeline_preview import (
@@ -4088,6 +4172,9 @@ def register_pipeline_routes(
     register_pipeline_csv_routes(
         app,
         inspection_fragment=_csv_inspection,
+        upload_control=lambda request, status_text: _csv_upload_control(
+            request, status_text=status_text
+        ),
     )
     register_pipeline_dataset_routes(
         app,
@@ -4503,6 +4590,11 @@ def _run_status_fragment(
     )
     snapshot = parse_snapshot(run.definition_snapshot_json)
     source_label = _provider_label(snapshot.source_provider)
+    source_detail = _run_locator_label(snapshot.source)
+    if snapshot.source_provider == "csv" and snapshot.source_upload_id:
+        source_upload = db.get(PipelineUpload, snapshot.source_upload_id)
+        if source_upload is not None and source_upload.user_id == run.user_id:
+            source_detail = source_upload.filename
     target_label = _provider_label(snapshot.destination_provider)
     failed = run_status in {"failed", "failed_needs_reconciliation"}
     source_state = (
@@ -4630,7 +4722,7 @@ def _run_status_fragment(
                 state=source_state,
                 kind="source",
                 detail="Source",
-                runtime=_run_locator_label(snapshot.source),
+                runtime=source_detail,
             ),
             ConnectorTrack(
                 Inline(
@@ -4701,7 +4793,7 @@ def _run_status_fragment(
                 delta=_format_file_size(run.loaded_bytes),
                 delta_tone="up" if run.loaded_rows else "neutral",
             ),
-            destination_count_metric(run),
+            destination_count_metric(run, provider=snapshot.destination_provider),
             Metric(
                 "Worker stage",
                 stage_label,

@@ -93,8 +93,10 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     assert "Schema &amp; row counts" in response.text
     assert "Pre-run review" in response.text
     run_button = re.search(r'<button[^>]+data-pipeline-start="true"[^>]*>', response.text)
-    assert run_button is not None
-    assert "disabled" in run_button.group(0)
+    assert run_button is None
+    assert "Save and Run" in response.text
+    assert 'hx-get="/pipeline/saved-routes"' in response.text
+    assert 'hx-trigger="click from:#pipeline-workspace-tabs-tab-2"' in response.text
     assert "Save this pipeline to enable runs." in response.text
     mode_select = re.search(
         r'<select[^>]+id="pipeline-mode-select"[^>]*>.*?</select>',
@@ -125,7 +127,7 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
         headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
     )
     assert preview.status_code == 200
-    assert "Upload a CSV to inspect its schema" in preview.text
+    assert "Upload required" in preview.text
     assert "pipeline-schema-preview" in preview.text
 
 
@@ -281,7 +283,9 @@ def test_pipeline_can_be_saved_and_loaded_later(client, demo_connections) -> Non
 
 def test_pipeline_ui_creates_and_uses_a_new_foundry_dataset(client, demo_connections) -> None:
     from app.config import get_settings
-    from app.services.demo import DEMO_CONNECTION_CREDENTIALS
+    from app.connectors.fake import FakeFoundryConnector
+    from app.connectors.registry import ConnectorRegistry, load_builtin_connectors
+    from app.services.demo import DEMO_CONNECTION_CREDENTIALS, restore_demo_foundry_datasets
     from app.services.secrets import store_user_credentials
 
     with SessionLocal() as db:
@@ -328,6 +332,17 @@ def test_pipeline_ui_creates_and_uses_a_new_foundry_dataset(client, demo_connect
     )
     assert rid_match is not None
     dataset_rid = rid_match.group(1)
+
+    fresh_registry = load_builtin_connectors(
+        demo=True,
+        registry=ConnectorRegistry(get_settings()),
+        settings=get_settings(),
+    )
+    with SessionLocal() as db:
+        assert restore_demo_foundry_datasets(db, get_settings(), fresh_registry) == 1
+    restored_connector = fresh_registry.connector_for("mss")
+    assert isinstance(restored_connector, FakeFoundryConnector)
+    assert restored_connector.list_objects(credentials, dataset_rid).items == ()
 
     saved = client.post(
         "/pipeline/save",
@@ -811,6 +826,39 @@ def test_csv_inference_detects_headers_and_conservative_types() -> None:
     ]
 
 
+def test_saved_routes_fragment_refreshes_after_a_pipeline_is_saved(
+    client, demo_connections
+) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    headers = {"HX-Request": "true", "HX-Target": "pipeline-saved-routes"}
+    initial = client.get("/pipeline/saved-routes", headers=headers)
+    assert initial.status_code == 200
+    assert 'id="pipeline-saved-routes"' in initial.text
+    assert "0 total" in initial.text
+
+    saved = client.post(
+        "/pipeline/save",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "pipeline_name": "Refreshed saved route",
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": MSS_FILE,
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "mission_orders",
+            "write_mode": "append",
+        },
+    )
+    assert saved.status_code == 303
+
+    refreshed = client.get("/pipeline/saved-routes", headers=headers)
+    assert refreshed.status_code == 200
+    assert "1 total" in refreshed.text
+    assert "Refreshed saved route" in refreshed.text
+
+
 def test_uploaded_csv_can_be_scanned_saved_and_reloaded(client, demo_connections) -> None:
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
@@ -833,6 +881,7 @@ def test_uploaded_csv_can_be_scanned_saved_and_reloaded(client, demo_connections
     assert "event_id" in scanned.text
     assert "integer" in scanned.text
     assert "datetime" in scanned.text
+    assert "Schema ready. Choose another CSV to replace it." in scanned.text
     upload_match = re.search(r'name="source_upload_id" value="([^"]+)"', scanned.text)
     assert upload_match is not None
     upload_id = upload_match.group(1)
@@ -875,9 +924,13 @@ def test_uploaded_csv_can_be_scanned_saved_and_reloaded(client, demo_connections
     assert "CSV file" in reloaded.text
     assert f'data-pipeline-source-upload-id="{upload_id}"' in reloaded.text
     assert "unit_readiness.csv" in reloaded.text
-    assert "unit_readiness.csv" in _pipeline_select(reloaded.text, "pipeline-source-table-select")
-    assert "Scanned CSV" in _pipeline_select(reloaded.text, "pipeline-source-schema-select")
+    assert "unit_readiness.csv" in _pipeline_csv_summary(
+        reloaded.text, "pipeline-source-table-select"
+    )
+    assert "Scanned CSV" in _pipeline_csv_summary(reloaded.text, "pipeline-source-schema-select")
     assert "Source · Scanned CSV" in reloaded.text
+    assert "Schema ready. Choose another CSV to replace it." in reloaded.text
+    assert f'name="source_upload_id" value="{upload_id}"' in reloaded.text
 
 
 def test_csv_scan_rejects_duplicate_headers(client) -> None:
@@ -892,10 +945,17 @@ def test_csv_scan_rejects_duplicate_headers(client) -> None:
 
     assert response.status_code == 422
     assert "column names must be unique" in response.text
+    assert "Scan failed. Choose another CSV to try again." in response.text
 
 
 def _pipeline_select(markup: str, element_id: str) -> str:
     match = re.search(rf'<select[^>]+id="{element_id}"[^>]*>.*?</select>', markup)
+    assert match is not None
+    return match.group(0)
+
+
+def _pipeline_csv_summary(markup: str, element_id: str) -> str:
+    match = re.search(rf'<div[^>]+id="{element_id}"[^>]*>.*?</div>', markup)
     assert match is not None
     return match.group(0)
 
@@ -974,9 +1034,19 @@ def test_pipeline_source_change_refreshes_destination_options(
         assert f'value="{MSS_DATASET}"' in source_dataset
         assert 'value="public"' not in source_dataset
         assert 'value="asset_inventory"' not in source_file
+    if source == "csv":
+        assert "Scanned CSV" not in response.text
+        assert "Upload required" in _pipeline_csv_summary(
+            response.text, "pipeline-source-schema-select"
+        )
+        assert "Upload required" in _pipeline_csv_summary(
+            response.text, "pipeline-source-table-select"
+        )
+    source_controls = (
+        () if source == "csv" else ("pipeline-source-schema-select", "pipeline-source-table-select")
+    )
     for element_id in (
-        "pipeline-source-schema-select",
-        "pipeline-source-table-select",
+        *source_controls,
         "pipeline-target-schema-select",
         "pipeline-target-table-select",
     ):

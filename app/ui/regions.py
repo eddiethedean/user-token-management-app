@@ -99,6 +99,11 @@ PIPELINE_CSV_FILE = FragmentRegion(
     selector="#pipeline-csv-file",
     description="CSV upload control",
 )
+PIPELINE_SAVED_ROUTES = FragmentRegion(
+    id="pipeline-saved-routes",
+    selector="#pipeline-saved-routes",
+    description="Saved pipeline list and latest run summaries",
+)
 PIPELINE_SOURCE_SCHEMA_SELECT = FragmentRegion(
     id="pipeline-source-schema-select",
     selector="#pipeline-source-schema-select",

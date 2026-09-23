@@ -48,6 +48,7 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.CSV_INSPECTION,
     region_defs.CSV_UPLOAD_STATE,
     region_defs.PIPELINE_CSV_FILE,
+    region_defs.PIPELINE_SAVED_ROUTES,
     region_defs.PIPELINE_SOURCE_SELECT,
     region_defs.PIPELINE_SOURCE_SCHEMA_SELECT,
     region_defs.PIPELINE_SOURCE_TABLE_SELECT,

@@ -84,8 +84,8 @@ def test_login_page_document(access_app) -> None:
     )
     assert "/assets/theme.css" not in response.body
     assert "/app-assets/data-mover-components.css" not in response.body
-    assert_html_contains(response, 'src="/assets/app.js?v=230926.2"')
-    assert response.body.count('src="/assets/app.js?v=230926.2"') == 1
+    assert_html_contains(response, 'src="/assets/app.js?v=230926.2&amp;ui=5"')
+    assert response.body.count('src="/assets/app.js?v=230926.2&amp;ui=5"') == 1
     assert_html_contains(response, 'data-hedron-theme="folio"')
     assert_html_contains(
         response,
@@ -941,7 +941,7 @@ def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
     assert Counter(route.kind for route in routes) == {
         "page": 12,
         "action": 27,
-        "view": 3,
+        "view": 4,
     }
     assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)
     assert all("csrf" in route.htmx_inference for route in routes if route.kind == "action")

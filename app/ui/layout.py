@@ -67,6 +67,7 @@ THEME_CHOICES = ("folio",)
 DEFAULT_COLOR_MODE: Literal["light", "dark"] = "dark"
 UI_PREFERENCE_MAX_AGE = 31536000
 UI_SHELL_STYLES_VERSION = "5"
+UI_SCRIPT_VERSION = "5"
 
 BadgeTone = Literal["neutral", "info", "success", "warning", "danger"]
 StatusTone = Literal["info", "success", "warning", "danger"]
@@ -646,7 +647,7 @@ def app_shell(
             app_name=settings.app_name,
             preference=preference,
         ),
-        scripts=(asset_src(request, f"/assets/app.js?v={APP_VERSION}"),),
+        scripts=(asset_src(request, f"/assets/app.js?v={APP_VERSION}&ui={UI_SCRIPT_VERSION}"),),
     )
 
 

@@ -14,6 +14,7 @@ from app.connectors.locators import (
     FoundryReplaceFilePolicy,
     FoundryUploadLocator,
     PostgresAppendPolicy,
+    PostgresReplacePolicy,
     PostgresUpsertPolicy,
     postgres_table,
 )
@@ -191,6 +192,68 @@ def test_emulated_postgres_commits_persist_and_write_modes_are_realistic() -> No
 
     isolated = {**credentials, "database": "another_demo_database"}
     assert row_counter_for("postgres").count_rows(isolated, locator) == 3
+
+
+def test_emulated_new_postgres_table_keeps_selected_and_generated_keys() -> None:
+    load_builtin_connectors(demo=True)
+    credentials = DEMO_CONNECTION_CREDENTIALS["postgres"]
+    writer = destination_writer_for("postgres")
+    inspector = object_schema_inspector_for("postgres")
+    reader = source_reader_for("postgres")
+    frame = pl.DataFrame({"event_id": [10, 11], "unit_name": ["A", "B"]})
+
+    generated = postgres_table("public", "generated_key_qa")
+    schema = _schema_for(frame, generated)
+    session = writer.prepare_destination(
+        credentials,
+        generated,
+        schema,
+        PostgresReplacePolicy(schema_policy="recreate", auto_increment_primary_key="id"),
+        run_id="generated-key-create",
+    )
+    writer.write_batch(session, _batch(frame))
+    assert writer.finalize(session).rows == 2
+    assert inspector.inspect_object(credentials, generated).primary_key == ("id",)
+    assert [
+        row["id"]
+        for batch in reader.extract(credentials, generated, batch_rows=100, batch_bytes=4096)
+        for row in batch.frame.to_dicts()
+    ] == [1, 2]
+
+    session = writer.prepare_destination(
+        credentials, generated, schema, PostgresAppendPolicy(), run_id="generated-key-append"
+    )
+    writer.write_batch(session, _batch(pl.DataFrame({"event_id": [12], "unit_name": ["C"]})))
+    assert writer.finalize(session).rows == 1
+    assert [
+        row["id"]
+        for batch in reader.extract(credentials, generated, batch_rows=100, batch_bytes=4096)
+        for row in batch.frame.to_dicts()
+    ] == [1, 2, 3]
+
+    selected = postgres_table("public", "selected_key_qa")
+    session = writer.prepare_destination(
+        credentials,
+        selected,
+        _schema_for(frame, selected),
+        PostgresReplacePolicy(schema_policy="recreate", primary_key_columns=["event_id"]),
+        run_id="selected-key-create",
+    )
+    writer.write_batch(session, _batch(frame))
+    writer.finalize(session)
+    assert inspector.inspect_object(credentials, selected).primary_key == ("event_id",)
+
+    session = writer.prepare_destination(
+        credentials,
+        selected,
+        _schema_for(frame, selected),
+        PostgresAppendPolicy(),
+        run_id="selected-key-duplicate",
+    )
+    writer.write_batch(session, _batch(pl.DataFrame({"event_id": [10], "unit_name": ["Again"]})))
+    with pytest.raises(ConnectorError) as conflict:
+        writer.finalize(session)
+    assert conflict.value.code == TransferErrorCode.DESTINATION_CONFLICT
 
 
 def test_emulated_foundry_upload_is_visible_to_later_connector_instances() -> None:

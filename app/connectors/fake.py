@@ -12,6 +12,7 @@ import threading
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from io import BytesIO
+from typing import cast
 
 import polars as pl
 
@@ -197,9 +198,12 @@ class _DemoTable:
     frame: pl.DataFrame
     primary_key: tuple[str, ...] = ()
     unique_constraints: tuple[tuple[str, ...], ...] = ()
+    identity_column: str = ""
 
     def copy(self) -> _DemoTable:
-        return _DemoTable(_clone(self.frame), self.primary_key, self.unique_constraints)
+        return _DemoTable(
+            _clone(self.frame), self.primary_key, self.unique_constraints, self.identity_column
+        )
 
 
 @dataclass
@@ -277,28 +281,39 @@ class _DemoBackend:
             tables = self._postgres_for(pending.connection_id)
             current = tables.get(key)
             target = current.copy() if current is not None else None
-            if target is not None:
-                incoming = self._coerce_for_table(incoming, target)
-
             policy = pending.write_policy
+            recreates_schema = (
+                isinstance(policy, PostgresReplacePolicy) and policy.schema_policy == "recreate"
+            )
+            identity_omitted = bool(
+                target is not None
+                and target.identity_column
+                and target.identity_column not in incoming.columns
+            )
+            if target is not None and not recreates_schema:
+                incoming = self._coerce_for_table(incoming, target)
             if isinstance(policy, PostgresAppendPolicy):
                 result = (
                     _DemoTable(
                         pl.concat([target.frame, incoming], how="vertical_relaxed"),
                         target.primary_key,
                         target.unique_constraints,
+                        target.identity_column,
                     )
                     if target is not None
-                    else _DemoTable(_clone(incoming))
+                    else self._new_postgres_table(incoming, pending.schema, policy)
                 )
                 self._enforce_constraints(result)
                 loaded = incoming.height
             elif isinstance(policy, PostgresReplacePolicy):
-                if policy.schema_policy == "recreate" or target is None:
-                    result = _DemoTable(_clone(incoming))
+                if recreates_schema or target is None:
+                    result = self._new_postgres_table(incoming, pending.schema, policy)
                 else:
                     result = _DemoTable(
-                        _clone(incoming), target.primary_key, target.unique_constraints
+                        _clone(incoming),
+                        target.primary_key,
+                        target.unique_constraints,
+                        target.identity_column,
                     )
                     self._enforce_constraints(result)
                 loaded = incoming.height
@@ -320,8 +335,16 @@ class _DemoBackend:
                 self._enforce_constraints(
                     _DemoTable(incoming, target.primary_key, target.unique_constraints)
                 )
-                frame, loaded = self._upsert(target.frame, incoming, conflict, policy.action)
-                result = _DemoTable(frame, target.primary_key, target.unique_constraints)
+                frame, loaded = self._upsert(
+                    target.frame,
+                    incoming,
+                    conflict,
+                    policy.action,
+                    preserve_columns=(target.identity_column,) if identity_omitted else (),
+                )
+                result = _DemoTable(
+                    frame, target.primary_key, target.unique_constraints, target.identity_column
+                )
                 self._enforce_constraints(result)
             else:
                 raise ConnectorError(
@@ -331,6 +354,35 @@ class _DemoBackend:
                 )
             tables[key] = result
             return loaded, result.copy()
+
+    @staticmethod
+    def _new_postgres_table(
+        incoming: pl.DataFrame,
+        schema: ObjectSchema,
+        policy: PostgresAppendPolicy | PostgresReplacePolicy,
+    ) -> _DemoTable:
+        identity_column = policy.auto_increment_primary_key
+        primary_key = tuple(policy.primary_key_columns or schema.primary_key)
+        if identity_column:
+            if identity_column in incoming.columns:
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "The generated primary-key name already exists in the source schema.",
+                    retryable=False,
+                )
+            primary_key = (identity_column,)
+            incoming = incoming.with_columns(
+                pl.Series(identity_column, range(1, incoming.height + 1), dtype=pl.Int64)
+            )
+        if primary_key and not set(primary_key).issubset(incoming.columns):
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "The source primary key refers to columns that are missing from its schema.",
+                retryable=False,
+            )
+        result = _DemoTable(_clone(incoming), primary_key, (), identity_column)
+        _DemoBackend._enforce_constraints(result)
+        return result
 
     @staticmethod
     def _enforce_constraints(table: _DemoTable) -> None:
@@ -356,6 +408,16 @@ class _DemoBackend:
 
     @staticmethod
     def _coerce_for_table(incoming: pl.DataFrame, target: _DemoTable) -> pl.DataFrame:
+        if target.identity_column and target.identity_column not in incoming.columns:
+            latest = target.frame[target.identity_column].max()
+            next_id = int(cast(int, latest)) + 1 if latest is not None else 1
+            incoming = incoming.with_columns(
+                pl.Series(
+                    target.identity_column,
+                    range(next_id, next_id + incoming.height),
+                    dtype=pl.Int64,
+                )
+            )
         target_columns = tuple(target.frame.columns)
         extra = set(incoming.columns) - set(target_columns)
         if extra:
@@ -397,6 +459,8 @@ class _DemoBackend:
         incoming: pl.DataFrame,
         conflict: tuple[str, ...],
         action: str,
+        *,
+        preserve_columns: tuple[str, ...] = (),
     ) -> tuple[pl.DataFrame, int]:
         rows = existing.to_dicts()
         index = {
@@ -421,7 +485,10 @@ class _DemoBackend:
                         retryable=False,
                     )
                 seen_updates.add(key)
-                rows[position] = incoming_row
+                rows[position] = {
+                    **incoming_row,
+                    **{name: rows[position][name] for name in preserve_columns},
+                }
                 loaded += 1
         if not rows:
             return existing.clear(), loaded
@@ -757,6 +824,17 @@ class FakeFoundryConnector:
             name=name,
             parent_folder_rid=parent_folder_rid,
             branch=branch,
+        )
+
+    def restore_dataset(
+        self, credentials: Mapping[str, str], *, dataset_rid: str, branch: str
+    ) -> None:
+        """Restore a persisted demo dataset into this process's emulator state."""
+        self._backend.create_foundry_dataset(
+            self.capabilities.provider,
+            self._validate(credentials),
+            dataset_rid,
+            branch,
         )
 
     def list_objects(self, credentials, namespace: str, cursor: str | None = None) -> CatalogPage:

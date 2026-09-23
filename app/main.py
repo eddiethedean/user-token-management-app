@@ -174,8 +174,10 @@ async def lifespan(app: HedronPosit) -> AsyncIterator[None]:
             ensure_default_roles(db)
             if cfg.is_demo_mode:
                 from app.services.catalogs import clear_demo_catalog_cache
+                from app.services.demo import restore_demo_foundry_datasets
 
                 clear_demo_catalog_cache(db)
+                restore_demo_foundry_datasets(db, cfg, app.state.connectors)
         pipeline_stop_event = threading.Event()
         app.state.pipeline_stop_event = pipeline_stop_event
         app.state.execution.stop_event = pipeline_stop_event

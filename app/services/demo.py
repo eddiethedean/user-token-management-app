@@ -8,9 +8,45 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import User, UserSecret
+from app.connectors.registry import ConnectorRegistry
+from app.models import FoundryDataset, User, UserSecret
 from app.services.secret_crypto import CredentialEnvelope, CredentialEnvelopeError
 from app.services.secrets import store_user_credentials, test_user_connection
+
+
+def restore_demo_foundry_datasets(
+    db: Session, settings: Settings, registry: ConnectorRegistry
+) -> int:
+    """Recreate saved empty Foundry datasets in the process-local demo emulator."""
+    from app.connectors.errors import ConnectorError
+    from app.connectors.fake import FakeFoundryConnector
+
+    restored = 0
+    saved = db.execute(
+        select(FoundryDataset, UserSecret).join(
+            UserSecret,
+            (UserSecret.user_id == FoundryDataset.user_id)
+            & (UserSecret.provider == FoundryDataset.provider),
+        )
+    ).all()
+    for dataset, secret in saved:
+        if dataset.provider not in {"mss", "mcscop"}:
+            continue
+        try:
+            credentials = CredentialEnvelope.decrypt(settings, secret)
+            connector = registry.connector_for(dataset.provider)
+            if not isinstance(connector, FakeFoundryConnector):
+                continue
+            connector.restore_dataset(
+                credentials,
+                dataset_rid=dataset.dataset_rid,
+                branch=dataset.branch or "master",
+            )
+        except (CredentialEnvelopeError, ConnectorError):
+            continue
+        restored += 1
+    return restored
+
 
 DEMO_CONNECTION_CREDENTIALS: dict[str, dict[str, str]] = {
     "mss": {

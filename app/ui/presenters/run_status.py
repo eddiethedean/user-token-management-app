@@ -199,8 +199,10 @@ def run_flow_steps(flow_statuses: tuple[str, str, str, str]) -> tuple[FlowStep, 
     )  # type: ignore[return-value]
 
 
-def destination_count_metric(run: Any) -> Metric:
+def destination_count_metric(run: Any, *, provider: str = "postgres") -> Metric:
     """Build a before/after destination count metric from persisted verification data."""
+
+    label = "Destination table" if provider == "postgres" else "Destination file"
 
     try:
         verification = json.loads(run.verification_json or "{}")
@@ -213,20 +215,20 @@ def destination_count_metric(run: Any) -> Metric:
         delta = after - before if not isinstance(delta, int) else delta
         tone = "up" if delta > 0 else "down" if delta < 0 else "neutral"
         return Metric(
-            "Destination table",
+            label,
             f"{before:,} → {after:,} rows",
             delta=f"{delta:+,} rows",
             delta_tone=tone,
         )
     if isinstance(after, int):
         return Metric(
-            "Destination table",
+            label,
             f"{after:,} rows after run",
             delta="Before count unavailable",
             delta_tone="neutral",
         )
     return Metric(
-        "Destination table",
+        label,
         "Count unavailable",
         delta="Provider does not expose counts",
         delta_tone="neutral",
