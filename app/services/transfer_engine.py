@@ -14,6 +14,7 @@ from app.config import Settings
 from app.connectors.base import (
     AbortResult,
     ColumnSchema,
+    DestinationManifest,
     DestinationRowCounter,
     DestinationSchemaInspector,
     DestinationWriter,
@@ -23,7 +24,12 @@ from app.connectors.base import (
     TransferBatch,
 )
 from app.connectors.errors import ConnectorError, TransferErrorCode
-from app.connectors.locators import DefinitionSnapshot, PostgresUpsertPolicy
+from app.connectors.locators import (
+    DefinitionSnapshot,
+    PostgresAppendPolicy,
+    PostgresReplacePolicy,
+    PostgresUpsertPolicy,
+)
 from app.connectors.registry import (
     destination_writer_for,
     route_allowed,
@@ -78,6 +84,109 @@ def _destination_row_count(destination, credentials, locator) -> int | None:
     except Exception:
         return None
     return int(value) if value is not None else None
+
+
+def _reconcile_write_result(
+    snapshot: DefinitionSnapshot,
+    *,
+    source_rows: int,
+    manifest: DestinationManifest,
+    destination_rows_before: int | None,
+    destination_rows_after: int | None,
+    destination: DestinationWriter,
+) -> tuple[str, str | None, dict[str, object]]:
+    """Compare destination results using the selected write policy's semantics."""
+
+    policy = snapshot.write_policy
+    facts: dict[str, object] = {
+        "source_rows": source_rows,
+        "loaded_rows": manifest.rows,
+        "destination_rows_before": destination_rows_before,
+        "destination_rows_after": destination_rows_after,
+        "destination_row_delta": (
+            destination_rows_after - destination_rows_before
+            if destination_rows_before is not None and destination_rows_after is not None
+            else None
+        ),
+        "write_policy": policy.kind,
+    }
+    weak_level = destination.capabilities.verification_level
+    if weak_level == "exact":
+        weak_level = "provider_write_count"
+
+    if isinstance(policy, PostgresAppendPolicy):
+        expected_rows = source_rows
+        facts["expected_rows"] = expected_rows
+        if manifest.rows != expected_rows:
+            return (
+                weak_level,
+                "Append reconciliation failed: the destination reported "
+                f"{manifest.rows} rows for {source_rows} source rows. Inspect the destination before retrying.",
+                facts,
+            )
+        if destination_rows_before is None or destination_rows_after is None:
+            return "provider_write_count", None, facts
+        expected_delta = destination_rows_after - destination_rows_before
+        if expected_delta != expected_rows:
+            # The aggregate table count can include writes from other runs or
+            # external clients. The statement manifest is per-run evidence;
+            # when the global delta disagrees, keep the run successful but
+            # downgrade verification because the extra change is unattributable.
+            facts["verification_limitation"] = "aggregate_count_changed_during_transfer"
+            return "provider_write_count", None, facts
+        return "exact", None, facts
+
+    if isinstance(policy, PostgresReplacePolicy):
+        expected_rows = source_rows
+        facts["expected_rows"] = expected_rows
+        if manifest.rows != expected_rows:
+            return (
+                weak_level,
+                "Replace reconciliation failed: the destination reported "
+                f"{manifest.rows} rows for {source_rows} source rows. Inspect the destination before retrying.",
+                facts,
+            )
+        if destination_rows_after is None:
+            return "provider_write_count", None, facts
+        if destination_rows_after != expected_rows:
+            return (
+                weak_level,
+                "Replace reconciliation failed: the destination contains "
+                f"{destination_rows_after} rows after replacing it with {expected_rows} source rows. "
+                "Inspect the destination before retrying.",
+                facts,
+            )
+        return "exact", None, facts
+
+    if isinstance(policy, PostgresUpsertPolicy):
+        expected_rows_text = manifest.details.get("expected_rows")
+        if expected_rows_text is not None:
+            try:
+                expected_rows = int(expected_rows_text)
+            except (TypeError, ValueError):
+                expected_rows = -1
+            facts["expected_rows"] = expected_rows
+            if expected_rows < 0 or manifest.rows != expected_rows:
+                return (
+                    weak_level,
+                    "Upsert reconciliation failed: the destination did not apply the expected "
+                    f"{expected_rows} distinct source keys (reported {manifest.rows}). "
+                    "Inspect the destination before retrying.",
+                    facts,
+                )
+            return "exact", None, facts
+        if manifest.rows < 0 or manifest.rows > source_rows:
+            return (
+                weak_level,
+                "Upsert reconciliation failed: the destination reported an impossible row count. "
+                "Inspect the destination before retrying.",
+                facts,
+            )
+        # Upsert ignore and key-only upserts may legitimately write fewer rows
+        # than the source because existing keys are left untouched.
+        return "provider_write_count", None, facts
+
+    return weak_level, None, facts
 
 
 def _schema_manifest(schema: ObjectSchema) -> dict:
@@ -460,24 +569,31 @@ def execute_transfer(
             destination_schema_available,
             destination_schema_provenance,
         ) = _destination_schema_projection(destination_schema_after, schema)
+        verification_level, reconciliation_error, verification_facts = _reconcile_write_result(
+            snapshot,
+            source_rows=extracted_rows,
+            manifest=manifest,
+            destination_rows_before=destination_rows_before,
+            destination_rows_after=destination_rows_after,
+            destination=destination,
+        )
         verification = {
-            "source_rows": extracted_rows,
-            "loaded_rows": manifest.rows,
+            **verification_facts,
             "source_bytes": extracted_bytes,
             "loaded_bytes": manifest.bytes or loaded_bytes,
-            "destination_rows_before": destination_rows_before,
-            "destination_rows_after": destination_rows_after,
-            "destination_row_delta": (
-                destination_rows_after - destination_rows_before
-                if destination_rows_before is not None and destination_rows_after is not None
-                else None
-            ),
-            "verification_level": (
-                "exact"
-                if destination_rows_before is not None and destination_rows_after is not None
-                else destination.capabilities.verification_level
-            ),
+            "verification_level": verification_level,
         }
+        if reconciliation_error:
+            pipeline_runs.fail_run(
+                db,
+                run,
+                lease_token=lease_token,
+                code=TransferErrorCode.VERIFICATION_FAILED,
+                summary=reconciliation_error,
+                needs_reconciliation=True,
+                verification_facts=verification,
+            )
+            return
         pipeline_runs.complete_run(
             db,
             run,

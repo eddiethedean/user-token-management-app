@@ -707,6 +707,7 @@ def fail_run(
     http_status: int | None = None,
     sqlstate: str = "",
     exception_type: str = "",
+    verification_facts: dict | None = None,
 ) -> None:
     if lease_token:
         _refresh_and_require_lease(db, run, lease_token)
@@ -731,16 +732,16 @@ def fail_run(
     run.reconciliation_required = effective_needs_reconciliation
     run.reconciliation_reviewed_at = None
     _set_status(run, status, lease_token=lease_token)
-    run.verification_json = json.dumps(
-        _failure_facts(
-            run,
-            code_value,
-            resolved_impact,
-            reconciliation_required=effective_needs_reconciliation,
-            last_safe_stage=failure_stage,
-        ),
-        separators=(",", ":"),
+    failure_facts = _failure_facts(
+        run,
+        code_value,
+        resolved_impact,
+        reconciliation_required=effective_needs_reconciliation,
+        last_safe_stage=failure_stage,
     )
+    if verification_facts:
+        failure_facts.update(redact_mapping(verification_facts))
+    run.verification_json = json.dumps(failure_facts, separators=(",", ":"))
     append_event(
         db, run, run.error_summary or "The transfer failed.", stage=failure_stage, level="error"
     )
