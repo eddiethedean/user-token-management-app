@@ -12,7 +12,7 @@ function applyColorMode(mode) {
   const colorScheme = document.querySelector('meta[name="color-scheme"]');
   const themeColor = document.querySelector('meta[name="theme-color"]');
   if (colorScheme) colorScheme.content = normalized;
-  if (themeColor) themeColor.content = normalized === "dark" ? "#080d1a" : "#f4f6fb";
+  if (themeColor) themeColor.content = normalized === "dark" ? "#191a1b" : "#f4f2eb";
 
   document.querySelectorAll('img[src*="/data-mover-mark-"]').forEach((image) => {
     image.src = image.src.replace(
@@ -91,6 +91,11 @@ function markPipelineDirty(event) {
 function syncPipelineEditor() {
   const form = document.getElementById("pipeline-form");
   if (!form) return;
+  // Keep the native CSV disclosure accessible when CSV becomes the active source.
+  if (form.querySelector("#pipeline-source-select")?.value === "csv") {
+    const csvAlternative = document.getElementById("pipeline-csv-alternative");
+    if (csvAlternative) csvAlternative.open = true;
+  }
   form.querySelectorAll("[data-field-label]").forEach((control) => {
     const label = form.querySelector(`label[for="${control.id}"]`);
     if (label && control.dataset.fieldLabel) label.textContent = control.dataset.fieldLabel;
@@ -110,6 +115,9 @@ function syncPipelineEditor() {
 // A run uses the persisted definition. Edits must be saved before it can run.
 document.addEventListener("input", markPipelineDirty, true);
 document.addEventListener("change", markPipelineDirty, true);
+document.addEventListener("change", (event) => {
+  if (event.target.matches?.("#pipeline-source-select")) syncPipelineEditor();
+});
 document.addEventListener("htmx:configRequest", (event) => {
   if (
     event.detail.elt.matches?.("[data-pipeline-start]") &&

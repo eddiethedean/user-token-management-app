@@ -56,6 +56,7 @@ def request_metadata(settings: Settings, request: Request) -> RequestMetadata:
     return RequestMetadata(
         request_id=getattr(request.state, "request_id", ""),
         source_ip=client_ip(request, settings),
+        reference_id=getattr(request.state, "support_reference", ""),
     )
 
 

@@ -9,6 +9,7 @@ from io import BytesIO
 import polars as pl
 
 from app.connectors.base import (
+    AbortResult,
     BatchWriteResult,
     CatalogPage,
     ColumnSchema,
@@ -87,8 +88,8 @@ class CsvSourceConnector:
     def finalize(self, load_session: LoadSession) -> DestinationManifest:
         raise ConnectorError(TransferErrorCode.INTERNAL_ERROR, "CSV cannot be a destination.")
 
-    def abort(self, load_session: LoadSession) -> None:
-        return None
+    def abort(self, load_session: LoadSession) -> AbortResult:
+        return AbortResult.ROLLED_BACK
 
     def _frame(self, locator: Locator, credentials) -> pl.DataFrame:
         if not isinstance(locator, CsvUploadLocator):

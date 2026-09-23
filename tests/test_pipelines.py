@@ -81,6 +81,7 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     assert response.status_code == 200
     assert "3/3 connections ready" in response.text
     assert "hedron-process-flow" in response.text
+    assert 'data-hedron-flow-appearance="plain"' in response.text
     assert "hedron-alert-success" in response.text
     assert "hedron-badge-success" in response.text
     assert 'value="mss"' in response.text
@@ -935,6 +936,7 @@ def test_pipeline_live_writer_flags_select_a_valid_initial_route(
     ("source", "old_target", "expected_targets"),
     [
         ("mss", "mss", {"mss", "postgres", "mcscop"}),
+        ("mcscop", "mcscop", {"mss", "postgres", "mcscop"}),
         ("postgres", "postgres", {"mss", "postgres", "mcscop"}),
         ("csv", "postgres", {"postgres", "mss", "mcscop"}),
     ],
@@ -1285,6 +1287,33 @@ def test_pipeline_can_swap_between_distinct_foundry_files(client, demo_connectio
     assert 'id="pipeline-swap-unavailable-note"' not in response.text
 
 
+def test_pipeline_can_swap_mcscop_destination_to_source(client, demo_connections) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "postgres",
+            "source_schema": "public",
+            "source_table": "readiness_events",
+            "destination_provider": "mcscop",
+            "destination_schema": MSS_DEST_DATASET,
+            "destination_table": "readiness.snappy.parquet",
+            "write_mode": "replace",
+            "swap_direction": "true",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+
+    assert response.status_code == 200
+    source = _pipeline_select(response.text, "pipeline-source-select")
+    target = _pipeline_select(response.text, "pipeline-target-select")
+    assert 'value="mcscop" selected' in source
+    assert 'value="postgres" selected' in target
+    assert 'id="pipeline-swap-unavailable-note"' not in response.text
+
+
 @pytest.mark.parametrize(
     ("route", "reason"),
     [
@@ -1298,17 +1327,6 @@ def test_pipeline_can_swap_between_distinct_foundry_files(client, demo_connectio
                 "destination_table": "__new__",
             },
             "Choose an existing destination object before swapping.",
-        ),
-        (
-            {
-                "source_provider": "postgres",
-                "source_schema": "public",
-                "source_table": "readiness_events",
-                "destination_provider": "mcscop",
-                "destination_schema": MSS_DEST_DATASET,
-                "destination_table": "readiness.snappy.parquet",
-            },
-            "The selected destination cannot be used as a source in reverse.",
         ),
         (
             {
@@ -1420,9 +1438,7 @@ def test_pipeline_empty_destination_explains_disabled_writes_and_recovers(
     assert "disabled" not in schema.split(">")[0]
 
 
-def test_pipeline_preview_rejects_a_provider_without_source_capability(
-    client, demo_connections
-) -> None:
+def test_pipeline_preview_accepts_mcscop_as_a_source(client, demo_connections) -> None:
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
     response = client.post(
@@ -1431,12 +1447,22 @@ def test_pipeline_preview_rejects_a_provider_without_source_capability(
             "csrf_token": csrf_from(page.text),
             "source_provider": "mcscop",
             "destination_provider": "postgres",
-            "destination_schema": MSS_DEST_DATASET,
-            "destination_table": "orders.parquet",
+            "source_schema": MSS_DEST_DATASET,
+            "source_table": "readiness.snappy.parquet",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
         },
         headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
     )
-    assert response.status_code == 422
+    assert response.status_code == 200
+    source = _pipeline_select(response.text, "pipeline-source-select")
+    assert 'value="mcscop" selected' in source
+    target = _pipeline_select(response.text, "pipeline-target-select")
+    assert set(re.findall(r'<option value="([^"]+)"', target)) == {
+        "mss",
+        "mcscop",
+        "postgres",
+    }
 
 
 def test_preview_updates_route_facts_without_duplicate_control_ids(

@@ -307,6 +307,16 @@ def test_redactor_strips_tokens_passwords_and_dsns() -> None:
     assert mapping["ok"] == "ready"
 
 
+def test_redactor_strips_api_key_and_non_postgres_dsn_credentials() -> None:
+    text = redact_text(
+        "api_key=api-canary mongodb://user:mongo-canary@db.example/app "
+        "mysql://user:mysql-canary@db.example/app"
+    )
+    assert "api-canary" not in text
+    assert "mongo-canary" not in text
+    assert "mysql-canary" not in text
+
+
 def test_tls_adapter_loads_bundle_and_mocks_internal_ca(monkeypatch, tmp_path) -> None:
     import app.connectors.tls as tls
 

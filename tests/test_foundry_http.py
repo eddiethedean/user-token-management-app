@@ -369,7 +369,18 @@ def test_real_foundry_writers_are_denied_until_flags_are_set(monkeypatch) -> Non
     assert writer_enabled("postgres") is True
     assert writer_enabled("mss") is False
     assert writer_enabled("mcscop") is False
+    assert MssConnector.capabilities.source is True
     assert MssConnector.capabilities.destination is True
+    assert McscopConnector.capabilities.source is True
+    assert McscopConnector.capabilities.destination is True
+
+
+def test_all_remote_writers_are_enabled_by_default() -> None:
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.pipeline_enable_postgres_writer is True
+    assert settings.pipeline_enable_mss_writer is True
+    assert settings.pipeline_enable_mcscop_writer is True
 
 
 @pytest.mark.live_foundry
