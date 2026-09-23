@@ -38,7 +38,7 @@ check:
 	$(PYTHON) -m basedpyright
 	$(MAKE) hedron-check
 	$(MAKE) posit-check
-	$(PYTHON) -m pytest --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
+	$(PYTHON) -m pytest -n auto --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
 	$(MAKE) demo-check
 
 demo-check:
