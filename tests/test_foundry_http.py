@@ -23,6 +23,7 @@ from app.connectors.locators import FoundryReplaceFilePolicy, FoundryUploadLocat
 from app.connectors.mcscop import McscopConnector
 from app.connectors.mss import MssConnector
 from app.connectors.registry import load_builtin_connectors, writer_enabled
+from app.ui.routes.pipeline import _destination_object_entries
 from tests.simulators.foundry import FOUNDRY_DATASET, FOUNDRY_TOKEN, FoundrySimulator
 from tests.simulators.links import FIXTURES
 
@@ -216,7 +217,9 @@ def test_foundry_client_follows_every_catalog_page(foundry_sim, tmp_path, monkey
     client.close()
 
 
-def test_mcscop_catalog_excludes_csv_files_but_mss_keeps_them(foundry_sim, tmp_path) -> None:
+def test_mcscop_source_catalog_keeps_csv_but_destination_options_filter_it(
+    foundry_sim, tmp_path
+) -> None:
     credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
     settings = _settings(tmp_path)
 
@@ -224,8 +227,12 @@ def test_mcscop_catalog_excludes_csv_files_but_mss_keeps_them(foundry_sim, tmp_p
     mcscop_items = McscopConnector(settings).list_objects(credentials, DATASET).items
 
     assert any(item.name == "notes.csv" for item in mss_items)
-    assert all(item.name.casefold().endswith(".parquet") for item in mcscop_items)
-    assert all(item.name != "notes.csv" for item in mcscop_items)
+    assert any(item.name == "notes.csv" for item in mcscop_items)
+    destination_entries = _destination_object_entries(
+        "mcscop", [(item.name, item.display_name) for item in mcscop_items]
+    )
+    assert all(name.casefold().endswith(".parquet") for name, _display in destination_entries)
+    assert all(name != "notes.csv" for name, _display in destination_entries)
 
 
 def test_foundry_client_rejects_repeated_catalog_cursor(foundry_sim, tmp_path, monkeypatch) -> None:

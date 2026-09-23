@@ -604,12 +604,6 @@ class FoundryConnector:
         try:
             branch = client.default_branch
             files = supported_files(client.list_all_files(namespace, branch))
-            if self.capabilities and not self.capabilities.source:
-                files = [
-                    entry
-                    for entry in files
-                    if str(entry.get("path") or "").casefold().endswith(".parquet")
-                ]
             items = []
             for entry in files:
                 path = str(entry.get("path") or "")
