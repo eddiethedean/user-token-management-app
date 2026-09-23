@@ -213,6 +213,7 @@ def process_one(
             outcome="failed",
             run_id=run_id,
             reference_id=run_id,
+            user_id=run.user_id,
             operation="transfer",
             exception_type=exception_type,
             traceback=safe_exception_traceback((type(exc), exc, exc.__traceback__)),

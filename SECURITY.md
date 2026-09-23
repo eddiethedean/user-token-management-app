@@ -473,20 +473,27 @@ validation.
 
 **Status:** Implemented, including token-family replay detection.
 
-**Decision:** Refresh tokens are 32-byte cryptographically random opaque capabilities. Only an
-HMAC-SHA-256 digest made with a separate session pepper is stored in `refresh_sessions`. Every
-successful refresh atomically replaces the token, stores the consumed digest in family history,
-and extends only the idle deadline, never the absolute deadline. Reuse of a consumed token revokes
+**Decision:** Initial refresh tokens are 32-byte cryptographically random opaque capabilities.
+Successors are 256-bit HMAC-derived opaque capabilities, domain-separated from stored token digests.
+Only an HMAC-SHA-256 digest made with a separate session pepper is stored in `refresh_sessions`.
+Every successful rotation atomically replaces the token, stores the consumed digest in family
+history, and extends only the idle deadline, never the absolute deadline. A duplicate request within
+five seconds receives the same successor only while that successor remains current, the session is
+active, and the request carries the session's independent HttpOnly proof cookie. A duplicate without
+that proof is denied with a retryable conflict and does not revoke the session. Later reuse revokes
 the active family. Invalid refresh attempts clear browser cookies.
 
 **Rationale:** Opaque server-side state supports revocation, avoids putting account data in the
 refresh token, and limits the usefulness of a database-only token-table disclosure. Rotation makes a
-previous value unusable after a successful refresh.
+previous values unusable after the short overlap window.
 
 **Concurrency control:** Rotation is a conditional `UPDATE ... RETURNING`; invitation acceptance
 and password-reset completion likewise consume their capability with a conditional update before
-changing account state. PostgreSQL race tests issue each capability concurrently and require exactly
-one winner. Refresh-token history retains keyed digests, not raw tokens.
+changing account state. PostgreSQL race tests require exactly one rotation winner; a simultaneous
+duplicate may receive the same successor. Refresh-token history retains keyed digests, not raw
+tokens. The short overlap window and companion proof cookie prevent parallel browser requests from
+revoking their own session or letting a holder of only an old refresh token recover its successor,
+while still detecting later reuse.
 
 **Evidence:** [RFC 9700 section 4.14](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14)
 requires refresh-token confidentiality, expiration/revocation, and either sender constraint or

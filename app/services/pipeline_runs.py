@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 from collections.abc import Callable
 from datetime import timedelta
@@ -253,6 +254,75 @@ def _run_duration_ms(run: PipelineRun) -> int | None:
     if started_at is None or finished_at is None:
         return None
     return max(0, int((finished_at - started_at).total_seconds() * 1000))
+
+
+def _run_diagnostic_detail(
+    run: PipelineRun,
+    *,
+    stage: str | None = None,
+    provider_correlation_id: str = "",
+    http_status: int | None = None,
+    sqlstate: str = "",
+    exception_type: str = "",
+) -> dict[str, object]:
+    """Build a useful run summary without copying locators, schemas, or payload data."""
+    try:
+        snapshot = json.loads(getattr(run, "definition_snapshot_json", "") or "{}")
+    except (TypeError, ValueError):
+        snapshot = {}
+    if not isinstance(snapshot, dict):
+        snapshot = {}
+
+    try:
+        verification = json.loads(getattr(run, "verification_json", "") or "{}")
+    except (TypeError, ValueError):
+        verification = {}
+    if not isinstance(verification, dict):
+        verification = {}
+
+    detail: dict[str, object] = {
+        "user_id": run.user_id,
+        "run_id": run.id,
+        "pipeline_id": run.pipeline_definition_id or "",
+        "run_status": run.status,
+        "stage": stage or run.stage,
+        "attempt": int(run.attempt or 1),
+        "queued_at": run.queued_at.isoformat() if run.queued_at else None,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "duration_ms": _run_duration_ms(run),
+        "source_provider": str(snapshot.get("source_provider") or ""),
+        "destination_provider": str(snapshot.get("destination_provider") or ""),
+        "source_rows": int(run.source_rows or 0),
+        "source_bytes": int(run.source_bytes or 0),
+        "loaded_rows": int(run.loaded_rows or 0),
+        "loaded_bytes": int(run.loaded_bytes or 0),
+        "data_impact": run.data_impact or "",
+        "last_safe_stage": run.last_safe_stage or "",
+        "retryable": bool(run.retryable),
+        "reconciliation_required": bool(run.reconciliation_required),
+    }
+    for key in ("destination_rows_before", "destination_rows_after", "destination_row_delta"):
+        value = verification.get(key)
+        detail[key] = value if isinstance(value, int) and not isinstance(value, bool) else None
+    verification_level = verification.get("verification_level")
+    if isinstance(verification_level, str):
+        detail["verification_level"] = verification_level[:64]
+
+    if provider_correlation_id and re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", provider_correlation_id):
+        detail["provider_correlation_id"] = provider_correlation_id
+    if isinstance(http_status, int) and not isinstance(http_status, bool):
+        detail["http_status"] = http_status
+    if sqlstate and re.fullmatch(r"[0-9A-Z]{5}", sqlstate.upper()):
+        detail["sqlstate"] = sqlstate.upper()
+    if exception_type and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]{0,127}", exception_type):
+        detail["exception_type"] = exception_type
+
+    if run.error_code:
+        detail["error_code"] = run.error_code
+    if run.error_summary:
+        detail["error_summary"] = redact_text(run.error_summary)
+    return redact_mapping(detail)
 
 
 def _cancel_before_destination_work(
@@ -581,6 +651,14 @@ def complete_run(
     run.reconciliation_reviewed_at = None
     _set_status(run, PipelineRunStatus.SUCCEEDED.value, lease_token=lease_token)
     append_event(db, run, "Transfer succeeded.", stage="verify")
+    run_detail = _run_diagnostic_detail(run)
+    record_event(
+        db,
+        "pipeline.run.completed",
+        target=db.get(User, run.user_id),
+        outcome="success",
+        detail=run_detail,
+    )
     log_event(
         log,
         "pipeline.run.completed",
@@ -591,10 +669,26 @@ def complete_run(
         user_id=run.user_id,
         attempt=run.attempt,
         operation="transfer",
-        stage="verify",
+        stage=run.stage,
         provider=_run_provider_summary(run),
         duration_ms=_run_duration_ms(run),
         data_impact=completion_impact.value,
+        run_status=run.status,
+        queued_at=run_detail["queued_at"],
+        started_at=run_detail["started_at"],
+        finished_at=run_detail["finished_at"],
+        source_provider=run_detail["source_provider"],
+        destination_provider=run_detail["destination_provider"],
+        source_rows=run.source_rows,
+        source_bytes=run.source_bytes,
+        loaded_rows=run.loaded_rows,
+        loaded_bytes=run.loaded_bytes,
+        destination_rows_before=run_detail["destination_rows_before"],
+        destination_rows_after=run_detail["destination_rows_after"],
+        destination_row_delta=run_detail["destination_row_delta"],
+        verification_level=run_detail.get("verification_level", ""),
+        last_safe_stage=run.last_safe_stage or "",
+        reconciliation_required=run.reconciliation_required,
     )
     db.commit()
 
@@ -650,12 +744,27 @@ def fail_run(
     append_event(
         db, run, run.error_summary or "The transfer failed.", stage=failure_stage, level="error"
     )
+    run_detail = _run_diagnostic_detail(
+        run,
+        stage=failure_stage,
+        provider_correlation_id=provider_correlation_id,
+        http_status=http_status,
+        sqlstate=sqlstate,
+        exception_type=exception_type,
+    )
+    record_event(
+        db,
+        "pipeline.run.failed",
+        target=db.get(User, run.user_id),
+        outcome="failure",
+        detail=run_detail,
+    )
     log_event(
         log,
         "pipeline.run.failed",
         outcome="uncertain" if resolved_impact == DataImpact.UNCERTAIN else "failed",
-        error_code=code_value,
         reference_id=run.id,
+        error_code=code_value,
         run_id=run.id,
         pipeline_id=run.pipeline_definition_id or "",
         user_id=run.user_id,
@@ -667,10 +776,26 @@ def fail_run(
         retryable=run.retryable,
         data_impact=str(resolved_impact),
         cause=run.error_summary or "",
-        provider_correlation_id=provider_correlation_id,
-        http_status=http_status,
-        sqlstate=sqlstate,
-        exception_type=exception_type,
+        run_status=run.status,
+        queued_at=run_detail["queued_at"],
+        started_at=run_detail["started_at"],
+        finished_at=run_detail["finished_at"],
+        source_provider=run_detail["source_provider"],
+        destination_provider=run_detail["destination_provider"],
+        source_rows=run.source_rows,
+        source_bytes=run.source_bytes,
+        loaded_rows=run.loaded_rows,
+        loaded_bytes=run.loaded_bytes,
+        destination_rows_before=run_detail["destination_rows_before"],
+        destination_rows_after=run_detail["destination_rows_after"],
+        destination_row_delta=run_detail["destination_row_delta"],
+        verification_level=run_detail.get("verification_level", ""),
+        last_safe_stage=run.last_safe_stage or "",
+        reconciliation_required=run.reconciliation_required,
+        provider_correlation_id=run_detail.get("provider_correlation_id", ""),
+        http_status=run_detail.get("http_status"),
+        sqlstate=run_detail.get("sqlstate", ""),
+        exception_type=run_detail.get("exception_type", ""),
     )
     db.commit()
 

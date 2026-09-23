@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from app.security.cookies import ACCESS_COOKIE, PREAUTH_CSRF_COOKIE, REFRESH_COOKIE
+from app.security.cookies import (
+    ACCESS_COOKIE,
+    PREAUTH_CSRF_COOKIE,
+    REFRESH_COOKIE,
+    SESSION_CSRF_COOKIE,
+)
 from tests.helpers import ADMIN_EMAIL, ADMIN_PASSWORD, login_csrf_from
 
 
@@ -35,7 +40,7 @@ def test_native_connect_login_round_trip(client, monkeypatch) -> None:
     # proxy adds its content mount to this app-local redirect in deployment.
     assert signed_in.headers["location"] == "/profile"
     set_cookie_headers = signed_in.headers.get_list("set-cookie")
-    for cookie_name in (ACCESS_COOKIE, REFRESH_COOKIE):
+    for cookie_name in (ACCESS_COOKIE, REFRESH_COOKIE, SESSION_CSRF_COOKIE):
         assert any(
             header.startswith(f"{cookie_name}=") and "Path=/;" in header
             for header in set_cookie_headers
@@ -44,3 +49,22 @@ def test_native_connect_login_round_trip(client, monkeypatch) -> None:
     profile = client.get("/profile", headers=connect_headers)
     assert profile.status_code == 200
     assert "Account settings" in profile.text
+
+    refresh = client.cookies.get(REFRESH_COOKIE)
+    csrf_proof = client.cookies.get(SESSION_CSRF_COOKIE)
+    assert refresh and csrf_proof
+    client.cookies.clear()
+    stale_cookies = {
+        **connect_headers,
+        "Cookie": (
+            f"{ACCESS_COOKIE}=expired; {REFRESH_COOKIE}={refresh}; "
+            f"{SESSION_CSRF_COOKIE}={csrf_proof}"
+        ),
+    }
+    refreshed = client.get("/profile", headers=stale_cookies)
+    client.cookies.clear()
+    duplicate = client.get("/profile", headers=stale_cookies)
+    assert refreshed.status_code == duplicate.status_code == 200
+    replacement = refreshed.cookies.get(REFRESH_COOKIE)
+    assert replacement and replacement != refresh
+    assert duplicate.cookies.get(REFRESH_COOKIE) == replacement

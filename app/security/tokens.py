@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import secrets
@@ -37,6 +38,16 @@ def random_token(bytes_count: int = 32) -> str:
 
 def hash_token(token: str, pepper: str) -> str:
     return hmac.new(pepper.encode("utf-8"), token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def successor_refresh_token(token: str, pepper: str) -> str:
+    """Derive one opaque successor so overlapping refreshes can share the same result."""
+    digest = hmac.new(
+        pepper.encode("utf-8"),
+        b"access-registry.refresh-successor.v1\x00" + token.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
 def create_access_token(user: User, session_id: str, settings: Settings) -> tuple[str, int]:

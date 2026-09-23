@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from hmac import compare_digest
 from typing import Annotated
 
 from fastapi import Depends, Form, Header, HTTPException, Request, Response, status
@@ -14,6 +16,7 @@ from app.models import RefreshSession, User, utcnow
 from app.security.cookies import (
     ACCESS_COOKIE,
     REFRESH_COOKIE,
+    SESSION_CSRF_COOKIE,
     delete_application_cookie,
     request_cookie_values,
     set_application_cookie,
@@ -21,6 +24,7 @@ from app.security.cookies import (
 from app.security.csrf import assert_csrf
 from app.security.tokens import AccessTokenError, decode_access_token, hash_token
 from app.services.auth import SessionTokens, TokenFlowError, rotate_session
+from app.services.auth_common import RefreshOverlapRetry
 
 DbSession = Annotated[Session, Depends(get_db)]
 
@@ -46,6 +50,21 @@ class AuthContext:
     user: User
     session: RefreshSession
     via_bearer: bool = False
+
+
+@dataclass(frozen=True)
+class SessionCookieProof:
+    """Values needed to issue a session CSRF cookie after the DB session closes."""
+
+    csrf_token: str
+    absolute_expires_at: datetime
+
+
+def _session_cookie_proof(session: RefreshSession) -> SessionCookieProof:
+    return SessionCookieProof(
+        csrf_token=session.csrf_token,
+        absolute_expires_at=session.absolute_expires_at,
+    )
 
 
 def _bearer_token(request: Request) -> str | None:
@@ -88,6 +107,8 @@ def get_optional_auth(
                 and session.idle_expires_at > utcnow()
                 and session.absolute_expires_at > utcnow()
             ):
+                if not bearer:
+                    request.state.session_csrf_proof = _session_cookie_proof(session)
                 dev_trace(
                     "auth.access.accepted",
                     source="bearer" if bearer else "cookie",
@@ -123,6 +144,12 @@ def get_optional_auth(
     raw_refresh = refresh_values[selected_refresh_index]
     try:
         rotated = rotate_session(db, settings, raw_refresh, request)
+    except RefreshOverlapRetry:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session refresh is still being applied. Please retry this request.",
+            headers={"Retry-After": "1"},
+        ) from None
     except TokenFlowError:
         dev_trace(
             "auth.anonymous",
@@ -131,6 +158,7 @@ def get_optional_auth(
         )
         return None
     request.state.rotated_tokens = rotated
+    request.state.session_csrf_proof = _session_cookie_proof(rotated.session)
     dev_trace(
         "auth.refresh.accepted",
         candidate_index=selected_refresh_index,
@@ -192,6 +220,9 @@ RequireCsrf = Annotated[None, Depends(enforce_session_csrf)]
 def set_auth_cookies(
     response: Response, tokens: SessionTokens, settings: Settings, request: Request
 ) -> None:
+    proof = getattr(request.state, "session_csrf_proof", None) or _session_cookie_proof(
+        tokens.session
+    )
     path = "/" if settings.cookie_path == "auto" else settings.cookie_path
     common = {
         "secure": settings.cookie_secure,
@@ -203,6 +234,7 @@ def set_auth_cookies(
         legacy = {**common, "path": "/"}
         response.delete_cookie(ACCESS_COOKIE, **legacy)
         response.delete_cookie(REFRESH_COOKIE, **legacy)
+        response.delete_cookie(SESSION_CSRF_COOKIE, **legacy)
     set_application_cookie(
         response,
         request,
@@ -211,7 +243,7 @@ def set_auth_cookies(
         tokens.access_token,
         max_age=tokens.access_expires_in,
     )
-    refresh_remaining = int((tokens.session.absolute_expires_at - utcnow()).total_seconds())
+    refresh_remaining = int((proof.absolute_expires_at - utcnow()).total_seconds())
     set_application_cookie(
         response,
         request,
@@ -220,6 +252,7 @@ def set_auth_cookies(
         tokens.refresh_token,
         max_age=max(0, refresh_remaining),
     )
+    set_session_csrf_cookie(response, request, settings, proof)
     dev_trace(
         "auth.cookies.issued",
         cookie_path=path,
@@ -229,7 +262,26 @@ def set_auth_cookies(
     )
 
 
+def set_session_csrf_cookie(
+    response: Response, request: Request, settings: Settings, proof: SessionCookieProof
+) -> None:
+    supplied = request_cookie_values(request, SESSION_CSRF_COOKIE)
+    if any(compare_digest(value, proof.csrf_token) for value in supplied):
+        return
+    csrf_remaining = int((proof.absolute_expires_at - utcnow()).total_seconds())
+    set_application_cookie(
+        response,
+        request,
+        settings,
+        SESSION_CSRF_COOKIE,
+        proof.csrf_token,
+        max_age=max(0, csrf_remaining),
+        httponly=True,
+    )
+
+
 def clear_auth_cookies(response: Response, settings: Settings, request: Request) -> None:
+    request.state.auth_cookies_cleared = True
     path = "/" if settings.cookie_path == "auto" else settings.cookie_path
     common = {
         "path": path,
@@ -239,10 +291,12 @@ def clear_auth_cookies(response: Response, settings: Settings, request: Request)
     }
     delete_application_cookie(response, request, settings, ACCESS_COOKIE)
     delete_application_cookie(response, request, settings, REFRESH_COOKIE)
+    delete_application_cookie(response, request, settings, SESSION_CSRF_COOKIE)
     if path not in {None, "/"}:
         legacy = {**common, "path": "/"}
         response.delete_cookie(ACCESS_COOKIE, **legacy)
         response.delete_cookie(REFRESH_COOKIE, **legacy)
+        response.delete_cookie(SESSION_CSRF_COOKIE, **legacy)
     dev_trace(
         "auth.cookies.cleared",
         cookie_path=path,

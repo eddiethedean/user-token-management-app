@@ -33,7 +33,7 @@ from starlette._utils import get_route_path
 from app import APP_VERSION
 from app.application.feedback import request_failure
 from app.config import get_settings
-from app.dependencies import clear_auth_cookies, set_auth_cookies
+from app.dependencies import clear_auth_cookies, set_auth_cookies, set_session_csrf_cookie
 from app.infrastructure.catalog_factory import build_catalog_runner
 from app.infrastructure.pipeline_authoring import build_pipeline_authoring_operation
 from app.logging_config import (
@@ -617,8 +617,13 @@ async def security_and_session_middleware(request: Request, call_next):
     try:
         response = await call_next(request)
         rotated = getattr(request.state, "rotated_tokens", None)
-        if rotated:
-            set_auth_cookies(response, rotated, active_settings, request)
+        if not getattr(request.state, "auth_cookies_cleared", False):
+            if rotated:
+                set_auth_cookies(response, rotated, active_settings, request)
+            else:
+                csrf_session = getattr(request.state, "session_csrf_proof", None)
+                if csrf_session is not None:
+                    set_session_csrf_cookie(response, request, active_settings, csrf_session)
         response.headers["X-Request-ID"] = request.state.request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"

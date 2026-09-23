@@ -10,6 +10,7 @@ from app.config import Settings
 
 ACCESS_COOKIE = "access_registry_access"
 REFRESH_COOKIE = "access_registry_refresh"
+SESSION_CSRF_COOKIE = "access_registry_csrf"
 PREAUTH_CSRF_COOKIE = "access_registry_login_csrf"
 THEME_COOKIE = "data_mover_theme"
 COLOR_MODE_COOKIE = "data_mover_color_mode"
@@ -17,6 +18,7 @@ APPLICATION_COOKIE_NAMES = frozenset(
     {
         ACCESS_COOKIE,
         REFRESH_COOKIE,
+        SESSION_CSRF_COOKIE,
         PREAUTH_CSRF_COOKIE,
         THEME_COOKIE,
         COLOR_MODE_COOKIE,
@@ -41,6 +43,7 @@ def set_application_cookie(
     value: str,
     *,
     max_age: int | None = None,
+    httponly: bool = True,
 ) -> None:
     """Set an application cookie through HedronPosit when its path is automatic."""
     registry = _posit_cookie_registry(request) if settings.cookie_path == "auto" else None
@@ -51,7 +54,7 @@ def set_application_cookie(
             value,
             max_age=max_age,
             secure=settings.cookie_secure,
-            httponly=True,
+            httponly=httponly,
             samesite="lax",
         )
         return
@@ -60,7 +63,7 @@ def set_application_cookie(
         name,
         value,
         max_age=max_age,
-        httponly=True,
+        httponly=httponly,
         secure=settings.cookie_secure,
         samesite="lax",
         path=path,

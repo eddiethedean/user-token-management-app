@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import json
+from datetime import timedelta
 from urllib.parse import urljoin
 
 from sqlalchemy import select
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import AuditEvent, RateLimitBucket, RefreshSession, User
+from app.models import (
+    AuditEvent,
+    RateLimitBucket,
+    RefreshSession,
+    RefreshTokenHistory,
+    User,
+    utcnow,
+)
+from app.security.cookies import SESSION_CSRF_COOKIE
+from app.security.tokens import hash_token
 from tests.helpers import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
@@ -101,6 +112,137 @@ def test_refresh_accepts_mount_cookie_when_stale_root_duplicate_follows(client) 
     )
     assert profile.status_code == 200
     assert "access_registry_refresh" in profile.headers["set-cookie"]
+
+
+def test_overlapping_refreshes_return_same_successor_without_revoking_session(client) -> None:
+    web_login(client)
+    original = client.cookies.get("access_registry_refresh")
+    csrf_proof = client.cookies.get(SESSION_CSRF_COOKIE)
+    assert original
+    assert csrf_proof
+    client.cookies.clear()
+    stale_cookies = {
+        "Cookie": (
+            f"access_registry_access=expired; access_registry_refresh={original}; "
+            f"{SESSION_CSRF_COOKIE}={csrf_proof}"
+        )
+    }
+
+    first = client.get("/profile", headers=stale_cookies)
+    client.cookies.clear()
+    second = client.get("/profile", headers=stale_cookies)
+
+    assert first.status_code == second.status_code == 200
+    replacement = first.cookies.get("access_registry_refresh")
+    assert replacement and replacement != original
+    assert second.cookies.get("access_registry_refresh") == replacement
+    with SessionLocal() as db:
+        session = db.scalar(select(RefreshSession))
+        assert session and session.revoked_at is None
+        assert session.refresh_token_hash == hash_token(replacement, get_settings().session_pepper)
+        assert len(db.scalars(select(RefreshTokenHistory)).all()) == 1
+        assert db.scalar(
+            select(AuditEvent).where(AuditEvent.event_type == "auth.session.refresh_duplicate")
+        )
+        assert not db.scalar(
+            select(AuditEvent).where(AuditEvent.event_type == "auth.session.refresh_reuse")
+        )
+
+
+def test_overlapping_refresh_without_proof_retries_without_revoking_session(client) -> None:
+    web_login(client)
+    original = client.cookies.get("access_registry_refresh")
+    csrf_proof = client.cookies.get(SESSION_CSRF_COOKIE)
+    assert original and csrf_proof
+    client.cookies.clear()
+
+    first = client.get(
+        "/profile",
+        headers={
+            "Cookie": (
+                f"access_registry_access=expired; access_registry_refresh={original}; "
+                f"{SESSION_CSRF_COOKIE}={csrf_proof}"
+            )
+        },
+    )
+    replacement = first.cookies.get("access_registry_refresh")
+    assert first.status_code == 200 and replacement
+
+    client.cookies.clear()
+    denied = client.get(
+        "/profile",
+        headers={"Cookie": f"access_registry_access=expired; access_registry_refresh={original}"},
+    )
+
+    assert denied.status_code == 409
+    assert denied.headers["retry-after"] == "1"
+    with SessionLocal() as db:
+        session = db.scalar(select(RefreshSession))
+        event = db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.event_type == "auth.session.refresh_duplicate_denied"
+            )
+        )
+        assert session and session.revoked_at is None
+        assert session.refresh_token_hash == hash_token(replacement, get_settings().session_pepper)
+        assert event and event.outcome == "denied"
+        assert event.actor_user_id == event.target_user_id == session.user_id
+        assert json.loads(event.detail)["user_id"] == session.user_id
+
+
+def test_old_refresh_reuse_after_overlap_window_revokes_session(client) -> None:
+    web_login(client)
+    original = client.cookies.get("access_registry_refresh")
+    assert original
+    client.cookies.clear()
+    stale_cookies = {
+        "Cookie": f"access_registry_access=expired; access_registry_refresh={original}"
+    }
+    assert client.get("/profile", headers=stale_cookies).status_code == 200
+    with SessionLocal() as db:
+        history = db.scalar(select(RefreshTokenHistory))
+        assert history
+        history.consumed_at = utcnow() - timedelta(minutes=1)
+        db.commit()
+
+    client.cookies.clear()
+    denied = client.get("/profile", headers=stale_cookies)
+    assert denied.status_code == 401
+    with SessionLocal() as db:
+        session = db.scalar(select(RefreshSession))
+        assert session and session.revoked_at is not None
+        assert db.scalar(
+            select(AuditEvent).where(AuditEvent.event_type == "auth.session.refresh_reuse")
+        )
+
+
+def test_old_refresh_reuse_after_next_rotation_revokes_session(client) -> None:
+    web_login(client)
+    original = client.cookies.get("access_registry_refresh")
+    assert original
+    client.cookies.clear()
+    first = client.get(
+        "/profile",
+        headers={"Cookie": f"access_registry_access=expired; access_registry_refresh={original}"},
+    )
+    successor = first.cookies.get("access_registry_refresh")
+    assert first.status_code == 200 and successor
+    client.cookies.clear()
+    second = client.get(
+        "/profile",
+        headers={"Cookie": f"access_registry_access=expired; access_registry_refresh={successor}"},
+    )
+    assert second.status_code == 200
+
+    client.cookies.clear()
+    denied = client.get(
+        "/profile",
+        headers={"Cookie": f"access_registry_access=expired; access_registry_refresh={original}"},
+    )
+    assert denied.status_code == 401
+    with SessionLocal() as db:
+        session = db.scalar(select(RefreshSession))
+        assert session and session.revoked_at is not None
 
 
 def test_login_cookie_diagnostics_never_log_secrets(client, monkeypatch, capsys) -> None:

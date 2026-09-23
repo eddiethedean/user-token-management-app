@@ -25,6 +25,10 @@ class TokenFlowError(ValueError):
     pass
 
 
+class RefreshOverlapRetry(TokenFlowError):
+    """A stale refresh lacked the session proof required to recover its successor."""
+
+
 class RegistrationPendingError(AuthenticationError):
     pass
 

@@ -76,6 +76,17 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 `SameSite` cannot repair a missing request cookie. Do not fall back to
 `RStudio-Connect-Credentials`; Data Mover continues to use its own accounts and sessions.
 
+If users return to login at about ten minutes and the audit log shows
+`auth.session.refresh_reuse`, check for an immediately preceding `auth.session.refreshed` event.
+Parallel requests can carry the same old refresh cookie when the access cookie expires. Current
+deployments return the same successor for duplicates within five seconds only when the companion
+`access_registry_csrf` proof cookie is present, and record `auth.session.refresh_duplicate`. Without
+that proof, the duplicate is denied with a retryable HTTP 409 and logged as
+`auth.session.refresh_duplicate_denied`; it does not revoke the session. Later reuse still revokes
+the session. If refresh failures continue, inspect whether Connect forwards all refreshed
+`Set-Cookie` headers and the browser sends both the new refresh and proof cookies on subsequent
+requests. Do not copy cookie values into support records.
+
 ## Email
 
 | Symptom | Likely cause | Fix |

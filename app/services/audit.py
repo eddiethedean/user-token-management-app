@@ -48,6 +48,14 @@ def record_event(
     outcome: str = "success",
     detail: dict | None = None,
 ) -> AuditEvent:
+    event_detail = dict(detail or {})
+    associated_user = target or actor
+    if associated_user is not None:
+        event_detail.setdefault("user_id", associated_user.id)
+    if actor is not None and target is not None and actor.id != target.id:
+        event_detail.setdefault("actor_user_id", actor.id)
+        event_detail.setdefault("target_user_id", target.id)
+
     event = AuditEvent(
         event_type=event_type,
         actor_user_id=actor.id if actor else None,
@@ -55,7 +63,7 @@ def record_event(
         outcome=outcome,
         request_id=_request_id(request),
         source_ip=client_ip(request),
-        detail=json.dumps(detail or {}, separators=(",", ":"), sort_keys=True),
+        detail=json.dumps(event_detail, separators=(",", ":"), sort_keys=True),
     )
     db.add(event)
     return event

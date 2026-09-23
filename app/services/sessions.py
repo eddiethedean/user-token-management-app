@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from hmac import compare_digest
 
 from fastapi import Request
 from sqlalchemy import select, update
@@ -12,13 +13,20 @@ from app.config import Settings
 from app.db_compat import execute_dml, scalar_returning
 from app.models import RefreshSession, RefreshTokenHistory, User, UserStatus, utcnow
 from app.security.client import is_trusted_direct_proxy
+from app.security.cookies import SESSION_CSRF_COOKIE, request_cookie_values
 from app.security.email import EmailPolicyError, normalize_email
 from app.security.passwords import PasswordService
-from app.security.tokens import create_access_token, hash_token, random_token
+from app.security.tokens import (
+    create_access_token,
+    hash_token,
+    random_token,
+    successor_refresh_token,
+)
 from app.services.audit import client_ip, record_event
 from app.services.auth_common import (
     AccountLockedError,
     AuthenticationError,
+    RefreshOverlapRetry,
     SessionTokens,
     TokenFlowError,
 )
@@ -26,6 +34,7 @@ from app.services.auth_common import (
 _GENERIC_AUTH_FAILURE = "Unable to sign in with those credentials."
 _LOGIN_LOCKOUT_ATTEMPTS = 5
 _LOGIN_LOCKOUT_DURATION = timedelta(minutes=15)
+_REFRESH_DUPLICATE_GRACE = timedelta(seconds=5)
 
 
 def authenticate_user(
@@ -194,7 +203,7 @@ def rotate_session(
 ) -> SessionTokens:
     now = utcnow()
     token_hash = hash_token(raw_refresh, settings.session_pepper)
-    replacement = random_token()
+    replacement = successor_refresh_token(raw_refresh, settings.session_pepper)
     replacement_hash = hash_token(replacement, settings.session_pepper)
     rotate = (
         update(RefreshSession)
@@ -223,12 +232,46 @@ def rotate_session(
             select(RefreshTokenHistory).where(RefreshTokenHistory.token_hash == token_hash)
         )
         if replayed:
-            replayed.session.revoked_at = replayed.session.revoked_at or now
+            session = replayed.session
+            retry_now = utcnow()
+            duplicate_is_current = (
+                timedelta(0) <= retry_now - replayed.consumed_at <= _REFRESH_DUPLICATE_GRACE
+                and session.revoked_at is None
+                and session.idle_expires_at > retry_now
+                and session.absolute_expires_at > retry_now
+                and session.user.is_active
+                and compare_digest(session.refresh_token_hash, replacement_hash)
+            )
+            if duplicate_is_current:
+                csrf_proofs = request_cookie_values(request, SESSION_CSRF_COOKIE) if request else []
+                if not any(compare_digest(proof, session.csrf_token) for proof in csrf_proofs):
+                    record_event(
+                        db,
+                        "auth.session.refresh_duplicate_denied",
+                        request=request,
+                        actor=session.user,
+                        target=session.user,
+                        outcome="denied",
+                    )
+                    db.commit()
+                    raise RefreshOverlapRetry("Session refresh proof is missing.")
+                access_token, expires_in = create_access_token(session.user, session.id, settings)
+                record_event(
+                    db,
+                    "auth.session.refresh_duplicate",
+                    request=request,
+                    actor=session.user,
+                    target=session.user,
+                )
+                db.commit()
+                return SessionTokens(access_token, expires_in, replacement, session)
+            session.revoked_at = session.revoked_at or retry_now
             record_event(
                 db,
                 "auth.session.refresh_reuse",
                 request=request,
-                target=replayed.session.user,
+                actor=session.user,
+                target=session.user,
                 outcome="denied",
             )
             db.commit()
@@ -246,7 +289,7 @@ def rotate_session(
         RefreshTokenHistory(
             session_id=session.id,
             token_hash=token_hash,
-            consumed_at=now,
+            consumed_at=utcnow(),
         )
     )
     access_token, expires_in = create_access_token(session.user, session.id, settings)

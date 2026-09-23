@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.services.auth_common import (
     AccountLockedError,
     AuthenticationError,
+    RefreshOverlapRetry,
     RegistrationPendingError,
     SessionTokens,
     TokenFlowError,
@@ -42,6 +43,7 @@ from app.services.sessions import (
 __all__ = [
     "AccountLockedError",
     "AuthenticationError",
+    "RefreshOverlapRetry",
     "RegistrationPendingError",
     "SessionTokens",
     "TokenFlowError",

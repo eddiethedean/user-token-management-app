@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from urllib.parse import urlencode
 
@@ -38,6 +39,25 @@ from app.ui.layout import INDICATOR
 from app.ui.partials.shared import _filter_base_path, hedron_pagination
 from app.ui.regions import AUDIT_RESULTS
 from app.ui.urls import form_action, hx_attrs, mounted_path, page_href
+
+
+def _audit_event_detail(event: AuditEvent) -> str:
+    try:
+        detail = json.loads(event.detail or "{}")
+    except json.JSONDecodeError:
+        detail = {}
+    if not isinstance(detail, dict):
+        detail = {"value": detail}
+
+    actor_user_id = getattr(event, "actor_user_id", None)
+    target_user_id = getattr(event, "target_user_id", None)
+    associated_user_id = target_user_id or actor_user_id
+    if associated_user_id is not None:
+        detail.setdefault("user_id", associated_user_id)
+    if actor_user_id is not None and target_user_id is not None and actor_user_id != target_user_id:
+        detail.setdefault("actor_user_id", actor_user_id)
+        detail.setdefault("target_user_id", target_user_id)
+    return json.dumps(detail, separators=(",", ":"), sort_keys=True)
 
 
 def _audit_results_path(
@@ -246,39 +266,41 @@ def audit_results_body(
     _ = page_count
     results: NodeLike
     if events:
-        rows: list[list[NodeLike]] = [
-            [
-                html.time(
-                    html.span(event.occurred_at.strftime("%b\u00a0%d")),
-                    html.br(),
-                    html.span(event.occurred_at.strftime("%H:%M")),
-                    datetime=event.occurred_at.isoformat(),
-                ),
-                event.event_type,
-                Badge(
-                    event.outcome,
-                    tone=(
-                        "success"
-                        if event.outcome == "success"
-                        else "danger"
-                        if event.outcome == "failure"
-                        else "neutral"
+        rows: list[list[NodeLike]] = []
+        for event in events:
+            detail = _audit_event_detail(event)
+            rows.append(
+                [
+                    html.time(
+                        html.span(event.occurred_at.strftime("%b\u00a0%d")),
+                        html.br(),
+                        html.span(event.occurred_at.strftime("%H:%M")),
+                        datetime=event.occurred_at.isoformat(),
                     ),
-                ),
-                event.source_ip or "—",
-                (
-                    Expander(
-                        "View details",
-                        html.code(event.detail),
-                        open=False,
-                        enhance="native",
-                    )
-                    if event.detail and event.detail != "{}"
-                    else "No additional details"
-                ),
-            ]
-            for event in events
-        ]
+                    event.event_type,
+                    Badge(
+                        event.outcome,
+                        tone=(
+                            "success"
+                            if event.outcome == "success"
+                            else "danger"
+                            if event.outcome == "failure"
+                            else "neutral"
+                        ),
+                    ),
+                    event.source_ip or "—",
+                    (
+                        Expander(
+                            "View details",
+                            html.code(detail),
+                            open=False,
+                            enhance="native",
+                        )
+                        if detail != "{}"
+                        else "No additional details"
+                    ),
+                ]
+            )
         results = apply_data_recipe(
             Table(
                 rows=rows,

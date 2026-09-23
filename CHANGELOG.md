@@ -2,8 +2,13 @@
 
 ## [Unreleased]
 
+## [230926.0] — 2026-09-23
+
 ### Changed
 
+- Hardened duplicate session refresh recovery with a companion proof cookie and added safe retry
+  behavior for proofless overlap requests.
+- Added user attribution and detailed redacted diagnostics for successful and failed pipeline runs.
 - Enabled MSS, MCS-COP, and PostgreSQL as both pipeline sources and destinations by default while
   keeping CSV source-only; operator writer flags can still disable individual remote destinations.
 - Connection saves now test new or changed credential bundles automatically. Identical normalized
