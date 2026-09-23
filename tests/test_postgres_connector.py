@@ -236,6 +236,46 @@ def test_postgres_extract_preserves_special_text_values(postgres_credentials) ->
     assert pl.concat([batch.frame for batch in batches])["value"].to_list() == values
 
 
+def test_postgres_creates_timestamp_for_parameterized_polars_datetime(
+    postgres_credentials,
+) -> None:
+    frame = pl.DataFrame({"occurred": [date(2026, 9, 17)]}).with_columns(
+        pl.col("occurred").cast(pl.Datetime("us"))
+    )
+    locator = postgres_table("public", "datetime_destination")
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(ColumnSchema(name="occurred", data_type=str(frame.schema["occurred"])),),
+    )
+    connector = PostgresConnector(connector_settings())
+    session = connector.prepare_destination(
+        postgres_credentials,
+        locator,
+        schema,
+        PostgresAppendPolicy(),
+        run_id="parameterized-datetime",
+    )
+    connector.write_batch(
+        session,
+        TransferBatch(
+            frame=frame,
+            row_count=frame.height,
+            byte_count=int(frame.estimated_size()),
+            sequence=1,
+        ),
+    )
+    connector.finalize(session)
+
+    assert _fetchall(
+        postgres_credentials,
+        """
+        SELECT data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'datetime_destination'
+        """,
+    ) == [("timestamp without time zone",)]
+
+
 def test_postgres_preserves_timezone_aware_timestamps(postgres_credentials) -> None:
     _execute(postgres_credentials, "CREATE TABLE public.timezone_source (occurred TIMESTAMPTZ)")
     _execute(
@@ -278,18 +318,18 @@ def test_postgres_preserves_timezone_aware_timestamps(postgres_credentials) -> N
         _fetchall(
             postgres_credentials,
             """
-        SELECT EXTRACT(EPOCH FROM destination.occurred),
-               EXTRACT(EPOCH FROM source.occurred)
-        FROM public.timezone_destination AS destination,
-             public.timezone_source AS source
-        """,
+            SELECT EXTRACT(EPOCH FROM destination.occurred),
+                   EXTRACT(EPOCH FROM source.occurred)
+            FROM public.timezone_destination AS destination,
+                 public.timezone_source AS source
+            """,
         )[0][0]
         == _fetchall(
             postgres_credentials,
             """
-        SELECT EXTRACT(EPOCH FROM source.occurred)
-        FROM public.timezone_source AS source
-        """,
+            SELECT EXTRACT(EPOCH FROM source.occurred)
+            FROM public.timezone_source AS source
+            """,
         )[0][0]
     )
 
