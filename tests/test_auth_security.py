@@ -402,6 +402,87 @@ def test_password_change_signs_out(client) -> None:
     assert blocked.status_code in {302, 303, 401}
 
 
+def test_password_change_invalidates_previously_issued_reset_link(client) -> None:
+    from app.models import PasswordReset
+
+    requested = preauth_post(client, "/password/forgot", {"email": ADMIN_EMAIL})
+    assert requested.status_code == 200
+    reset_token = latest_email_token(ADMIN_EMAIL, subject_like="%password%")
+
+    web_login(client)
+    profile = client.get("/profile")
+    changed = client.post(
+        "/profile/password",
+        data={
+            "csrf_token": csrf_from(profile.text),
+            "current_password": ADMIN_PASSWORD,
+            "new_password": NEW_PASSWORD,
+            "new_password_confirm": NEW_PASSWORD,
+        },
+    )
+    assert changed.status_code == 303
+
+    with SessionLocal() as db:
+        reset = db.scalar(select(PasswordReset))
+        assert reset is not None
+        assert reset.used_at is not None
+
+    rejected = client.post(
+        "/password/reset",
+        data={
+            "token": reset_token,
+            "password": "Cedar-Maple-94!Blue",
+            "password_confirm": "Cedar-Maple-94!Blue",
+        },
+    )
+    assert rejected.status_code == 400
+    assert "invalid or expired" in rejected.text.lower()
+
+
+def test_stale_reset_session_cannot_complete_after_password_change(access_app) -> None:
+    import pytest
+
+    from app.config import get_settings
+    from app.database import SessionLocal
+    from app.models import User
+    from app.services.accounts import change_password
+    from app.services.auth_common import TokenFlowError
+    from app.services.password_reset import (
+        complete_password_reset,
+        get_valid_password_reset,
+        request_password_reset,
+    )
+
+    settings = get_settings()
+    with SessionLocal() as db:
+        request_password_reset(db, settings, ADMIN_EMAIL)
+    reset_token = latest_email_token(ADMIN_EMAIL, subject_like="%password%")
+
+    with SessionLocal() as stale_db:
+        stale_reset = get_valid_password_reset(stale_db, settings, reset_token)
+        stale_db.commit()
+
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+            assert user is not None
+            change_password(
+                db,
+                settings,
+                user=user,
+                current_password=ADMIN_PASSWORD,
+                new_password=NEW_PASSWORD,
+            )
+
+        with pytest.raises(TokenFlowError, match="invalid or expired"):
+            complete_password_reset(
+                stale_db,
+                settings,
+                raw_token=reset_token,
+                password="Cedar-Maple-94!Blue",
+            )
+        assert stale_reset.used_at is not None
+
+
 def test_login_rate_limit_html(client, request_settings_override) -> None:
     settings = get_settings()
     original_source = settings.rate_limit_login_per_source

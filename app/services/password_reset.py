@@ -71,9 +71,9 @@ def request_password_reset(
 
 def get_valid_password_reset(db: Session, settings: Settings, raw_token: str) -> PasswordReset:
     reset = db.scalar(
-        select(PasswordReset).where(
-            PasswordReset.token_hash == hash_token(raw_token, settings.session_pepper)
-        )
+        select(PasswordReset)
+        .where(PasswordReset.token_hash == hash_token(raw_token, settings.session_pepper))
+        .execution_options(populate_existing=True)
     )
     if not reset or reset.used_at or reset.expires_at <= utcnow() or not reset.user.is_active:
         raise TokenFlowError("That password reset link is invalid or expired.")
@@ -88,11 +88,28 @@ def complete_password_reset(
     password: str,
     request: Request | None = None,
 ) -> User:
-    reset = get_valid_password_reset(db, settings, raw_token)
-    validated = validate_password(
-        password, email=reset.user.email, blocklist_path=settings.password_blocklist_path
+    token_hash = hash_token(raw_token, settings.session_pepper)
+    user_id = db.scalar(select(PasswordReset.user_id).where(PasswordReset.token_hash == token_hash))
+    if not user_id:
+        raise TokenFlowError("That password reset link is invalid or expired.")
+    user = db.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    user = reset.user
+    if not user or not user.is_active:
+        raise TokenFlowError("That password reset link is invalid or expired.")
+
+    # Password changes and reset completions serialize on the user row. Reload
+    # the capability after acquiring that lock so a reset consumed by a
+    # concurrent password change cannot still be accepted from stale state.
+    reset = get_valid_password_reset(db, settings, raw_token)
+    if reset.user_id != user.id:
+        raise TokenFlowError("That password reset link is invalid or expired.")
+    validated = validate_password(
+        password, email=user.email, blocklist_path=settings.password_blocklist_path
+    )
     now = utcnow()
     consumed = db.execute(
         update(PasswordReset)
