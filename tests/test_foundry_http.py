@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 from pathlib import Path
@@ -275,6 +276,11 @@ def test_foundry_writer_finalize_streams_committed_upload(foundry_sim, tmp_path)
     assert manifest.remote_id == "readiness.snappy.parquet"
     assert manifest.rows == 2
     assert manifest.details["publication"] == "committed_upload"
+    uploaded = pl.read_parquet(io.BytesIO(foundry_sim.files["readiness.snappy.parquet"]))
+    assert uploaded.to_dicts() == [
+        {"event_id": 1, "unit_name": "A"},
+        {"event_id": 2, "unit_name": "B"},
+    ]
 
 
 def test_foundry_writer_publishes_typed_empty_schema(foundry_sim, tmp_path) -> None:
@@ -296,6 +302,9 @@ def test_foundry_writer_publishes_typed_empty_schema(foundry_sim, tmp_path) -> N
 
     assert manifest.rows == 0
     assert manifest.remote_id == "empty.snappy.parquet"
+    uploaded = pl.read_parquet(io.BytesIO(foundry_sim.files["empty.snappy.parquet"]))
+    assert uploaded.height == 0
+    assert uploaded.schema == {"event_id": pl.Int64}
 
 
 def test_foundry_writer_uses_local_manifest_after_malformed_success_metadata(
@@ -513,6 +522,9 @@ def test_foundry_health_and_extract_with_default_rid(foundry_sim, tmp_path) -> N
     )
     batches = list(connector.extract(credentials, locator, batch_rows=25, batch_bytes=1024))
     assert batches and batches[0].row_count >= 1
+    assert pl.concat([batch.frame for batch in batches]).to_dicts() == [
+        {"event_id": 1, "unit_name": "Alpha"}
+    ]
     assert foundry_sim.last_download_branch == "release"
     assert list(spool.iterdir()) == []
     connector.abort(
