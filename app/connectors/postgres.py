@@ -511,14 +511,29 @@ class PostgresConnector:
                     )
                     source = sql.SQL("SELECT {} FROM {}").format(columns, stage)
                     if load_session.metadata.get("staging_sequence"):
+                        nullable = sql.SQL(" OR ").join(
+                            sql.SQL("{} IS NULL").format(sql.Identifier(name))
+                            for name in policy.conflict_columns
+                        )
+                        non_null = sql.SQL(" AND ").join(
+                            sql.SQL("{} IS NOT NULL").format(sql.Identifier(name))
+                            for name in policy.conflict_columns
+                        )
+                        sequence = sql.Identifier(load_session.metadata["staging_sequence"])
                         source = sql.SQL(
+                            "SELECT {columns} FROM {stage} WHERE {nullable} "
+                            "UNION ALL "
+                            "SELECT {columns} FROM ("
                             "SELECT DISTINCT ON ({conflict}) {columns} FROM {stage} "
-                            "ORDER BY {conflict}, {sequence} DESC"
+                            "WHERE {non_null} ORDER BY {conflict}, {sequence} DESC"
+                            ") AS dm_non_null"
                         ).format(
+                            nullable=nullable,
+                            non_null=non_null,
                             conflict=conflict,
                             columns=columns,
                             stage=stage,
-                            sequence=sql.Identifier("dm_row_number"),
+                            sequence=sequence,
                         )
                     if policy.action == "ignore":
                         cursor.execute(
