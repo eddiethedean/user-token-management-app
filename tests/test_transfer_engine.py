@@ -196,7 +196,9 @@ def test_append_reconciliation_downgrades_aggregate_delta_changed_by_concurrent_
     level, error, facts = transfer_engine._reconcile_write_result(
         _snapshot_with_policy(PostgresAppendPolicy()),
         source_rows=5,
-        manifest=DestinationManifest(locator=postgres_table("public", "events"), rows=5),
+        manifest=DestinationManifest(
+            locator=postgres_table("public", "events"), rows=5, bytes=0
+        ),
         destination_rows_before=10,
         destination_rows_after=16,
         destination=destination,
@@ -211,7 +213,9 @@ def test_append_reconciliation_still_flags_a_short_manifest() -> None:
     level, error, facts = transfer_engine._reconcile_write_result(
         _snapshot_with_policy(PostgresAppendPolicy()),
         source_rows=5,
-        manifest=DestinationManifest(locator=postgres_table("public", "events"), rows=4),
+        manifest=DestinationManifest(
+            locator=postgres_table("public", "events"), rows=4, bytes=0
+        ),
         destination_rows_before=10,
         destination_rows_after=14,
         destination=_Destination(),
@@ -224,7 +228,9 @@ def test_append_reconciliation_still_flags_a_short_manifest() -> None:
 
 def test_replace_reconciliation_requires_exact_final_table_count() -> None:
     snapshot = _snapshot_with_policy(PostgresReplacePolicy())
-    manifest = DestinationManifest(locator=postgres_table("public", "events"), rows=2)
+    manifest = DestinationManifest(
+        locator=postgres_table("public", "events"), rows=2, bytes=0
+    )
 
     exact_level, exact_error, _ = transfer_engine._reconcile_write_result(
         snapshot,
@@ -254,7 +260,9 @@ def test_upsert_reconciliation_covers_ignored_and_updated_rows() -> None:
     ignored_level, ignored_error, _ = transfer_engine._reconcile_write_result(
         snapshot,
         source_rows=4,
-        manifest=DestinationManifest(locator=postgres_table("public", "events"), rows=2),
+        manifest=DestinationManifest(
+            locator=postgres_table("public", "events"), rows=2, bytes=0
+        ),
         destination_rows_before=10,
         destination_rows_after=12,
         destination=_Destination(),
@@ -265,6 +273,7 @@ def test_upsert_reconciliation_covers_ignored_and_updated_rows() -> None:
         manifest=DestinationManifest(
             locator=postgres_table("public", "events"),
             rows=3,
+            bytes=0,
             details={"expected_rows": "3"},
         ),
         destination_rows_before=10,
