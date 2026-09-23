@@ -20,7 +20,11 @@ from app.connectors.foundry import (
     normalize_foundry_base,
     supported_files,
 )
-from app.connectors.locators import FoundryReplaceFilePolicy, FoundryUploadLocator
+from app.connectors.locators import (
+    FoundryDatasetFilesLocator,
+    FoundryReplaceFilePolicy,
+    FoundryUploadLocator,
+)
 from app.connectors.mcscop import McscopConnector
 from app.connectors.mss import MssConnector
 from app.connectors.registry import load_builtin_connectors, writer_enabled
@@ -674,6 +678,36 @@ def test_foundry_health_without_rid_is_untested(foundry_sim, tmp_path) -> None:
     assert health.status == "untested"
     namespaces = connector.list_namespaces({"endpoint": foundry_sim.base_url, "token": TOKEN})
     assert namespaces == []
+
+
+def test_foundry_inspects_one_small_file_and_limits_large_previews(foundry_sim, tmp_path) -> None:
+    foundry_sim.files["notes.csv"] = b"event_id,service_date\n1,2026-09-23\n2,2026-09-24\n"
+    connector = MssConnector(_settings(tmp_path))
+    credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
+    locator = FoundryDatasetFilesLocator(
+        dataset_rid=DATASET, branch="master", file_paths=["notes.csv"]
+    )
+    inspected = connector.inspect_object(credentials, locator)
+    assert [(column.name, column.data_type) for column in inspected.columns] == [
+        ("event_id", "Int64"),
+        ("service_date", "Date"),
+    ]
+    assert list(tmp_path.iterdir()) == []
+
+    parquet = io.BytesIO()
+    pl.DataFrame({"event_id": [1], "ready": [True]}).write_parquet(parquet)
+    foundry_sim.files["readiness.parquet"] = parquet.getvalue()
+    parquet_locator = FoundryDatasetFilesLocator(
+        dataset_rid=DATASET, branch="master", file_paths=["readiness.parquet"]
+    )
+    assert [
+        (column.name, column.data_type)
+        for column in connector.inspect_object(credentials, parquet_locator).columns
+    ] == [("event_id", "Int64"), ("ready", "Boolean")]
+
+    foundry_sim.files["notes.csv"] = b"event_id\n" + b"1\n" * (1024 * 1024 + 1)
+    assert connector.inspect_object(credentials, locator).columns == ()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_foundry_health_and_extract_with_default_rid(foundry_sim, tmp_path) -> None:

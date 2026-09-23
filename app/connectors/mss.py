@@ -21,10 +21,12 @@ class MssConnector(FoundryConnector):
         objects_label="File",
         writer_enabled=True,
         writer_setting="pipeline_enable_mss_writer",
-        schema_inspection=False,
+        schema_inspection=True,
         exact_row_counts=False,
         verification_level="local_manifest",
-        limitations=("Foundry file metadata does not expose portable schema or row counts.",),
+        limitations=(
+            "Column preview reads one selected file up to 2 MB; larger or multiple files are inspected during the run.",
+        ),
         dataset_creation=True,
     )
 

@@ -187,7 +187,13 @@ no eligible key exists or if the source no longer contains every key column. The
 that constraint immediately before loading.
 Replace/recreate loads stage and swap the table in one PostgreSQL transaction, so a failure before
 commit preserves the prior table. Foundry destinations replace a named file through a committed v2
-upload transaction. Foundry source and destination locators inherit the default branch from the validated
+upload transaction. When creating a PostgreSQL table, you can select source columns for a primary key
+or add a generated `BIGINT` identity key; a source primary key is kept when available and no override
+is selected. After an append route creates its table, its primary key is fixed; choose replace to
+rebuild the table with a different key. When loading source-supplied values into an existing identity
+column, a sequence with `CACHE 1` is required. If the sequence needs advancing, the PostgreSQL
+connection must own it so the restart can block concurrent generated keys. Foundry source and
+destination locators inherit the default branch from the validated
 connection when the pipeline is saved, except newly provisioned datasets, which use their default
 `master` branch. The saved branch and `UPDATE` transaction type are sent explicitly on upload. Older
 NIPR deployments that reject that request with HTTP 400 receive one compatibility retry using the
@@ -197,6 +203,30 @@ trigger a version fallback. File catalogs and
 `all_supported` extraction follow every provider page; configured safety limits fail explicitly
 instead of returning partial results.
 Timed-out Foundry uploads are recorded as `publish_uncertain` and are not auto-retried.
+
+In the schema preview, compare **Detected type** with **Sent as** or **New column type**. Use
+**Cast to** or **Create as** to override a column's detected type; the automatic choice shows the
+type that will be used. Available casts
+include text, boolean, integer widths, floating point, decimal, date/time, interval, and binary.
+The route editor keeps connection and object selection under **Connections & route**. Open **Target schema &
+creator** to review column types. When you select **Create a new table** or **Create a new file**,
+that tab collects the new name, PostgreSQL primary-key choice, and **Create as** type for each
+source column. The planned target schema updates as you change types or keys, before the first run
+creates the table or writes the Parquet file. For Foundry, you can also create and select an empty
+dataset in this tab; that dataset is provisioned when you choose **Create and select dataset**.
+If the source does not expose its schema yet, enter a column name under **Add a cast by column name**.
+Leave **Use detected type** selected to keep automatic inference. Casts apply to every batch and are
+strict, so a run stops with a schema error if a value cannot be converted or an integer or decimal
+cast would change its numeric value. A new PostgreSQL table
+uses the selected type; casts do not change an existing table's column definitions. For a single
+Foundry file up to 2 MB, Data Mover reads the file for a column preview and caches that preview
+briefly. Larger and multi-file sources still offer the name-based cast control; the worker checks
+their actual schema during the run.
+CSV profiling preserves leading-zero identifiers as text, keeps large integers and scientific
+notation as exact decimals when they fit within 38 digits, and distinguishes dates, times, and
+time-zone-aware timestamps. A Foundry CSV is profiled across the whole file at run time, including
+when it is too large to preview. If the values in a column disagree on a safe type, the detected
+type is text; select a cast only when the values can be converted consistently.
 
 ## Upload and inspect a CSV
 
@@ -214,8 +244,10 @@ Limits and validation rules:
 - cells no larger than 128 KB.
 
 Data Mover recognizes comma, semicolon, tab, and pipe delimiters. Inferred types are `boolean`, `integer`,
-`decimal`, `date`, `datetime`, `text`, and `empty`. Type detection is conservative: mixed values fall
-back to `text`, while integers mixed with decimals become `decimal`.
+`decimal`, `date`, `time`, `datetime`, `text`, and `empty`. Scientific notation is treated as decimal.
+Time-zone-aware timestamps retain their offset when sent to a destination. Type detection is
+conservative: mixed values fall back to `text`, while integers mixed with decimals become `decimal`.
+The run uses the scanned types, so the preview and transfer agree on dates, times, and numbers.
 
 ## Save and reuse pipelines
 

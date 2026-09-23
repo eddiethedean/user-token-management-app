@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [230926.2] — 2026-09-23
+
+### Changed
+
+- Bumped the application version.
+
 ## [230926.1] — 2026-09-23
 
 ### Changed

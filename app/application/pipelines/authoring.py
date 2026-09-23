@@ -20,6 +20,9 @@ class SavePipelineAuthoringCommand:
     write_mode: str = ""
     destination_table_new: str = ""
     conflict_columns: str = ""
+    column_type_overrides: dict[str, str] | None = None
+    primary_key_columns: str = ""
+    auto_increment_primary_key: str = ""
     source_upload_id: str = ""
     pipeline_id: str = ""
 

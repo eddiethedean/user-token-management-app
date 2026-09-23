@@ -172,8 +172,18 @@ function syncNewDestinationName() {
   const input = field.querySelector('input[name="destination_table_new"]');
   if (input) {
     input.disabled = !creatingNew;
+    input.required = creatingNew;
   }
 }
+
+document.addEventListener("invalid", (event) => {
+  const panel = event.target.closest?.('#pipeline-setup-tabs [role="tabpanel"]');
+  if (!panel) return;
+  const tab = document.querySelector(
+    `#pipeline-setup-tabs [role="tab"][aria-controls="${panel.id}"]`,
+  );
+  if (tab?.getAttribute("aria-selected") !== "true") tab?.click();
+}, true);
 
 document.addEventListener("htmx:afterSettle", () => {
   syncNewDestinationName();
@@ -217,6 +227,9 @@ document.addEventListener(
 document.addEventListener("change", (event) => {
   if (event.target.closest("#pipeline-target-table-select")) {
     syncNewDestinationName();
+    if (event.target.value === "__new__") {
+      document.getElementById("pipeline-setup-tabs-tab-1")?.click();
+    }
   }
 
   const modeToggle = event.target.closest(

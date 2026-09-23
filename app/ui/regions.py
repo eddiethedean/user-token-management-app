@@ -139,6 +139,11 @@ PIPELINE_TARGET_TABLE_SELECT = FragmentRegion(
     selector="#pipeline-target-table-select",
     description="Pipeline destination table select",
 )
+PIPELINE_CREATE_KEY_CONTROLS = FragmentRegion(
+    id="pipeline-create-key-controls",
+    selector="#pipeline-create-key-controls",
+    description="Primary-key controls for new PostgreSQL tables",
+)
 PIPELINE_DATASET_CREATOR = FragmentRegion(
     id="pipeline-dataset-creator",
     selector="#pipeline-dataset-creator",

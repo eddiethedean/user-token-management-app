@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 from fastapi import BackgroundTasks, HTTPException, Request, status
@@ -77,7 +78,7 @@ def register_pipeline_run_routes(
     status_fragment: StatusFragment,
     events_loader: EventsLoader | None = None,
     with_user_catalog: WithUserCatalog,
-) -> None:
+) -> Callable[..., Awaitable[Response]]:
     """Register start, status, cancel, and reconciliation endpoints."""
 
     def _events_after(db, *, run, after_sequence=0):
@@ -197,7 +198,10 @@ def register_pipeline_run_routes(
             )
             return response
         return RedirectResponse(
-            redirect_path(request, f"/pipeline?notice=queued&run_id={run.id}"),
+            redirect_path(
+                request,
+                f"/pipeline?notice=queued&pipeline_id={pipeline.id}&run_id={run.id}",
+            ),
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -361,6 +365,8 @@ def register_pipeline_run_routes(
                 action_trace=action_trace,
             ),
         )
+
+    return _start_pipeline_run
 
 
 def _csv_decimal_columns_before_run(

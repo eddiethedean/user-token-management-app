@@ -6,7 +6,9 @@ import json
 import re
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.domain.column_types import COLUMN_TYPE_OVERRIDE_DATA_TYPES
 
 DATASET_RID_PATTERN = re.compile(
     r"^ri\.[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+\.dataset\.[A-Za-z0-9._-]+$"
@@ -131,11 +133,51 @@ Locator = Annotated[
 ]
 
 
-class PostgresAppendPolicy(BaseModel):
+class ColumnTypeOverridesPolicy(BaseModel):
+    column_type_overrides: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("column_type_overrides")
+    @classmethod
+    def validate_column_type_overrides(cls, value: dict[str, str]) -> dict[str, str]:
+        for column, selected_type in value.items():
+            if not column or len(column) > 256:
+                raise ValueError("Cast column names must be between 1 and 256 characters.")
+            if selected_type not in COLUMN_TYPE_OVERRIDE_DATA_TYPES:
+                raise ValueError("Choose a supported column cast type.")
+        return value
+
+
+class PostgresAppendPolicy(ColumnTypeOverridesPolicy):
     kind: Literal["postgres_append"] = "postgres_append"
+    primary_key_columns: list[str] = Field(default_factory=list)
+    auto_increment_primary_key: str = ""
+
+    @field_validator("primary_key_columns")
+    @classmethod
+    def validate_primary_key_columns(cls, value: list[str]) -> list[str]:
+        for column in value:
+            if not IDENTIFIER_PATTERN.fullmatch(column):
+                raise ValueError("Primary-key columns must be valid PostgreSQL identifiers.")
+        return value
+
+    @field_validator("auto_increment_primary_key")
+    @classmethod
+    def validate_auto_increment_primary_key(cls, value: str) -> str:
+        value = value.strip()
+        if value and not IDENTIFIER_PATTERN.fullmatch(value):
+            raise ValueError("The generated primary-key name must be a PostgreSQL identifier.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_primary_key_choice(self) -> PostgresAppendPolicy:
+        if self.primary_key_columns and self.auto_increment_primary_key:
+            raise ValueError("Choose source key columns or an auto-increment key, not both.")
+        if len(set(self.primary_key_columns)) != len(self.primary_key_columns):
+            raise ValueError("Primary-key columns cannot be repeated.")
+        return self
 
 
-class PostgresUpsertPolicy(BaseModel):
+class PostgresUpsertPolicy(ColumnTypeOverridesPolicy):
     kind: Literal["postgres_upsert"] = "postgres_upsert"
     conflict_columns: list[str] = Field(min_length=1)
     action: Literal["update", "ignore"] = "ignore"
@@ -149,12 +191,38 @@ class PostgresUpsertPolicy(BaseModel):
         return value
 
 
-class PostgresReplacePolicy(BaseModel):
+class PostgresReplacePolicy(ColumnTypeOverridesPolicy):
     kind: Literal["postgres_replace"] = "postgres_replace"
     schema_policy: Literal["require_compatible", "recreate"] = "require_compatible"
+    primary_key_columns: list[str] = Field(default_factory=list)
+    auto_increment_primary_key: str = ""
+
+    @field_validator("primary_key_columns")
+    @classmethod
+    def validate_primary_key_columns(cls, value: list[str]) -> list[str]:
+        for column in value:
+            if not IDENTIFIER_PATTERN.fullmatch(column):
+                raise ValueError("Primary-key columns must be valid PostgreSQL identifiers.")
+        return value
+
+    @field_validator("auto_increment_primary_key")
+    @classmethod
+    def validate_auto_increment_primary_key(cls, value: str) -> str:
+        value = value.strip()
+        if value and not IDENTIFIER_PATTERN.fullmatch(value):
+            raise ValueError("The generated primary-key name must be a PostgreSQL identifier.")
+        return value
+
+    @model_validator(mode="after")
+    def validate_primary_key_choice(self) -> PostgresReplacePolicy:
+        if self.primary_key_columns and self.auto_increment_primary_key:
+            raise ValueError("Choose source key columns or an auto-increment key, not both.")
+        if len(set(self.primary_key_columns)) != len(self.primary_key_columns):
+            raise ValueError("Primary-key columns cannot be repeated.")
+        return self
 
 
-class FoundryReplaceFilePolicy(BaseModel):
+class FoundryReplaceFilePolicy(ColumnTypeOverridesPolicy):
     kind: Literal["foundry_replace_file"] = "foundry_replace_file"
     publication: Literal["committed_upload", "preview_upload"] = "committed_upload"
 

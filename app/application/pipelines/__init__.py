@@ -53,6 +53,9 @@ class SavePipelineCommand:
     destination_table_new: str = ""
     source_upload_id: str = ""
     conflict_columns: str = ""
+    column_type_overrides: dict[str, str] | None = None
+    primary_key_columns: str = ""
+    auto_increment_primary_key: str = ""
     pipeline_id: str = ""
     request: Any = None
 
@@ -97,6 +100,9 @@ class PipelineCommands:
             source_upload_id=command.source_upload_id,
             write_mode=command.write_mode,
             conflict_columns=command.conflict_columns,
+            column_type_overrides=command.column_type_overrides,
+            primary_key_columns=command.primary_key_columns,
+            auto_increment_primary_key=command.auto_increment_primary_key,
             available_providers=command.available_providers,
             pipeline_id=command.pipeline_id,
             request=command.request,

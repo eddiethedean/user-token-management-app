@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import json
 import re
 import shutil
@@ -19,6 +20,7 @@ from app.connectors.base import (
     AbortResult,
     BatchWriteResult,
     CatalogPage,
+    ColumnSchema,
     ConnectionHealth,
     DestinationManifest,
     LoadSession,
@@ -30,6 +32,7 @@ from app.connectors.base import (
     bounded_frame_batches,
     map_http_status,
 )
+from app.connectors.csv_source import profiled_polars_type
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
     FoundryDatasetFilesLocator,
@@ -40,6 +43,7 @@ from app.connectors.locators import (
 from app.connectors.redaction import redact_text
 from app.connectors.registry import connector_settings
 from app.connectors.tls import ssl_context_for_bundle
+from app.domain.csv_inference import CsvColumnProfile, csv_dialect, csv_headers, profile_csv_rows
 
 SUPPORTED_SUFFIXES = (".csv", ".parquet")
 DEFAULT_BRANCHES = ("master", "main")
@@ -126,8 +130,30 @@ def _schema_casts(schema: Mapping[str, PolarsDtype]) -> list[pl.Expr]:
 
 def _polars_dtype(data_type: str):
     folded = data_type.casefold()
+    if folded.startswith("interval") or folded.startswith("duration"):
+        return pl.Duration("us")
     if "bool" in folded:
         return pl.Boolean
+    if folded == "int8":
+        return pl.Int8
+    if folded == "int16":
+        return pl.Int16
+    if folded == "int32":
+        return pl.Int32
+    if folded == "int64":
+        return pl.Int64
+    if folded == "uint8":
+        return pl.UInt8
+    if folded == "uint16":
+        return pl.UInt16
+    if folded == "uint32":
+        return pl.UInt32
+    if folded == "uint64":
+        return pl.UInt64
+    if folded == "float32":
+        return pl.Float32
+    if folded == "float64":
+        return pl.Float64
     if "int" in folded:
         return pl.Int64
     if "float" in folded or "double" in folded:
@@ -138,11 +164,20 @@ def _polars_dtype(data_type: str):
         return pl.Datetime("us")
     if folded.startswith("time"):
         return pl.Time
-    decimal = re.search(r"precision=(\d+),\s*scale=(\d+)", folded)
+    decimal = re.search(r"precision=(\d+|none),\s*scale=(\d+|none)", folded)
     if decimal:
-        precision = min(38, int(decimal.group(1)))
-        return pl.Decimal(precision=precision, scale=min(precision, int(decimal.group(2))))
+        precision_text, scale_text = decimal.groups()
+        if precision_text == "none" and scale_text == "none":
+            # Polars requires an integer scale. Empty outputs have no observed
+            # values from which to infer one, so use a valid zero-scale Decimal.
+            return pl.Decimal(precision=38, scale=0)
+        if precision_text == "none" or scale_text == "none":
+            return pl.String
+        precision = min(38, int(precision_text))
+        return pl.Decimal(precision=precision, scale=min(precision, int(scale_text)))
     if "decimal" in folded or "numeric" in folded:
+        # An unconstrained PostgreSQL NUMERIC can have per-row scales that do
+        # not fit one Polars Decimal dtype. Preserve its exact text form.
         return pl.String
     if "binary" in folded or "bytea" in folded:
         return pl.Binary
@@ -377,7 +412,15 @@ class FoundryClient:
             TransferErrorCode.SOURCE_NOT_FOUND, "Could not list dataset files."
         )
 
-    def download_file(self, dataset_rid: str, branch: str, path: str, dest: Path) -> int:
+    def download_file(
+        self,
+        dataset_rid: str,
+        branch: str,
+        path: str,
+        dest: Path,
+        *,
+        max_bytes: int | None = None,
+    ) -> int:
         encoded = quote(path, safe="")
         try:
             versions = (
@@ -408,11 +451,11 @@ class FoundryClient:
                         raise error
                     self._dataset_files_api_version = version
                     written = 0
-                    max_bytes = self.settings.pipeline_max_source_bytes
+                    byte_limit = max_bytes or self.settings.pipeline_max_source_bytes
                     with dest.open("wb") as handle:
                         for chunk in response.iter_bytes():
                             written += len(chunk)
-                            if written > max_bytes:
+                            if written > byte_limit:
                                 raise ConnectorError(
                                     TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
                                     "The dataset file exceeds the configured source size limit.",
@@ -615,6 +658,60 @@ def supported_files(entries: list[dict]) -> list[dict]:
     return selected
 
 
+MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES = 2 * 1024 * 1024
+
+
+def _source_file_scan(path: Path, file_path: str) -> pl.LazyFrame:
+    if file_path.casefold().endswith(".parquet"):
+        return pl.scan_parquet(path)
+    scan, _ = _csv_file_scan(path)
+    return scan
+
+
+def _csv_file_scan(path: Path) -> tuple[pl.LazyFrame, tuple[CsvColumnProfile, ...]]:
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            dialect = csv_dialect(handle.read(16_384))
+            handle.seek(0)
+            reader = csv.reader(handle, dialect=dialect)
+            try:
+                headers = csv_headers(next(reader), max_columns=1_000)
+            except StopIteration as exc:
+                raise ValueError("The CSV must contain a header row.") from exc
+            _, profiles = profile_csv_rows(headers, reader)
+        scan = pl.scan_csv(
+            path,
+            infer_schema_length=0,
+            separator=dialect.delimiter,
+            quote_char=dialect.quotechar,
+            new_columns=headers,
+            schema_overrides={name: pl.String for name in headers},
+        )
+        casts = []
+        for column in profiles:
+            if column.inferred_type in {"text", "empty"}:
+                continue
+            value = pl.col(column.name).str.strip_chars()
+            if column.inferred_type == "boolean":
+                value = value.str.to_lowercase()
+            casts.append(
+                pl.when(value == "")
+                .then(None)
+                .otherwise(value)
+                .cast(profiled_polars_type(column), strict=True)
+                .alias(column.name)
+            )
+        if casts:
+            scan = scan.with_columns(casts)
+        return scan, profiles
+    except (OSError, UnicodeError, csv.Error, ValueError) as exc:
+        raise ConnectorError(
+            TransferErrorCode.UNSUPPORTED_TYPE,
+            "The selected Foundry CSV file could not be profiled safely.",
+            retryable=False,
+        ) from exc
+
+
 class FoundryConnector:
     capabilities = None  # set by subclass
 
@@ -708,7 +805,71 @@ class FoundryConnector:
             client.close()
 
     def inspect_object(self, credentials, locator: Locator) -> ObjectSchema:
-        return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
+        if not isinstance(locator, FoundryDatasetFilesLocator):
+            return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
+        if not isinstance(locator.file_paths, list) or len(locator.file_paths) != 1:
+            return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
+        file_path = locator.file_paths[0]
+        client = self._client(credentials)
+        spool_root = Path(self.settings.pipeline_spool_root or "/tmp")
+        spool_root.mkdir(parents=True, exist_ok=True)
+        try:
+            branch, listed = client.resolve_branch(locator.dataset_rid, locator.branch)
+            entry = next(
+                (item for item in supported_files(listed) if item.get("path") == file_path),
+                None,
+            )
+            if entry is None:
+                raise ConnectorError(
+                    TransferErrorCode.SOURCE_NOT_FOUND,
+                    "A selected dataset file is no longer available.",
+                    retryable=False,
+                )
+            size = int(entry.get("sizeBytes") or 0)
+            if size > MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES:
+                return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
+            with tempfile.TemporaryDirectory(prefix="foundry-schema-", dir=spool_root) as temp_dir:
+                local_file = Path(temp_dir) / "source"
+                try:
+                    client.download_file(
+                        locator.dataset_rid,
+                        branch,
+                        file_path,
+                        local_file,
+                        max_bytes=MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES,
+                    )
+                except ConnectorError as exc:
+                    if exc.code == TransferErrorCode.SOURCE_LIMIT_EXCEEDED:
+                        return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
+                    raise
+                try:
+                    profiles: tuple[CsvColumnProfile, ...] = ()
+                    if file_path.casefold().endswith(".csv"):
+                        scan, profiles = _csv_file_scan(local_file)
+                    else:
+                        scan = _source_file_scan(local_file, file_path)
+                    schema = scan.collect_schema()
+                except pl.exceptions.PolarsError as exc:
+                    raise ConnectorError(
+                        TransferErrorCode.UNSUPPORTED_TYPE,
+                        "The selected Foundry file schema could not be read.",
+                        retryable=False,
+                    ) from exc
+            return ObjectSchema(
+                locator=locator,
+                columns=tuple(
+                    ColumnSchema(
+                        name=name,
+                        data_type=str(dtype),
+                        nullable=True,
+                        example=profiles[index].example if index < len(profiles) else "",
+                    )
+                    for index, (name, dtype) in enumerate(schema.items())
+                ),
+                estimated_rows=None,
+            )
+        finally:
+            client.close()
 
     def count_rows(self, credentials, locator: Locator) -> int | None:
         """Foundry file metadata does not provide a portable row-count API."""
@@ -743,30 +904,29 @@ class FoundryConnector:
             with tempfile.TemporaryDirectory(prefix="foundry-extract-", dir=spool_root) as temp_dir:
                 extract_root = Path(temp_dir)
                 for path in paths:
-                    dest = extract_root / path.replace("/", "_")
-                    client.download_file(locator.dataset_rid, branch, path, dest)
-                    scan = (
-                        pl.scan_parquet(dest)
-                        if path.casefold().endswith(".parquet")
-                        else pl.scan_csv(dest)
-                    )
-                    for frame in scan.collect_batches(
-                        chunk_size=max(1, batch_rows), maintain_order=True
-                    ):
-                        if frame.height == 0:
-                            continue
-                        batches = tuple(
-                            bounded_frame_batches(
-                                frame,
-                                batch_rows=batch_rows,
-                                batch_bytes=batch_bytes,
-                                sequence_start=sequence,
+                    with tempfile.TemporaryDirectory(
+                        prefix="source-", dir=extract_root
+                    ) as source_dir:
+                        dest = Path(source_dir) / "source"
+                        client.download_file(locator.dataset_rid, branch, path, dest)
+                        scan = _source_file_scan(dest, path)
+                        for frame in scan.collect_batches(
+                            chunk_size=max(1, batch_rows), maintain_order=True
+                        ):
+                            if frame.height == 0:
+                                continue
+                            batches = tuple(
+                                bounded_frame_batches(
+                                    frame,
+                                    batch_rows=batch_rows,
+                                    batch_bytes=batch_bytes,
+                                    sequence_start=sequence,
+                                )
                             )
-                        )
-                        if batches:
-                            yielded = True
-                        yield from batches
-                        sequence += len(batches)
+                            if batches:
+                                yielded = True
+                            yield from batches
+                            sequence += len(batches)
             if not yielded:
                 raise ConnectorError(
                     TransferErrorCode.SOURCE_NOT_FOUND, "The dataset has no CSV or Parquet files."

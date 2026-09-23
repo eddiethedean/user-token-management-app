@@ -12,6 +12,8 @@ def provenance_label(value: str | None) -> str:
         "estimated": "Estimated",
         "captured": "Captured during run",
         "catalog": "Catalog metadata",
+        "file_preview": "Inspected source file",
+        "planned": "Planned from source and selected types",
         "unavailable": "Unavailable",
         "provider_unavailable": "Provider does not expose this fact",
         "local_manifest": "Local manifest",

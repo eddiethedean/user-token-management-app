@@ -14,6 +14,7 @@ from app.connectors.fake import FakeCsvConnector
 from app.connectors.locators import CsvUploadLocator
 from app.connectors.registry import route_allowed
 from app.connectors.tls import verify_hostname_policy
+from app.services.csv_uploads import inspect_csv
 
 
 def test_csv_source_inspects_and_extracts_batches() -> None:
@@ -65,6 +66,64 @@ def test_csv_source_reuses_inspection_delimiter_and_normalized_headers() -> None
     assert frame.columns[0].data_type == "String"
     batches = list(connector.extract(credentials, locator, batch_rows=100, batch_bytes=10_000))
     assert batches[0].frame["id"].to_list() == ["001", "002"]
+
+
+def test_csv_source_uses_profiled_types_instead_of_reinferring_them() -> None:
+    content = (
+        b"ready,service_date,observed_at,shift_time,amount,code\n"
+        b"true,2026-09-23,2026-09-23T10:05:30Z,08:30:15,1e3,0012\n"
+        b"false,2026-09-24,2026-09-24T11:05:30+02:00,10:45:00,2.5e2,0013\n"
+    )
+    inspection = inspect_csv("source.csv", content)
+    assert [column.inferred_type for column in inspection.columns] == [
+        "boolean",
+        "date",
+        "datetime",
+        "time",
+        "decimal",
+        "text",
+    ]
+    assert inspection.columns[2].timezone_aware is True
+    locator = CsvUploadLocator(
+        upload_id="11111111-1111-1111-1111-111111111111", checksum_sha256="c" * 64
+    )
+    credentials = {
+        "content": content,
+        "columns": json.dumps([column.name for column in inspection.columns]),
+        "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
+        "column_timezones": json.dumps([column.timezone_aware for column in inspection.columns]),
+        "column_decimal_specs": json.dumps(
+            [
+                {"precision": column.decimal_precision, "scale": column.decimal_scale}
+                for column in inspection.columns
+            ]
+        ),
+    }
+    frame = CsvSourceConnector()._frame(locator, credentials)
+    assert frame.schema == {
+        "ready": pl.Boolean,
+        "service_date": pl.Date,
+        "observed_at": pl.Datetime("us", time_zone="UTC"),
+        "shift_time": pl.Time,
+        "amount": pl.Decimal(precision=4, scale=0),
+        "code": pl.String,
+    }
+    assert frame["code"].to_list() == ["0012", "0013"]
+
+
+def test_csv_inference_keeps_mixed_naive_and_zoned_timestamps_as_text() -> None:
+    inspection = inspect_csv(
+        "mixed.csv",
+        b"observed_at\n2026-09-23T10:05:30\n2026-09-24T11:05:30Z\n",
+    )
+    assert inspection.columns[0].inferred_type == "text"
+
+
+def test_csv_inference_uses_exact_decimal_for_integers_beyond_bigint() -> None:
+    inspection = inspect_csv("wide.csv", b"amount,identifier\n9223372036854775808,0012\n")
+    assert inspection.columns[0].inferred_type == "decimal"
+    assert inspection.columns[0].decimal_precision == 19
+    assert inspection.columns[1].inferred_type == "text"
 
 
 def test_shared_batch_boundary_enforces_rows_and_bytes() -> None:

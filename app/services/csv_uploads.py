@@ -6,35 +6,25 @@ import csv
 import hashlib
 import io
 import json
-import re
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
 from pathlib import PurePosixPath
 
 from fastapi import Request
 from sqlalchemy.orm import Session
 
+from app.domain.csv_inference import (
+    MAX_CSV_DECIMAL_PRECISION,
+    CsvColumnProfile,
+    csv_dialect,
+    csv_headers,
+    profile_csv_rows,
+)
 from app.models import PipelineUpload, User, new_id
 from app.services.audit import record_event
 
 MAX_CSV_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_CSV_COLUMNS = 200
 MAX_CSV_CELL_CHARACTERS = 131_072
-MAX_CSV_DECIMAL_PRECISION = 38
-_INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
-_DECIMAL_PATTERN = re.compile(r"^[+-]?(?:\d+\.\d*|\d*\.\d+)(?:[eE][+-]?\d+)?$")
-
-
-@dataclass(frozen=True)
-class CsvColumnProfile:
-    name: str
-    inferred_type: str
-    populated: int
-    nulls: int
-    example: str
-    decimal_precision: int = 0
-    decimal_scale: int = 0
 
 
 @dataclass(frozen=True)
@@ -44,6 +34,7 @@ class CsvInspection:
     row_count: int
     columns: tuple[CsvColumnProfile, ...]
     delimiter: str = ","
+    quote_char: str = '"'
 
 
 def inspect_csv(filename: str, content: bytes) -> CsvInspection:
@@ -60,10 +51,7 @@ def inspect_csv(filename: str, content: bytes) -> CsvInspection:
         raise ValueError("CSV files must use UTF-8 encoding.") from exc
 
     sample = text[:16_384]
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
-    except csv.Error:
-        dialect = csv.excel
+    dialect = csv_dialect(sample)
 
     try:
         rows = csv.reader(io.StringIO(text, newline=""), dialect=dialect)
@@ -71,70 +59,9 @@ def inspect_csv(filename: str, content: bytes) -> CsvInspection:
     except (StopIteration, csv.Error) as exc:
         raise ValueError("The CSV must contain a header row.") from exc
 
-    headers = [header.strip() for header in raw_headers]
-    if not headers or any(not header for header in headers):
-        raise ValueError("Every CSV column must have a name.")
-    if len(headers) > MAX_CSV_COLUMNS:
-        raise ValueError(f"CSV files may contain at most {MAX_CSV_COLUMNS} columns.")
-    if any(len(header) > 128 for header in headers):
-        raise ValueError("CSV column names must be 128 characters or fewer.")
-    folded_headers = [header.casefold() for header in headers]
-    if len(set(folded_headers)) != len(folded_headers):
-        raise ValueError("CSV column names must be unique.")
-
-    type_sets: list[set[str]] = [set() for _ in headers]
-    populated = [0 for _ in headers]
-    nulls = [0 for _ in headers]
-    examples = ["" for _ in headers]
-    integer_digits = [0 for _ in headers]
-    decimal_scales = [0 for _ in headers]
-    row_count = 0
-    try:
-        for row in rows:
-            if not row or all(not value.strip() for value in row):
-                continue
-            if len(row) != len(headers):
-                raise ValueError(
-                    f"Row {row_count + 2} has {len(row)} values; expected {len(headers)}."
-                )
-            row_count += 1
-            for index, raw_value in enumerate(row):
-                value = raw_value.strip()
-                if len(value) > MAX_CSV_CELL_CHARACTERS:
-                    raise ValueError("A CSV cell exceeds the 128 KB demo limit.")
-                if not value:
-                    nulls[index] += 1
-                    continue
-                populated[index] += 1
-                value_type = _value_type(value)
-                if value_type in {"integer", "decimal"}:
-                    try:
-                        parts = Decimal(value).as_tuple()
-                    except InvalidOperation:
-                        value_type = "text"
-                    else:
-                        exponent = int(parts.exponent)
-                        integer_digits[index] = max(
-                            integer_digits[index], max(len(parts.digits) + exponent, 0)
-                        )
-                        decimal_scales[index] = max(decimal_scales[index], max(-exponent, 0))
-                type_sets[index].add(value_type)
-                if not examples[index]:
-                    examples[index] = value[:80]
-    except csv.Error as exc:
-        raise ValueError("The CSV could not be parsed consistently.") from exc
-
-    columns = tuple(
-        _column_profile(
-            header,
-            type_sets[index],
-            populated[index],
-            nulls[index],
-            examples[index],
-            integer_digits[index],
-            decimal_scales[index],
-        )
-        for index, header in enumerate(headers)
+    headers = csv_headers(raw_headers, max_columns=MAX_CSV_COLUMNS)
+    row_count, columns = profile_csv_rows(
+        headers, rows, max_cell_characters=MAX_CSV_CELL_CHARACTERS
     )
     return CsvInspection(
         filename=safe_filename,
@@ -142,6 +69,7 @@ def inspect_csv(filename: str, content: bytes) -> CsvInspection:
         row_count=row_count,
         columns=columns,
         delimiter=dialect.delimiter,
+        quote_char=dialect.quotechar or '"',
     )
 
 
@@ -166,6 +94,7 @@ def store_csv_upload(
         columns_json=json.dumps(
             {
                 "delimiter": inspection.delimiter,
+                "quote_char": inspection.quote_char,
                 "columns": [asdict(column) for column in inspection.columns],
             },
             separators=(",", ":"),
@@ -197,13 +126,36 @@ def inspection_from_upload(upload: PipelineUpload) -> CsvInspection:
     try:
         raw_columns = json.loads(upload.columns_json)
         if isinstance(raw_columns, dict):
+            legacy_quote_char = "quote_char" not in raw_columns
             delimiter = str(raw_columns.get("delimiter") or ",")
+            quote_char = str(raw_columns.get("quote_char") or '"')
             raw_columns = raw_columns.get("columns", [])
         else:
+            legacy_quote_char = True
             delimiter = ","
+            quote_char = '"'
         columns = tuple(CsvColumnProfile(**column) for column in raw_columns)
     except (json.JSONDecodeError, TypeError, KeyError) as exc:
         raise ValueError("The stored CSV profile is invalid.") from exc
+    if legacy_quote_char:
+        content = upload.content
+        if isinstance(content, str):
+            content = content.encode("utf-8")
+        if not isinstance(content, bytes):
+            raise ValueError("The stored CSV dialect profile is incomplete.")
+        return inspect_csv(upload.filename, content)
+    if any(
+        isinstance(column, dict)
+        and column.get("inferred_type") == "datetime"
+        and "timezone_aware" not in column
+        for column in raw_columns
+    ):
+        content = upload.content
+        if isinstance(content, str):
+            content = content.encode("utf-8")
+        if not isinstance(content, bytes):
+            raise ValueError("The stored CSV timestamp profile is incomplete.")
+        return inspect_csv(upload.filename, content)
     if any(
         column.inferred_type == "decimal" and column.decimal_precision == 0 for column in columns
     ):
@@ -224,6 +176,7 @@ def inspection_from_upload(upload: PipelineUpload) -> CsvInspection:
         row_count=upload.row_count,
         columns=columns,
         delimiter=delimiter,
+        quote_char=quote_char,
     )
 
 
@@ -235,69 +188,3 @@ def _safe_csv_filename(filename: str) -> str:
     if len(normalized) > 180:
         raise ValueError("CSV filenames must be 180 characters or fewer.")
     return normalized
-
-
-def _value_type(value: str) -> str:
-    lowered = value.casefold()
-    if lowered in {"true", "false"}:
-        return "boolean"
-    integer_value = value.lstrip("+-")
-    if _INTEGER_PATTERN.fullmatch(value) and not (
-        len(integer_value) > 1 and integer_value.startswith("0")
-    ):
-        return "integer"
-    if _DECIMAL_PATTERN.fullmatch(value):
-        return "decimal"
-    try:
-        if "t" in lowered or " " in value:
-            datetime.fromisoformat(value.replace("Z", "+00:00"))
-            return "datetime"
-        date.fromisoformat(value)
-        return "date"
-    except ValueError:
-        return "text"
-
-
-def _merge_types(types: set[str]) -> str:
-    if not types:
-        return "empty"
-    if len(types) == 1:
-        return next(iter(types))
-    if types <= {"integer", "decimal"}:
-        return "decimal"
-    if types <= {"date", "datetime"}:
-        return "datetime"
-    return "text"
-
-
-def _column_profile(
-    name: str,
-    types: set[str],
-    populated: int,
-    nulls: int,
-    example: str,
-    integer_digits: int,
-    decimal_scale: int,
-) -> CsvColumnProfile:
-    inferred_type = _merge_types(types)
-    if inferred_type != "decimal":
-        return CsvColumnProfile(
-            name=name,
-            inferred_type=inferred_type,
-            populated=populated,
-            nulls=nulls,
-            example=example,
-        )
-    scale = decimal_scale
-    precision = max(integer_digits + scale, scale, 1)
-    if precision > MAX_CSV_DECIMAL_PRECISION:
-        raise ValueError(f"CSV decimal precision cannot exceed {MAX_CSV_DECIMAL_PRECISION} digits.")
-    return CsvColumnProfile(
-        name=name,
-        inferred_type=inferred_type,
-        populated=populated,
-        nulls=nulls,
-        example=example,
-        decimal_precision=precision,
-        decimal_scale=scale,
-    )

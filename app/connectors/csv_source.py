@@ -26,6 +26,44 @@ from app.connectors.base import (
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import CsvUploadLocator, Locator, WritePolicy
 from app.connectors.registry import register_connector
+from app.domain.csv_inference import CsvColumnProfile
+
+
+def profiled_polars_type(column: CsvColumnProfile) -> pl.DataType | type[pl.DataType]:
+    """Use the reviewed CSV profile when parsing source values."""
+
+    inferred_type = column.inferred_type
+    if inferred_type in {"text", "empty"}:
+        return pl.String
+    if inferred_type == "boolean":
+        return pl.Boolean
+    if inferred_type == "integer":
+        return pl.Int64
+    if inferred_type == "date":
+        return pl.Date
+    if inferred_type == "time":
+        return pl.Time
+    if inferred_type == "datetime":
+        return pl.Datetime("us", time_zone="UTC" if column.timezone_aware else None)
+    if inferred_type == "decimal":
+        if column.decimal_precision < 1:
+            raise ConnectorError(
+                TransferErrorCode.UNSUPPORTED_TYPE,
+                "The CSV decimal precision could not be determined safely.",
+                retryable=False,
+            )
+        if column.decimal_precision > 38:
+            raise ConnectorError(
+                TransferErrorCode.UNSUPPORTED_TYPE,
+                "A CSV decimal exceeds the supported precision of 38 digits.",
+                retryable=False,
+            )
+        return pl.Decimal(precision=column.decimal_precision, scale=column.decimal_scale)
+    raise ConnectorError(
+        TransferErrorCode.UNSUPPORTED_TYPE,
+        "The CSV profile contains an unsupported inferred type.",
+        retryable=False,
+    )
 
 
 class CsvSourceConnector:
@@ -104,8 +142,10 @@ class CsvSourceConnector:
             )
         payload = content.encode("utf-8") if isinstance(content, str) else content
         separator = str((credentials or {}).get("delimiter") or ",")[:1]
+        quote_char = str((credentials or {}).get("quote_char") or '"')[:1]
         columns = _metadata_list((credentials or {}).get("columns"))
         column_types = _metadata_list((credentials or {}).get("column_types"))
+        column_timezones = _metadata_bool_list((credentials or {}).get("column_timezones"))
         schema_overrides = None
         if columns and len(columns) == len(column_types):
             decimal_specs = _metadata_decimal_specs(
@@ -113,40 +153,41 @@ class CsvSourceConnector:
             )
             schema_overrides = {}
             for index, (name, inferred_type) in enumerate(zip(columns, column_types, strict=True)):
-                if inferred_type in {"text", "empty"}:
-                    schema_overrides[name] = pl.String
-                elif inferred_type == "decimal":
-                    precision, scale = decimal_specs[index]
-                    if precision < 1:
-                        raise ConnectorError(
-                            TransferErrorCode.UNSUPPORTED_TYPE,
-                            "The CSV decimal precision could not be determined safely.",
-                            retryable=False,
-                        )
-                    if precision > 38:
-                        raise ConnectorError(
-                            TransferErrorCode.UNSUPPORTED_TYPE,
-                            "A CSV decimal exceeds the supported precision of 38 digits.",
-                            retryable=False,
-                        )
-                    schema_overrides[name] = pl.Decimal(
-                        precision=precision,
-                        scale=scale,
+                precision, scale = decimal_specs[index]
+                schema_overrides[name] = profiled_polars_type(
+                    CsvColumnProfile(
+                        name=name,
+                        inferred_type=inferred_type,
+                        populated=0,
+                        nulls=0,
+                        example="",
+                        decimal_precision=precision,
+                        decimal_scale=scale,
+                        timezone_aware=(
+                            len(column_timezones) == len(columns) and column_timezones[index]
+                        ),
                     )
+                )
         try:
-            decimal_indexes = {
-                index
-                for index, inferred_type in enumerate(column_types)
-                if inferred_type == "decimal"
-            }
-            if decimal_indexes:
-                payload = _trim_decimal_cells(payload, separator, decimal_indexes)
+            typed_columns = (
+                {
+                    index: inferred_type
+                    for index, inferred_type in enumerate(column_types)
+                    if inferred_type not in {"text", "empty"}
+                }
+                if schema_overrides is not None
+                else {}
+            )
+            if typed_columns:
+                payload = _normalize_profiled_cells(payload, separator, quote_char, typed_columns)
             return pl.read_csv(
                 BytesIO(payload),
                 infer_schema_length=None,
                 separator=separator,
+                quote_char='"' if typed_columns else quote_char,
                 new_columns=columns or None,
                 schema_overrides=schema_overrides,
+                try_parse_dates=True,
             )
         except Exception as exc:
             raise ConnectorError(
@@ -169,17 +210,32 @@ def _metadata_list(value) -> list[str]:
     return decoded
 
 
-def _trim_decimal_cells(payload: bytes, separator: str, decimal_indexes: set[int]) -> bytes:
-    """Normalize surrounding whitespace before parsing profiled decimal cells."""
+def _metadata_bool_list(value) -> list[bool]:
+    if not value:
+        return []
+    try:
+        decoded = json.loads(value) if isinstance(value, str) else value
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(decoded, list) or not all(isinstance(item, bool) for item in decoded):
+        return []
+    return decoded
+
+
+def _normalize_profiled_cells(
+    payload: bytes, separator: str, quote_char: str, typed_columns: dict[int, str]
+) -> bytes:
+    """Keep parser input consistent with the profiler's whitespace rules."""
 
     text = payload.decode("utf-8-sig")
-    reader = csv.reader(StringIO(text, newline=""), delimiter=separator)
+    reader = csv.reader(StringIO(text, newline=""), delimiter=separator, quotechar=quote_char)
     output = StringIO(newline="")
     writer = csv.writer(output, delimiter=separator, lineterminator="\n")
     for row in reader:
-        for index in decimal_indexes:
+        for index, inferred_type in typed_columns.items():
             if index < len(row):
-                row[index] = row[index].strip()
+                value = row[index].strip()
+                row[index] = value.casefold() if inferred_type == "boolean" else value
         writer.writerow(row)
     return output.getvalue().encode("utf-8")
 

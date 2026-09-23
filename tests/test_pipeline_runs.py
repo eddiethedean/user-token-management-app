@@ -192,7 +192,7 @@ def test_csv_decimal_destination_is_rejected_before_a_run_is_queued(
     rejected = start_run(incompatible_pipeline)
 
     assert rejected.status_code == 422
-    assert "cannot hold all CSV decimal places" in rejected.text
+    assert "cannot hold all source decimal places" in rejected.text
     with SessionLocal() as db:
         assert (
             db.scalar(

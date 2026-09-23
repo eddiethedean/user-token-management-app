@@ -14,6 +14,10 @@ from starlette.responses import Response
 from app.application.catalogs import CatalogAccess
 from app.connectors.registry import route_allowed, writer_enabled
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
+from app.domain.column_types import (
+    COLUMN_TYPE_OVERRIDE_DATA_TYPES,
+    parse_column_type_override_values,
+)
 from app.models import PipelineUpload
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
@@ -25,10 +29,14 @@ from app.services.csv_uploads import CsvInspection, inspection_from_upload
 from app.services.secrets import list_user_secrets
 from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.params import (
+    PipelineAddColumnCastForm,
+    PipelineAutoIncrementPrimaryKeyForm,
+    PipelineColumnTypeOverridesForm,
     PipelineConflictColumnsForm,
     PipelineIdForm,
     PipelineOptionalProviderForm,
     PipelineOptionalTableForm,
+    PipelinePrimaryKeyColumnsForm,
     PipelineSourceProviderForm,
     PipelineSwapForm,
     PipelineWriteModeForm,
@@ -36,6 +44,7 @@ from app.ui.params import (
 from app.ui.regions import (
     CSV_INSPECTION,
     CSV_UPLOAD_STATE,
+    PIPELINE_CREATE_KEY_CONTROLS,
     PIPELINE_CSV_FILE,
     PIPELINE_DATASET_CREATOR,
     PIPELINE_PREVIEW_REGION,
@@ -101,6 +110,8 @@ class PipelinePreviewFragment(Protocol):
         source_upload_id: str = "",
         write_mode: str = "",
         conflict_columns: str = "",
+        primary_key_columns: str = "",
+        auto_increment_primary_key: str = "",
         csv_inspection: CsvInspection | None = None,
         csv_upload: PipelineUpload | None = None,
         connections: Connections,
@@ -136,6 +147,7 @@ class PipelineSchemaPreviewPanel(Protocol):
     def __call__(
         self,
         *,
+        request: Request,
         catalog_access: CatalogAccess,
         source_provider: str,
         source_schema: str,
@@ -145,6 +157,10 @@ class PipelineSchemaPreviewPanel(Protocol):
         destination_object: str,
         destination_create: bool,
         csv_inspection: CsvInspection | None,
+        write_mode: str = "",
+        column_type_overrides: dict[str, str] | None = None,
+        primary_key_columns: str = "",
+        auto_increment_primary_key: str = "",
         include_id: bool = True,
     ) -> NodeLike: ...
 
@@ -224,6 +240,7 @@ def register_pipeline_preview_routes(
             PIPELINE_TARGET_SELECT,
             PIPELINE_TARGET_SCHEMA_SELECT,
             PIPELINE_TARGET_TABLE_SELECT,
+            PIPELINE_CREATE_KEY_CONTROLS,
             PIPELINE_PREVIEW_REGION,
             PIPELINE_SOURCE_NODE,
             PIPELINE_SOURCE_PROVIDER_LABEL,
@@ -250,8 +267,34 @@ def register_pipeline_preview_routes(
         source_upload_id: PipelineIdForm = "",
         write_mode: PipelineWriteModeForm = "replace",
         conflict_columns: PipelineConflictColumnsForm = "",
+        column_type_overrides: PipelineColumnTypeOverridesForm = None,
+        add_column_cast: PipelineAddColumnCastForm = False,
+        manual_cast_column: PipelineOptionalTableForm = "",
+        manual_cast_type: PipelineOptionalTableForm = "",
+        primary_key_columns: PipelinePrimaryKeyColumnsForm = "",
+        auto_increment_primary_key: PipelineAutoIncrementPrimaryKeyForm = "",
         swap_direction: PipelineSwapForm = False,
     ) -> Response:
+        try:
+            parsed_column_type_overrides = parse_column_type_override_values(
+                column_type_overrides or ()
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+        if add_column_cast:
+            if (
+                not manual_cast_column.strip()
+                or len(manual_cast_column) > 256
+                or manual_cast_type not in COLUMN_TYPE_OVERRIDE_DATA_TYPES
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Enter a source column name and choose a cast type.",
+                )
+            parsed_column_type_overrides[manual_cast_column] = manual_cast_type
+
         def writer_policy(provider: str) -> bool:
             return writer_enabled(provider, settings=settings)
 
@@ -305,6 +348,12 @@ def register_pipeline_preview_routes(
             source_schema, destination_schema = destination_schema, source_schema
             source_table, destination_table = destination_table, source_table
             destination_table_new = ""
+        if swap_direction or request.headers.get("HX-Trigger") in {
+            "pipeline-source-select",
+            "pipeline-source-schema-select",
+            "pipeline-source-table-select",
+        }:
+            parsed_column_type_overrides = {}
         if source_provider != "csv" and not connection_configured(connections[source_provider]):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -391,6 +440,8 @@ def register_pipeline_preview_routes(
                 source_upload_id=source_upload_id,
                 write_mode=write_mode,
                 conflict_columns=conflict_columns,
+                primary_key_columns=primary_key_columns,
+                auto_increment_primary_key=auto_increment_primary_key,
                 csv_inspection=csv_inspection,
                 csv_upload=csv_upload,
                 connections=connections,
@@ -400,7 +451,7 @@ def register_pipeline_preview_routes(
         source_object = source_table
         destination_object = committed_new_table_name(destination_table_new) or destination_table
         if destination_table == CREATE_TABLE_VALUE:
-            destination_object = committed_new_table_name(destination_table_new) or "new_table"
+            destination_object = committed_new_table_name(destination_table_new)
         schema_preview = await run_owned_sync(
             request,
             with_user_catalog,
@@ -408,6 +459,7 @@ def register_pipeline_preview_routes(
             auth.user.id,
             request,
             lambda catalog: pipeline_schema_preview_panel(
+                request=request,
                 catalog_access=catalog,
                 source_provider=source_provider,
                 source_schema=source_schema,
@@ -416,7 +468,11 @@ def register_pipeline_preview_routes(
                 destination_schema=destination_schema,
                 destination_object=destination_object,
                 destination_create=destination_table == CREATE_TABLE_VALUE,
+                write_mode=write_mode,
                 csv_inspection=csv_inspection if csv_upload is not None else None,
+                column_type_overrides=parsed_column_type_overrides,
+                primary_key_columns=primary_key_columns,
+                auto_increment_primary_key=auto_increment_primary_key,
                 include_id=False,
             ),
         )

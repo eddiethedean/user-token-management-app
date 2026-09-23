@@ -71,6 +71,9 @@ def save_pipeline(
     destination_table_new: str = "",
     source_upload_id: str = "",
     conflict_columns: str = "",
+    column_type_overrides: dict[str, str] | None = None,
+    primary_key_columns: str = "",
+    auto_increment_primary_key: str = "",
     upsert_action: str = "ignore",
     pipeline_id: str = "",
     request: Request | RequestMetadata | None = None,
@@ -165,24 +168,45 @@ def save_pipeline(
     else:
         final_destination_table = destination_object
 
+    create_primary_key_columns = [
+        item.strip() for item in primary_key_columns.split(",") if item.strip()
+    ]
+    create_column_type_overrides = dict(column_type_overrides or {})
+    create_auto_increment_primary_key = auto_increment_primary_key.strip()
+    if (create_primary_key_columns or create_auto_increment_primary_key) and not (
+        destination_provider == "postgres" and destination_create
+    ):
+        raise ValueError("New-table primary-key options apply only to new PostgreSQL tables.")
+
     if destination_provider == "postgres":
         destination_locator = postgres_table(destination_namespace, destination_object)
         final_destination_schema = destination_locator.schema_name
         if write_mode == "upsert":
+            if destination_create:
+                raise ValueError("Create the PostgreSQL table before configuring an upsert.")
             columns = [item.strip() for item in conflict_columns.split(",") if item.strip()]
             if not columns:
                 raise ValueError(
                     "The selected PostgreSQL table needs a primary or unique key for upsert."
                 )
             write_policy = PostgresUpsertPolicy(
-                conflict_columns=columns, action="ignore" if upsert_action != "update" else "update"
+                conflict_columns=columns,
+                action="ignore" if upsert_action != "update" else "update",
+                column_type_overrides=create_column_type_overrides,
             )
         elif write_mode == "replace":
             write_policy = PostgresReplacePolicy(
-                schema_policy="recreate" if destination_create else "require_compatible"
+                schema_policy="recreate" if destination_create else "require_compatible",
+                column_type_overrides=create_column_type_overrides,
+                primary_key_columns=create_primary_key_columns,
+                auto_increment_primary_key=create_auto_increment_primary_key,
             )
         else:
-            write_policy = PostgresAppendPolicy()
+            write_policy = PostgresAppendPolicy(
+                column_type_overrides=create_column_type_overrides,
+                primary_key_columns=create_primary_key_columns,
+                auto_increment_primary_key=create_auto_increment_primary_key,
+            )
     else:
         if write_mode != "replace":
             raise ValueError("Foundry destinations support replace of a named file.")
@@ -194,7 +218,7 @@ def save_pipeline(
             branch=destination_branch or "master",
             file_name=file_name,
         )
-        write_policy = FoundryReplaceFilePolicy()
+        write_policy = FoundryReplaceFilePolicy(column_type_overrides=create_column_type_overrides)
         final_destination_schema = destination_locator.dataset_rid
         final_destination_table = destination_locator.file_name
 

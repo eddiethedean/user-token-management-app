@@ -1054,6 +1054,31 @@ def test_pipeline_exposes_swap_direction_and_dynamic_write_mode_refresh(
     assert 'hx-include="#pipeline-form"' in mode_select
 
 
+def test_foundry_single_file_preview_shows_detected_and_sent_types(
+    client, demo_connections
+) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    response = client.post(
+        "/pipeline/preview",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "source_provider": "mss",
+            "source_schema": MSS_DATASET,
+            "source_table": "mission_orders.parquet",
+            "destination_provider": "postgres",
+            "destination_schema": "public",
+            "destination_table": "readiness_events",
+            "write_mode": "replace",
+        },
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+    assert response.status_code == 200
+    assert "Source file inspected" in response.text
+    assert "Sent as" in response.text
+    assert "Use detected type (Int64)" in response.text
+
+
 def test_pipeline_preview_updates_swap_state_and_multi_file_preview(
     client, demo_connections
 ) -> None:

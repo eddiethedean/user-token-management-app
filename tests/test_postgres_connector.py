@@ -67,6 +67,18 @@ def _key_frame() -> pl.DataFrame:
     )
 
 
+def _frame_with_primary_key() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "event_id": [1, 2, 3],
+            "unit_name": ["Alpha", "Bravo", "Charlie"],
+            "ready": [True, False, None],
+            "score": [1.5, None, 3.25],
+            "occurred": [date(2026, 1, 15), date(2026, 2, 1), None],
+        }
+    )
+
+
 def _fetchall(credentials, query: LiteralString, params=None) -> list:
     conn = connect(credentials, connector_settings())
     try:
@@ -581,7 +593,13 @@ def test_postgres_extract_uses_repeatable_read_snapshot(postgres_credentials, mo
 
 def test_postgres_append_creates_schema_and_staging(postgres_credentials) -> None:
     locator = postgres_table("ops", "events")
-    manifest = _load(postgres_credentials, locator, PostgresAppendPolicy(), _frame(), "append-1")
+    manifest = _load(
+        postgres_credentials,
+        locator,
+        PostgresAppendPolicy(),
+        _frame_with_primary_key(),
+        "append-1",
+    )
     assert manifest.rows == 3
     rows = _fetchall(
         postgres_credentials, "SELECT event_id, unit_name FROM ops.events ORDER BY unit_name"
@@ -826,7 +844,10 @@ def test_postgres_replace_abort_preserves_live_table(postgres_credentials) -> No
     connector.write_batch(
         session,
         TransferBatch(
-            frame=_frame(), row_count=3, byte_count=int(_frame().estimated_size()), sequence=1
+            frame=_frame_with_primary_key(),
+            row_count=3,
+            byte_count=int(_frame_with_primary_key().estimated_size()),
+            sequence=1,
         ),
     )
     connector.abort(session)

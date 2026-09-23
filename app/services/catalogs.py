@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -18,6 +19,8 @@ from app.connectors.base import (
     CatalogBrowser,
     CatalogPage,
     CatalogReader,
+    ColumnSchema,
+    ObjectSchema,
     ObjectSchemaInspector,
     ProviderCapabilities,
     RemoteNamespace,
@@ -25,7 +28,7 @@ from app.connectors.base import (
     RowCounter,
 )
 from app.connectors.errors import ConnectorError, TransferErrorCode
-from app.connectors.locators import parse_locator, validate_locator
+from app.connectors.locators import FoundryDatasetFilesLocator, parse_locator, validate_locator
 from app.connectors.registry import (
     capabilities_for,
     catalog_browser_for,
@@ -162,7 +165,32 @@ class UserCatalog:
                 summary="The selected provider does not support schema inspection.",
                 retryable=False,
             )
-        return inspector.inspect_object(self._credentials_for(provider), locator)
+        cache_namespace = ""
+        if (
+            provider.casefold() in {"mss", "mcscop"}
+            and isinstance(locator, FoundryDatasetFilesLocator)
+            and isinstance(locator.file_paths, list)
+            and len(locator.file_paths) == 1
+        ):
+            locator_digest = hashlib.sha256(locator.model_dump_json().encode()).hexdigest()
+            cache_namespace = f"schema:{locator_digest}"
+            cached = self._read_cache(provider, cache_namespace)
+            if cached is not None and isinstance(cached.get("columns"), list):
+                try:
+                    return ObjectSchema(
+                        locator=locator,
+                        columns=tuple(ColumnSchema(**item) for item in cached["columns"]),
+                    )
+                except (TypeError, ValueError):
+                    pass
+        inspected = inspector.inspect_object(self._credentials_for(provider), locator)
+        if cache_namespace:
+            self._write_cache(
+                provider,
+                cache_namespace,
+                {"columns": [vars(column) for column in inspected.columns]},
+            )
+        return inspected
 
     def count_rows(self, provider: str, locator: Locator) -> int | None:
         locator = validate_locator(locator)
@@ -296,6 +324,31 @@ def clear_demo_catalog_cache(db: Session) -> int:
     result = db.execute(delete(PipelineCatalogCache))
     db.commit()
     return max(0, int(getattr(result, "rowcount", 0) or 0))
+
+
+def invalidate_published_foundry_file_cache(
+    db: Session,
+    *,
+    user_id: str,
+    provider: str,
+    dataset_rid: str,
+    branch: str,
+    file_name: str,
+) -> None:
+    """Refresh a published file and its dataset listing in the next editor view."""
+
+    locator = FoundryDatasetFilesLocator(
+        dataset_rid=dataset_rid, branch=branch, file_paths=[file_name]
+    )
+    schema_key = f"schema:{hashlib.sha256(locator.model_dump_json().encode()).hexdigest()}"
+    db.execute(
+        delete(PipelineCatalogCache).where(
+            PipelineCatalogCache.user_id == user_id,
+            PipelineCatalogCache.provider == provider.casefold(),
+            PipelineCatalogCache.namespace.in_((dataset_rid, schema_key)),
+        )
+    )
+    db.commit()
 
 
 def _ensure_registry() -> None:

@@ -53,11 +53,14 @@ import app.services.pipeline_runs as pipeline_run_service
 from app.application.catalogs import CatalogAccess, CatalogOperationRunner
 from app.application.dto import ActorContext
 from app.application.pipelines import PipelineAuthoringOperation
-from app.connectors.errors import ConnectorError
+from app.connectors.errors import ConnectorError, TransferErrorCode
+from app.connectors.foundry import MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES
 from app.connectors.locators import (
     DATASET_RID_PATTERN,
     FoundryDatasetFilesLocator,
     FoundryUploadLocator,
+    PostgresAppendPolicy,
+    PostgresReplacePolicy,
     PostgresTableLocator,
     PostgresUpsertPolicy,
     normalize_foundry_source_paths,
@@ -66,12 +69,14 @@ from app.connectors.locators import (
     parse_write_policy,
     postgres_table,
 )
+from app.connectors.postgres import _pg_type
 from app.connectors.registry import (
     capabilities_for,
     route_allowed,
     writer_enabled,
 )
 from app.dependencies import Auth, DbSession, SettingsDep
+from app.domain.column_types import COLUMN_TYPE_CHOICES, COLUMN_TYPE_OVERRIDE_DATA_TYPES
 from app.domain.feedback import DataImpact
 from app.models import PipelineDefinition, PipelineUpload
 from app.services.catalogs import (
@@ -265,6 +270,136 @@ def _upsert_key_select(
     if oob:
         attrs["hx-swap-oob"] = "outerHTML:#pipeline-upsert-key-select"
     return html.select(*options, **attrs)
+
+
+def _postgres_create_key_controls(
+    request: Request | None = None,
+    *,
+    primary_key_columns: str = "",
+    auto_increment_primary_key: str = "",
+    hidden: bool = False,
+    locked: bool = False,
+    oob: bool = False,
+) -> NodeLike:
+    if hidden:
+        primary_key_columns = ""
+        auto_increment_primary_key = ""
+    attrs: dict[str, Any] = {"id": "pipeline-create-key-controls", "hidden": hidden}
+    if oob:
+        attrs["hx-swap-oob"] = "outerHTML:#pipeline-create-key-controls"
+    return html.div(
+        html.p(
+            "This table already exists. Append runs keep its current primary key. "
+            "Choose Replace destination to rebuild the table with a different key.",
+            class_="hedron-process-flow-description",
+        )
+        if locked and not hidden
+        else None,
+        FormField(
+            name="primary_key_columns",
+            label="Primary-key source columns",
+            id="pipeline-create-primary-key-columns",
+            help=(
+                "Enter unique, non-null source column names separated by commas. "
+                "Leave blank to keep a source primary key when available."
+            ),
+            control=html.input(
+                id="pipeline-create-primary-key-columns",
+                name="primary_key_columns",
+                value=primary_key_columns,
+                readonly=locked,
+                maxlength="1000",
+                placeholder="event_id, unit_name",
+                **(
+                    hx_attrs(
+                        request,
+                        path="/pipeline/preview",
+                        method="post",
+                        target="#pipeline-preview-region",
+                        swap="none",
+                        include="#pipeline-form",
+                        trigger="change",
+                    )
+                    if request is not None
+                    else {}
+                ),
+            ),
+        ),
+        FormField(
+            name="auto_increment_primary_key",
+            label="Generated auto-increment key column",
+            id="pipeline-create-auto-key",
+            help=(
+                "Optional. Adds a BIGINT identity column as the primary key. "
+                "Choose a name not already used by a source column, such as id."
+            ),
+            control=html.input(
+                id="pipeline-create-auto-key",
+                name="auto_increment_primary_key",
+                value=auto_increment_primary_key,
+                readonly=locked,
+                maxlength="63",
+                placeholder="id",
+                **(
+                    hx_attrs(
+                        request,
+                        path="/pipeline/preview",
+                        method="post",
+                        target="#pipeline-preview-region",
+                        swap="none",
+                        include="#pipeline-form",
+                        trigger="change",
+                    )
+                    if request is not None
+                    else {}
+                ),
+            ),
+        ),
+        class_="data-mover-create-key-controls",
+        **attrs,
+    )
+
+
+def _new_destination_name_control(
+    request: Request,
+    catalog: ProviderCatalog | None,
+    *,
+    value: str = "",
+    creating: bool = False,
+) -> NodeLike:
+    file_destination = bool(catalog and catalog.dataset_creation)
+    return html.div(
+        FormField(
+            name="destination_table_new",
+            label="New file name" if file_destination else "New table name",
+            id="pipeline-target-table-new",
+            help=(
+                "Name the new table or file. Parquet is added to file targets automatically; "
+                "the selected columns are created on the first run."
+            ),
+            control=html.input(
+                id="pipeline-target-table-new",
+                name="destination_table_new",
+                value=value,
+                maxlength="63",
+                placeholder="readiness_export" if file_destination else "readiness_events_copy",
+                pattern="[A-Za-z][A-Za-z0-9_]{0,62}",
+                disabled=not creating,
+                required=creating,
+                **hx_attrs(
+                    request,
+                    path="/pipeline/preview",
+                    method="post",
+                    target="#pipeline-preview-region",
+                    swap="none",
+                    include="#pipeline-form",
+                    trigger="change",
+                ),
+            ),
+        ),
+        class_="data-mover-new-destination-name",
+        hidden=not creating,
+    )
 
 
 def _connection_configured(details: dict[str, str | bool]) -> bool:
@@ -1402,6 +1537,48 @@ def _csv_columns_json(inspection: CsvInspection) -> str:
     )
 
 
+def _csv_type_label(column: object) -> str:
+    inferred = str(getattr(column, "inferred_type", "unknown"))
+    return (
+        "datetime with time zone"
+        if inferred == "datetime" and bool(getattr(column, "timezone_aware", False))
+        else inferred
+    )
+
+
+def _csv_schema_type(column: object) -> str:
+    inferred = str(getattr(column, "inferred_type", "text"))
+    if inferred == "decimal":
+        return (
+            "Decimal(precision="
+            f"{int(getattr(column, 'decimal_precision', 0))}, "
+            f"scale={int(getattr(column, 'decimal_scale', 0))})"
+        )
+    if inferred == "datetime":
+        timezone = "'UTC'" if bool(getattr(column, "timezone_aware", False)) else "None"
+        return f"Datetime(time_unit='us', time_zone={timezone})"
+    return {
+        "boolean": "Boolean",
+        "integer": "Int64",
+        "date": "Date",
+        "time": "Time",
+        "empty": "String",
+        "text": "String",
+    }.get(inferred, "String")
+
+
+def _planned_column_type(
+    destination_provider: str,
+    column: dict[str, object],
+    type_overrides: dict[str, str],
+) -> str:
+    source_type = str(column.get("schema_type") or column.get("data_type") or "String")
+    selected_type = COLUMN_TYPE_OVERRIDE_DATA_TYPES.get(
+        type_overrides.get(str(column.get("name") or ""), ""), source_type
+    )
+    return _pg_type(selected_type) if destination_provider == "postgres" else selected_type
+
+
 def _remote_object_preview(
     catalog_access: CatalogAccess, provider: str, namespace: str, object_name: str
 ):
@@ -1412,6 +1589,18 @@ def _remote_object_preview(
         return next((item for item in page.items if item.name == object_name), None)
     except Exception:
         return None
+
+
+def _postgres_created_target_exists(
+    catalog_access: CatalogAccess, schema_name: str, table_name: str
+) -> bool:
+    if not schema_name or not table_name or table_name == CREATE_TABLE_VALUE:
+        return False
+    try:
+        catalog_access.inspect_object("postgres", postgres_table(schema_name, table_name))
+    except (ConnectorError, ValueError):
+        return False
+    return True
 
 
 def _foundry_source_preview(
@@ -1436,6 +1625,35 @@ def _foundry_source_preview(
     rows = [item.estimated_rows for item in selected]
     known_sizes = [value for value in sizes if isinstance(value, int)]
     known_rows = [value for value in rows if isinstance(value, int)]
+    columns: list[dict[str, object]] = []
+    schema_provenance = "unavailable"
+    status_text = f"Catalog preview · {requested_count} file(s) selected"
+    if requested_count > 1:
+        status_text = f"{requested_count} file(s) selected · schema checked during run"
+    if complete_catalog_match and len(selected) == 1:
+        source_file = selected[0]
+        if (
+            source_file.size_bytes is None
+            or source_file.size_bytes <= MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES
+        ):
+            try:
+                inspected = catalog_access.inspect_object(provider, source_file.locator)
+                columns = [
+                    {
+                        "name": column.name,
+                        "data_type": column.data_type,
+                        "nullable": column.nullable,
+                        "example": column.example,
+                    }
+                    for column in inspected.columns
+                ]
+            except ConnectorError:
+                status_text = "The file preview could not be read"
+            if columns:
+                schema_provenance = "file_preview"
+                status_text = "Source file inspected"
+        else:
+            status_text = "File exceeds the 2 MB schema preview limit"
     return {
         "rows": sum(known_rows)
         if complete_catalog_match and len(known_rows) == len(rows)
@@ -1443,10 +1661,10 @@ def _foundry_source_preview(
         "size_bytes": sum(known_sizes)
         if complete_catalog_match and len(known_sizes) == len(sizes)
         else None,
-        "columns": [],
+        "columns": columns,
         "primary_key": [],
-        "status": f"Catalog preview · {requested_count} file(s) selected",
-        "schema_provenance": "provider_unavailable",
+        "status": status_text,
+        "schema_provenance": schema_provenance,
         "row_provenance": "estimated"
         if complete_catalog_match and len(known_rows) == len(rows)
         else "unavailable",
@@ -1454,7 +1672,7 @@ def _foundry_source_preview(
         if complete_catalog_match and len(known_sizes) == len(sizes)
         else "unavailable",
         "capabilities": {
-            "schema_inspection": False,
+            "schema_inspection": True,
             "exact_row_counts": False,
             "verification_level": capabilities_for(provider).verification_level,
             "limitations": capabilities_for(provider).limitations
@@ -1480,7 +1698,8 @@ def _route_schema_preview(
             "columns": [
                 {
                     "name": column.name,
-                    "data_type": column.inferred_type,
+                    "data_type": _csv_type_label(column),
+                    "schema_type": _csv_schema_type(column),
                     "nullable": column.nulls > 0,
                     "example": column.example,
                 }
@@ -1573,30 +1792,220 @@ def _route_schema_preview(
     }
 
 
-def _schema_columns_table(columns: list[dict[str, object]], label: str):
+def _column_type_selector(
+    column_name: str,
+    selected_type: str,
+    *,
+    request: Request | None,
+    control_id: str,
+    detected_type: str = "",
+    creating_target: bool = False,
+):
+    if request is None:
+        return html.input(
+            type="hidden",
+            name="column_type_overrides",
+            value=json.dumps([column_name, selected_type], separators=(",", ":")),
+        )
+    return html.select(
+        *(
+            _option(
+                json.dumps([column_name, type_name], separators=(",", ":")),
+                (
+                    f"Use detected type ({detected_type})"
+                    if type_name == "auto" and detected_type
+                    else choice_label
+                ),
+                selected=type_name == selected_type,
+            )
+            for type_name, choice_label in COLUMN_TYPE_CHOICES
+        ),
+        id=control_id,
+        name="column_type_overrides",
+        **{
+            "aria-label": (
+                f"Create target column {column_name} as"
+                if creating_target
+                else f"Cast source column {column_name} to"
+            )
+        },
+        **hx_attrs(
+            request,
+            path="/pipeline/preview",
+            method="post",
+            target="#pipeline-preview-region",
+            swap="none",
+            include="#pipeline-form",
+            trigger="change",
+        ),
+    )
+
+
+def _manual_column_cast_controls(request: Request | None, *, open: bool = False) -> NodeLike:
+    if request is None:
+        return None
+    cast_choices = [
+        _option("", "Choose a type", selected=True, disabled=True),
+        *(
+            _option(type_name, choice_label)
+            for type_name, choice_label in COLUMN_TYPE_CHOICES
+            if type_name != "auto"
+        ),
+    ]
+    return Expander(
+        "Add a cast by column name",
+        Stack(
+            html.p(
+                "Useful when the source provider does not expose its columns before the first run.",
+                class_="hedron-process-flow-description",
+            ),
+            FormGrid(
+                FormField(
+                    name="manual_cast_column",
+                    label="Source column name",
+                    help="Enter the column name exactly as it appears in the source.",
+                    control=html.input(
+                        id="pipeline-manual-cast-column",
+                        name="manual_cast_column",
+                        maxlength="256",
+                        placeholder="event_date",
+                    ),
+                ),
+                FormField(
+                    name="manual_cast_type",
+                    label="Cast to",
+                    control=html.select(
+                        *cast_choices,
+                        id="pipeline-manual-cast-type",
+                        name="manual_cast_type",
+                    ),
+                ),
+                columns=2,
+                gap="sm",
+            ),
+            Button(
+                "Add cast",
+                type="button",
+                variant="secondary",
+                size="sm",
+                attrs={
+                    **hx_attrs(
+                        request,
+                        path="/pipeline/preview",
+                        method="post",
+                        target="#pipeline-preview-region",
+                        swap="none",
+                        include="#pipeline-form",
+                    ),
+                    "hx-vals": '{"add_column_cast":"true"}',
+                },
+            ),
+            gap="sm",
+        ),
+        open=open,
+    )
+
+
+def _extra_column_type_controls(
+    type_overrides: dict[str, str],
+    *,
+    visible_columns: set[str],
+    request: Request | None,
+) -> NodeLike:
+    unmatched = [
+        (column, selected_type)
+        for column, selected_type in type_overrides.items()
+        if column not in visible_columns
+    ]
+    if not unmatched:
+        return None
+    return Stack(
+        html.p(
+            "Casts for columns outside this preview. Choose Use detected type to remove one:",
+            class_="hedron-process-flow-description",
+        ),
+        *(
+            Inline(
+                html.code(column),
+                _column_type_selector(
+                    column,
+                    selected_type,
+                    request=request,
+                    control_id=f"pipeline-cast-extra-{index}",
+                ),
+                gap="sm",
+            )
+            for index, (column, selected_type) in enumerate(unmatched)
+        ),
+        gap="sm",
+    )
+
+
+def _schema_columns_table(
+    columns: list[dict[str, object]],
+    label: str,
+    *,
+    request: Request | None = None,
+    type_overrides: dict[str, str] | None = None,
+    allow_cast: bool = False,
+    creating_target: bool = False,
+):
     if not columns:
         return StateView(
             "Schema details will appear during validation",
             kind="empty",
             description="The provider does not expose column metadata before a run.",
         )
+    type_overrides = type_overrides or {}
+    rows = []
+    for column_index, column in enumerate(columns):
+        column_name = str(column.get("name") or "—")
+        detected_type = str(column.get("data_type") or "unknown")
+        selected_type = type_overrides.get(column_name, "auto")
+        row = [
+            html.strong(column_name),
+            Badge(detected_type, tone="info", size="sm"),
+            "Nullable" if column.get("nullable") else "Required",
+            html.code(str(column.get("example") or "—")),
+        ]
+        if allow_cast and request is not None:
+            row.append(
+                _column_type_selector(
+                    column_name,
+                    selected_type,
+                    request=request,
+                    control_id=f"pipeline-cast-type-{column_index}",
+                    detected_type=detected_type,
+                    creating_target=creating_target,
+                )
+            )
+            row.append(
+                Badge(
+                    dict(COLUMN_TYPE_CHOICES).get(selected_type, detected_type)
+                    if selected_type != "auto"
+                    else detected_type,
+                    tone="success" if selected_type != "auto" else "neutral",
+                    size="sm",
+                )
+            )
+        rows.append(row)
+    table_columns = [
+        TableColumn(header="Column"),
+        TableColumn(header="Detected type"),
+        TableColumn(header="Nullability"),
+        TableColumn(header="Example", size="wide"),
+    ]
+    if allow_cast and request is not None:
+        table_columns.append(
+            TableColumn(header="Create as" if creating_target else "Cast to", size="wide")
+        )
+        table_columns.append(
+            TableColumn(header="New column type" if creating_target else "Sent as")
+        )
     return ScrollRegion(
         Table(
-            rows=[
-                [
-                    html.strong(str(column.get("name") or "—")),
-                    Badge(str(column.get("data_type") or "unknown"), tone="info", size="sm"),
-                    "Nullable" if column.get("nullable") else "Required",
-                    html.code(str(column.get("example") or "—")),
-                ]
-                for column in columns
-            ],
-            columns=[
-                TableColumn(header="Column"),
-                TableColumn(header="Type"),
-                TableColumn(header="Nullability"),
-                TableColumn(header="Example", size="wide"),
-            ],
+            rows=rows,
+            columns=table_columns,
             density="compact",
             sticky_header=True,
             zebra=True,
@@ -1608,8 +2017,15 @@ def _schema_columns_table(columns: list[dict[str, object]], label: str):
 
 
 def _schema_preview_surface(
-    title: str, preview: dict[str, Any] | None, *, destination: bool = False
+    title: str,
+    preview: dict[str, Any] | None,
+    *,
+    destination: bool = False,
+    request: Request | None = None,
+    type_overrides: dict[str, str] | None = None,
+    creating_target: bool = False,
 ):
+    type_overrides = type_overrides or {}
     if preview is None:
         return Surface(
             PageHeader(title, eyebrow="Schema preview", level=3, density="compact"),
@@ -1618,21 +2034,33 @@ def _schema_preview_surface(
                 kind="empty",
                 description="Choose a source or destination object to see available schema facts.",
             ),
+            *(
+                [
+                    _manual_column_cast_controls(request, open=True),
+                    _extra_column_type_controls(
+                        type_overrides, visible_columns=set(), request=request
+                    ),
+                ]
+                if not destination
+                else []
+            ),
             appearance="plain",
             padding="sm",
             elevation="none",
         )
     rows = preview.get("rows")
     row_value = (
-        "New table"
-        if rows is None and preview.get("status") == "Created by run"
+        "Not created"
+        if rows is None
+        and preview.get("status")
+        in {"Created by run", "Planned for first run", "Planned for next run"}
         else (f"{rows:,} rows" if isinstance(rows, int) else "Unavailable")
     )
     size = preview.get("size_bytes")
     size_text = _format_file_size(int(size)) if isinstance(size, int) else "Size unavailable"
     schema_provenance = str(preview.get("schema_provenance") or "unavailable")
     row_provenance = str(preview.get("row_provenance") or "unavailable")
-    preview_complete = bool(preview.get("columns")) and row_provenance in {"exact", "estimated"}
+    preview_complete = bool(preview.get("columns")) and bool(preview.get("schema_complete", True))
     capabilities_value = preview.get("capabilities")
     capabilities: dict[str, Any] = (
         capabilities_value if isinstance(capabilities_value, dict) else {}
@@ -1641,6 +2069,8 @@ def _schema_preview_surface(
     status_label = "Ready to compare" if preview_complete else "Limited preview"
     status_tone = "success" if preview_complete else "warning"
     limitation = limitations[0] if limitations else None
+    preview_columns = preview.get("columns") or []
+    visible_column_names = {str(column.get("name") or "—") for column in preview_columns}
     return stacked_surface(
         PageHeader(
             title,
@@ -1654,6 +2084,9 @@ def _schema_preview_surface(
             density="compact",
             meta=Badge(status_label, tone=status_tone),
         ),
+        Alert(str(preview.get("plan_warning")), tone="danger")
+        if destination and preview.get("plan_warning")
+        else None,
         Grid(
             Metric("Rows before run" if destination else "Source rows", row_value),
             Metric("Columns", f"{len(preview.get('columns') or []):,}"),
@@ -1672,7 +2105,47 @@ def _schema_preview_surface(
         )
         if limitation and not preview_complete
         else None,
-        _schema_columns_table(preview.get("columns") or [], f"Columns in {title}"),
+        html.p(
+            (
+                f"{len(type_overrides)} cast(s) selected. "
+                if type_overrides
+                else "Types are detected automatically. "
+            )
+            + (
+                "Choose Create as to set each new column's type before data is written. "
+                if creating_target
+                else "Choose Cast to to change the type sent to the destination. "
+            )
+            + (
+                "The new table uses the selected types. "
+                if creating_target
+                else "An existing table keeps its column definitions. "
+            )
+            + "Values that cannot be converted or would lose numeric precision stop the run.",
+            class_="hedron-process-flow-description",
+        )
+        if not destination and preview_columns
+        else None,
+        _schema_columns_table(
+            preview_columns,
+            f"Columns in {title}",
+            request=request,
+            type_overrides=type_overrides,
+            allow_cast=not destination,
+            creating_target=creating_target,
+        ),
+        *(
+            [
+                _manual_column_cast_controls(request, open=not bool(preview_columns)),
+                _extra_column_type_controls(
+                    type_overrides,
+                    visible_columns=visible_column_names,
+                    request=request,
+                ),
+            ]
+            if not destination
+            else []
+        ),
         appearance="plain",
         padding="sm",
         elevation="none",
@@ -1681,6 +2154,7 @@ def _schema_preview_surface(
 
 def _pipeline_schema_preview_panel(
     *,
+    request: Request,
     catalog_access: CatalogAccess,
     source_provider: str,
     source_schema: str,
@@ -1690,6 +2164,10 @@ def _pipeline_schema_preview_panel(
     destination_object: str,
     destination_create: bool,
     csv_inspection: CsvInspection | None,
+    write_mode: str = "",
+    column_type_overrides: dict[str, str] | None = None,
+    primary_key_columns: str = "",
+    auto_increment_primary_key: str = "",
     include_id: bool = True,
 ):
     source = _route_schema_preview(
@@ -1699,7 +2177,65 @@ def _pipeline_schema_preview_panel(
         source_object,
         csv_inspection=csv_inspection,
     )
-    destination = _route_schema_preview(
+    live_destination = None
+    if destination_create and destination_provider == "postgres" and destination_object:
+        try:
+            locator = postgres_table(destination_schema, destination_object)
+            inspected = catalog_access.inspect_object("postgres", locator)
+            try:
+                current_rows = catalog_access.count_rows("postgres", locator)
+                row_provenance = "exact" if current_rows is not None else "unavailable"
+            except Exception:
+                current_rows = inspected.estimated_rows
+                row_provenance = "estimated" if current_rows is not None else "unavailable"
+            live_destination = {
+                "rows": current_rows,
+                "size_bytes": None,
+                "columns": [
+                    {
+                        "name": column.name,
+                        "data_type": column.data_type,
+                        "nullable": column.nullable,
+                        "example": column.example,
+                    }
+                    for column in inspected.columns
+                ],
+                "primary_key": list(inspected.primary_key),
+                "status": "Current table",
+                "schema_provenance": "catalog",
+                "row_provenance": row_provenance,
+                "size_provenance": "unavailable",
+                "capabilities": {
+                    "schema_inspection": True,
+                    "exact_row_counts": True,
+                    "verification_level": "exact",
+                    "limitations": (),
+                },
+            }
+        except ConnectorError as exc:
+            if exc.code != TransferErrorCode.SOURCE_NOT_FOUND:
+                live_destination = {
+                    "rows": None,
+                    "size_bytes": None,
+                    "columns": [],
+                    "primary_key": [],
+                    "status": "Current table could not be inspected",
+                    "schema_provenance": "unavailable",
+                    "row_provenance": "unavailable",
+                    "size_provenance": "unavailable",
+                    "capabilities": {"limitations": (exc.summary,)},
+                }
+        except ValueError:
+            pass
+    if destination_create and live_destination is None and destination_provider != "postgres":
+        live_destination = _route_schema_preview(
+            catalog_access,
+            destination_provider,
+            destination_schema,
+            destination_object,
+            destination=True,
+        )
+    destination = live_destination or _route_schema_preview(
         catalog_access,
         destination_provider,
         destination_schema,
@@ -1707,6 +2243,72 @@ def _pipeline_schema_preview_panel(
         destination=True,
         creating=destination_create,
     )
+    planning_new_schema = destination_create and (
+        live_destination is None or write_mode == "replace"
+    )
+    planned_destination = None
+    if planning_new_schema and source is not None and destination is not None:
+        source_columns = list(source.get("columns") or [])
+        planned_columns = [
+            {
+                **column,
+                "data_type": _planned_column_type(
+                    destination_provider, column, column_type_overrides or {}
+                ),
+            }
+            for column in source_columns
+        ]
+        planned_key = [item.strip() for item in primary_key_columns.split(",") if item.strip()]
+        source_names = {str(column.get("name") or "") for column in source_columns}
+        plan_warning = (
+            "List each primary-key column only once."
+            if len(planned_key) != len(set(planned_key))
+            else ""
+        )
+        if destination_provider == "postgres":
+            if auto_increment_primary_key.strip():
+                if planned_key:
+                    plan_warning = "Choose source key columns or a generated key, not both."
+                elif auto_increment_primary_key.strip() in source_names:
+                    plan_warning = "The generated key name already exists in the source columns."
+                planned_key = [auto_increment_primary_key.strip()]
+                if auto_increment_primary_key.strip() not in source_names:
+                    planned_columns.append(
+                        {
+                            "name": auto_increment_primary_key.strip(),
+                            "data_type": "BIGINT identity",
+                            "nullable": False,
+                            "example": "Generated on insert",
+                        }
+                    )
+            elif not planned_key:
+                planned_key = list(source.get("primary_key") or [])
+            if (
+                planned_key
+                and source_names
+                and not set(planned_key).issubset(
+                    source_names | {auto_increment_primary_key.strip()}
+                )
+            ):
+                plan_warning = "A chosen primary-key column is not present in the source."
+            for column in planned_columns:
+                if column.get("name") in planned_key:
+                    column["nullable"] = False
+        planned_destination = {
+            **destination,
+            "rows": None,
+            "size_bytes": None,
+            "columns": planned_columns,
+            "primary_key": planned_key if destination_provider == "postgres" else [],
+            "status": "Planned for next run" if live_destination else "Planned for first run",
+            "schema_provenance": "planned" if source_columns else "unavailable",
+            "schema_complete": bool(source_columns),
+            "row_provenance": "unavailable",
+            "size_provenance": "unavailable",
+            "plan_warning": plan_warning,
+        }
+        if live_destination is None:
+            destination = planned_destination
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
         stacked_surface(
@@ -1718,8 +2320,28 @@ def _pipeline_schema_preview_panel(
                 density="compact",
             ),
             Grid(
-                _schema_preview_surface("Source", source),
-                _schema_preview_surface("Destination", destination, destination=True),
+                _schema_preview_surface(
+                    "Source",
+                    source,
+                    request=request,
+                    type_overrides=column_type_overrides,
+                    creating_target=planning_new_schema,
+                ),
+                _schema_preview_surface(
+                    "Destination", destination, destination=True, request=request
+                ),
+                *(
+                    [
+                        _schema_preview_surface(
+                            "Next run: replacement table",
+                            planned_destination,
+                            destination=True,
+                            request=request,
+                        )
+                    ]
+                    if live_destination is not None and planned_destination is not None
+                    else []
+                ),
                 columns={"base": 1, "xl": 2},
                 gap="sm",
             ),
@@ -1767,7 +2389,7 @@ def _csv_inspection(
                         rows=[
                             [
                                 html.strong(column.name),
-                                Badge(column.inferred_type, tone="info", size="sm"),
+                                Badge(_csv_type_label(column), tone="info", size="sm"),
                                 (
                                     f"{column.populated / inspection.row_count:.0%}"
                                     if inspection.row_count
@@ -2106,6 +2728,8 @@ def _pipeline_preview_fragment(
     source_upload_id: str = "",
     write_mode: str = "",
     conflict_columns: str = "",
+    primary_key_columns: str = "",
+    auto_increment_primary_key: str = "",
     csv_inspection: CsvInspection | None = None,
     csv_upload: PipelineUpload | None = None,
     connections: dict[str, dict[str, str | bool]],
@@ -2345,6 +2969,23 @@ def _pipeline_preview_fragment(
             oob=True,
         ),
         _upsert_key_select(upsert_keys, selected=conflict_columns, oob=True),
+        _postgres_create_key_controls(
+            request,
+            primary_key_columns=primary_key_columns,
+            auto_increment_primary_key=auto_increment_primary_key,
+            hidden=not (target_provider == "postgres" and target_table == CREATE_TABLE_VALUE),
+            locked=(
+                target_provider == "postgres"
+                and target_table == CREATE_TABLE_VALUE
+                and write_mode == "append"
+                and _postgres_created_target_exists(
+                    catalog_access,
+                    target_schema,
+                    _committed_new_table_name(destination_table_new),
+                )
+            ),
+            oob=True,
+        ),
         _dataset_creator(
             request,
             target_catalog,
@@ -2528,6 +3169,8 @@ def _pipeline_body(
         if target_provider
         else ""
     )
+    if target_table_name == CREATE_TABLE_VALUE:
+        target_object_name = new_target_table_name
     route_overlap = _selection_overlaps(
         source_provider,
         source_schema_name,
@@ -2556,6 +3199,9 @@ def _pipeline_body(
         target_object_name if target_table_name != CREATE_TABLE_VALUE else CREATE_TABLE_VALUE,
     )
     saved_conflict_columns = ""
+    saved_column_type_overrides: dict[str, str] = {}
+    saved_primary_key_columns = ""
+    saved_auto_increment_primary_key = ""
     if loaded_pipeline is not None:
         try:
             loaded_policy = parse_write_policy(json.loads(loaded_pipeline.write_policy_json))
@@ -2563,6 +3209,11 @@ def _pipeline_body(
             loaded_policy = None
         if isinstance(loaded_policy, PostgresUpsertPolicy):
             saved_conflict_columns = ",".join(loaded_policy.conflict_columns)
+        if loaded_policy is not None:
+            saved_column_type_overrides = dict(loaded_policy.column_type_overrides)
+        if isinstance(loaded_policy, (PostgresAppendPolicy, PostgresReplacePolicy)):
+            saved_primary_key_columns = ", ".join(loaded_policy.primary_key_columns)
+            saved_auto_increment_primary_key = loaded_policy.auto_increment_primary_key
     write_mode = _resolved_write_mode(
         target_catalog, requested_write_mode, upsert_available=bool(upsert_keys)
     )
@@ -2618,7 +3269,8 @@ def _pipeline_body(
         availability_message = "Source and destination connections are ready."
     if initial_run_ready and not pipeline_id:
         availability_message = (
-            "Source and destination are ready. Save this pipeline to enable runs."
+            "Source and destination are ready. Save this pipeline to enable runs. "
+            "Or choose Save and Run to start its first transfer."
         )
     connection_summary = ActionGroup(
         Badge(
@@ -2672,7 +3324,7 @@ def _pipeline_body(
             description=(
                 "Start a transfer and follow each persisted worker event."
                 if pipeline_id and initial_run_ready
-                else "Save a ready route to enable transfers."
+                else "Save a ready route or use Save and Run to start its first transfer."
             ),
             status_text="Ready" if pipeline_id and initial_run_ready else "Next",
         ),
@@ -2733,6 +3385,20 @@ def _pipeline_body(
                                     size="sm",
                                     type="submit",
                                 ),
+                                *(
+                                    [
+                                        Button(
+                                            "Save and Run",
+                                            type="submit",
+                                            variant="primary",
+                                            size="md",
+                                            disabled=not initial_run_ready,
+                                            attrs={"name": "save_and_run", "value": "true"},
+                                        )
+                                    ]
+                                    if not pipeline_id
+                                    else []
+                                ),
                                 Button(
                                     "Run transfer",
                                     type="button",
@@ -2762,426 +3428,471 @@ def _pipeline_body(
                             hidden=True,
                             role="status",
                         ),
-                        FormGrid(
-                            FormField(
-                                name="pipeline_name",
-                                label="Pipeline name",
-                                id="pipeline-name",
-                                required=True,
-                                control=html.input(
-                                    id="pipeline-name",
-                                    name="pipeline_name",
-                                    value=pipeline_name,
-                                    maxlength="120",
-                                    required=True,
-                                ),
-                            ),
-                            FormField(
-                                name="write_mode",
-                                label="Write mode",
-                                id="pipeline-mode-select",
-                                control=_write_mode_select(
-                                    request,
-                                    target_catalog,
-                                    selected=write_mode,
-                                    upsert_available=bool(upsert_keys),
-                                ),
-                            ),
-                            FormField(
-                                name="conflict_columns",
-                                label="Upsert key",
-                                id="pipeline-upsert-key-select",
-                                control=_upsert_key_select(
-                                    upsert_keys,
-                                    selected=saved_conflict_columns,
-                                ),
-                            ),
-                            columns={"base": 1, "lg": 3},
-                            gap="md",
-                        ),
-                        Grid(
-                            DATA_MOVER_DESIGN.apply(
-                                "data-mover-inset",
-                                stacked_surface(
-                                    PageHeader(
-                                        "Source",
-                                        eyebrow="Read from",
-                                        description="Choose a connected object or scan a local CSV.",
-                                        level=3,
-                                        density="compact",
-                                        meta=html.span(
-                                            Badge(source_catalog.label, tone="success"),
-                                            id="pipeline-source-provider-label",
-                                        ),
-                                    ),
-                                    Stack(
+                        NavigationTabs(
+                            (
+                                "Connections & route",
+                                Stack(
+                                    FormGrid(
                                         FormField(
-                                            name="source_provider",
-                                            label="Source type",
-                                            id="pipeline-source-select",
-                                            control=_source_provider_select(
-                                                request,
-                                                connections,
-                                                selected=source_provider,
-                                                target_provider=target_provider,
-                                                writer_policy=writer_policy,
+                                            name="pipeline_name",
+                                            label="Pipeline name",
+                                            id="pipeline-name",
+                                            required=True,
+                                            control=html.input(
+                                                id="pipeline-name",
+                                                name="pipeline_name",
+                                                value=pipeline_name,
+                                                maxlength="120",
+                                                required=True,
                                             ),
                                         ),
-                                        FormGrid(
-                                            FormField(
-                                                name="source_schema",
-                                                label=source_catalog.namespaces_label,
-                                                id="pipeline-source-schema-select",
-                                                control=(
-                                                    _source_namespace_control(
-                                                        request,
-                                                        catalog_access,
-                                                        source_provider,
-                                                        preferred_schema=source_schema_name,
-                                                    )
-                                                    if source_provider != "csv"
-                                                    else html.select(
-                                                        _option(
-                                                            "uploaded",
-                                                            "Scanned CSV"
-                                                            if csv_source_ready
-                                                            else "Upload required",
-                                                            selected=True,
-                                                            disabled=True,
-                                                        ),
-                                                        id="pipeline-source-schema-select",
-                                                        name="source_schema",
-                                                        data={
-                                                            "pipeline-control": "source-schema",
-                                                            "field-label": "Upload",
-                                                        },
-                                                    )
-                                                ),
+                                        FormField(
+                                            name="write_mode",
+                                            label="Write mode",
+                                            id="pipeline-mode-select",
+                                            control=_write_mode_select(
+                                                request,
+                                                target_catalog,
+                                                selected=write_mode,
+                                                upsert_available=bool(upsert_keys),
                                             ),
-                                            FormField(
-                                                name="source_table",
-                                                label=(
-                                                    "File(s)"
-                                                    if source_provider in {"mss", "mcscop"}
-                                                    else source_catalog.objects_label
+                                        ),
+                                        FormField(
+                                            name="conflict_columns",
+                                            label="Upsert key",
+                                            id="pipeline-upsert-key-select",
+                                            control=_upsert_key_select(
+                                                upsert_keys,
+                                                selected=saved_conflict_columns,
+                                            ),
+                                        ),
+                                        columns={"base": 1, "lg": 3},
+                                        gap="md",
+                                    ),
+                                    Grid(
+                                        DATA_MOVER_DESIGN.apply(
+                                            "data-mover-inset",
+                                            stacked_surface(
+                                                PageHeader(
+                                                    "Source",
+                                                    eyebrow="Read from",
+                                                    description="Choose a connected object or scan a local CSV.",
+                                                    level=3,
+                                                    density="compact",
+                                                    meta=html.span(
+                                                        Badge(source_catalog.label, tone="success"),
+                                                        id="pipeline-source-provider-label",
+                                                    ),
                                                 ),
-                                                id="pipeline-source-table-select",
-                                                control=(
-                                                    _source_object_control(
-                                                        request,
+                                                Stack(
+                                                    FormField(
+                                                        name="source_provider",
+                                                        label="Source type",
+                                                        id="pipeline-source-select",
+                                                        control=_source_provider_select(
+                                                            request,
+                                                            connections,
+                                                            selected=source_provider,
+                                                            target_provider=target_provider,
+                                                            writer_policy=writer_policy,
+                                                        ),
+                                                    ),
+                                                    FormGrid(
+                                                        FormField(
+                                                            name="source_schema",
+                                                            label=source_catalog.namespaces_label,
+                                                            id="pipeline-source-schema-select",
+                                                            control=(
+                                                                _source_namespace_control(
+                                                                    request,
+                                                                    catalog_access,
+                                                                    source_provider,
+                                                                    preferred_schema=source_schema_name,
+                                                                )
+                                                                if source_provider != "csv"
+                                                                else html.select(
+                                                                    _option(
+                                                                        "uploaded",
+                                                                        "Scanned CSV"
+                                                                        if csv_source_ready
+                                                                        else "Upload required",
+                                                                        selected=True,
+                                                                        disabled=True,
+                                                                    ),
+                                                                    id="pipeline-source-schema-select",
+                                                                    name="source_schema",
+                                                                    data={
+                                                                        "pipeline-control": "source-schema",
+                                                                        "field-label": "Upload",
+                                                                    },
+                                                                )
+                                                            ),
+                                                        ),
+                                                        FormField(
+                                                            name="source_table",
+                                                            label=(
+                                                                "File(s)"
+                                                                if source_provider
+                                                                in {"mss", "mcscop"}
+                                                                else source_catalog.objects_label
+                                                            ),
+                                                            id="pipeline-source-table-select",
+                                                            control=(
+                                                                _source_object_control(
+                                                                    request,
+                                                                    catalog_access,
+                                                                    source_provider,
+                                                                    source_schema_name,
+                                                                    preferred_object=source_table_display,
+                                                                )
+                                                                if source_provider != "csv"
+                                                                else html.select(
+                                                                    _option(
+                                                                        "",
+                                                                        loaded_source_inspection.filename
+                                                                        if csv_source_ready
+                                                                        and loaded_source_inspection
+                                                                        is not None
+                                                                        else "Upload required",
+                                                                        selected=True,
+                                                                        disabled=True,
+                                                                    ),
+                                                                    id="pipeline-source-table-select",
+                                                                    name="source_table",
+                                                                    data={
+                                                                        "pipeline-control": "source-table"
+                                                                    },
+                                                                )
+                                                            ),
+                                                        ),
+                                                        columns=2,
+                                                        gap="sm",
+                                                    ),
+                                                    *_source_catalog_suggestions(
                                                         catalog_access,
                                                         source_provider,
                                                         source_schema_name,
-                                                        preferred_object=source_table_display,
-                                                    )
-                                                    if source_provider != "csv"
-                                                    else html.select(
-                                                        _option(
-                                                            "",
-                                                            loaded_source_inspection.filename
-                                                            if csv_source_ready
-                                                            and loaded_source_inspection is not None
-                                                            else "Upload required",
-                                                            selected=True,
-                                                            disabled=True,
+                                                    ),
+                                                    Expander(
+                                                        "CSV alternative · Upload a local file",
+                                                        PageHeader(
+                                                            "CSV alternative",
+                                                            eyebrow="Local source",
+                                                            description="Scan a UTF-8 CSV and use its detected schema.",
+                                                            level=4,
+                                                            density="compact",
+                                                            meta=html.span(
+                                                                Badge(
+                                                                    "5 MB maximum", tone="neutral"
+                                                                ),
+                                                                id="pipeline-csv-upload-state",
+                                                            ),
                                                         ),
-                                                        id="pipeline-source-table-select",
-                                                        name="source_table",
-                                                        data={"pipeline-control": "source-table"},
-                                                    )
+                                                        _csv_upload_control(request),
+                                                        _csv_inspection(
+                                                            loaded_source_upload
+                                                            if source_provider == "csv"
+                                                            else None,
+                                                            loaded_source_inspection
+                                                            if source_provider == "csv"
+                                                            else None,
+                                                        ),
+                                                        open=source_provider == "csv",
+                                                        enhance="native",
+                                                        id="pipeline-csv-alternative",
+                                                    ),
+                                                    gap="md",
                                                 ),
                                             ),
-                                            columns=2,
-                                            gap="sm",
                                         ),
-                                        *_source_catalog_suggestions(
-                                            catalog_access,
-                                            source_provider,
-                                            source_schema_name,
-                                        ),
-                                        Expander(
-                                            "CSV alternative · Upload a local file",
-                                            PageHeader(
-                                                "CSV alternative",
-                                                eyebrow="Local source",
-                                                description="Scan a UTF-8 CSV and use its detected schema.",
-                                                level=4,
-                                                density="compact",
-                                                meta=html.span(
-                                                    Badge("5 MB maximum", tone="neutral"),
-                                                    id="pipeline-csv-upload-state",
+                                        DATA_MOVER_DESIGN.apply(
+                                            "data-mover-inset",
+                                            stacked_surface(
+                                                PageHeader(
+                                                    "Destination",
+                                                    eyebrow="Write to",
+                                                    description="Select a connected target and write policy.",
+                                                    level=3,
+                                                    density="compact",
+                                                    meta=html.span(
+                                                        Badge(
+                                                            target_catalog.label
+                                                            if target_catalog is not None
+                                                            else "Not selected",
+                                                            tone="info",
+                                                        ),
+                                                        id="pipeline-target-provider-label",
+                                                    ),
+                                                ),
+                                                Stack(
+                                                    FormField(
+                                                        name="destination_provider",
+                                                        label="Connection",
+                                                        id="pipeline-target-select",
+                                                        control=_destination_provider_select(
+                                                            request,
+                                                            connections,
+                                                            source_provider=source_provider,
+                                                            selected=target_provider,
+                                                            writer_policy=writer_policy,
+                                                        ),
+                                                    ),
+                                                    FormGrid(
+                                                        FormField(
+                                                            name="destination_schema",
+                                                            label=(
+                                                                target_catalog.namespaces_label
+                                                                if target_catalog is not None
+                                                                else "Schema"
+                                                            ),
+                                                            id="pipeline-target-schema-select",
+                                                            control=html.select(
+                                                                *(
+                                                                    _destination_namespace_options(
+                                                                        catalog_access,
+                                                                        target_catalog,
+                                                                        target_provider,
+                                                                        preferred_schema=target_schema_name,
+                                                                    )
+                                                                    if target_catalog is not None
+                                                                    else [
+                                                                        _option(
+                                                                            "",
+                                                                            "No connection available",
+                                                                            selected=True,
+                                                                            disabled=True,
+                                                                        )
+                                                                    ]
+                                                                ),
+                                                                id="pipeline-target-schema-select",
+                                                                name="destination_schema",
+                                                                data={
+                                                                    "pipeline-control": "target-schema"
+                                                                },
+                                                                disabled=target_catalog is None,
+                                                                **hx_attrs(
+                                                                    request,
+                                                                    path="/pipeline/preview",
+                                                                    method="post",
+                                                                    target="#pipeline-preview-region",
+                                                                    swap="none",
+                                                                    include="#pipeline-form",
+                                                                    trigger="change",
+                                                                ),
+                                                            ),
+                                                        ),
+                                                        FormField(
+                                                            name="destination_table",
+                                                            label=(
+                                                                target_catalog.objects_label
+                                                                if target_catalog is not None
+                                                                else "Table"
+                                                            ),
+                                                            id="pipeline-target-table-select",
+                                                            control=html.select(
+                                                                *(
+                                                                    _destination_object_options(
+                                                                        catalog_access,
+                                                                        target_catalog,
+                                                                        target_provider,
+                                                                        target_schema_name,
+                                                                        preferred_table=target_table_name,
+                                                                        additional_tables=_created_destination_tables(
+                                                                            pipelines,
+                                                                            target_provider,
+                                                                            target_schema_name,
+                                                                        ),
+                                                                    )
+                                                                    if target_catalog is not None
+                                                                    else [
+                                                                        _option(
+                                                                            "",
+                                                                            "No connection available",
+                                                                            selected=True,
+                                                                            disabled=True,
+                                                                        )
+                                                                    ]
+                                                                ),
+                                                                id="pipeline-target-table-select",
+                                                                name="destination_table",
+                                                                data={
+                                                                    "pipeline-control": "target-table"
+                                                                },
+                                                                disabled=target_catalog is None,
+                                                                **hx_attrs(
+                                                                    request,
+                                                                    path="/pipeline/preview",
+                                                                    method="post",
+                                                                    target="#pipeline-preview-region",
+                                                                    swap="none",
+                                                                    include="#pipeline-form",
+                                                                    trigger="change",
+                                                                ),
+                                                            ),
+                                                        ),
+                                                        columns=2,
+                                                        gap="sm",
+                                                    ),
+                                                    html.p(
+                                                        "For a new table or file, use Target schema & creator to name it and choose its columns.",
+                                                        class_="hedron-process-flow-description",
+                                                    ),
+                                                    gap="md",
                                                 ),
                                             ),
-                                            _csv_upload_control(request),
-                                            _csv_inspection(
-                                                loaded_source_upload
-                                                if source_provider == "csv"
-                                                else None,
-                                                loaded_source_inspection
-                                                if source_provider == "csv"
-                                                else None,
-                                            ),
-                                            open=source_provider == "csv",
-                                            enhance="native",
-                                            id="pipeline-csv-alternative",
                                         ),
+                                        columns={"base": 1, "xl": 2},
                                         gap="md",
                                     ),
+                                    ConnectorFlow(
+                                        _provider_node(
+                                            kind="source",
+                                            catalog=source_catalog,
+                                            detail=(
+                                                f"{source_schema_name}.{source_object_name}"
+                                                if source_provider != "csv"
+                                                else loaded_source_inspection.filename
+                                                if loaded_source_inspection is not None
+                                                else "Choose a CSV file"
+                                            ),
+                                            configured=source_runtime_ready,
+                                            runtime=(
+                                                str(connections[source_provider]["runtime"])
+                                                if source_provider != "csv"
+                                                else ""
+                                            ),
+                                        ),
+                                        ConnectorTrack(
+                                            Inline(
+                                                Badge("Encrypted", tone="success"),
+                                                html.span(
+                                                    f"{field_count} fields"
+                                                    if field_count
+                                                    else "See schema preview",
+                                                    id="pipeline-field-map-label",
+                                                    class_="hedron-process-flow-description",
+                                                ),
+                                                gap="sm",
+                                            ),
+                                            html.span(
+                                                Status(
+                                                    "Ready to transfer"
+                                                    if initial_run_ready
+                                                    else "Setup required",
+                                                    tone="success"
+                                                    if initial_run_ready
+                                                    else "warning",
+                                                    live=False,
+                                                    variant="compact",
+                                                ),
+                                                id="pipeline-route-readiness",
+                                            ),
+                                            label="Encrypted transfer route",
+                                        ),
+                                        _provider_node(
+                                            kind="target",
+                                            catalog=target_catalog,
+                                            detail=(
+                                                f"{target_schema_name}.{target_object_name}"
+                                                if target_catalog is not None
+                                                else "Configure a connection"
+                                            ),
+                                            configured=target_runtime_ready,
+                                            runtime=(
+                                                str(connections[target_provider]["runtime"])
+                                                if target_catalog is not None
+                                                else ""
+                                            ),
+                                        ),
+                                        direction="horizontal",
+                                        collapse="lg",
+                                        appearance="soft",
+                                        background="dots",
+                                        overflow="auto",
+                                        min_size="sm",
+                                        id="pipeline-canvas",
+                                    ),
+                                    gap="md",
                                 ),
                             ),
-                            DATA_MOVER_DESIGN.apply(
-                                "data-mover-inset",
-                                stacked_surface(
+                            (
+                                "Target schema & creator",
+                                Stack(
                                     PageHeader(
-                                        "Destination",
-                                        eyebrow="Write to",
-                                        description="Select a connected target and write policy.",
+                                        "Design the target",
+                                        eyebrow="Target design",
+                                        description="Review detected types. For a new target, name it and choose column types and key options before the first write.",
                                         level=3,
                                         density="compact",
-                                        meta=html.span(
-                                            Badge(
-                                                target_catalog.label
-                                                if target_catalog is not None
-                                                else "Not selected",
-                                                tone="info",
-                                            ),
-                                            id="pipeline-target-provider-label",
+                                    ),
+                                    _dataset_creator(
+                                        request,
+                                        target_catalog,
+                                        needs_dataset=bool(
+                                            target_catalog
+                                            and target_catalog.dataset_creation
+                                            and not target_schema_name
                                         ),
                                     ),
-                                    Stack(
-                                        FormField(
-                                            name="destination_provider",
-                                            label="Connection",
-                                            id="pipeline-target-select",
-                                            control=_destination_provider_select(
-                                                request,
-                                                connections,
-                                                source_provider=source_provider,
-                                                selected=target_provider,
-                                                writer_policy=writer_policy,
-                                            ),
-                                        ),
-                                        _dataset_creator(
-                                            request,
-                                            target_catalog,
-                                            needs_dataset=bool(
-                                                target_catalog
-                                                and target_catalog.dataset_creation
-                                                and not target_schema_name
-                                            ),
-                                        ),
-                                        FormGrid(
-                                            FormField(
-                                                name="destination_schema",
-                                                label=(
-                                                    target_catalog.namespaces_label
-                                                    if target_catalog is not None
-                                                    else "Schema"
-                                                ),
-                                                id="pipeline-target-schema-select",
-                                                control=html.select(
-                                                    *(
-                                                        _destination_namespace_options(
-                                                            catalog_access,
-                                                            target_catalog,
-                                                            target_provider,
-                                                            preferred_schema=target_schema_name,
-                                                        )
-                                                        if target_catalog is not None
-                                                        else [
-                                                            _option(
-                                                                "",
-                                                                "No connection available",
-                                                                selected=True,
-                                                                disabled=True,
-                                                            )
-                                                        ]
-                                                    ),
-                                                    id="pipeline-target-schema-select",
-                                                    name="destination_schema",
-                                                    data={"pipeline-control": "target-schema"},
-                                                    disabled=target_catalog is None,
-                                                    **hx_attrs(
-                                                        request,
-                                                        path="/pipeline/preview",
-                                                        method="post",
-                                                        target="#pipeline-preview-region",
-                                                        swap="none",
-                                                        include="#pipeline-form",
-                                                        trigger="change",
-                                                    ),
-                                                ),
-                                            ),
-                                            FormField(
-                                                name="destination_table",
-                                                label=(
-                                                    target_catalog.objects_label
-                                                    if target_catalog is not None
-                                                    else "Table"
-                                                ),
-                                                id="pipeline-target-table-select",
-                                                control=html.select(
-                                                    *(
-                                                        _destination_object_options(
-                                                            catalog_access,
-                                                            target_catalog,
-                                                            target_provider,
-                                                            target_schema_name,
-                                                            preferred_table=target_table_name,
-                                                            additional_tables=_created_destination_tables(
-                                                                pipelines,
-                                                                target_provider,
-                                                                target_schema_name,
-                                                            ),
-                                                        )
-                                                        if target_catalog is not None
-                                                        else [
-                                                            _option(
-                                                                "",
-                                                                "No connection available",
-                                                                selected=True,
-                                                                disabled=True,
-                                                            )
-                                                        ]
-                                                    ),
-                                                    id="pipeline-target-table-select",
-                                                    name="destination_table",
-                                                    data={"pipeline-control": "target-table"},
-                                                    disabled=target_catalog is None,
-                                                    **hx_attrs(
-                                                        request,
-                                                        path="/pipeline/preview",
-                                                        method="post",
-                                                        target="#pipeline-preview-region",
-                                                        swap="none",
-                                                        include="#pipeline-form",
-                                                        trigger="change",
-                                                    ),
-                                                ),
-                                            ),
-                                            columns=2,
-                                            gap="sm",
-                                        ),
-                                        html.div(
-                                            FormField(
-                                                name="destination_table_new",
-                                                label=(
-                                                    "New file name"
-                                                    if target_catalog is not None
-                                                    and target_catalog.dataset_creation
-                                                    else "New table name"
-                                                ),
-                                                id="pipeline-target-table-new",
-                                                help=(
-                                                    "Used only when Create a new file is selected. Parquet is added automatically."
-                                                    if target_catalog is not None
-                                                    and target_catalog.dataset_creation
-                                                    else "Used only when Create a new table is selected."
-                                                ),
-                                                control=html.input(
-                                                    id="pipeline-target-table-new",
-                                                    name="destination_table_new",
-                                                    value=new_target_table_name,
-                                                    maxlength="63",
-                                                    placeholder=(
-                                                        "readiness_export"
-                                                        if target_catalog is not None
-                                                        and target_catalog.dataset_creation
-                                                        else "readiness_events_copy"
-                                                    ),
-                                                    pattern="[A-Za-z][A-Za-z0-9_]{0,62}",
-                                                    disabled=target_table_name
-                                                    != CREATE_TABLE_VALUE,
-                                                ),
-                                            ),
-                                            class_="data-mover-new-destination-name",
-                                            hidden=target_table_name != CREATE_TABLE_VALUE,
-                                        ),
-                                        gap="md",
+                                    _new_destination_name_control(
+                                        request,
+                                        target_catalog,
+                                        value=new_target_table_name,
+                                        creating=target_table_name == CREATE_TABLE_VALUE,
                                     ),
-                                ),
-                            ),
-                            columns={"base": 1, "xl": 2},
-                            gap="md",
-                        ),
-                        ConnectorFlow(
-                            _provider_node(
-                                kind="source",
-                                catalog=source_catalog,
-                                detail=(
-                                    f"{source_schema_name}.{source_object_name}"
-                                    if source_provider != "csv"
-                                    else loaded_source_inspection.filename
-                                    if loaded_source_inspection is not None
-                                    else "Choose a CSV file"
-                                ),
-                                configured=source_runtime_ready,
-                                runtime=(
-                                    str(connections[source_provider]["runtime"])
-                                    if source_provider != "csv"
-                                    else ""
-                                ),
-                            ),
-                            ConnectorTrack(
-                                Inline(
-                                    Badge("Encrypted", tone="success"),
-                                    html.span(
-                                        f"{field_count} fields"
-                                        if field_count
-                                        else "See schema preview",
-                                        id="pipeline-field-map-label",
-                                        class_="hedron-process-flow-description",
+                                    _postgres_create_key_controls(
+                                        request,
+                                        primary_key_columns=saved_primary_key_columns,
+                                        auto_increment_primary_key=saved_auto_increment_primary_key,
+                                        hidden=not (
+                                            target_provider == "postgres"
+                                            and target_table_name == CREATE_TABLE_VALUE
+                                        ),
+                                        locked=(
+                                            target_provider == "postgres"
+                                            and target_table_name == CREATE_TABLE_VALUE
+                                            and write_mode == "append"
+                                            and _postgres_created_target_exists(
+                                                catalog_access,
+                                                target_schema_name,
+                                                target_object_name,
+                                            )
+                                        ),
                                     ),
-                                    gap="sm",
-                                ),
-                                html.span(
-                                    Status(
-                                        "Ready to transfer"
-                                        if initial_run_ready
-                                        else "Setup required",
-                                        tone="success" if initial_run_ready else "warning",
-                                        live=False,
-                                        variant="compact",
+                                    _pipeline_schema_preview_panel(
+                                        request=request,
+                                        catalog_access=catalog_access,
+                                        source_provider=source_provider,
+                                        source_schema=source_schema_name,
+                                        source_object=source_object_name,
+                                        destination_provider=target_provider,
+                                        destination_schema=target_schema_name,
+                                        destination_object=target_object_name,
+                                        destination_create=target_table_name == CREATE_TABLE_VALUE,
+                                        write_mode=write_mode,
+                                        csv_inspection=(
+                                            loaded_source_inspection
+                                            if source_provider == "csv"
+                                            else None
+                                        ),
+                                        column_type_overrides=saved_column_type_overrides,
+                                        primary_key_columns=saved_primary_key_columns,
+                                        auto_increment_primary_key=saved_auto_increment_primary_key,
                                     ),
-                                    id="pipeline-route-readiness",
-                                ),
-                                label="Encrypted transfer route",
-                            ),
-                            _provider_node(
-                                kind="target",
-                                catalog=target_catalog,
-                                detail=(
-                                    f"{target_schema_name}.{target_object_name}"
-                                    if target_catalog is not None
-                                    else "Configure a connection"
-                                ),
-                                configured=target_runtime_ready,
-                                runtime=(
-                                    str(connections[target_provider]["runtime"])
-                                    if target_catalog is not None
-                                    else ""
+                                    gap="md",
                                 ),
                             ),
-                            direction="horizontal",
-                            collapse="lg",
-                            appearance="soft",
-                            background="dots",
-                            overflow="auto",
-                            min_size="sm",
-                            id="pipeline-canvas",
-                        ),
-                        _pipeline_schema_preview_panel(
-                            catalog_access=catalog_access,
-                            source_provider=source_provider,
-                            source_schema=source_schema_name,
-                            source_object=source_object_name,
-                            destination_provider=target_provider,
-                            destination_schema=target_schema_name,
-                            destination_object=target_object_name,
-                            destination_create=target_table_name == CREATE_TABLE_VALUE,
-                            csv_inspection=(
-                                loaded_source_inspection if source_provider == "csv" else None
+                            active=(
+                                "Target schema & creator"
+                                if target_table_name == CREATE_TABLE_VALUE
+                                or (
+                                    target_catalog is not None
+                                    and target_catalog.dataset_creation
+                                    and not target_schema_name
+                                )
+                                else "Connections & route"
                             ),
+                            id="pipeline-setup-tabs",
                         ),
                         html.div(
                             _capability_surface(source_catalog, target_catalog),
@@ -3402,17 +4113,17 @@ def register_pipeline_routes(
             connection_runnable=_connection_runnable,
         ),
     )
-    register_pipeline_save_routes(
-        app,
-        authoring_operation_factory=authoring_operation_factory,
-    )
-
-    register_pipeline_run_routes(
+    start_pipeline_run = register_pipeline_run_routes(
         app,
         fragment_router,
         status_fragment=_run_status_fragment,
         events_loader=_events_after_for_run_routes,
         with_user_catalog=bound_with_user_catalog,
+    )
+    register_pipeline_save_routes(
+        app,
+        authoring_operation_factory=authoring_operation_factory,
+        start_pipeline_run=start_pipeline_run,
     )
 
 

@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import select
 
 from app.application.dto import ActorContext, PipelineSummary
 from app.application.pipelines import PipelineAuthoringOperation, SavePipelineAuthoringCommand
 from app.application.ports import RequestMetadata
-from app.connectors.locators import postgres_table
+from app.connectors.errors import ConnectorError, TransferErrorCode
+from app.connectors.locators import parse_write_policy, postgres_table
 from app.connectors.registry import capabilities_for, route_allowed, writer_enabled
 from app.domain.pipelines import PipelineDraft, PipelinePolicy, PipelinePolicyError
 from app.infrastructure.catalog_factory import build_user_catalog_with_metadata
 from app.infrastructure.runtime import ExecutionRuntime
-from app.services.catalogs import CREATE_TABLE_VALUE
+from app.services.catalogs import CREATE_TABLE_VALUE, NEW_TABLE_VALUE_PREFIX
 from app.services.pipelines import save_pipeline
 from app.services.secrets import list_user_secrets
 
@@ -64,6 +67,7 @@ class SqlAlchemyPipelineAuthoringOperation(PipelineAuthoringOperation):
                     source_provider = validated.source_provider
                     destination_provider = validated.destination_provider
                     write_mode = validated.write_mode
+                    owned_pipeline = None
                     if command.pipeline_id:
                         from app.models import PipelineDefinition
 
@@ -105,6 +109,73 @@ class SqlAlchemyPipelineAuthoringOperation(PipelineAuthoringOperation):
                         if destination_provider in available_providers
                         else ""
                     )
+                    creates_postgres_table = destination_provider == "postgres" and (
+                        command.destination_table == CREATE_TABLE_VALUE
+                        or command.destination_table.startswith(NEW_TABLE_VALUE_PREFIX)
+                    )
+                    if creates_postgres_table:
+                        new_table_name = (
+                            command.destination_table.removeprefix(NEW_TABLE_VALUE_PREFIX)
+                            if command.destination_table.startswith(NEW_TABLE_VALUE_PREFIX)
+                            else command.destination_table_new.strip()
+                        )
+                        same_saved_target = (
+                            owned_pipeline is not None
+                            and owned_pipeline.destination_create
+                            and owned_pipeline.destination_provider == "postgres"
+                            and owned_pipeline.destination_schema == command.destination_schema
+                            and owned_pipeline.destination_table == new_table_name
+                        )
+                        if new_table_name and not same_saved_target:
+                            try:
+                                catalog.inspect_object(
+                                    "postgres",
+                                    postgres_table(command.destination_schema, new_table_name),
+                                )
+                            except ConnectorError as exc:
+                                if exc.code != TransferErrorCode.SOURCE_NOT_FOUND:
+                                    raise
+                            else:
+                                raise ValueError(
+                                    "A PostgreSQL table with that name already exists. "
+                                    "Choose a different name for the new table."
+                                )
+                        if (
+                            same_saved_target
+                            and write_mode == "append"
+                            and owned_pipeline is not None
+                        ):
+                            saved_policy = parse_write_policy(
+                                json.loads(owned_pipeline.write_policy_json)
+                            )
+                            saved_keys = tuple(
+                                getattr(saved_policy, "primary_key_columns", ()) or ()
+                            )
+                            chosen_keys = tuple(
+                                item.strip()
+                                for item in command.primary_key_columns.split(",")
+                                if item.strip()
+                            )
+                            saved_generated_key = str(
+                                getattr(saved_policy, "auto_increment_primary_key", "") or ""
+                            )
+                            if (
+                                saved_keys != chosen_keys
+                                or saved_generated_key != command.auto_increment_primary_key.strip()
+                            ):
+                                try:
+                                    catalog.inspect_object(
+                                        "postgres",
+                                        postgres_table(command.destination_schema, new_table_name),
+                                    )
+                                except ConnectorError as exc:
+                                    if exc.code != TransferErrorCode.SOURCE_NOT_FOUND:
+                                        raise
+                                else:
+                                    raise ValueError(
+                                        "Append runs cannot change an existing table's primary key. "
+                                        "Choose Replace destination to rebuild the table."
+                                    )
                     selected_conflict_columns = command.conflict_columns
                     if (
                         destination_provider == "postgres"
@@ -153,6 +224,9 @@ class SqlAlchemyPipelineAuthoringOperation(PipelineAuthoringOperation):
                         source_upload_id=command.source_upload_id,
                         write_mode=write_mode,
                         conflict_columns=selected_conflict_columns,
+                        column_type_overrides=command.column_type_overrides,
+                        primary_key_columns=command.primary_key_columns,
+                        auto_increment_primary_key=command.auto_increment_primary_key,
                         available_providers=available_providers,
                         pipeline_id=command.pipeline_id,
                         request=metadata,

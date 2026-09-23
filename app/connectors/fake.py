@@ -34,6 +34,7 @@ from app.connectors.base import (
 )
 from app.connectors.csv_source import CsvSourceConnector
 from app.connectors.errors import ConnectorError, TransferErrorCode
+from app.connectors.foundry import MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES
 from app.connectors.locators import (
     FoundryDatasetFilesLocator,
     FoundryReplaceFilePolicy,
@@ -71,7 +72,9 @@ MCSCOP_FILES = {
     DEMO_DEST_DATASET: ("readiness.snappy.parquet",),
 }
 
-_FOUNDRY_LIMITATIONS = ("Foundry file metadata does not expose portable schema or row counts.",)
+_FOUNDRY_LIMITATIONS = (
+    "Column preview reads one selected file up to 2 MB; larger or multiple files are inspected during the run.",
+)
 
 
 def _demo_frame() -> pl.DataFrame:
@@ -693,7 +696,7 @@ class FakeFoundryConnector:
             objects_label="File",
             writer_enabled=True,
             writer_setting=f"pipeline_enable_{provider}_writer",
-            schema_inspection=False,
+            schema_inspection=True,
             exact_row_counts=False,
             verification_level="local_manifest",
             limitations=_FOUNDRY_LIMITATIONS,
@@ -787,8 +790,34 @@ class FakeFoundryConnector:
         return CatalogPage(items=tuple(items))
 
     def inspect_object(self, credentials, locator: Locator) -> ObjectSchema:
-        self._validate(credentials)
-        return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
+        connection_id = self._validate(credentials)
+        if not isinstance(locator, FoundryDatasetFilesLocator):
+            return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
+        if not isinstance(locator.file_paths, list) or len(locator.file_paths) != 1:
+            return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
+        files = self._backend.foundry_files(
+            self.capabilities.provider,
+            connection_id,
+            locator.dataset_rid,
+            locator.branch,
+        )
+        if files is None or locator.file_paths[0] not in files:
+            raise ConnectorError(
+                TransferErrorCode.SOURCE_NOT_FOUND,
+                "A selected dataset file is no longer available.",
+            )
+        path = locator.file_paths[0]
+        frame = files[path]
+        if _file_size(path, frame) > MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES:
+            return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
+        return ObjectSchema(
+            locator=locator,
+            columns=tuple(
+                ColumnSchema(name=name, data_type=str(dtype), nullable=True)
+                for name, dtype in frame.schema.items()
+            ),
+            estimated_rows=None,
+        )
 
     def count_rows(self, credentials, locator: Locator) -> int | None:
         self._validate(credentials)

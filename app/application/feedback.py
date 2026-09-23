@@ -535,6 +535,16 @@ def preflight_failure(*, reason: str = "", reference_id: str = "") -> FeedbackOu
             "The destination table's numeric columns cannot hold all CSV decimal places. "
             "Choose a table with enough precision and scale, or update the destination column definitions."
         )
+    elif "cannot store the source decimal without rounding" in normalized:
+        message = (
+            "The destination table's numeric columns cannot hold all source decimal places. "
+            "Choose a table with enough precision and scale, or update the destination column definitions."
+        )
+    elif "cannot safely store the selected decimal cast" in normalized:
+        message = (
+            "The destination column cannot safely store the selected decimal values at its current precision. "
+            "Choose an unconstrained numeric or text column, or select a different cast type."
+        )
     elif "writer is not enabled" in normalized:
         message = "The selected destination is not enabled for writes. Choose another destination or contact an administrator."
     elif "unsupported transfer route" in normalized or "unsupported provider" in normalized:

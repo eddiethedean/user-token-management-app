@@ -268,8 +268,12 @@ def _credentials_for(db, settings, *, user, provider, snapshot) -> dict[str, str
         return {
             "content": upload.content.decode("utf-8") if isinstance(upload.content, bytes) else "",
             "delimiter": inspection.delimiter,
+            "quote_char": inspection.quote_char,
             "columns": json.dumps([column.name for column in inspection.columns]),
             "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
+            "column_timezones": json.dumps(
+                [column.timezone_aware for column in inspection.columns]
+            ),
             "column_decimal_specs": json.dumps(
                 [
                     {

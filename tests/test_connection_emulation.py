@@ -73,14 +73,14 @@ def test_emulated_health_is_explicit_and_never_claims_network_latency() -> None:
     assert excinfo.value.code == TransferErrorCode.CREDENTIALS_MISSING
 
 
-def test_emulated_foundry_capabilities_match_live_metadata_limits() -> None:
+def test_emulated_foundry_capabilities_match_live_file_preview_limits() -> None:
     load_builtin_connectors(demo=True)
     for provider, live in (("mss", MssConnector), ("mcscop", McscopConnector)):
         emulated = capabilities_for(provider)
         assert emulated.source is live.capabilities.source
         assert emulated.destination is live.capabilities.destination
         assert emulated.write_modes == live.capabilities.write_modes
-        assert emulated.schema_inspection is live.capabilities.schema_inspection is False
+        assert emulated.schema_inspection is live.capabilities.schema_inspection is True
         assert emulated.exact_row_counts is live.capabilities.exact_row_counts is False
         assert emulated.verification_level == live.capabilities.verification_level
         assert emulated.limitations == live.capabilities.limitations
@@ -105,7 +105,12 @@ def test_emulated_foundry_honors_branch_batching_and_missing_files() -> None:
         file_paths=["mission_orders.parquet"],
     )
     inspected = source.inspect_object(connector_credentials, source_locator)
-    assert inspected.columns == ()
+    assert [column.name for column in inspected.columns] == [
+        "event_id",
+        "unit_name",
+        "ready",
+        "score",
+    ]
     assert inspected.estimated_rows is None
     assert capabilities_for("mss").exact_row_counts is False
     batches = list(
