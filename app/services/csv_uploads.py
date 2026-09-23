@@ -21,6 +21,7 @@ from app.services.audit import record_event
 MAX_CSV_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_CSV_COLUMNS = 200
 MAX_CSV_CELL_CHARACTERS = 131_072
+MAX_CSV_DECIMAL_PRECISION = 38
 _INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
 _DECIMAL_PATTERN = re.compile(r"^[+-]?(?:\d+\.\d*|\d*\.\d+)(?:[eE][+-]?\d+)?$")
 
@@ -106,6 +107,12 @@ def inspect_csv(filename: str, content: bytes) -> CsvInspection:
                     continue
                 populated[index] += 1
                 value_type = _value_type(value)
+                # The profiler intentionally ignores surrounding whitespace when
+                # recognizing values, but the source parser must preserve the
+                # original cell text. Keep padded numeric values as text so a
+                # Decimal override cannot reject or silently normalize them.
+                if raw_value != value and value_type in {"integer", "decimal"}:
+                    value_type = "text"
                 if value_type in {"integer", "decimal"}:
                     try:
                         parts = Decimal(value).as_tuple()
@@ -212,6 +219,11 @@ def inspection_from_upload(upload: PipelineUpload) -> CsvInspection:
         if not isinstance(content, bytes):
             raise ValueError("The stored CSV decimal profile is incomplete.")
         return inspect_csv(upload.filename, content)
+    if any(
+        column.inferred_type == "decimal" and column.decimal_precision > MAX_CSV_DECIMAL_PRECISION
+        for column in columns
+    ):
+        raise ValueError(f"CSV decimal precision cannot exceed {MAX_CSV_DECIMAL_PRECISION} digits.")
     return CsvInspection(
         filename=upload.filename,
         size_bytes=upload.size_bytes,
@@ -284,6 +296,8 @@ def _column_profile(
         )
     scale = decimal_scale
     precision = max(integer_digits + scale, scale, 1)
+    if precision > MAX_CSV_DECIMAL_PRECISION:
+        raise ValueError(f"CSV decimal precision cannot exceed {MAX_CSV_DECIMAL_PRECISION} digits.")
     return CsvColumnProfile(
         name=name,
         inferred_type=inferred_type,

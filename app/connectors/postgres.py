@@ -381,16 +381,18 @@ class PostgresConnector:
         )
         try:
             with conn.cursor() as cursor:
+                recreates_schema = (
+                    isinstance(write_policy, PostgresReplacePolicy)
+                    and write_policy.schema_policy == "recreate"
+                )
+                if not recreates_schema:
+                    _validate_existing_decimal_columns(cursor, locator, schema)
                 cursor.execute(
                     sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
                         sql.Identifier(locator.schema_name)
                     )
                 )
-                recreate = (
-                    isinstance(write_policy, PostgresReplacePolicy)
-                    and write_policy.schema_policy == "recreate"
-                )
-                if recreate:
+                if recreates_schema:
                     # Build the complete replacement without touching the live
                     # table. finalize() performs the destructive swap atomically.
                     cursor.execute(
@@ -654,6 +656,77 @@ def _pg_type(data_type: str) -> str:
     if folded.startswith("time"):
         return "TIME"
     return "TEXT"
+
+
+def _decimal_shape(data_type: str) -> tuple[int, int] | None:
+    """Return precision and scale for a Polars Decimal schema type."""
+
+    match = _DECIMAL.fullmatch(data_type.casefold())
+    if match is None or match.group("scale").casefold() == "none":
+        return None
+    return int(match.group("precision")), int(match.group("scale"))
+
+
+def _validate_existing_decimal_columns(
+    cursor, locator: PostgresTableLocator, schema: ObjectSchema
+) -> None:
+    """Reject existing destination columns that would round CSV decimals."""
+
+    source_decimals: dict[str, tuple[int, int]] = {}
+    for column in schema.columns:
+        shape = _decimal_shape(column.data_type)
+        if shape is not None:
+            source_decimals[column.name] = shape
+    if not source_decimals:
+        return
+    cursor.execute(
+        """
+        SELECT column_name, data_type, numeric_precision, numeric_scale
+        FROM information_schema.columns
+        WHERE table_schema = %s AND table_name = %s
+        """,
+        (locator.schema_name, locator.table),
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        return
+    destination_columns = {
+        name: (data_type.casefold(), precision, scale) for name, data_type, precision, scale in rows
+    }
+    for name, source_shape in source_decimals.items():
+        destination = destination_columns.get(name)
+        if destination is None:
+            continue
+        source_precision, source_scale = source_shape
+        destination_type, destination_precision, destination_scale = destination
+        if destination_type in {"numeric", "decimal"}:
+            if destination_precision is None:
+                continue
+            if destination_scale is None:
+                destination_scale = 0
+            if (
+                destination_scale < source_scale
+                or destination_precision - destination_scale < source_precision - source_scale
+            ):
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    f"Destination column '{name}' cannot store the CSV decimal without rounding.",
+                    retryable=False,
+                )
+            continue
+        if destination_type in {"text", "character varying", "character"}:
+            continue
+        if (
+            destination_type in {"smallint", "integer", "bigint"}
+            and source_scale == 0
+            and source_precision <= {"smallint": 4, "integer": 9, "bigint": 18}[destination_type]
+        ):
+            continue
+        raise ConnectorError(
+            TransferErrorCode.SCHEMA_DRIFT,
+            f"Destination column '{name}' cannot store the CSV decimal without loss.",
+            retryable=False,
+        )
 
 
 def _postgres_connector_error(exc: psycopg.Error, *, operation: str) -> ConnectorError:

@@ -9,7 +9,6 @@ import polars as pl
 import pytest
 
 from app.connectors.csv_source import CsvSourceConnector
-from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import CsvUploadLocator
 from app.models import PipelineUpload
 from app.services.csv_uploads import inspect_csv, inspection_from_upload
@@ -72,6 +71,25 @@ def test_csv_decimal_profile_and_extraction_preserve_exact_values() -> None:
     ]
 
 
+def test_whitespace_padded_numeric_cells_remain_text() -> None:
+    content = b'amount\n"1.20 "\n'
+    inspection = inspect_csv("padded.csv", content)
+
+    assert inspection.columns[0].inferred_type == "text"
+
+    batches = list(
+        CsvSourceConnector().extract(
+            _csv_credentials(content, inspection),
+            _locator(),
+            batch_rows=1_000,
+            batch_bytes=1_024,
+        )
+    )
+
+    assert batches[0].frame.schema["amount"] == pl.String
+    assert batches[0].frame["amount"].to_list() == ["1.20 "]
+
+
 def test_legacy_csv_profile_recomputes_missing_decimal_shape() -> None:
     content = b"amount\n9007199254740993.01\n"
     upload = PipelineUpload(
@@ -106,13 +124,8 @@ def test_legacy_csv_profile_recomputes_missing_decimal_shape() -> None:
     assert inspection.columns[0].decimal_scale == 2
 
 
-def test_csv_decimal_over_precision_limit_fails_before_destination_preparation() -> None:
+def test_csv_decimal_over_precision_limit_is_rejected_during_scan() -> None:
     content = b"amount\n123456789012345678901234567890123456789.01\n"
-    inspection = inspect_csv("wide.csv", content)
-    credentials = _csv_credentials(content, inspection)
 
-    with pytest.raises(ConnectorError) as excinfo:
-        CsvSourceConnector().inspect_object(credentials, _locator())
-
-    assert excinfo.value.code == TransferErrorCode.UNSUPPORTED_TYPE
-    assert "precision of 38 digits" in str(excinfo.value)
+    with pytest.raises(ValueError, match="precision cannot exceed 38 digits"):
+        inspect_csv("wide.csv", content)

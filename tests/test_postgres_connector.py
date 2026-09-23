@@ -241,6 +241,57 @@ def test_csv_decimal_values_round_trip_to_postgres_numeric(postgres_credentials)
     ]
 
 
+def test_csv_decimal_append_rejects_existing_numeric_scale_that_would_round(
+    postgres_credentials,
+) -> None:
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.csv_decimal_scale_guard (amount NUMERIC(10, 2))",
+    )
+    _execute(
+        postgres_credentials,
+        "INSERT INTO public.csv_decimal_scale_guard VALUES (8.88)",
+    )
+    content = b"amount\n1.2345\n"
+    inspection = inspect_csv("scale.csv", content)
+    credentials = {
+        "content": content,
+        "delimiter": inspection.delimiter,
+        "columns": json.dumps([column.name for column in inspection.columns]),
+        "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
+        "column_decimal_specs": json.dumps(
+            [
+                {"precision": column.decimal_precision, "scale": column.decimal_scale}
+                for column in inspection.columns
+            ]
+        ),
+    }
+    source = CsvSourceConnector()
+    source_locator = CsvUploadLocator(
+        upload_id="00000000-0000-0000-0000-000000000001",
+        checksum_sha256="0" * 64,
+    )
+    source_schema = source.inspect_object(credentials, source_locator)
+    destination_locator = postgres_table("public", "csv_decimal_scale_guard")
+    destination = PostgresConnector(connector_settings())
+
+    with pytest.raises(ConnectorError) as excinfo:
+        destination.prepare_destination(
+            postgres_credentials,
+            destination_locator,
+            source_schema,
+            PostgresAppendPolicy(),
+            run_id="csv-decimal-scale-guard",
+        )
+
+    assert excinfo.value.code == TransferErrorCode.SCHEMA_DRIFT
+    assert "without rounding" in str(excinfo.value)
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT amount FROM public.csv_decimal_scale_guard",
+    ) == [(Decimal("8.88"),)]
+
+
 def test_postgres_extract_uses_repeatable_read_snapshot(postgres_credentials, monkeypatch) -> None:
     assert _fetchall(postgres_credentials, "SHOW default_transaction_isolation") == [
         ("read committed",)
