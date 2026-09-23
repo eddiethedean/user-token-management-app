@@ -283,6 +283,45 @@ def test_foundry_writer_finalize_streams_committed_upload(foundry_sim, tmp_path)
     ]
 
 
+def test_foundry_writer_losslessly_widens_integer_batches(foundry_sim, tmp_path) -> None:
+    connector = FoundryConnector(_settings(tmp_path))
+    credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
+    locator = FoundryUploadLocator(
+        dataset_rid=DATASET, branch="master", file_name="widened-integers.snappy.parquet"
+    )
+    session = connector.prepare_destination(
+        credentials,
+        locator,
+        ObjectSchema(
+            locator=locator,
+            columns=(ColumnSchema(name="id", data_type="Int32"),),
+        ),
+        FoundryReplaceFilePolicy(),
+        run_id="widened-integers",
+    )
+    batches = (
+        pl.DataFrame({"id": [2**31 - 1]}, schema={"id": pl.Int32}),
+        pl.DataFrame({"id": [9007199254740993]}, schema={"id": pl.Int64}),
+    )
+    for sequence, frame in enumerate(batches, start=1):
+        connector.write_batch(
+            session,
+            TransferBatch(
+                frame=frame,
+                row_count=frame.height,
+                byte_count=int(frame.estimated_size()),
+                sequence=sequence,
+            ),
+        )
+
+    manifest = connector.finalize(session)
+    uploaded = pl.read_parquet(io.BytesIO(foundry_sim.files[locator.file_name]))
+
+    assert manifest.rows == 2
+    assert uploaded.schema["id"] == pl.Int64
+    assert uploaded["id"].to_list() == [2**31 - 1, 9007199254740993]
+
+
 def test_foundry_writer_rejects_mixed_numeric_batches_before_upload(foundry_sim, tmp_path) -> None:
     connector = FoundryConnector(_settings(tmp_path))
     credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
