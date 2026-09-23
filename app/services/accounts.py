@@ -4,11 +4,11 @@ from dataclasses import dataclass
 from typing import TypedDict
 
 from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import AuditEvent, RefreshSession, User, UserSecret, utcnow
+from app.models import AuditEvent, PasswordReset, RefreshSession, User, UserSecret, utcnow
 from app.security.passwords import PasswordService, validate_password
 from app.services.audit import record_event
 from app.services.auth import revoke_all_sessions
@@ -78,12 +78,18 @@ def change_password(
         email=user.email,
         blocklist_path=settings.password_blocklist_path,
     )
+    now = utcnow()
     user.password_hash = passwords.hash(validated)
-    user.password_changed_at = utcnow()
+    user.password_changed_at = now
     user.failed_login_attempts = 0
     user.locked_until = None
     user.security_version += 1
     revoke_all_sessions(db, user)
+    db.execute(
+        update(PasswordReset)
+        .where(PasswordReset.user_id == user.id, PasswordReset.used_at.is_(None))
+        .values(used_at=now)
+    )
     record_event(db, "password.changed", request=request, actor=user, target=user)
     queue_email(
         db,
