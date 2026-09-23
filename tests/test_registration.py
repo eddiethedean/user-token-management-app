@@ -130,10 +130,13 @@ def test_registration_verify_approve_and_sign_in(client) -> None:
     assert "registration-approved" in approved.headers["location"]
 
     client.cookies.clear()
+    client.cookies.set("data_mover_color_mode", "light", domain="testserver.local", path="/")
     web_login(client, REGISTRATION_EMAIL, REGISTRATION_PASSWORD)
     profile = client.get("/profile")
     assert profile.status_code == 200
     assert REGISTRATION_EMAIL in profile.text
+    assert 'data-theme="dark"' in profile.text
+    assert client.cookies.get("data_mover_color_mode") == "dark"
 
     with SessionLocal() as db:
         event = db.scalar(
@@ -242,7 +245,14 @@ def test_invitation_accept_and_revoke(client) -> None:
         },
     )
     assert accepted.status_code in {200, 303}
+    client.cookies.set("data_mover_color_mode", "light", domain="testserver.local", path="/")
     web_login(client, "invitee@example.gov", USER_PASSWORD)
+    assert client.cookies.get("data_mover_color_mode") == "dark"
+    assert 'data-theme="dark"' in client.get("/profile").text
+    with SessionLocal() as db:
+        invitee = db.scalar(select(User).where(User.email == "invitee@example.gov"))
+        assert invitee is not None
+        assert invitee.preferred_color_mode == "dark"
 
     # Fresh invitation for revoke path
     client.cookies.clear()

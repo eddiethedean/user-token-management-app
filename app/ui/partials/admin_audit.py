@@ -13,6 +13,7 @@ from hedron import (
     Component,
     ComponentRef,
     ErrorState,
+    Expander,
     Form,
     FormField,
     FormGrid,
@@ -265,9 +266,15 @@ def audit_results_body(
                     ),
                 ),
                 event.source_ip or "—",
-                html.code(
-                    (event.detail or "{}")[:48],
-                    title=event.detail or "{}",
+                (
+                    Expander(
+                        "View details",
+                        html.code(event.detail),
+                        open=False,
+                        enhance="native",
+                    )
+                    if event.detail and event.detail != "{}"
+                    else "No additional details"
                 ),
             ]
             for event in events

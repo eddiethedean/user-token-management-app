@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
+from sqlalchemy import select
 
 from app.config import Settings
 from app.connectors.base import ProviderCapabilities, RemoteNamespace
 from app.connectors.errors import ConnectorError
 from app.connectors.locators import postgres_table
-from app.models import User
+from app.database import SessionLocal
+from app.infrastructure.persistence.catalog_cache import SqlAlchemyCatalogCache
+from app.models import PipelineCatalogCache, User, utcnow
 from app.services import catalogs, secrets
+from app.services.secrets import delete_user_secret, store_user_credentials
 
 
 def test_real_catalog_decrypts_owner_credentials_for_connector(monkeypatch) -> None:
@@ -172,3 +177,77 @@ def test_catalog_revalidates_mutated_locator_before_resolving_connector() -> Non
     with pytest.raises(ValueError):
         access.inspect_object("provider", locator)
     resolver.assert_not_called()
+
+
+def test_catalog_cache_is_scoped_expiring_and_invalidated_by_real_credentials(
+    access_app, make_user
+) -> None:
+    del access_app
+    from app.config import get_settings
+
+    user_two = make_user("catalog-owner@example.gov")
+    settings = get_settings()
+    credentials = {
+        "host": "db.example.internal",
+        "port": "5432",
+        "database": "analytics",
+        "username": "catalog-user",
+        "password": "catalog-secret",
+        "sslmode": "require",
+    }
+
+    with SessionLocal() as db:
+        user_one = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user_one is not None
+        store_user_credentials(
+            db,
+            settings,
+            user=user_one,
+            provider="postgres",
+            credentials=credentials,
+        )
+        cache_one = SqlAlchemyCatalogCache(db, settings, user_one)
+        cache_two = SqlAlchemyCatalogCache(db, settings, user_two)
+
+        cache_one.put("postgres", "public", {"items": [{"name": "owner-one"}]})
+        cache_one.put("postgres", "analytics", {"items": [{"name": "namespace-one"}]})
+        cache_one.put("mss", "public", {"items": [{"name": "mss-one"}]})
+        cache_two.put("postgres", "public", {"items": [{"name": "owner-two"}]})
+
+        assert cache_one.get("postgres", "public") == {"items": [{"name": "owner-one"}]}
+        assert cache_one.get("postgres", "analytics") == {"items": [{"name": "namespace-one"}]}
+        assert cache_one.get("mss", "public") == {"items": [{"name": "mss-one"}]}
+        assert cache_two.get("postgres", "public") == {"items": [{"name": "owner-two"}]}
+        stored = db.scalar(
+            select(PipelineCatalogCache).where(
+                PipelineCatalogCache.user_id == user_one.id,
+                PipelineCatalogCache.provider == "postgres",
+                PipelineCatalogCache.namespace == "public",
+            )
+        )
+        assert stored is not None
+        assert "catalog-secret" not in stored.payload_json
+        assert "db.example.internal" not in stored.payload_json
+
+        stored.expires_at = utcnow() - timedelta(seconds=1)
+        db.commit()
+        assert cache_one.get("postgres", "public") is None
+        assert cache_one.get("postgres", "analytics") == {"items": [{"name": "namespace-one"}]}
+
+        cache_one.put("postgres", "public", {"items": [{"name": "before-replace"}]})
+        cache_one.put("mss", "public", {"items": [{"name": "keep-mss"}]})
+        store_user_credentials(
+            db,
+            settings,
+            user=user_one,
+            provider="postgres",
+            credentials={**credentials, "database": "replacement"},
+        )
+        assert cache_one.get("postgres", "public") is None
+        assert cache_one.get("postgres", "analytics") is None
+        assert cache_one.get("mss", "public") == {"items": [{"name": "keep-mss"}]}
+
+        cache_one.put("postgres", "public", {"items": [{"name": "before-delete"}]})
+        assert delete_user_secret(db, user=user_one, provider="postgres") is True
+        assert cache_one.get("postgres", "public") is None
+        assert cache_two.get("postgres", "public") == {"items": [{"name": "owner-two"}]}

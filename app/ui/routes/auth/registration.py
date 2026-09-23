@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import BackgroundTasks, Request, status
 from hedron import Hedron
 from starlette.responses import Response
 
+from app.application.feedback import account_failure
 from app.dependencies import DbSession, SettingsDep
+from app.logging_config import log_event
 from app.security.csrf import require_preauth_csrf
+from app.security.email import EmailPolicyError
 from app.security.passwords import PasswordPolicyError
 from app.services.auth import (
     TokenFlowError,
@@ -15,7 +20,11 @@ from app.services.auth import (
     get_valid_registration_verification,
     request_self_registration,
 )
-from app.services.directory import DirectoryUnavailableError, validate_directory_email
+from app.services.directory import (
+    DirectoryEligibilityError,
+    DirectoryUnavailableError,
+    validate_directory_email,
+)
 from app.services.mailer import schedule_email_delivery
 from app.services.rate_limit import check_rate_limit
 from app.ui.params import (
@@ -28,6 +37,8 @@ from app.ui.params import (
     PreauthCsrfForm,
 )
 from app.ui.partials.auth import render_register_page, render_verify_page
+
+log = logging.getLogger(__name__)
 
 
 def register_registration_routes(app: Hedron) -> None:
@@ -66,13 +77,37 @@ def register_registration_routes(app: Hedron) -> None:
             )
             schedule_email_delivery(background_tasks, settings)
         except (ValueError, DirectoryUnavailableError) as exc:
+            reference_id = getattr(request.state, "support_reference", "")
+            outcome = account_failure(
+                reason="service_unavailable"
+                if isinstance(exc, DirectoryUnavailableError)
+                else "domain_ineligible"
+                if isinstance(exc, DirectoryEligibilityError)
+                or (isinstance(exc, EmailPolicyError) and "domain" in str(exc).casefold())
+                else "invalid",
+                reference_id=reference_id,
+            )
+            log_event(
+                log,
+                "auth.registration.rejected",
+                outcome="failed",
+                error_code=(
+                    "auth_account_unavailable"
+                    if isinstance(exc, DirectoryUnavailableError)
+                    else "auth_invalid"
+                ),
+                reference_id=reference_id,
+                operation="registration_request",
+                exception_type=type(exc).__name__,
+            )
             return render_register_page(
                 request,
                 settings,
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE
                 if isinstance(exc, DirectoryUnavailableError)
                 else status.HTTP_400_BAD_REQUEST,
-                error=str(exc),
+                error=outcome.message,
+                error_reference=reference_id,
                 email=email,
                 full_name=full_name,
             )
@@ -95,17 +130,30 @@ def register_registration_routes(app: Hedron) -> None:
         settings: SettingsDep,
     ) -> Response:
         error = ""
+        reference_id = ""
         verification = None
         try:
             verification = get_valid_registration_verification(db, settings, token)
         except TokenFlowError as exc:
-            error = str(exc)
+            reference_id = getattr(request.state, "support_reference", "")
+            outcome = account_failure(reason="link_invalid", reference_id=reference_id)
+            error = outcome.message
+            log_event(
+                log,
+                "auth.registration_verification.rejected",
+                outcome="rejected",
+                error_code="auth_link_invalid",
+                reference_id=reference_id,
+                operation="registration_verification",
+                exception_type=type(exc).__name__,
+            )
         return render_verify_page(
             request,
             settings,
             token=token,
             verification=verification,
             error=error,
+            error_reference=reference_id if error else "",
             status_code=status.HTTP_400_BAD_REQUEST if error else status.HTTP_200_OK,
         )
 
@@ -131,7 +179,7 @@ def register_registration_routes(app: Hedron) -> None:
         try:
             verification = get_valid_registration_verification(db, settings, token)
             if settings.authentication_mode == "local_password" and password != password_confirm:
-                raise PasswordPolicyError("Passwords do not match.")
+                raise PasswordPolicyError("Passwords do not match.", reason="mismatch")
             complete_self_registration(
                 db, settings, raw_token=token, password=password, request=request
             )
@@ -145,12 +193,37 @@ def register_registration_routes(app: Hedron) -> None:
                 ),
             )
         except (TokenFlowError, PasswordPolicyError) as exc:
-            error = str(exc)
+            reference_id = getattr(request.state, "support_reference", "")
+            outcome = account_failure(
+                reason=(
+                    "link_invalid"
+                    if isinstance(exc, TokenFlowError)
+                    else "password_mismatch"
+                    if getattr(exc, "reason", "policy") == "mismatch"
+                    else "password_policy"
+                    if isinstance(exc, PasswordPolicyError)
+                    else "invalid"
+                ),
+                reference_id=reference_id,
+            )
+            error = outcome.message
+            log_event(
+                log,
+                "auth.registration_verification.rejected",
+                outcome="rejected",
+                error_code="auth_link_invalid"
+                if isinstance(exc, TokenFlowError)
+                else "auth_invalid",
+                reference_id=reference_id,
+                operation="registration_verification",
+                exception_type=type(exc).__name__,
+            )
         return render_verify_page(
             request,
             settings,
             token=token,
             verification=verification,
             error=error,
+            error_reference=reference_id if error else "",
             status_code=status.HTTP_400_BAD_REQUEST,
         )

@@ -10,10 +10,9 @@ app's in-process background runtime performs live transfers. CSV uploads and sav
 definitions are always real data in Data Mover's database.
 
 **Which systems can be sources and destinations?**
-Route compatibility comes from connector capabilities: MSS, PostgreSQL, and CSV can feed any
-configured destination they support, including same-system copies. MCS-COP is destination-only and
-CSV is source-only. Real MSS and MCS-COP destinations remain hidden until their deployment writer
-flags are enabled.
+Route compatibility comes from connector capabilities: MSS, MCS-COP, PostgreSQL, and CSV can feed
+any configured destination they support, including same-system copies. CSV is source-only. All
+remote writers are enabled by default and can be disabled by an operator deployment setting.
 
 **Can a pipeline write back to its source?**
 Same-system copies are supported when the source and destination objects differ. Data Mover rejects
@@ -23,8 +22,9 @@ files, including `all_supported` routes targeting the same dataset.
 **Why is a connection missing from the Pipeline page?**
 Pipeline normally lists remote connections whose latest validation is **Connected**. An MSS or
 MCS-COP connection with no default dataset may also appear as **Untested** so it can create its first
-dataset; other route actions remain unavailable until creation succeeds. Add the connection under
-**Connections → Credentials**, then use **Test connection** under **Connections → Status**.
+dataset; other route actions remain unavailable until creation succeeds. Add or change the
+connection under **Connections → Credentials** to test it automatically, then review the result
+under **Connections → Status**. Use **Test connection** there to retry without changing credentials.
 
 **Can Data Mover create a new Foundry destination?**
 Yes. Choose MSS or MCS-COP as the pipeline destination and expand **Create Foundry dataset**. Supply

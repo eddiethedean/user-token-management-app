@@ -8,12 +8,15 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from types import SimpleNamespace
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
 from sqlalchemy import select
 
 from app.config import get_settings
+from app.connectors.errors import TransferErrorCode
 from app.database import SessionLocal
 from app.models import (
     PipelineDefinition,
@@ -25,9 +28,13 @@ from app.models import (
 )
 from app.services.pipeline_runs import (
     ALLOWED_TRANSITIONS,
+    _run_requires_reconciliation_review,
     append_event,
+    cancel_claimed_run,
     claim_run,
+    complete_run,
     enqueue_run,
+    fail_run,
     heartbeat,
     janitor,
     record_reconciliation_review,
@@ -77,7 +84,9 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     queued = client.post(
         "/pipeline/runs",
         data={
-            "csrf_token": csrf_from(client.get("/pipeline").text),
+            "csrf_token": csrf_from(
+                client.get(f"/pipeline?notice=saved&pipeline_id={pipeline_id}").text
+            ),
             "pipeline_id": str(pipeline_id),
         },
         headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor", "Accept": "text/html"},
@@ -97,10 +106,12 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert "Persisted schema" in queued.text
     assert "event_id" in queued.text
     assert 'data-hedron-columns="2" data-hedron-columns-xl="4"' in queued.text
-    assert 'data-hedron-columns="1" data-hedron-columns-lg="2"' in queued.text
+    assert 'data-hedron-columns="1" data-hedron-columns-xl="2"' in queued.text
     assert 'data-hedron-columns="2" data-hedron-columns-lg="3"' in queued.text
     assert 'data-hedron-async-region="true"' in queued.text
     assert 'data-hedron-action-phase="success"' in queued.text
+    assert 'id="pipeline-save-notice" hx-swap-oob="outerHTML"' in queued.text
+    assert queued.headers.get("HX-Push-Url") == f"/pipeline?pipeline_id={pipeline_id}"
 
     restored = client.get(f"/pipeline?pipeline_id={pipeline_id}")
     assert "Live transfer" in restored.text
@@ -227,6 +238,244 @@ def test_worker_unexpected_failures_do_not_log_exception_values(access_app, capl
         assert failed.error_summary == "The transfer failed unexpectedly."
 
 
+def test_partial_write_is_persisted_as_reconciliation_required(access_app) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        run = PipelineRun(
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            status=PipelineRunStatus.LOADING.value,
+            stage="loading",
+            loaded_rows=0,
+        )
+        db.add(run)
+        db.commit()
+        fail_run(
+            db,
+            run,
+            code=TransferErrorCode.PARTIAL_WRITE,
+            summary="The destination write was only partially acknowledged.",
+        )
+
+        assert run.status == PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value
+        assert run.retryable is False
+        facts = json.loads(run.verification_json or "{}")
+        assert facts["data_impact"] == "uncertain"
+        assert facts["reconciliation_required"] is True
+
+
+def test_unknown_failure_after_destination_work_requires_reconciliation(access_app) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        run = PipelineRun(
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            status=PipelineRunStatus.LOADING.value,
+            stage="transfer",
+            loaded_rows=1,
+        )
+        db.add(run)
+        db.commit()
+
+        fail_run(db, run, code="future_provider_failure", summary="future failure", retryable=True)
+
+        assert run.status == PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value
+        assert run.reconciliation_required is True
+        assert run.data_impact == "uncertain"
+        assert run.retryable is False
+
+
+def test_completion_impact_matches_provider_verification_level(access_app) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        run = PipelineRun(
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            status=PipelineRunStatus.VERIFYING.value,
+            stage="verify",
+            lease_token="lease-1",
+        )
+        db.add(run)
+        db.commit()
+
+        complete_run(
+            db,
+            run,
+            lease_token="lease-1",
+            verification={"verification_level": "local_manifest"},
+        )
+
+        assert run.status == PipelineRunStatus.SUCCEEDED.value
+        assert run.data_impact == "changed"
+
+
+def test_uncertain_cancellation_is_reviewable_and_blocks_enqueue(
+    access_app, demo_connections
+) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        pipeline = save_pipeline(
+            db,
+            user=user,
+            name="Uncertain cancellation gate",
+            source_provider="mss",
+            destination_provider="postgres",
+            write_mode="append",
+            available_providers={"mss", "postgres"},
+            source_schema="ri.foundry.main.dataset.demo-operations",
+            source_table="mission_orders.parquet",
+            destination_schema="public",
+            destination_table="uncertain_cancellation",
+        )
+        run = PipelineRun(
+            user_id=user.id,
+            pipeline_definition_id=pipeline.id,
+            definition_snapshot_json=snapshot_from_definition(pipeline).model_dump_json(),
+            status=PipelineRunStatus.LOADING.value,
+            stage="transfer",
+            lease_token="lease-1",
+            loaded_rows=1,
+        )
+        db.add(run)
+        db.commit()
+
+        cancel_claimed_run(db, run, lease_token="lease-1")
+        assert run.status == PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value
+        assert run.reconciliation_required is True
+        assert run.last_safe_stage == "transfer"
+
+        with pytest.raises(ValueError, match="reconciliation review"):
+            enqueue_run(
+                db,
+                user=user,
+                pipeline=pipeline,
+                snapshot=snapshot_from_definition(pipeline),
+            )
+
+        record_reconciliation_review(db, user=user, run_id=run.id)
+        retry = enqueue_run(
+            db,
+            user=user,
+            pipeline=pipeline,
+            snapshot=snapshot_from_definition(pipeline),
+        )
+        assert retry.parent_run_id == run.id
+        assert retry.attempt == 2
+
+        follow_up = enqueue_run(
+            db,
+            user=user,
+            pipeline=pipeline,
+            snapshot=snapshot_from_definition(pipeline),
+        )
+        assert follow_up.parent_run_id is None
+        assert follow_up.attempt == 1
+
+
+def test_stale_preload_worker_cancellation_persists_safe_facts(access_app) -> None:
+    settings = get_settings()
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        run = PipelineRun(
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            status=PipelineRunStatus.EXTRACTING.value,
+            stage="inspect",
+            lease_token="stale-lease",
+            lease_expires_at=utcnow() - timedelta(seconds=1),
+            cancel_requested_at=utcnow(),
+        )
+        db.add(run)
+        db.commit()
+
+        assert (
+            claim_run(
+                db,
+                worker_id="recovery-worker",
+                lease_seconds=settings.pipeline_lease_seconds,
+                run_id=run.id,
+            )
+            is None
+        )
+        db.refresh(run)
+
+        assert run.status == PipelineRunStatus.CANCELLED.value
+        assert run.data_impact == "unchanged"
+        assert run.reconciliation_required is False
+        assert run.last_safe_stage == "inspect"
+        assert run.error_code == TransferErrorCode.CANCELLED_BY_USER.value
+        facts = json.loads(run.verification_json or "{}")
+        assert facts["data_impact"] == "unchanged"
+        assert facts["reconciliation_required"] is False
+        assert facts["last_safe_stage"] == "inspect"
+        assert _run_requires_reconciliation_review(run) is False
+        event = db.scalar(
+            select(PipelineRunEvent)
+            .where(PipelineRunEvent.run_id == run.id)
+            .order_by(PipelineRunEvent.sequence.desc())
+        )
+        assert event is not None
+        assert event.stage == "cancelled"
+        assert "cancelled before destination writes" in event.message
+
+
+def test_legacy_failed_run_with_loaded_rows_blocks_enqueue(access_app, demo_connections) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        pipeline = save_pipeline(
+            db,
+            user=user,
+            name="Legacy failed gate",
+            source_provider="mss",
+            destination_provider="postgres",
+            write_mode="append",
+            available_providers={"mss", "postgres"},
+            source_schema="ri.foundry.main.dataset.demo-operations",
+            source_table="mission_orders.parquet",
+            destination_schema="public",
+            destination_table="legacy_failed_gate",
+        )
+        run = PipelineRun(
+            user_id=user.id,
+            pipeline_definition_id=pipeline.id,
+            definition_snapshot_json=snapshot_from_definition(pipeline).model_dump_json(),
+            status=PipelineRunStatus.FAILED.value,
+            stage="failed",
+            loaded_rows=4,
+            reconciliation_required=True,
+        )
+        db.add(run)
+        db.commit()
+
+        with pytest.raises(ValueError, match="reconciliation review"):
+            enqueue_run(
+                db,
+                user=user,
+                pipeline=pipeline,
+                snapshot=snapshot_from_definition(pipeline),
+            )
+
+
+def test_malformed_legacy_safety_facts_block_reconciliation_review() -> None:
+    run = cast(
+        PipelineRun,
+        SimpleNamespace(
+            status=PipelineRunStatus.FAILED.value,
+            reconciliation_required=False,
+            data_impact=None,
+            verification_json="{not-json",
+        ),
+    )
+
+    assert _run_requires_reconciliation_review(run) is True
+
+
 def test_cancel_before_claim_marks_run_cancelled(client, demo_connections) -> None:
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
@@ -255,6 +504,10 @@ def test_cancel_before_claim_marks_run_cancelled(client, demo_connections) -> No
         run = enqueue_run(db, user=user, pipeline=pipeline, snapshot=snapshot)
         cancelled = request_cancel(db, user=user, run_id=run.id)
         assert cancelled.status == PipelineRunStatus.CANCELLED.value
+        assert cancelled.data_impact == "unchanged"
+        assert cancelled.reconciliation_required is False
+        assert json.loads(cancelled.verification_json or "{}")["data_impact"] == "unchanged"
+        assert _run_requires_reconciliation_review(cancelled) is False
 
 
 def test_worker_cancellation_check_reads_changes_from_another_session(access_app) -> None:
@@ -425,7 +678,17 @@ def test_janitor_purges_expired_events_and_terminal_runs(access_app, tmp_path) -
             stage="verify",
             finished_at=stale,
         )
+        protected = PipelineRun(
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            status=PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
+            stage="reconcile",
+            finished_at=stale,
+            reconciliation_required=True,
+            data_impact="uncertain",
+        )
         db.add(run)
+        db.add(protected)
         db.flush()
         db.add(
             PipelineRunEvent(
@@ -435,8 +698,17 @@ def test_janitor_purges_expired_events_and_terminal_runs(access_app, tmp_path) -
                 message="old event",
             )
         )
+        db.add(
+            PipelineRunEvent(
+                run_id=protected.id,
+                sequence=1,
+                occurred_at=stale,
+                message="reconciliation evidence",
+            )
+        )
         db.commit()
         run_id = run.id
+        protected_id = protected.id
     with SessionLocal() as db:
         counts = janitor(db, settings)
         assert counts["events"] >= 1
@@ -444,6 +716,11 @@ def test_janitor_purges_expired_events_and_terminal_runs(access_app, tmp_path) -
         assert counts["spool_files"] == 1
         assert not stale_chunks.exists()
         assert db.get(PipelineRun, run_id) is None
+        assert db.get(PipelineRun, protected_id) is not None
+        assert (
+            db.scalar(select(PipelineRunEvent).where(PipelineRunEvent.run_id == protected_id))
+            is not None
+        )
     settings.pipeline_event_retention_days = original_events
     settings.pipeline_run_retention_days = original_runs
     settings.pipeline_spool_root = original_spool

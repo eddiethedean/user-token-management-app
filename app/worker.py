@@ -16,6 +16,12 @@ from app.config import Settings
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import parse_snapshot
 from app.connectors.registry import destination_writer_for, source_reader_for
+from app.logging_config import (
+    bind_reference,
+    clear_request_id,
+    log_event,
+    safe_exception_traceback,
+)
 from app.models import PipelineRun, User
 from app.services import pipeline_runs
 from app.services.pipeline_state import RunConflictError
@@ -51,6 +57,7 @@ class LeaseKeeper:
             self._thread.join()
 
     def _run(self) -> None:
+        bind_reference(reference_id=self.run_id, run_id=self.run_id)
         if self.session_factory is None:
             from app.database import SessionLocal
 
@@ -68,12 +75,24 @@ class LeaseKeeper:
                         lease_token=self.lease_token,
                         lease_seconds=self.settings.pipeline_lease_seconds,
                     )
-            except Exception:
-                log.exception("pipeline lease heartbeat failed", extra={"run_id": self.run_id})
+            except Exception as exc:
+                log_event(
+                    log,
+                    "pipeline.lease.heartbeat_failed",
+                    outcome="failed",
+                    error_code=str(TransferErrorCode.WORKER_LOST),
+                    reference_id=self.run_id,
+                    run_id=self.run_id,
+                    operation="lease_heartbeat",
+                    exception_type=type(exc).__name__,
+                    traceback=safe_exception_traceback((type(exc), exc, exc.__traceback__)),
+                )
                 self.lost.set()
+                clear_request_id()
                 return
             if not renewed:
                 self.lost.set()
+                clear_request_id()
                 return
 
 
@@ -119,6 +138,7 @@ def process_one(
     if not user.is_active:
         pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
         return True
+    bind_reference(reference_id=run_id, run_id=run_id)
     keeper = LeaseKeeper(
         settings=settings,
         run_id=run_id,
@@ -166,8 +186,11 @@ def process_one(
                 code=exc.code,
                 summary=str(exc),
                 retryable=bool(exc.retryable),
-                needs_reconciliation=exc.code.value == "publish_uncertain",
                 lease_token=lease_token,
+                provider_correlation_id=exc.provider_correlation_id,
+                http_status=exc.http_status,
+                sqlstate=exc.sqlstate,
+                exception_type=type(exc).__name__,
             )
         except RunConflictError:
             log.warning(
@@ -183,6 +206,16 @@ def process_one(
             run_id,
             exception_type,
             extra={"exception_type": exception_type},
+        )
+        log_event(
+            log,
+            "pipeline.run.unexpected_failure",
+            outcome="failed",
+            run_id=run_id,
+            reference_id=run_id,
+            operation="transfer",
+            exception_type=exception_type,
+            traceback=safe_exception_traceback((type(exc), exc, exc.__traceback__)),
         )
         db.rollback()
         failed = db.get(PipelineRun, run_id)
@@ -202,6 +235,7 @@ def process_one(
                 )
     finally:
         keeper.stop()
+        clear_request_id()
     return True
 
 

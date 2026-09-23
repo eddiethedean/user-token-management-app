@@ -24,6 +24,8 @@ from app.services.auth_common import (
 )
 
 _GENERIC_AUTH_FAILURE = "Unable to sign in with those credentials."
+_LOGIN_LOCKOUT_ATTEMPTS = 5
+_LOGIN_LOCKOUT_DURATION = timedelta(minutes=15)
 
 
 def authenticate_user(
@@ -42,19 +44,31 @@ def authenticate_user(
     user = db.scalar(select(User).where(User.email == canonical))
     now = utcnow()
     valid = password_service.verify(password, user.password_hash if user else None)
-    if user and user.failed_login_attempts >= 5:
+    if user and user.locked_until is not None and user.locked_until > now:
         record_event(db, "auth.login", request=request, target=user, outcome="locked")
         db.commit()
-        raise AccountLockedError(_GENERIC_AUTH_FAILURE)
+        raise AccountLockedError(_GENERIC_AUTH_FAILURE, reason="locked")
+    if user and user.locked_until is not None:
+        user.failed_login_attempts = 0
+        user.locked_until = None
+    if user and user.failed_login_attempts >= _LOGIN_LOCKOUT_ATTEMPTS:
+        # Older rows may have reached the threshold before locked_until was
+        # persisted. Start the same bounded lockout instead of leaving the
+        # account permanently unable to sign in.
+        user.locked_until = now + _LOGIN_LOCKOUT_DURATION
+        record_event(db, "auth.login", request=request, target=user, outcome="locked")
+        db.commit()
+        raise AccountLockedError(_GENERIC_AUTH_FAILURE, reason="locked")
     if user and valid and user.status == UserStatus.PENDING.value and user.email_verified_at:
         record_event(db, "auth.login", request=request, target=user, outcome="pending_approval")
         db.commit()
         raise AuthenticationError(_GENERIC_AUTH_FAILURE)
     if not user or not valid or not user.is_active or not user.email_verified_at:
+        outcome = "failure"
         if user and user.is_active and user.email_verified_at:
             increment = (
                 update(User)
-                .where(User.id == user.id, User.failed_login_attempts < 5)
+                .where(User.id == user.id, User.failed_login_attempts < _LOGIN_LOCKOUT_ATTEMPTS)
                 .values(
                     failed_login_attempts=User.failed_login_attempts + 1,
                     locked_until=None,
@@ -69,13 +83,19 @@ def authenticate_user(
             attempts = scalar_returning(
                 db, increment, User.failed_login_attempts, fallback=_read_attempts
             )
-            outcome = "failure" if attempts is not None else "locked"
+            outcome = (
+                "locked" if attempts is None or attempts >= _LOGIN_LOCKOUT_ATTEMPTS else "failure"
+            )
+            if attempts is not None and attempts >= _LOGIN_LOCKOUT_ATTEMPTS:
+                user.locked_until = now + _LOGIN_LOCKOUT_DURATION
             record_event(db, "auth.login", request=request, target=user, outcome=outcome)
         db.commit()
+        if outcome == "locked":
+            raise AccountLockedError(_GENERIC_AUTH_FAILURE, reason="locked")
         raise AuthenticationError(_GENERIC_AUTH_FAILURE)
     clear_failures = (
         update(User)
-        .where(User.id == user.id, User.failed_login_attempts < 5)
+        .where(User.id == user.id, User.failed_login_attempts < _LOGIN_LOCKOUT_ATTEMPTS)
         .values(failed_login_attempts=0, locked_until=None, last_login_at=now)
         .execution_options(synchronize_session=False)
     )
@@ -98,11 +118,13 @@ def authenticate_trusted_identity(
     request: Request,
 ) -> User:
     if settings.authentication_mode != "trusted_header":
-        raise AuthenticationError("Federated sign-in is not enabled.")
+        raise AuthenticationError("Federated sign-in is not enabled.", reason="disabled")
     if not is_trusted_direct_proxy(request, settings):
         record_event(db, "auth.federated", request=request, outcome="untrusted_proxy")
         db.commit()
-        raise AuthenticationError("Federated identity could not be verified.")
+        raise AuthenticationError(
+            "Federated identity could not be verified.", reason="untrusted_proxy"
+        )
     header_name = settings.trusted_identity_header.encode("ascii")
     raw_values = [
         value
@@ -112,14 +134,18 @@ def authenticate_trusted_identity(
     if len(raw_values) != 1:
         record_event(db, "auth.federated", request=request, outcome="invalid_header")
         db.commit()
-        raise AuthenticationError("Federated identity could not be verified.")
+        raise AuthenticationError(
+            "Federated identity could not be verified.", reason="invalid_header"
+        )
     try:
         asserted_email = bytes(raw_values[0]).decode("utf-8")
         canonical, _ = normalize_email(asserted_email, settings)
     except (UnicodeDecodeError, ValueError):
         record_event(db, "auth.federated", request=request, outcome="invalid_identity")
         db.commit()
-        raise AuthenticationError("Federated identity could not be verified.") from None
+        raise AuthenticationError(
+            "Federated identity could not be verified.", reason="invalid_identity"
+        ) from None
     user = db.scalar(select(User).where(User.email == canonical))
     if not user or not user.is_active or not user.email_verified_at:
         record_event(
@@ -130,7 +156,9 @@ def authenticate_trusted_identity(
             outcome="ineligible_account",
         )
         db.commit()
-        raise AuthenticationError("Federated identity could not be verified.")
+        raise AuthenticationError(
+            "Federated identity could not be verified.", reason="ineligible_account"
+        )
     user.last_login_at = utcnow()
     record_event(db, "auth.federated", request=request, actor=user, target=user)
     db.commit()

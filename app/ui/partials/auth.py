@@ -7,20 +7,20 @@ from hedron import (
     ActionGroup,
     Alert,
     Badge,
+    ClipboardCopy,
     Container,
     Divider,
     FormField,
     Grid,
+    Heading,
     Icon,
     Inline,
     Link,
     LinkButton,
-    SplitView,
     Stack,
     Surface,
     Text,
     TextInput,
-    html,
 )
 from hedron import (
     Form as HedronForm,
@@ -51,10 +51,10 @@ def _auth_heading(eyebrow: str, title: str, description: str) -> PageHeader:
         description=description,
         level=1,
         density="compact",
-        title_measure="narrow",
+        title_measure="wide",
         description_measure="default",
-        title_effect="display",
-        description_effect="subtle",
+        title_effect="none",
+        description_effect="none",
     )
 
 
@@ -99,6 +99,7 @@ def render_login_page(
     *,
     status_code: int = 200,
     error: str = "",
+    error_reference: str = "",
     email: str = "",
     next: str = "/pipeline",
     success: str = "",
@@ -115,12 +116,17 @@ def render_login_page(
     )
 
     intro = Stack(
-        Badge("SECURE TRANSFER WORKSPACE", tone="info", size="sm", appearance="soft"),
-        html.h2(
-            "Move data.",
-            html.br(),
-            html.span("Keep control.", class_="data-mover-login-accent"),
-            class_="data-mover-login-headline",
+        ActionGroup(
+            Badge("SECURE TRANSFER WORKSPACE", tone="info", size="sm", appearance="soft"),
+        ),
+        Heading(
+            "Move data. Keep control.",
+            level=2,
+            role="display",
+            measure="narrow",
+            tracking="tight",
+            wrap="balance",
+            effect="none",
         ),
         Text(
             "Connect your systems. Build your route. Move forward with a clear view of every transfer.",
@@ -128,34 +134,33 @@ def render_login_page(
             effect="subtle",
             measure="default",
         ),
-        html.figure(
+        Stack(
             Grid(
                 *[
                     Stack(
-                        Surface(
-                            Icon(NAV_ICONS[icon], size="lg", decorative=True),
-                            appearance="raised",
-                            density="comfortable",
-                            padding="md",
-                            elevation="none",
-                            class_="data-mover-login-node-icon",
+                        Inline(
+                            Icon(NAV_ICONS[icon], size="md", decorative=True),
+                            Text(label, role="label", effect="none"),
+                            gap="sm",
                         ),
-                        Text(label, role="label", effect="none"),
                         Text(detail, role="caption", effect="none"),
                         gap="xs",
-                        class_=f"data-mover-login-node data-mover-login-node-{kind}",
                     )
-                    for icon, label, detail, kind in (
-                        ("connections", "Connect", "Approved systems", "source"),
-                        ("pipeline", "Transfer", "Your configured route", "transfer"),
-                        ("activity", "Verify", "A clear audit trail", "destination"),
+                    for icon, label, detail in (
+                        ("connections", "Connect", "Approved systems"),
+                        ("pipeline", "Transfer", "Your configured route"),
+                        ("activity", "Verify", "A clear audit trail"),
                     )
                 ],
                 columns=3,
-                gap="sm",
-                class_="data-mover-login-flow",
+                gap="md",
             ),
-            html.figcaption("From source to destination. One controlled workflow."),
+            Text(
+                "From source to destination. One controlled workflow.",
+                role="caption",
+                effect="none",
+            ),
+            gap="sm",
             class_="data-mover-login-illustration",
         ),
         Stack(
@@ -176,13 +181,15 @@ def render_login_page(
     )
 
     card_children: list[NodeLike] = [
-        Surface(
-            Icon(NAV_ICONS["account"], size="lg", decorative=True),
-            appearance="raised",
-            density="compact",
-            padding="sm",
-            elevation="none",
-            class_="data-mover-login-access-icon",
+        ActionGroup(
+            Surface(
+                Icon(NAV_ICONS["account"], size="lg", decorative=True),
+                appearance="raised",
+                density="compact",
+                padding="sm",
+                elevation="none",
+                class_="data-mover-login-access-icon",
+            )
         ),
         PageHeader(
             "Welcome back",
@@ -206,6 +213,14 @@ def render_login_page(
         card_children.append(alert_box(bootstrap_hint, kind="info"))
     if error:
         card_children.append(alert_box(error))
+        if error_reference:
+            card_children.append(
+                Inline(
+                    Text(f"Reference: {error_reference}", role="caption", overflow="wrap"),
+                    ClipboardCopy(error_reference, label="Copy support reference"),
+                    gap="xs",
+                )
+            )
     if federated:
         card_children.append(
             HedronForm(
@@ -242,16 +257,20 @@ def render_login_page(
                         autocomplete="username",
                     ),
                 ),
-                Stack(
-                    html.label("Password", for_="password"),
-                    password_control,
+                FormField(
+                    name="password",
+                    label="Password",
+                    id="password",
+                    required=True,
+                    control=password_control,
+                ),
+                ActionGroup(
                     Link(
                         "Forgot password?",
                         href=page_href(request, "password/forgot"),
-                        class_="data-mover-login-forgot-link",
                     ),
+                    align="end",
                     gap="xs",
-                    class_="data-mover-login-password-field",
                 ),
                 submit_button("Continue to workspace", width="full", size="lg"),
                 action=form_action(request, "login"),
@@ -287,9 +306,9 @@ def render_login_page(
         class_="data-mover-login-card",
     )
     layout = Container(
-        SplitView(
-            primary=intro,
-            secondary=Stack(
+        Grid(
+            Container(intro, padding="lg"),
+            Stack(
                 login_card,
                 ActionGroup(
                     Text(
@@ -303,13 +322,11 @@ def render_login_page(
                 ),
                 gap="md",
             ),
-            ratio="1:1",
+            columns=2,
             gap="xl",
-            collapse="never",
-            class_="data-mover-login-split",
         ),
         max_width="lg",
-        padding="lg",
+        padding="md",
     )
     page = app_shell(
         layout,
@@ -317,7 +334,6 @@ def render_login_page(
         settings=settings,
         auth=None,
         page_title="Sign in",
-        default_color_mode="dark",
         auth_presentation="login",
     )
     response = render_page(page, request=request, status_code=status_code)
@@ -331,6 +347,7 @@ def render_register_page(
     *,
     status_code: int = 200,
     error: str = "",
+    error_reference: str = "",
     success: str = "",
     email: str = "",
     full_name: str = "",
@@ -370,6 +387,8 @@ def render_register_page(
                 method="post",
             )
         )
+    if error_reference:
+        body.insert(2, Text(f"Reference: {error_reference}", role="caption", overflow="wrap"))
     body.append(_auth_footer_link(request, "Back to sign in", "login"))
     response = render_page(
         app_shell(
@@ -394,6 +413,7 @@ def render_verify_page(
     token: str = "",
     verification: RegistrationVerification | None = None,
     error: str = "",
+    error_reference: str = "",
     success: str = "",
     status_code: int = 200,
 ) -> Response:
@@ -445,6 +465,8 @@ def render_verify_page(
                 align="center",
             )
         )
+    if error_reference:
+        body.insert(2, Text(f"Reference: {error_reference}", role="caption", overflow="wrap"))
     return render_page(
         app_shell(
             auth_card(*body),
@@ -458,7 +480,14 @@ def render_verify_page(
     )
 
 
-def render_forgot_page(request: Request, settings: Settings, *, success: str = "") -> Response:
+def render_forgot_page(
+    request: Request,
+    settings: Settings,
+    *,
+    success: str = "",
+    error: str = "",
+    error_reference: str = "",
+) -> Response:
     preauth = issue_preauth_csrf(settings)
     body: list[NodeLike] = [
         _auth_heading(
@@ -467,6 +496,7 @@ def render_forgot_page(request: Request, settings: Settings, *, success: str = "
             "Enter your government email. If an eligible account exists, we will send "
             "a time-limited reset link.",
         ),
+        alert_box(error),
         alert_box(success, kind="success"),
     ]
     if not success:
@@ -485,6 +515,8 @@ def render_forgot_page(request: Request, settings: Settings, *, success: str = "
                 method="post",
             )
         )
+    if error_reference:
+        body.insert(3, Text(f"Reference: {error_reference}", role="caption", overflow="wrap"))
     body.append(_auth_footer_link(request, "Back to sign in", "login"))
     response = render_page(
         app_shell(
@@ -507,6 +539,7 @@ def render_reset_page(
     *,
     token: str = "",
     error: str = "",
+    error_reference: str = "",
     can_retry: bool = False,
     status_code: int = 200,
 ) -> Response:
@@ -550,6 +583,8 @@ def render_reset_page(
                 align="center",
             )
         )
+    if error_reference:
+        body.insert(2, Text(f"Reference: {error_reference}", role="caption", overflow="wrap"))
     return render_page(
         app_shell(
             auth_card(*body),
@@ -571,6 +606,7 @@ def render_invitation_page(
     invitation: Invitation | None = None,
     full_name: str = "",
     error: str = "",
+    error_reference: str = "",
     status_code: int = 200,
 ) -> Response:
     body: list[NodeLike] = [
@@ -642,6 +678,8 @@ def render_invitation_page(
                 align="center",
             )
         )
+    if error_reference:
+        body.insert(2, Text(f"Reference: {error_reference}", role="caption", overflow="wrap"))
     return render_page(
         app_shell(
             auth_card(*body),

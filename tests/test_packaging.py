@@ -25,7 +25,7 @@ def test_connect_requirements_match_project_runtime_dependencies() -> None:
 def test_project_version_uses_date_release_format() -> None:
     configuration = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text())
 
-    assert configuration["project"]["version"] == "170926.1"
+    assert configuration["project"]["version"] == "220926.0"
 
 
 def test_connect_requirements_exclude_development_tools() -> None:
@@ -51,8 +51,8 @@ def test_project_requirements_only_bound_hedron_to_its_tested_feature_line() -> 
         assert "<" not in requirement
 
     assert [requirement for requirement in requirements if requirement.startswith("hedron")] == [
-        "hedron>=1.0.18,<1.1",
-        "hedron-posit>=1.0.9,<1.1",
+        "hedron>=1.1.1,<2",
+        "hedron-posit>=1.0.10,<2",
     ]
 
 

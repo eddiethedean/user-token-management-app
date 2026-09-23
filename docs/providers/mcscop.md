@@ -8,7 +8,9 @@ Secrets: none. Dataset RIDs, tokens, and operational hostnames from reference sc
 
 ## Role in this release
 
-MCS-COP is a **destination only**. Do not expose it as a pipeline source. Health checks and catalog inspection are limited to an authenticated metadata or default-RID file list so a user can confirm the token and dataset before uploading.
+MCS-COP supports both Foundry file extraction and destination uploads. Health checks and catalog
+inspection use authenticated metadata or a default-RID file list so a user can confirm the token
+and dataset before transferring data.
 
 ## Endpoint and authentication
 
@@ -19,9 +21,16 @@ MCS-COP is a **destination only**. Do not expose it as a pipeline source. Health
 
 ## Dataset model
 
-Same Foundry object model as MSS: dataset RID, branch, destination filename. The RID may come from
-the credential or a dataset the signed-in user creates in an authorized Foundry folder through the
-Pipeline page.
+Same Foundry object model as MSS: dataset RID, branch, and source file path(s) or destination
+filename. The RID may come from the credential, a saved route, or a dataset the signed-in user
+creates in an authorized Foundry folder through the Pipeline page.
+
+## Read contract
+
+MCS-COP uses the same branch-aware file listing and download contract documented in
+[mss.md](mss.md#read-contract). Source routes accept CSV and Parquet files, apply the same bounded
+streaming and source-size limits, and report a local schema/count manifest when Foundry does not
+provide portable remote metadata.
 
 ## Write contract
 

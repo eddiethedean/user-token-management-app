@@ -18,6 +18,7 @@ from app.ui.partials.admin_users import (
     user_match_count,
     user_table,
 )
+from app.ui.partials.feedback import feedback_panel, field_feedback, recovery_steps
 from app.ui.partials.profile import (
     account_profile_panel,
     profile_form,
@@ -58,12 +59,15 @@ __all__ = [
     "audit_results_error",
     "audit_results_lazy",
     "connection_status_list",
+    "field_feedback",
+    "feedback_panel",
     "hedron_pagination",
     "invitation_panel",
     "password_form",
     "profile_form",
     "profile_identity",
     "profile_response",
+    "recovery_steps",
     "request_error",
     "secret_slot",
     "security_activity",

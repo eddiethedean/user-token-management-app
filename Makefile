@@ -17,7 +17,10 @@ schema-status:
 serve:
 	$(PYTHON) -m app serve --reload
 
-demo:
+# Rebuild Hedron's fingerprinted assets before the demo starts.  The generated
+# manifest carries the selected Folio theme tokens; reusing an older manifest
+# can otherwise override the native Folio defaults with stale palette values.
+demo: hedron-build
 	bash scripts/run-demo.sh
 
 create-admin:

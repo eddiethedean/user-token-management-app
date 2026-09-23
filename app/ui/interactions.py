@@ -10,6 +10,7 @@ from fastapi import Request
 from hedron import (
     ActionState,
     ActionTrace,
+    Alert,
     Badge,
     FragmentRegion,
     InteractionPolicy,
@@ -17,6 +18,7 @@ from hedron import (
     OobUpdate,
     RenderMode,
     Toast,
+    html,
 )
 from hedron import swap as build_swap
 from hedron.responses import render_interaction
@@ -60,6 +62,8 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.PIPELINE_SOURCE_PROVIDER_LABEL,
     region_defs.PIPELINE_SCHEMA_PREVIEW,
     region_defs.PIPELINE_RUN_MONITOR,
+    region_defs.PIPELINE_RUN_FEEDBACK,
+    region_defs.PIPELINE_SAVE_NOTICE,
     region_defs.PIPELINE_TARGET_NODE,
     region_defs.PIPELINE_TARGET_PROVIDER_LABEL,
     region_defs.INVITATION_PANEL,
@@ -97,6 +101,27 @@ def toast_oob(
         content=Toast(message, tone=tone, ttl_ms=3000),
         element_id="hedron-toast",
         swap="beforeend",
+    )
+
+
+def request_feedback_oob(
+    message: str,
+    *,
+    title: str = "Request could not be completed.",
+    reference_id: str = "",
+) -> OobUpdate:
+    """Persist a request failure in the page-level feedback region."""
+
+    return OobUpdate(
+        content=html.div(
+            Alert(message or "The request could not be completed.", title=title, tone="danger"),
+            html.p(f"Reference: {reference_id}", role="caption") if reference_id else None,
+            id="request-feedback",
+            role="region",
+            aria={"label": "Request feedback"},
+        ),
+        element_id="hedron-toast",
+        swap="innerHTML",
     )
 
 
@@ -144,6 +169,26 @@ def connection_status_oob(request: Request, secret_slots, *, csrf_token: str) ->
             csrf_token=csrf_token,
         ),
         element_id="connection-status-list",
+        swap="outerHTML",
+    )
+
+
+def pipeline_run_feedback_clear_oob() -> OobUpdate:
+    """Clear a prior preflight error after a run is accepted."""
+
+    return OobUpdate(
+        content=html.div(id="pipeline-run-feedback"),
+        element_id="pipeline-run-feedback",
+        swap="outerHTML",
+    )
+
+
+def pipeline_save_notice_clear_oob() -> OobUpdate:
+    """Clear a stale save confirmation when the user starts a run."""
+
+    return OobUpdate(
+        content=html.div(id="pipeline-save-notice"),
+        element_id="pipeline-save-notice",
         swap="outerHTML",
     )
 
