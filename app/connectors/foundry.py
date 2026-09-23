@@ -746,7 +746,14 @@ class FoundryConnector:
                     "The source schema changed during extraction.",
                     retryable=False,
                 )
-            frame = pl.concat([existing, frame.select(existing.columns)], how="vertical_relaxed")
+            try:
+                frame = pl.concat([existing, frame.select(existing.columns)], how="vertical")
+            except pl.exceptions.PolarsError as exc:
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "Foundry batches have incompatible column types; no file was published.",
+                    retryable=False,
+                ) from exc
             frame.write_parquet(path, compression="snappy")
             if path.stat().st_size > self.settings.pipeline_max_spool_bytes:
                 raise ConnectorError(
@@ -786,9 +793,16 @@ class FoundryConnector:
             if not path.exists() and chunk_root is not None and chunk_root.is_dir():
                 chunks = sorted(chunk_root.glob("*.parquet"))
                 if chunks:
-                    pl.concat(
-                        [pl.scan_parquet(chunk) for chunk in chunks], how="vertical_relaxed"
-                    ).sink_parquet(path, compression="snappy")
+                    try:
+                        pl.concat(
+                            [pl.scan_parquet(chunk) for chunk in chunks], how="vertical"
+                        ).sink_parquet(path, compression="snappy")
+                    except pl.exceptions.PolarsError as exc:
+                        raise ConnectorError(
+                            TransferErrorCode.SCHEMA_DRIFT,
+                            "Foundry batches have incompatible column types; no file was published.",
+                            retryable=False,
+                        ) from exc
             if not path.exists():
                 try:
                     stored_schema = json.loads(load_session.metadata.get("schema", "[]"))
