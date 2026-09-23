@@ -7,7 +7,7 @@ import re
 import shutil
 import ssl
 import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -45,6 +45,83 @@ SUPPORTED_SUFFIXES = (".csv", ".parquet")
 DEFAULT_BRANCHES = ("master", "main")
 MAX_FOUNDRY_CATALOG_PAGES = 1_000
 MAX_FOUNDRY_CATALOG_FILES = 100_000
+
+_INTEGER_DTYPE_RANGES = (
+    (pl.Int8, -(2**7), 2**7 - 1),
+    (pl.UInt8, 0, 2**8 - 1),
+    (pl.Int16, -(2**15), 2**15 - 1),
+    (pl.UInt16, 0, 2**16 - 1),
+    (pl.Int32, -(2**31), 2**31 - 1),
+    (pl.UInt32, 0, 2**32 - 1),
+    (pl.Int64, -(2**63), 2**63 - 1),
+    (pl.UInt64, 0, 2**64 - 1),
+)
+_FLOAT_DTYPES = (pl.Float32, pl.Float64)
+PolarsDtype = pl.DataType | type[pl.DataType]
+
+
+def _integer_dtype_range(data_type: PolarsDtype) -> tuple[int, int] | None:
+    for dtype, minimum, maximum in _INTEGER_DTYPE_RANGES:
+        if data_type == dtype:
+            return minimum, maximum
+    return None
+
+
+def _lossless_common_dtype(data_types: list[PolarsDtype]) -> PolarsDtype | None:
+    if not data_types:
+        return None
+    if all(data_type == data_types[0] for data_type in data_types):
+        return data_types[0]
+
+    integer_ranges = [_integer_dtype_range(data_type) for data_type in data_types]
+    if all(value_range is not None for value_range in integer_ranges):
+        minimum = min(value_range[0] for value_range in integer_ranges if value_range is not None)
+        maximum = max(value_range[1] for value_range in integer_ranges if value_range is not None)
+        for dtype, candidate_minimum, candidate_maximum in _INTEGER_DTYPE_RANGES:
+            if candidate_minimum <= minimum and maximum <= candidate_maximum:
+                return dtype
+        return None
+
+    if all(data_type in _FLOAT_DTYPES for data_type in data_types):
+        return pl.Float64
+
+    if all(
+        value_range is not None or data_type in _FLOAT_DTYPES
+        for data_type, value_range in zip(data_types, integer_ranges, strict=True)
+    ):
+        float_dtype = pl.Float64 if pl.Float64 in data_types else pl.Float32
+        exact_integer_limit = 2**53 if float_dtype == pl.Float64 else 2**24
+        bounds = [value_range for value_range in integer_ranges if value_range is not None]
+        if all(
+            -exact_integer_limit <= value <= exact_integer_limit
+            for pair in bounds
+            for value in pair
+        ):
+            return float_dtype
+
+    return None
+
+
+def _lossless_common_schema(
+    schemas: Sequence[Mapping[str, PolarsDtype]],
+) -> dict[str, PolarsDtype] | None:
+    if not schemas:
+        return None
+    columns = list(schemas[0])
+    if any(list(schema) != columns for schema in schemas[1:]):
+        return None
+
+    common: dict[str, PolarsDtype] = {}
+    for column in columns:
+        data_type = _lossless_common_dtype([schema[column] for schema in schemas])
+        if data_type is None:
+            return None
+        common[column] = data_type
+    return common
+
+
+def _schema_casts(schema: Mapping[str, PolarsDtype]) -> list[pl.Expr]:
+    return [pl.col(column).cast(data_type, strict=True) for column, data_type in schema.items()]
 
 
 def _polars_dtype(data_type: str):
@@ -746,7 +823,28 @@ class FoundryConnector:
                     "The source schema changed during extraction.",
                     retryable=False,
                 )
-            frame = pl.concat([existing, frame.select(existing.columns)], how="vertical_relaxed")
+            selected_frame = frame.select(existing.columns)
+            common_schema = _lossless_common_schema([existing.schema, selected_frame.schema])
+            if common_schema is None:
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "Foundry batches have incompatible column types; no file was published.",
+                    retryable=False,
+                )
+            try:
+                frame = pl.concat(
+                    [
+                        existing.select(_schema_casts(common_schema)),
+                        selected_frame.select(_schema_casts(common_schema)),
+                    ],
+                    how="vertical",
+                )
+            except pl.exceptions.PolarsError as exc:
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "Foundry batches have incompatible column types; no file was published.",
+                    retryable=False,
+                ) from exc
             frame.write_parquet(path, compression="snappy")
             if path.stat().st_size > self.settings.pipeline_max_spool_bytes:
                 raise ConnectorError(
@@ -786,9 +884,27 @@ class FoundryConnector:
             if not path.exists() and chunk_root is not None and chunk_root.is_dir():
                 chunks = sorted(chunk_root.glob("*.parquet"))
                 if chunks:
-                    pl.concat(
-                        [pl.scan_parquet(chunk) for chunk in chunks], how="vertical_relaxed"
-                    ).sink_parquet(path, compression="snappy")
+                    scans = [pl.scan_parquet(chunk) for chunk in chunks]
+                    common_schema = _lossless_common_schema(
+                        [scan.collect_schema() for scan in scans]
+                    )
+                    if common_schema is None:
+                        raise ConnectorError(
+                            TransferErrorCode.SCHEMA_DRIFT,
+                            "Foundry batches have incompatible column types; no file was published.",
+                            retryable=False,
+                        )
+                    try:
+                        pl.concat(
+                            [scan.select(_schema_casts(common_schema)) for scan in scans],
+                            how="vertical",
+                        ).sink_parquet(path, compression="snappy")
+                    except pl.exceptions.PolarsError as exc:
+                        raise ConnectorError(
+                            TransferErrorCode.SCHEMA_DRIFT,
+                            "Foundry batches have incompatible column types; no file was published.",
+                            retryable=False,
+                        ) from exc
             if not path.exists():
                 try:
                     stored_schema = json.loads(load_session.metadata.get("schema", "[]"))
