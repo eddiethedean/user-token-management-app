@@ -6,7 +6,8 @@ tags, so entries below describe repository milestones rather than asserting exte
 
 | Release note | Status | Scope |
 |---|---|---|
-| [Data Mover 230926.0](../../CHANGELOG.md#2309260) | Current repository release | Session refresh hardening and user-attributed audit and pipeline run diagnostics |
+| [Data Mover 230926.1](../../CHANGELOG.md#2309261) | Current repository release | Version bump and parallel CI tests with pytest-xdist |
+| [Data Mover 230926.0](../../CHANGELOG.md#2309260) | Historical repository release | Session refresh hardening and user-attributed audit and pipeline run diagnostics |
 | [Data Mover 220926.0](../../CHANGELOG.md#2209260) | Historical repository release | Desktop feedback improvements for sign-in, administration, and pipeline runs |
 | [Data Mover 180926.3](../../CHANGELOG.md#1809263) | Historical repository release | Folio-native desktop visual refinement and production banner verification |
 | [Data Mover 180926.1](../../CHANGELOG.md#1809261) | Historical repository release | Connect styling cache-busting release following the Folio desktop visual refresh |

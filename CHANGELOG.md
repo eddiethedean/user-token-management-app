@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [230926.1] — 2026-09-23
+
+### Changed
+
+- Bumped the application version and enabled pytest-xdist for parallel CI tests.
+
 ## [230926.0] — 2026-09-23
 
 ### Changed
