@@ -107,12 +107,6 @@ def inspect_csv(filename: str, content: bytes) -> CsvInspection:
                     continue
                 populated[index] += 1
                 value_type = _value_type(value)
-                # The profiler intentionally ignores surrounding whitespace when
-                # recognizing values, but the source parser must preserve the
-                # original cell text. Keep padded numeric values as text so a
-                # Decimal override cannot reject or silently normalize them.
-                if raw_value != value and value_type in {"integer", "decimal"}:
-                    value_type = "text"
                 if value_type in {"integer", "decimal"}:
                     try:
                         parts = Decimal(value).as_tuple()

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import json
 from collections.abc import Iterator
-from io import BytesIO
+from io import BytesIO, StringIO
 
 import polars as pl
 
@@ -133,6 +134,13 @@ class CsvSourceConnector:
                         scale=scale,
                     )
         try:
+            decimal_indexes = {
+                index
+                for index, inferred_type in enumerate(column_types)
+                if inferred_type == "decimal"
+            }
+            if decimal_indexes:
+                payload = _trim_decimal_cells(payload, separator, decimal_indexes)
             return pl.read_csv(
                 BytesIO(payload),
                 infer_schema_length=None,
@@ -159,6 +167,21 @@ def _metadata_list(value) -> list[str]:
     if not isinstance(decoded, list) or not all(isinstance(item, str) for item in decoded):
         return []
     return decoded
+
+
+def _trim_decimal_cells(payload: bytes, separator: str, decimal_indexes: set[int]) -> bytes:
+    """Normalize surrounding whitespace before parsing profiled decimal cells."""
+
+    text = payload.decode("utf-8-sig")
+    reader = csv.reader(StringIO(text, newline=""), delimiter=separator)
+    output = StringIO(newline="")
+    writer = csv.writer(output, delimiter=separator, lineterminator="\n")
+    for row in reader:
+        for index in decimal_indexes:
+            if index < len(row):
+                row[index] = row[index].strip()
+        writer.writerow(row)
+    return output.getvalue().encode("utf-8")
 
 
 def _metadata_decimal_specs(value, column_types: list[str]) -> list[tuple[int, int]]:

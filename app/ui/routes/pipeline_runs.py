@@ -19,9 +19,13 @@ from app.application.pipelines import (
     PipelineCommands,
     PipelineDependencies,
 )
+from app.connectors.base import ColumnSchema
+from app.connectors.decimal_validation import validate_decimal_destination_schema
+from app.connectors.errors import ConnectorError, TransferErrorCode
+from app.connectors.locators import CsvUploadLocator, PostgresReplacePolicy
 from app.connectors.registry import writer_enabled
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
-from app.models import PipelineDefinition, PipelineRun, PipelineRunEvent
+from app.models import PipelineDefinition, PipelineRun, PipelineRunEvent, PipelineUpload
 from app.services.pipeline_runs import (
     owned_run,
     record_reconciliation_review,
@@ -44,6 +48,7 @@ from app.ui.regions import (
     PIPELINE_SAVE_NOTICE,
     TOAST_HOST,
 )
+from app.ui.routes.pipeline_context import WithUserCatalog, run_owned_sync
 from app.ui.urls import mounted_path, redirect_path
 
 
@@ -71,6 +76,7 @@ def register_pipeline_run_routes(
     *,
     status_fragment: StatusFragment,
     events_loader: EventsLoader | None = None,
+    with_user_catalog: WithUserCatalog,
 ) -> None:
     """Register start, status, cancel, and reconciliation endpoints."""
 
@@ -93,6 +99,31 @@ def register_pipeline_run_routes(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pipeline not found")
         try:
             snapshot = snapshot_from_definition(pipeline)
+            source_decimal_columns = (
+                _csv_decimal_columns_before_run(
+                    db,
+                    upload_id=snapshot.source_upload_id,
+                    source=snapshot.source,
+                    user_id=auth.user.id,
+                )
+                if snapshot.source_provider.casefold() == "csv"
+                and snapshot.destination_provider.casefold() == "postgres"
+                else ()
+            )
+            if source_decimal_columns and not (
+                isinstance(snapshot.write_policy, PostgresReplacePolicy)
+                and snapshot.write_policy.schema_policy == "recreate"
+            ):
+                await run_owned_sync(
+                    request,
+                    with_user_catalog,
+                    settings,
+                    auth.user.id,
+                    request,
+                    lambda catalog: _validate_csv_decimal_destination(
+                        catalog, snapshot.destination, source_decimal_columns
+                    ),
+                )
             commands = PipelineCommands(
                 PipelineDependencies(
                     writer_policy=lambda provider: writer_enabled(provider, settings=settings)
@@ -108,7 +139,7 @@ def register_pipeline_run_routes(
                     request=request,
                 ),
             )
-        except (ValueError, LookupError) as exc:
+        except (ConnectorError, ValueError, LookupError) as exc:
             outcome = preflight_failure(
                 reason=str(exc), reference_id=getattr(request.state, "support_reference", "")
             )
@@ -330,3 +361,40 @@ def register_pipeline_run_routes(
                 action_trace=action_trace,
             ),
         )
+
+
+def _csv_decimal_columns_before_run(
+    db, *, upload_id, source, user_id: str
+) -> tuple[ColumnSchema, ...]:
+    """Load the trusted decimal profile needed for the pre-enqueue destination check."""
+
+    if not isinstance(source, CsvUploadLocator):
+        return ()
+    from app.services.csv_uploads import inspection_from_upload
+
+    upload = db.get(PipelineUpload, upload_id or source.upload_id)
+    if upload is None or upload.user_id != user_id:
+        raise ValueError("The CSV upload is no longer available.")
+    if upload.checksum_sha256 != source.checksum_sha256:
+        raise ValueError("The CSV upload no longer matches the saved pipeline.")
+    inspection = inspection_from_upload(upload)
+    return tuple(
+        ColumnSchema(
+            name=column.name,
+            data_type=f"Decimal(precision={column.decimal_precision}, scale={column.decimal_scale})",
+        )
+        for column in inspection.columns
+        if column.inferred_type == "decimal"
+    )
+
+
+def _validate_csv_decimal_destination(catalog, destination, source_columns) -> None:
+    """Fail before queuing when the saved PostgreSQL table would round decimals."""
+
+    try:
+        destination_schema = catalog.inspect_object("postgres", destination)
+    except ConnectorError as exc:
+        if exc.code == TransferErrorCode.SOURCE_NOT_FOUND:
+            return
+        raise
+    validate_decimal_destination_schema(source_columns, destination_schema.columns)

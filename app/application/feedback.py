@@ -530,6 +530,11 @@ def preflight_failure(*, reason: str = "", reference_id: str = "") -> FeedbackOu
         message = "The previous transfer may have changed the destination. Inspect the destination and record reconciliation review before starting another run."
         action = FeedbackAction.RECONCILE
         action_label = "Review destination"
+    elif "cannot store the csv decimal without rounding" in normalized:
+        message = (
+            "The destination table's numeric columns cannot hold all CSV decimal places. "
+            "Choose a table with enough precision and scale, or update the destination column definitions."
+        )
     elif "writer is not enabled" in normalized:
         message = "The selected destination is not enabled for writes. Choose another destination or contact an administrator."
     elif "unsupported transfer route" in normalized or "unsupported provider" in normalized:

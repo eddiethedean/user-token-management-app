@@ -252,7 +252,7 @@ def test_csv_decimal_append_rejects_existing_numeric_scale_that_would_round(
         postgres_credentials,
         "INSERT INTO public.csv_decimal_scale_guard VALUES (8.88)",
     )
-    content = b"amount\n1.2345\n"
+    content = b'amount\n"1.2345 "\n'
     inspection = inspect_csv("scale.csv", content)
     credentials = {
         "content": content,

@@ -71,11 +71,12 @@ def test_csv_decimal_profile_and_extraction_preserve_exact_values() -> None:
     ]
 
 
-def test_whitespace_padded_numeric_cells_remain_text() -> None:
-    content = b'amount\n"1.20 "\n'
+def test_whitespace_padded_decimal_cells_are_normalized_without_losing_precision() -> None:
+    content = b'amount,label\n"1.20 "," keep "\n'
     inspection = inspect_csv("padded.csv", content)
 
-    assert inspection.columns[0].inferred_type == "text"
+    assert inspection.columns[0].inferred_type == "decimal"
+    assert (inspection.columns[0].decimal_precision, inspection.columns[0].decimal_scale) == (3, 2)
 
     batches = list(
         CsvSourceConnector().extract(
@@ -86,8 +87,9 @@ def test_whitespace_padded_numeric_cells_remain_text() -> None:
         )
     )
 
-    assert batches[0].frame.schema["amount"] == pl.String
-    assert batches[0].frame["amount"].to_list() == ["1.20 "]
+    assert batches[0].frame.schema["amount"] == pl.Decimal(precision=3, scale=2)
+    assert batches[0].frame["amount"].to_list() == [Decimal("1.20")]
+    assert batches[0].frame["label"].to_list() == [" keep "]
 
 
 def test_legacy_csv_profile_recomputes_missing_decimal_shape() -> None:

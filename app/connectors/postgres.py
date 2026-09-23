@@ -28,6 +28,7 @@ from app.connectors.base import (
     TransferBatch,
     bounded_frame_batches,
 )
+from app.connectors.decimal_validation import validate_decimal_destination_schema
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
     Locator,
@@ -658,26 +659,12 @@ def _pg_type(data_type: str) -> str:
     return "TEXT"
 
 
-def _decimal_shape(data_type: str) -> tuple[int, int] | None:
-    """Return precision and scale for a Polars Decimal schema type."""
-
-    match = _DECIMAL.fullmatch(data_type.casefold())
-    if match is None or match.group("scale").casefold() == "none":
-        return None
-    return int(match.group("precision")), int(match.group("scale"))
-
-
 def _validate_existing_decimal_columns(
     cursor, locator: PostgresTableLocator, schema: ObjectSchema
 ) -> None:
     """Reject existing destination columns that would round CSV decimals."""
 
-    source_decimals: dict[str, tuple[int, int]] = {}
-    for column in schema.columns:
-        shape = _decimal_shape(column.data_type)
-        if shape is not None:
-            source_decimals[column.name] = shape
-    if not source_decimals:
+    if not any("decimal" in column.data_type.casefold() for column in schema.columns):
         return
     cursor.execute(
         """
@@ -690,43 +677,18 @@ def _validate_existing_decimal_columns(
     rows = cursor.fetchall()
     if not rows:
         return
-    destination_columns = {
-        name: (data_type.casefold(), precision, scale) for name, data_type, precision, scale in rows
-    }
-    for name, source_shape in source_decimals.items():
-        destination = destination_columns.get(name)
-        if destination is None:
-            continue
-        source_precision, source_scale = source_shape
-        destination_type, destination_precision, destination_scale = destination
-        if destination_type in {"numeric", "decimal"}:
-            if destination_precision is None:
-                continue
-            if destination_scale is None:
-                destination_scale = 0
-            if (
-                destination_scale < source_scale
-                or destination_precision - destination_scale < source_precision - source_scale
-            ):
-                raise ConnectorError(
-                    TransferErrorCode.SCHEMA_DRIFT,
-                    f"Destination column '{name}' cannot store the CSV decimal without rounding.",
-                    retryable=False,
-                )
-            continue
-        if destination_type in {"text", "character varying", "character"}:
-            continue
-        if (
-            destination_type in {"smallint", "integer", "bigint"}
-            and source_scale == 0
-            and source_precision <= {"smallint": 4, "integer": 9, "bigint": 18}[destination_type]
-        ):
-            continue
-        raise ConnectorError(
-            TransferErrorCode.SCHEMA_DRIFT,
-            f"Destination column '{name}' cannot store the CSV decimal without loss.",
-            retryable=False,
+    destination_columns = tuple(
+        ColumnSchema(
+            name=name,
+            data_type=(
+                f"Decimal(precision={precision}, scale={scale if scale is not None else 0})"
+                if data_type.casefold() in {"numeric", "decimal"} and precision is not None
+                else data_type
+            ),
         )
+        for name, data_type, precision, scale in rows
+    )
+    validate_decimal_destination_schema(schema.columns, destination_columns)
 
 
 def _postgres_connector_error(exc: psycopg.Error, *, operation: str) -> ConnectorError:

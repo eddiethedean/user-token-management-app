@@ -3390,6 +3390,7 @@ def register_pipeline_routes(
         fragment_router,
         status_fragment=_run_status_fragment,
         events_loader=_events_after_for_run_routes,
+        with_user_catalog=bound_with_user_catalog,
     )
 
 
