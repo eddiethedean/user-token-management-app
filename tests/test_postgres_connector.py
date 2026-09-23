@@ -537,6 +537,46 @@ def test_postgres_upsert_composite_key_update_and_ignore(postgres_credentials) -
     assert [row[0] for row in scores] == [9.9, 9.9]
 
 
+def test_postgres_upsert_avoids_user_sequence_column_collision(postgres_credentials) -> None:
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.sequence_destination (id INTEGER PRIMARY KEY, dm_row_number INTEGER)",
+    )
+    locator = postgres_table("public", "sequence_destination")
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="id", data_type="Int32"),
+            ColumnSchema(name="dm_row_number", data_type="Int32"),
+        ),
+    )
+    connector = PostgresConnector(connector_settings())
+    session = connector.prepare_destination(
+        postgres_credentials,
+        locator,
+        schema,
+        PostgresUpsertPolicy(conflict_columns=["id"], action="update"),
+        run_id="sequence-collision",
+    )
+
+    assert session.metadata["staging_sequence"] != "dm_row_number"
+    connector.write_batch(
+        session,
+        TransferBatch(
+            frame=pl.DataFrame({"id": [1], "dm_row_number": [2]}),
+            row_count=1,
+            byte_count=16,
+            sequence=1,
+        ),
+    )
+    connector.finalize(session)
+
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT id, dm_row_number FROM public.sequence_destination",
+    ) == [(1, 2)]
+
+
 def test_postgres_upsert_preserves_rows_with_nullable_unique_keys(postgres_credentials) -> None:
     _execute(
         postgres_credentials,
