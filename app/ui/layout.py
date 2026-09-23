@@ -19,6 +19,7 @@ from hedron import (
     Brand,
     Component,
     Container,
+    Divider,
     EnvironmentBanner,
     Fragment,
     Header,
@@ -56,7 +57,6 @@ from app import APP_VERSION
 from app.config import Settings
 from app.dependencies import AuthContext
 from app.security.cookies import COLOR_MODE_COOKIE, THEME_COOKIE, set_application_cookie
-from app.ui.design_system import APP_SHELL_NAV_STYLE_CLASS
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.icons import NAV_ICONS
@@ -64,7 +64,9 @@ from app.ui.urls import asset_href, asset_src, form_action, hx_attrs, page_href
 
 INDICATOR = "#global-request-indicator"
 THEME_CHOICES = ("folio",)
+DEFAULT_COLOR_MODE: Literal["light", "dark"] = "dark"
 UI_PREFERENCE_MAX_AGE = 31536000
+UI_SHELL_STYLES_VERSION = "5"
 
 BadgeTone = Literal["neutral", "info", "success", "warning", "danger"]
 StatusTone = Literal["info", "success", "warning", "danger"]
@@ -143,13 +145,15 @@ HTMX_CONFIG = (
 def theme_preference_for_request(
     request: Request,
     *,
-    default_color_mode: str = "light",
+    default_color_mode: str = DEFAULT_COLOR_MODE,
 ) -> ThemePreference:
     """Resolve the allowlisted Hedron 1.0.0 light/dark preference."""
 
     color_mode = request.cookies.get(COLOR_MODE_COOKIE)
     if color_mode not in {"light", "dark"}:
-        color_mode = default_color_mode if default_color_mode in {"light", "dark"} else "light"
+        color_mode = (
+            default_color_mode if default_color_mode in {"light", "dark"} else DEFAULT_COLOR_MODE
+        )
 
     return resolve_theme_preference(
         request.cookies.get(THEME_COOKIE),
@@ -167,7 +171,7 @@ def set_color_mode_cookie(
 ) -> None:
     """Persist a validated account color mode in the current browser."""
 
-    mode = color_mode if color_mode in {"light", "dark"} else "light"
+    mode = color_mode if color_mode in {"light", "dark"} else DEFAULT_COLOR_MODE
     path = "/" if settings.cookie_path == "auto" else settings.cookie_path
     if path not in {None, "/"}:
         # Remove cookies produced by older deployments before mount-aware paths
@@ -195,13 +199,14 @@ def document_head(
     request: Request,
     page_title: str,
     app_name: str,
-    custom_theme_enabled: bool,
     preference: ThemePreference | None = None,
 ) -> Fragment:
-    preference = preference or ThemePreference()
+    preference = preference or ThemePreference(
+        theme=THEME_CHOICES[0], color_mode=DEFAULT_COLOR_MODE
+    )
     title = f"{page_title} · {app_name}" if page_title else app_name
     color_scheme = preference.color_mode
-    theme_color = "#080d1a" if preference.color_mode == "dark" else "#f4f6fb"
+    theme_color = "#191a1b" if preference.color_mode == "dark" else "#f4f2eb"
     nodes: list[NodeLike] = [
         html.meta(name="color-scheme", content=color_scheme),
         html.meta(name="theme-color", content=theme_color),
@@ -214,22 +219,12 @@ def document_head(
         ),
         html.link(
             rel="stylesheet",
-            href=asset_href(request, "/app-assets/hedron-desktop.css?v=3"),
+            href=asset_href(
+                request,
+                f"/app-assets/hedron-desktop.css?v={APP_VERSION}&shell={UI_SHELL_STYLES_VERSION}",
+            ),
         ),
     ]
-    if custom_theme_enabled:
-        nodes.append(
-            html.link(
-                rel="stylesheet",
-                href=asset_href(request, "/assets/theme.css?v=20"),
-            )
-        )
-        nodes.append(
-            html.link(
-                rel="stylesheet",
-                href=asset_href(request, "/app-assets/data-mover-components.css?v=13"),
-            )
-        )
     return Fragment(*nodes)
 
 
@@ -256,6 +251,7 @@ def color_mode_toggle(request: Request, *, csrf_token: str) -> NodeLike:
             "Dark mode",
             checked=preference.color_mode == "dark",
             mark="color-mode-toggle",
+            enhance="native",
         ),
         html.noscript(submit_button("Apply mode", quiet=True, size="sm")),
         action=form_action(request, "/preferences/theme"),
@@ -281,7 +277,7 @@ def account_summary(request: Request, auth: AuthContext, *, oob: bool = False) -
         detail=user.email_original if user.full_name else None,
         href=page_href(request, "/profile"),
         mark_text=(user.full_name or user.email_original or "?")[:1].upper(),
-        mark_size="lg",
+        mark_size="md",
         mark_shape="circle",
         mark_tone="accent",
         id="account-summary",
@@ -325,7 +321,6 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
                 indicator=INDICATOR,
                 preload="mouseover",
                 active=bool(active),
-                class_=APP_SHELL_NAV_STYLE_CLASS,
                 leading_icon=NAV_ICONS[icon],
             ),
             class_="data-mover-nav-item",
@@ -360,13 +355,20 @@ def side_nav(request: Request, auth: AuthContext) -> Nav:
     )
 
 
-def shell_nav_footer(settings: Settings) -> NavStatus:
-    """Use Hedron's typed AppShell status slot for workspace health."""
+def shell_nav_footer(settings: Settings) -> Stack:
+    """Use Hedron's typed status and stack slots for workspace health."""
     runtime = runtime_presentation(settings)
-    return NavStatus(
-        runtime.nav_status,
-        tone=runtime.nav_tone,
-        mark="●",
+    status_lines = tuple(part.strip() for part in runtime.nav_status.split(" · ", 1))
+    return Stack(
+        *(
+            NavStatus(
+                line,
+                tone=runtime.nav_tone,
+                mark="●" if index == 0 else None,
+            )
+            for index, line in enumerate(status_lines)
+        ),
+        gap="xs",
         class_="data-mover-nav-footer",
     )
 
@@ -403,16 +405,16 @@ def data_mover_mark(request: Request, preference: ThemePreference) -> NodeLike:
     light_src = asset_src(request, "/assets/brand/data-mover-mark-light.png?v=1")
     dark_src = asset_src(request, "/assets/brand/data-mover-mark-dark.png?v=1")
     if preference.color_mode == "dark":
-        return Image(dark_src, alt="", width=48)
+        return Image(dark_src, alt="", width=36)
     if preference.color_mode == "light":
-        return Image(light_src, alt="", width=48)
+        return Image(light_src, alt="", width=36)
     return html.picture(
         html.source(
             srcset=dark_src,
             media="(prefers-color-scheme: dark)",
             type="image/png",
         ),
-        Image(light_src, alt="", width=48),
+        Image(light_src, alt="", width=36),
     )
 
 
@@ -423,7 +425,7 @@ def app_shell(
     auth: AuthContext | None,
     page_title: str,
     csrf_token: str = "",
-    default_color_mode: str = "light",
+    default_color_mode: str = DEFAULT_COLOR_MODE,
     auth_presentation: Literal["standard", "login"] = "standard",
 ) -> Page:
     preference = theme_preference_for_request(
@@ -474,67 +476,69 @@ def app_shell(
         content = Container(
             StyleScope(
                 AmbientCanvas(
-                    AppShell(
-                        nav=side_nav(request, auth),
-                        body=main_panel(
-                            *body,
-                            theme=preference.theme,
-                            color_mode=(
-                                preference.color_mode if preference.color_mode != "system" else None
+                    Stack(
+                        banner,
+                        AppShell(
+                            nav=side_nav(request, auth),
+                            body=main_panel(
+                                *body,
+                                theme=preference.theme,
+                                color_mode=(
+                                    preference.color_mode
+                                    if preference.color_mode != "system"
+                                    else None
+                                ),
                             ),
+                            panel_id="main-content",
+                            brand=Container(Inline(brand, cdao_identity, gap="lg"), padding="sm"),
+                            account=(
+                                Inline(
+                                    transfer_mode_badge,
+                                    color_mode_toggle(request, csrf_token=csrf_token),
+                                    Divider(orientation="vertical"),
+                                    account_summary(request, auth),
+                                    sign_out_action(request, csrf_token=csrf_token),
+                                    gap="sm",
+                                )
+                                if csrf_token
+                                else None
+                            ),
+                            nav_footer=shell_nav_footer(settings),
+                            chrome=AppShellChrome(
+                                preset="editorial",
+                                header_behavior="static",
+                                nav_behavior="sticky",
+                                nav_offset="none",
+                                shell_gap="standard",
+                                content_inset="standard",
+                                banner_spacing="standard",
+                                header_density="standard",
+                                footer_density="compact",
+                                # Both workspace status lines must remain visible even if a
+                                # stale Hedron navigation preference marks the shell collapsed.
+                                nav_footer_collapsed="show",
+                            ),
+                            app_footer=AppFooter(
+                                settings.app_name,
+                                html.span(f"{runtime.footer} · Version {APP_VERSION}"),
+                            ),
+                            content_width="wide",
+                            mobile_collapse=False,
+                            # Keep the workspace navigation expanded until the collapse
+                            # interaction has a layout-safe treatment on every screen size.
+                            nav_collapse="never",
+                            class_="data-mover-app-shell",
                         ),
-                        panel_id="main-content",
-                        banner=banner,
-                        brand=brand,
-                        env_badge=cdao_identity,
-                        account=(
-                            Inline(
-                                transfer_mode_badge,
-                                color_mode_toggle(request, csrf_token=csrf_token),
-                                account_summary(request, auth),
-                                sign_out_action(request, csrf_token=csrf_token),
-                                gap="sm",
-                            )
-                            if csrf_token
-                            else None
-                        ),
-                        nav_footer=shell_nav_footer(settings),
-                        chrome=AppShellChrome(
-                            preset="editorial",
-                            header_behavior="sticky",
-                            nav_behavior="sticky",
-                            nav_offset="header",
-                            shell_gap="editorial",
-                            content_inset="standard",
-                            banner_spacing="standard",
-                            header_density="standard",
-                            footer_density="standard",
-                        ),
-                        app_footer=AppFooter(
-                            settings.app_name,
-                            html.span(f"{runtime.footer} · Version {APP_VERSION}"),
-                        ),
-                        content_width="wide",
-                        mobile_collapse=True,
-                        nav_collapse="user",
-                        nav_preference_key="data-mover-nav-collapsed",
-                        class_="data-mover-app-shell",
+                        gap="md",
                     ),
                     layers=(
                         AmbientLayer(
                             pattern="radial",
                             tone="accent",
                             intensity="subtle",
+                            placement="fixed-canvas",
                             scale="lg",
                             order=0,
-                        ),
-                        AmbientLayer(
-                            pattern="grid",
-                            tone="muted",
-                            intensity="subtle",
-                            placement="fixed-canvas",
-                            scale="md",
-                            order=1,
                         ),
                     ),
                 ),
@@ -544,7 +548,7 @@ def app_shell(
                 variant="workspace",
                 design="data-mover",
             ),
-            max_width="xl",
+            max_width="full",
         )
     else:
         header = Header(
@@ -562,15 +566,10 @@ def app_shell(
                         gap="sm",
                         collapse="never",
                     ),
-                    appearance="plain" if auth_presentation == "login" else "raised",
+                    appearance="plain",
                     density="comfortable",
                     padding="sm",
-                    elevation="none" if auth_presentation == "login" else "sm",
-                    class_=(
-                        "data-mover-login-header"
-                        if auth_presentation == "login"
-                        else "hedron-surface--glass"
-                    ),
+                    elevation="none",
                 ),
                 max_width="xl",
             ),
@@ -599,14 +598,12 @@ def app_shell(
                         gap="md",
                     ),
                     layers=(
-                        AmbientLayer(pattern="radial", tone="accent", intensity="soft", order=0),
                         AmbientLayer(
-                            pattern="grid",
-                            tone="muted",
+                            pattern="radial",
+                            tone="accent",
                             intensity="subtle",
                             placement="fixed-canvas",
-                            scale="lg",
-                            order=1,
+                            order=0,
                         ),
                     ),
                 ),
@@ -627,10 +624,19 @@ def app_shell(
             max_width="xl",
             class_="data-mover-login-shell" if auth_presentation == "login" else None,
         )
-    page_nodes: list[NodeLike] = [skip, indicator, toast_host(), dialog_host()]
+    page_nodes: list[NodeLike] = [
+        skip,
+        indicator,
+        toast_host(),
+        dialog_host(),
+    ]
     page_nodes.append(content)
     return Page(
-        *page_nodes,
+        # Keep the support hosts and page content in one document frame. This
+        # lets Hedron's native body spacing apply once, instead of treating the
+        # empty dialog host as a separate top-level page and adding another
+        # block margin before the workspace.
+        html.div(*page_nodes),
         title=page_title or settings.app_name,
         data_theme=markers["data-theme"],
         data_hedron_theme=markers["data-hedron-theme"],
@@ -638,10 +644,9 @@ def app_shell(
             request=request,
             page_title=page_title,
             app_name=settings.app_name,
-            custom_theme_enabled=settings.custom_theme_enabled,
             preference=preference,
         ),
-        scripts=(asset_src(request, "/assets/app.js?v=14"),),
+        scripts=(asset_src(request, f"/assets/app.js?v={APP_VERSION}"),),
     )
 
 
@@ -672,7 +677,7 @@ def main_panel(
         SwapReveal(
             StyleScope(
                 Container(
-                    Section(*body, id="main-panel"),
+                    Section(Stack(*body, gap="lg"), id="main-panel"),
                     query="inline-size",
                     name="workspace",
                     max_width="full",
@@ -687,7 +692,6 @@ def main_panel(
                     "control": "data-mover-primary-action",
                     "surface": "data-mover-panel",
                     "data": "data-mover-compact-data",
-                    "flow": "data-mover-flow",
                 },
                 presentation={
                     "PageHeader.title": "data-mover-page-title",

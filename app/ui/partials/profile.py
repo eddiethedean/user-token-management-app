@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import Request
 from hedron import (
+    ActionGroup,
     Avatar,
     Badge,
     Component,
@@ -13,12 +14,13 @@ from hedron import (
     Form,
     FormField,
     FormGrid,
+    Grid,
+    GridItem,
     Heading,
     Inline,
     LinkButton,
     OobUpdate,
     Section,
-    SplitView,
     Stack,
     Surface,
     Text,
@@ -105,7 +107,7 @@ def profile_form(
                     autocomplete="tel",
                 ),
             ),
-            submit_button("Save changes"),
+            ActionGroup(submit_button("Save changes"), align="end"),
             action=form_action(request, "profile"),
             method="post",
             **hx_attrs(
@@ -170,21 +172,23 @@ def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) 
 
 
 def account_profile_panel(request: Request, auth: AuthContext, *, csrf_token: str) -> NodeLike:
-    return SplitView(
-        primary=surface_card(
-            PageHeader(
-                "Profile details",
-                eyebrow="Workspace identity",
-                description="Keep the details visible to application administrators current.",
-                level=2,
-                density="compact",
+    return Grid(
+        GridItem(
+            surface_card(
+                PageHeader(
+                    "Profile details",
+                    eyebrow="Workspace identity",
+                    description="Keep the details visible to application administrators current.",
+                    level=2,
+                    density="compact",
+                ),
+                profile_form(request, auth, csrf_token=csrf_token),
             ),
-            profile_form(request, auth, csrf_token=csrf_token),
+            span={"base": 1, "xl": 2},
         ),
-        secondary=profile_identity(request, auth),
-        ratio="3:2",
+        Stack(profile_identity(request, auth), gap="none"),
+        columns={"base": 1, "xl": 3},
         gap="lg",
-        collapse="never",
     )
 
 

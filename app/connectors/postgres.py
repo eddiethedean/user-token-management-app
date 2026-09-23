@@ -14,6 +14,7 @@ from psycopg import sql
 
 from app.config import Settings, get_settings
 from app.connectors.base import (
+    AbortResult,
     BatchWriteResult,
     CatalogPage,
     ColumnSchema,
@@ -602,16 +603,18 @@ class PostgresConnector:
             _log_postgres_cleanup_failure("PostgreSQL destination close failed after commit", exc)
         return manifest
 
-    def abort(self, load_session: LoadSession) -> None:
+    def abort(self, load_session: LoadSession) -> AbortResult:
         conn = self._load_conn
         if conn is None:
-            return
+            return AbortResult.ROLLED_BACK
+        rollback_error: Exception | None = None
         try:
             # Destination preparation and staging remain in one transaction;
             # rollback removes uncommitted staging and preserves live data.
             try:
                 conn.rollback()
             except Exception as exc:
+                rollback_error = exc
                 _log_postgres_cleanup_failure("PostgreSQL destination rollback failed", exc)
         finally:
             self._load_conn = None
@@ -619,6 +622,7 @@ class PostgresConnector:
                 conn.close()
             except Exception as exc:
                 _log_postgres_cleanup_failure("PostgreSQL destination close failed", exc)
+        return AbortResult.ROLLED_BACK if rollback_error is None else AbortResult.UNCERTAIN
 
 
 def _pg_type(data_type: str) -> str:
@@ -674,6 +678,7 @@ def _postgres_connector_error(exc: psycopg.Error, *, operation: str) -> Connecto
         code,
         f"PostgreSQL rejected the {operation}{detail}.",
         retryable=code == TransferErrorCode.PROVIDER_UNAVAILABLE,
+        sqlstate=safe_sqlstate,
     )
 
 

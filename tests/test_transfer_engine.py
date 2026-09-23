@@ -13,6 +13,7 @@ import pytest
 
 from app.config import Settings
 from app.connectors.base import (
+    AbortResult,
     BatchWriteResult,
     ColumnSchema,
     ConnectionHealth,
@@ -131,8 +132,9 @@ class _Destination:
         self.committed = True
         return DestinationManifest(locator=load_session.locator, rows=1, bytes=8)
 
-    def abort(self, load_session: LoadSession) -> None:
+    def abort(self, load_session: LoadSession) -> AbortResult:
         self.aborted = True
+        return AbortResult.ROLLED_BACK
 
 
 class _CapabilityDisabledSource(_Source):
@@ -194,6 +196,60 @@ def test_destination_cleanup_does_not_log_exception_values(caplog) -> None:
     assert "RuntimeError" in caplog.text
 
 
+def test_failed_destination_abort_marks_cancelled_run_uncertain(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class UncertainDestination:
+        def abort(self, session):
+            return False
+
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs,
+        "cancel_claimed_run",
+        lambda *args, **kwargs: captured.update(kwargs),
+    )
+    transfer_engine._cancel_after_abort(
+        object(),
+        cast(PipelineRun, SimpleNamespace(loaded_rows=3)),
+        lease_token="lease",
+        destination=UncertainDestination(),
+        session=object(),
+    )
+
+    assert str(captured["data_impact"]) == "uncertain"
+
+
+def test_uncertain_cleanup_is_not_reported_unchanged_when_no_rows_acknowledged(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class UncertainDestination:
+        def abort(self, session):
+            return AbortResult.UNCERTAIN
+
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs,
+        "cancel_claimed_run",
+        lambda *args, **kwargs: captured.update(kwargs),
+    )
+    transfer_engine._cancel_after_abort(
+        object(),
+        cast(PipelineRun, SimpleNamespace(loaded_rows=0)),
+        lease_token="lease",
+        destination=UncertainDestination(),
+        session=object(),
+    )
+
+    assert str(captured["data_impact"]) == "uncertain"
+
+
+def test_missing_abort_result_is_treated_as_uncertain() -> None:
+    class LegacyDestination:
+        def abort(self, session):
+            return None
+
+    assert transfer_engine._abort_quietly(LegacyDestination(), object()) == AbortResult.UNCERTAIN
+
+
 def test_failure_after_destination_commit_requires_reconciliation(monkeypatch) -> None:
     source = _Source()
     destination = _Destination()
@@ -245,6 +301,64 @@ def test_failure_after_destination_commit_requires_reconciliation(monkeypatch) -
         )
 
     assert destination.committed is True
+    assert destination.aborted is True
+    assert excinfo.value.code == TransferErrorCode.PUBLISH_UNCERTAIN
+
+
+def test_uncertain_destination_cleanup_promotes_original_failure_to_reconciliation(
+    monkeypatch,
+) -> None:
+    source = _Source()
+
+    class UncertainDestination(_Destination):
+        def abort(self, load_session: LoadSession) -> AbortResult:
+            self.aborted = True
+            return AbortResult.UNCERTAIN
+
+    destination = UncertainDestination()
+    monkeypatch.setattr(transfer_engine, "route_allowed", lambda *_args: True)
+    monkeypatch.setattr(transfer_engine, "writer_enabled", lambda provider, **kwargs: True)
+    monkeypatch.setattr(transfer_engine.pipeline_runs, "heartbeat", lambda *args, **kwargs: None)
+    monkeypatch.setattr(transfer_engine.pipeline_runs, "transition", lambda *args, **kwargs: None)
+    monkeypatch.setattr(transfer_engine.pipeline_runs, "add_counters", lambda *args, **kwargs: None)
+    monkeypatch.setattr(transfer_engine.pipeline_runs, "append_event", lambda *args, **kwargs: None)
+
+    snapshot = DefinitionSnapshot(
+        name="uncertain cleanup",
+        source_provider="mss",
+        destination_provider="postgres",
+        source=FoundryDatasetFilesLocator(
+            dataset_rid="ri.foundry.main.dataset.example",
+            branch="master",
+            file_paths=["source.parquet"],
+        ),
+        destination=postgres_table("public", "events"),
+        write_policy=PostgresAppendPolicy(),
+    )
+    settings = _settings(
+        is_demo_mode=False,
+        app_env="test",
+        pipeline_lease_seconds=120,
+        pipeline_batch_rows=1_000,
+        pipeline_batch_target_bytes=1_048_576,
+        pipeline_max_run_seconds=60,
+        pipeline_max_source_bytes=1,
+    )
+
+    with pytest.raises(ConnectorError) as excinfo:
+        transfer_engine.execute_transfer(
+            Mock(),
+            run=_run("run-uncertain-cleanup"),
+            lease_token="lease-1",
+            snapshot=snapshot,
+            source_credentials={},
+            destination_credentials={},
+            settings=settings,
+            cancel_requested=lambda: False,
+            source_resolver=lambda provider: source,
+            destination_resolver=lambda provider: destination,
+        )
+
     assert destination.aborted is True
     assert excinfo.value.code == TransferErrorCode.PUBLISH_UNCERTAIN
 

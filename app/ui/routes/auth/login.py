@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron
@@ -9,6 +11,7 @@ from sqlalchemy import func, select
 from starlette.responses import Response
 
 from app.application.dto import ActorContext
+from app.application.feedback import auth_failure
 from app.application.identity import LoginInput, LoginUseCase
 from app.dependencies import (
     Auth,
@@ -21,12 +24,14 @@ from app.dependencies import (
 )
 from app.dev_trace import dev_trace
 from app.infrastructure.security.identity import SqlAlchemyPasswordGateway
+from app.logging_config import log_event
 from app.models import User
 from app.security.csrf import (
     clear_preauth_csrf_cookie,
     require_preauth_csrf,
 )
 from app.services.auth import (
+    AccountLockedError,
     AuthenticationError,
     authenticate_trusted_identity,
     create_session,
@@ -50,6 +55,7 @@ _BOOTSTRAP_HINT = (
     "No accounts exist yet. An operator must create the first administrator, for example: "
     "python -m app create-admin --email you@socom.mil"
 )
+log = logging.getLogger(__name__)
 
 
 def _bootstrap_hint(db: DbSession, settings: SettingsDep) -> str:
@@ -118,18 +124,67 @@ def register_login_routes(app: Hedron) -> None:
             user = db.get(User, identity.user_id)
             if user is None:
                 raise AuthenticationError("Unable to sign in with those credentials.")
+        except AccountLockedError as exc:
+            reference_id = getattr(request.state, "support_reference", "")
+            # Keep the lockout response indistinguishable from an ordinary
+            # credential failure. The account-specific state remains in audit
+            # and diagnostic records, not in the pre-auth response.
+            outcome = auth_failure(reason="invalid", reference_id=reference_id)
+            dev_trace("auth.password.rejected", reason="locked")
+            log_event(
+                log,
+                "auth.login.rejected",
+                outcome="rate_limited",
+                level=logging.ERROR,
+                error_code="auth_locked",
+                reference_id=reference_id,
+                operation="password_login",
+                exception_type=type(exc).__name__,
+            )
+            response = render_login_page(
+                request,
+                settings,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                error=outcome.message,
+                error_reference=outcome.reference_id,
+                email=email,
+                next=safe_next(next),
+                bootstrap_hint=_bootstrap_hint(db, settings),
+            )
+            return response
         except (AuthenticationError, ValueError) as exc:
+            reference_id = getattr(request.state, "support_reference", "")
+            outcome = auth_failure(reason="invalid", reference_id=reference_id)
             dev_trace("auth.password.rejected", reason="credentials_or_account")
+            log_event(
+                log,
+                "auth.login.rejected",
+                outcome="rejected",
+                error_code="auth_invalid",
+                reference_id=getattr(request.state, "support_reference", ""),
+                operation="password_login",
+                exception_type=type(exc).__name__,
+            )
             return render_login_page(
                 request,
                 settings,
                 status_code=status.HTTP_400_BAD_REQUEST,
-                error=str(exc),
+                error=outcome.message,
+                error_reference=outcome.reference_id,
                 email=email,
                 next=safe_next(next),
                 bootstrap_hint=_bootstrap_hint(db, settings),
             )
         dev_trace("auth.password.accepted")
+        log_event(
+            log,
+            "auth.login.completed",
+            outcome="success",
+            error_code="",
+            reference_id=getattr(request.state, "support_reference", ""),
+            user_id=user.id,
+            operation="password_login",
+        )
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
             redirect_path(request, safe_next(next)),
@@ -164,7 +219,34 @@ def register_login_routes(app: Hedron) -> None:
         try:
             user = authenticate_trusted_identity(db, settings, request)
         except AuthenticationError as exc:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+            reference_id = getattr(request.state, "support_reference", "")
+            outcome = auth_failure(reason="trusted_identity", reference_id=reference_id)
+            log_event(
+                log,
+                "auth.federated.rejected",
+                outcome="rejected",
+                error_code=f"auth_trusted_identity_{getattr(exc, 'reason', 'invalid')}",
+                reference_id=reference_id,
+                operation="federated_login",
+                exception_type=type(exc).__name__,
+            )
+            return render_login_page(
+                request,
+                settings,
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                error=outcome.message,
+                error_reference=outcome.reference_id,
+                next=safe_next(next),
+                bootstrap_hint=_bootstrap_hint(db, settings),
+            )
+        log_event(
+            log,
+            "auth.federated.completed",
+            outcome="success",
+            reference_id=getattr(request.state, "support_reference", ""),
+            user_id=user.id,
+            operation="federated_login",
+        )
         tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
             redirect_path(request, safe_next(next)),

@@ -17,6 +17,11 @@ The [AnyIO cancellation propagation plan](solid-runtime-anyio-cancellation-remed
 the preceding implementation evidence.
 The [thread/session plan](solid-runtime-thread-session-authority-remediation.md) and
 [worker/publication plan](solid-runtime-worker-publication-remediation.md) preserve earlier evidence.
+The [user feedback and troubleshooting upgrade plan](user-feedback-observability-upgrade.md)
+defines the shared UI outcome, structured diagnostic, redaction, rollout, and acceptance contracts
+for sign-in, connection setup, and pipeline execution.
+The [feedback matrix](user-feedback-matrix.md) and [diagnostic event dictionary](../diagnostics-event-dictionary.md)
+record the released code-to-copy-to-log and operator lookup contracts.
 
 | Plan items | Artifact | State |
 |---|---|---|
@@ -50,6 +55,7 @@ The [thread/session plan](solid-runtime-thread-session-authority-remediation.md)
 | SOLID cancellation bookkeeping review | [Caller cancellation bookkeeping plan](solid-runtime-cancellation-bookkeeping-remediation.md) | Implemented; B1 closed, subsequent full-review findings open |
 | SOLID full-refactor review | [Isolation and lifecycle remediation plan](solid-full-refactor-review-remediation.md) | Implemented; FR1–FR5 acceptance closed |
 | SOLID drain-failure review | [Drain failures, cancellation origin, and failed startup plan](solid-runtime-drain-failure-remediation.md) | Implemented; D1–D3 acceptance closed |
+| Feedback and diagnostics | [User feedback and troubleshooting upgrade plan](user-feedback-observability-upgrade.md) | Implemented locally; deployment/provider gates remain external |
 
 ## Review convention
 

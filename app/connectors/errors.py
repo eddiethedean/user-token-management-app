@@ -37,6 +37,7 @@ RETRYABLE_CODES = frozenset(
         TransferErrorCode.PROVIDER_UNAVAILABLE,
         TransferErrorCode.RATE_LIMITED,
         TransferErrorCode.CONNECTION_TIMEOUT,
+        TransferErrorCode.RUN_TIMEOUT,
         TransferErrorCode.WORKER_LOST,
     }
 )
@@ -49,6 +50,7 @@ class ConnectorError(Exception):
     retryable: bool | None = None
     provider_correlation_id: str = ""
     http_status: int | None = None
+    sqlstate: str = ""
 
     def __post_init__(self) -> None:
         if self.retryable is None:

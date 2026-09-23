@@ -26,7 +26,9 @@ DUMMY_PASSWORD = "constant-time-password-verification-value"
 
 
 class PasswordPolicyError(ValueError):
-    pass
+    def __init__(self, message: str, *, reason: str = "policy") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 def normalize_password(password: str) -> str:
@@ -48,9 +50,9 @@ def load_password_blocklist(path: str) -> frozenset[str]:
 def validate_password(password: str, *, email: str = "", blocklist_path: str = "") -> str:
     normalized = normalize_password(password)
     if len(normalized) < 15:
-        raise PasswordPolicyError("Use at least 15 characters.")
+        raise PasswordPolicyError("Use at least 15 characters.", reason="too_short")
     if len(normalized) > 128:
-        raise PasswordPolicyError("Use no more than 128 characters.")
+        raise PasswordPolicyError("Use no more than 128 characters.", reason="too_long")
     lowered = normalized.casefold()
     local_part = email.partition("@")[0].casefold()
     configured_blocklist = load_password_blocklist(blocklist_path)
@@ -59,7 +61,10 @@ def validate_password(password: str, *, email: str = "", blocklist_path: str = "
         or lowered in configured_blocklist
         or (local_part and local_part in lowered)
     ):
-        raise PasswordPolicyError("Choose a password that is not common or based on your email.")
+        raise PasswordPolicyError(
+            "Choose a password that is not common or based on your email.",
+            reason="common_or_email",
+        )
     return normalized
 
 

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.application.ports import Clock, Sleeper, system_clock, system_sleep
 from app.config import Settings
 from app.connectors.base import (
+    AbortResult,
     ColumnSchema,
     DestinationRowCounter,
     DestinationSchemaInspector,
@@ -29,6 +30,7 @@ from app.connectors.registry import (
     source_reader_for,
     writer_enabled,
 )
+from app.domain.feedback import DataImpact
 from app.models import PipelineRun
 from app.services import pipeline_runs
 from app.services.pipeline_metadata import manifest_metadata
@@ -131,9 +133,15 @@ def _demo_stage_pause(settings: Settings, *, sleeper: Sleeper = system_sleep) ->
         sleeper(0.7)
 
 
-def _abort_quietly(destination, session) -> None:
+def _abort_quietly(destination, session) -> AbortResult:
     try:
-        destination.abort(session)
+        result = destination.abort(session)
+        if result == AbortResult.ROLLED_BACK:
+            return AbortResult.ROLLED_BACK
+        # Cleanup is safe only when the connector explicitly confirms the
+        # rollback.  None, False, and unknown connector values are all
+        # treated as unresolved so callers cannot offer an unsafe retry.
+        return AbortResult.UNCERTAIN
     except Exception as exc:
         exception_type = type(exc).__name__
         log.warning(
@@ -141,6 +149,23 @@ def _abort_quietly(destination, session) -> None:
             exception_type,
             extra={"exception_type": exception_type},
         )
+        return AbortResult.UNCERTAIN
+
+
+def _cancel_after_abort(db, run: PipelineRun, *, lease_token: str, destination, session) -> None:
+    aborted = _abort_quietly(destination, session)
+    if aborted == AbortResult.UNCERTAIN:
+        impact = DataImpact.UNCERTAIN
+    elif run.loaded_rows:
+        impact = DataImpact.ROLLED_BACK
+    else:
+        impact = DataImpact.UNCHANGED
+    pipeline_runs.cancel_claimed_run(
+        db,
+        run,
+        lease_token=lease_token,
+        data_impact=impact,
+    )
 
 
 def _validate_upsert_policy(
@@ -336,8 +361,9 @@ def execute_transfer(
             if lease_lost():
                 raise RunConflictError("This worker no longer holds the run lease.")
             if cancel_requested():
-                _abort_quietly(destination, session)
-                pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
+                _cancel_after_abort(
+                    db, run, lease_token=lease_token, destination=destination, session=session
+                )
                 return
             if (clock() - started).total_seconds() > settings.pipeline_max_run_seconds:
                 raise ConnectorError(
@@ -402,8 +428,9 @@ def execute_transfer(
         if lease_lost():
             raise RunConflictError("This worker no longer holds the run lease.")
         if cancel_requested():
-            _abort_quietly(destination, session)
-            pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
+            _cancel_after_abort(
+                db, run, lease_token=lease_token, destination=destination, session=session
+            )
             return
         pipeline_runs.transition(
             db,
@@ -416,8 +443,9 @@ def execute_transfer(
         if lease_lost():
             raise RunConflictError("This worker no longer holds the run lease.")
         if cancel_requested():
-            _abort_quietly(destination, session)
-            pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
+            _cancel_after_abort(
+                db, run, lease_token=lease_token, destination=destination, session=session
+            )
             return
         manifest = destination.finalize(session)
         destination_committed = True
@@ -443,6 +471,11 @@ def execute_transfer(
                 destination_rows_after - destination_rows_before
                 if destination_rows_before is not None and destination_rows_after is not None
                 else None
+            ),
+            "verification_level": (
+                "exact"
+                if destination_rows_before is not None and destination_rows_after is not None
+                else destination.capabilities.verification_level
             ),
         }
         pipeline_runs.complete_run(
@@ -484,12 +517,19 @@ def execute_transfer(
             verification=verification,
         )
     except Exception as exc:
+        abort_result = AbortResult.ROLLED_BACK
         if session is not None:
-            _abort_quietly(destination, session)
-        if destination_committed and not isinstance(exc, ConnectorError):
+            abort_result = _abort_quietly(destination, session)
+        if destination_committed:
             raise ConnectorError(
                 TransferErrorCode.PUBLISH_UNCERTAIN,
                 "The destination committed, but final run-state persistence was not confirmed.",
+                retryable=False,
+            ) from exc
+        if abort_result == AbortResult.UNCERTAIN and not isinstance(exc, RunConflictError):
+            raise ConnectorError(
+                TransferErrorCode.PUBLISH_UNCERTAIN,
+                "Destination cleanup could not be confirmed after the transfer failed.",
                 retryable=False,
             ) from exc
         raise

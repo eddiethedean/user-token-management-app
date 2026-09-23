@@ -16,6 +16,7 @@ import polars as pl
 
 from app.config import Settings
 from app.connectors.base import (
+    AbortResult,
     BatchWriteResult,
     CatalogPage,
     ConnectionHealth,
@@ -854,10 +855,11 @@ class FoundryConnector:
             self._load_credentials = {}
             self._cleanup_staging(path, chunk_root)
 
-    def abort(self, load_session: LoadSession) -> None:
+    def abort(self, load_session: LoadSession) -> AbortResult:
         path = Path(load_session.staging_name)
         chunk_root_value = load_session.metadata.get("chunk_root")
         self._cleanup_staging(path, Path(chunk_root_value) if chunk_root_value else None)
+        return AbortResult.ROLLED_BACK
 
     @staticmethod
     def _cleanup_staging(path: Path, chunk_root: Path | None) -> None:
