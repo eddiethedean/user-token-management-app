@@ -637,7 +637,11 @@ def _pg_type(data_type: str) -> str:
             else "NUMERIC"
         )
     if folded.startswith("datetime"):
-        return "TIMESTAMP"
+        return (
+            "TIMESTAMPTZ"
+            if "time_zone=" in folded and "time_zone=none" not in folded
+            else "TIMESTAMP"
+        )
     for dtype, mapped in _POLARS_TO_PG.items():
         if str(dtype).casefold() == folded:
             return mapped
@@ -652,7 +656,7 @@ def _pg_type(data_type: str) -> str:
     if folded in {"date"}:
         return "DATE"
     if folded.startswith("timestamp"):
-        return "TIMESTAMP"
+        return "TIMESTAMPTZ" if "with time zone" in folded else "TIMESTAMP"
     if folded.startswith("time"):
         return "TIME"
     return "TEXT"
