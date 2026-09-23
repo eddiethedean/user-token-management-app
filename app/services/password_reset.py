@@ -71,9 +71,9 @@ def request_password_reset(
 
 def get_valid_password_reset(db: Session, settings: Settings, raw_token: str) -> PasswordReset:
     reset = db.scalar(
-        select(PasswordReset).where(
-            PasswordReset.token_hash == hash_token(raw_token, settings.session_pepper)
-        ).execution_options(populate_existing=True)
+        select(PasswordReset)
+        .where(PasswordReset.token_hash == hash_token(raw_token, settings.session_pepper))
+        .execution_options(populate_existing=True)
     )
     if not reset or reset.used_at or reset.expires_at <= utcnow() or not reset.user.is_active:
         raise TokenFlowError("That password reset link is invalid or expired.")
