@@ -533,6 +533,7 @@ class PostgresConnector:
         columns = sql.SQL(", ").join(sql.Identifier(name) for name in load_session.columns)
         dest = sql.Identifier(locator.schema_name, locator.table)
         stage = sql.Identifier(locator.schema_name, load_session.staging_name)
+        upsert_expected_rows: int | None = None
         try:
             with conn.cursor() as cursor:
                 if isinstance(policy, PostgresAppendPolicy):
@@ -547,6 +548,11 @@ class PostgresConnector:
                         sql.Identifier(name) for name in policy.conflict_columns
                     )
                     source = sql.SQL("SELECT {} FROM {}").format(columns, stage)
+                    update_columns = [
+                        name
+                        for name in load_session.columns
+                        if name not in policy.conflict_columns
+                    ]
                     if load_session.metadata.get("staging_sequence"):
                         nullable = sql.SQL(" OR ").join(
                             sql.SQL("{} IS NULL").format(sql.Identifier(name))
@@ -572,6 +578,13 @@ class PostgresConnector:
                             stage=stage,
                             sequence=sequence,
                         )
+                        if policy.action == "update" and update_columns:
+                            upsert_expected_rows = _upsert_source_row_count(
+                                cursor,
+                                stage=stage,
+                                conflict_columns=policy.conflict_columns,
+                                staging_sequence=load_session.metadata["staging_sequence"],
+                            )
                     if policy.action == "ignore":
                         cursor.execute(
                             sql.SQL("INSERT INTO {} ({}) {} ON CONFLICT ({}) DO NOTHING").format(
@@ -579,11 +592,6 @@ class PostgresConnector:
                             )
                         )
                     else:
-                        update_columns = [
-                            name
-                            for name in load_session.columns
-                            if name not in policy.conflict_columns
-                        ]
                         if update_columns:
                             assignments = sql.SQL(", ").join(
                                 sql.SQL("{0} = EXCLUDED.{0}").format(sql.Identifier(name))
@@ -630,7 +638,14 @@ class PostgresConnector:
                     cursor.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(stage))
         except psycopg.Error as exc:
             raise _postgres_connector_error(exc, operation="destination finalization") from None
-        manifest = DestinationManifest(locator=locator, rows=int(loaded or 0), bytes=0)
+        details = (
+            {"expected_rows": str(upsert_expected_rows)}
+            if upsert_expected_rows is not None
+            else {}
+        )
+        manifest = DestinationManifest(
+            locator=locator, rows=int(loaded or 0), bytes=0, details=details
+        )
         try:
             conn.commit()
         except psycopg.Error as exc:
@@ -675,6 +690,44 @@ class PostgresConnector:
             except Exception as exc:
                 _log_postgres_cleanup_failure("PostgreSQL destination close failed", exc)
         return AbortResult.ROLLED_BACK if rollback_error is None else AbortResult.UNCERTAIN
+
+
+def _upsert_source_row_count(
+    cursor,
+    *,
+    stage: sql.Composable,
+    conflict_columns: list[str],
+    staging_sequence: str,
+) -> int:
+    """Count the distinct input rows the PostgreSQL update-upsert will apply."""
+
+    conflict = sql.SQL(", ").join(sql.Identifier(name) for name in conflict_columns)
+    nullable = sql.SQL(" OR ").join(
+        sql.SQL("{} IS NULL").format(sql.Identifier(name)) for name in conflict_columns
+    )
+    non_null = sql.SQL(" AND ").join(
+        sql.SQL("{} IS NOT NULL").format(sql.Identifier(name)) for name in conflict_columns
+    )
+    cursor.execute(
+        sql.SQL(
+            "SELECT COUNT(*) FROM ("
+            "SELECT 1 FROM {stage} WHERE {nullable} "
+            "UNION ALL "
+            "SELECT 1 FROM ("
+            "SELECT DISTINCT ON ({conflict}) 1 FROM {stage} WHERE {non_null} "
+            "ORDER BY {conflict}, {sequence} DESC"
+            ") AS dm_non_null"
+            ") AS dm_upsert_rows"
+        ).format(
+            stage=stage,
+            nullable=nullable,
+            non_null=non_null,
+            conflict=conflict,
+            sequence=sql.Identifier(staging_sequence),
+        )
+    )
+    row = cursor.fetchone()
+    return int(row[0]) if row else 0
 
 
 def _pg_type(data_type: str) -> str:
