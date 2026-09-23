@@ -14,6 +14,7 @@ from psycopg import sql
 
 from app.config import Settings, get_settings
 from app.connectors.base import (
+    AbortResult,
     BatchWriteResult,
     CatalogPage,
     ColumnSchema,
@@ -524,14 +525,29 @@ class PostgresConnector:
                     )
                     source = sql.SQL("SELECT {} FROM {}").format(columns, stage)
                     if load_session.metadata.get("staging_sequence"):
+                        nullable = sql.SQL(" OR ").join(
+                            sql.SQL("{} IS NULL").format(sql.Identifier(name))
+                            for name in policy.conflict_columns
+                        )
+                        non_null = sql.SQL(" AND ").join(
+                            sql.SQL("{} IS NOT NULL").format(sql.Identifier(name))
+                            for name in policy.conflict_columns
+                        )
+                        sequence = sql.Identifier(load_session.metadata["staging_sequence"])
                         source = sql.SQL(
+                            "SELECT {columns} FROM {stage} WHERE {nullable} "
+                            "UNION ALL "
+                            "SELECT {columns} FROM ("
                             "SELECT DISTINCT ON ({conflict}) {columns} FROM {stage} "
-                            "ORDER BY {conflict}, {sequence} DESC"
+                            "WHERE {non_null} ORDER BY {conflict}, {sequence} DESC"
+                            ") AS dm_non_null"
                         ).format(
+                            nullable=nullable,
+                            non_null=non_null,
                             conflict=conflict,
                             columns=columns,
                             stage=stage,
-                            sequence=sql.Identifier(load_session.metadata["staging_sequence"]),
+                            sequence=sequence,
                         )
                     if policy.action == "ignore":
                         cursor.execute(
@@ -616,16 +632,18 @@ class PostgresConnector:
             _log_postgres_cleanup_failure("PostgreSQL destination close failed after commit", exc)
         return manifest
 
-    def abort(self, load_session: LoadSession) -> None:
+    def abort(self, load_session: LoadSession) -> AbortResult:
         conn = self._load_conn
         if conn is None:
-            return
+            return AbortResult.ROLLED_BACK
+        rollback_error: Exception | None = None
         try:
             # Destination preparation and staging remain in one transaction;
             # rollback removes uncommitted staging and preserves live data.
             try:
                 conn.rollback()
             except Exception as exc:
+                rollback_error = exc
                 _log_postgres_cleanup_failure("PostgreSQL destination rollback failed", exc)
         finally:
             self._load_conn = None
@@ -633,6 +651,7 @@ class PostgresConnector:
                 conn.close()
             except Exception as exc:
                 _log_postgres_cleanup_failure("PostgreSQL destination close failed", exc)
+        return AbortResult.ROLLED_BACK if rollback_error is None else AbortResult.UNCERTAIN
 
 
 def _pg_type(data_type: str) -> str:
@@ -646,6 +665,14 @@ def _pg_type(data_type: str) -> str:
             if scale_text.casefold() != "none"
             else "NUMERIC"
         )
+    if folded.startswith("datetime"):
+        return (
+            "TIMESTAMPTZ"
+            if "time_zone=" in folded and "time_zone=none" not in folded
+            else "TIMESTAMP"
+        )
+    if folded.startswith("timestamp"):
+        return "TIMESTAMPTZ" if "with time zone" in folded else "TIMESTAMP"
     for dtype, mapped in _POLARS_TO_PG.items():
         if str(dtype).casefold() == folded:
             return mapped
@@ -659,8 +686,6 @@ def _pg_type(data_type: str) -> str:
         return "BOOLEAN"
     if folded in {"date"}:
         return "DATE"
-    if folded.startswith("timestamp"):
-        return "TIMESTAMP"
     if folded.startswith("time"):
         return "TIME"
     return "TEXT"
@@ -686,6 +711,7 @@ def _postgres_connector_error(exc: psycopg.Error, *, operation: str) -> Connecto
         code,
         f"PostgreSQL rejected the {operation}{detail}.",
         retryable=code == TransferErrorCode.PROVIDER_UNAVAILABLE,
+        sqlstate=safe_sqlstate,
     )
 
 
@@ -718,7 +744,9 @@ def _polars_type(data_type: str):
     if folded == "date":
         return pl.Date
     if folded.startswith("timestamp"):
-        return pl.Datetime("us")
+        return (
+            pl.Datetime("us", time_zone="UTC") if "with time zone" in folded else pl.Datetime("us")
+        )
     if folded.startswith("time"):
         return pl.Time
     if folded == "bytea":

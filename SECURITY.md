@@ -700,6 +700,14 @@ IDs, and requires protection against unauthorized access, modification, and dele
 800-53 Rev. 5 controls AU-2, AU-3, AU-9, and AU-11 cover event selection, record content, protection,
 and retention in the [primary publication](https://doi.org/10.6028/NIST.SP.800-53r5).
 
+**Application diagnostic controls:** `app/logging_config.py` uses an allowlist for diagnostic fields,
+redacts rendered messages through the shared connector redaction authority, validates provider
+correlation IDs and SQLSTATE values, and supports compact text or JSON output. Known failures emit
+stable codes without tracebacks. Unexpected request failures include a redacted traceback and an
+opaque request reference in the browser. Run references are bound in worker threads so operators
+can follow a queued request through execution. The [diagnostic event dictionary](docs/diagnostics-event-dictionary.md)
+defines the released event names, fields, and support searches.
+
 ### SD-16 — Apply restrictive browser headers and self-host frontend assets
 
 **Status:** Implemented; HSTS scope remains a deployment decision.
@@ -997,6 +1005,10 @@ fields, surrounding whitespace, bounded lengths, ports, URLs, and displayed tran
 Storage and connector health checks do not prove that a credential is minimally scoped,
 unexpired, or unrevoked at its provider.
 
+MSS, MCS-COP, and PostgreSQL are registered for both source and destination roles; CSV is registered
+only as a source. Remote writers default to enabled, but an operator can disable an individual
+destination writer without disabling that provider's source role.
+
 Pipeline catalogs expose the current user's stored bundles whose validation status is `connected`;
 an MSS/MCS-COP bundle without a default dataset RID may appear as an explicitly provisionable
 destination so its first dataset can be created and validated.
@@ -1004,15 +1016,17 @@ destination so its first dataset can be created and validated.
 each operation, and caches only credential-free locator/metadata payloads by owner/provider/namespace;
 credential replacement or deletion invalidates those rows. Pipeline persistence repeats the
 provider-availability check on the server, so hidden or stale browser options cannot be submitted
-directly. The explicit **Test connection** action decrypts only the selected owner's bundle in the
-web process and closes the provider client after the health check.
+directly. A new or changed bundle is tested automatically after its encrypted value commits; an
+identical normalized submission is neither re-encrypted nor retested. The explicit **Test
+connection** action repeats that check without changing the bundle. Both check paths decrypt only
+the selected owner's bundle in the web process and close the provider client after the health check.
 Real transfers are enqueued and run by the Hedron app's in-process background runtime; after claiming
 a lease, the task decrypts only the credential bundles required by the saved snapshot (none for a CSV
 source, one for a CSV-to-provider run, or two for a provider-to-provider run). Built-in connectors
 receive those values as in-process mappings; this is trusted application code, not an arbitrary-code
 sandbox. Foundry hosts must be on the operator allowlist, registered source/destination capabilities
 must permit the route, same-system source/destination objects must not overlap, and real-mode writers
-must be explicitly enabled. The local `seed-demo-connections` helper uses reserved `.demo.invalid`
+must remain enabled by operator policy. The local `seed-demo-connections` helper uses reserved `.demo.invalid`
 hosts and explicit fake values. It creates missing bundles, repairs recognized legacy demo bundles,
 revalidates stale current demo bundles, preserves unknown or real bundles, and refuses to run when
 `APP_ENV=production` or `DATA_MOVER_MODE=real`.

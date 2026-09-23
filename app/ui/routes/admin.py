@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 
 from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from hedron import Hedron, HedronRouter, InteractionResult, SplitView, html
+from hedron import Grid, GridItem, Hedron, HedronRouter, InteractionResult, Stack, html
 from hedron.htmx import is_htmx_request
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -169,31 +169,36 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                 "Provision accounts, review status, and control application access.",
                 ui.user_match_count(listing["total_users"]),
             ),
-            SplitView(
-                primary=surface_card(
-                    PageHeader(
-                        "Directory",
-                        eyebrow="Identity management",
-                        description="Search, review, and manage every application account.",
-                        level=2,
-                        density="compact",
-                    ),
-                    directory,
-                ),
-                secondary=html.aside(
+            Grid(
+                GridItem(
                     surface_card(
-                        ui.invitation_panel(
-                            request,
-                            invitations,
-                            roles,
-                            csrf_token=csrf,
-                            success=invitation_notices.get(notice, ""),
-                        )
-                    )
+                        PageHeader(
+                            "Directory",
+                            eyebrow="Identity management",
+                            description="Search, review, and manage every application account.",
+                            level=2,
+                            density="compact",
+                        ),
+                        directory,
+                    ),
+                    span={"base": 1, "xl": 2},
                 ),
-                ratio="2:1",
+                Stack(
+                    html.aside(
+                        surface_card(
+                            ui.invitation_panel(
+                                request,
+                                invitations,
+                                roles,
+                                csrf_token=csrf,
+                                success=invitation_notices.get(notice, ""),
+                            )
+                        )
+                    ),
+                    gap="none",
+                ),
+                columns={"base": 1, "xl": 3},
                 gap="lg",
-                collapse="lg",
             ),
         ]
         return await render_authenticated_view(

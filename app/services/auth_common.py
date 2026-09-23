@@ -12,7 +12,9 @@ from app.models import RefreshSession, Role, User
 
 
 class AuthenticationError(ValueError):
-    pass
+    def __init__(self, message: str, *, reason: str = "invalid") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 class AccountLockedError(AuthenticationError):

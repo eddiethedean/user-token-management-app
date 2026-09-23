@@ -102,11 +102,68 @@ def test_admin_invite_toggle_filter_and_self_protection(client, make_user) -> No
 
 def test_admin_audit_page(client) -> None:
     web_login(client)
+    with SessionLocal() as db:
+        admin = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert admin is not None
+        db.add_all(
+            [
+                AuditEvent(
+                    event_type="synthetic.alpha",
+                    outcome="success",
+                    actor_user_id=admin.id,
+                    source_ip="198.51.100.10",
+                    detail='{"marker":"ALPHA_SUCCESS"}',
+                ),
+                AuditEvent(
+                    event_type="synthetic.beta",
+                    outcome="failure",
+                    actor_user_id=admin.id,
+                    source_ip="198.51.100.11",
+                    detail='{"marker":"BETA_FAILURE"}',
+                ),
+                AuditEvent(
+                    event_type="synthetic.alpha",
+                    outcome="failure",
+                    actor_user_id=admin.id,
+                    source_ip="198.51.100.12",
+                    detail='{"marker":"ALPHA_FAILURE"}',
+                ),
+            ]
+        )
+        db.commit()
+
     audit = client.get("/admin/audit")
     assert audit.status_code == 200
-    assert "auth.login" in audit.text or "Audit" in audit.text or "audit" in audit.text.lower()
-    filtered = client.get("/admin/audit", params={"event_type": "auth.login"})
-    assert filtered.status_code == 200
+    assert "Loading audit activity" in audit.text
+    assert "ALPHA_SUCCESS" not in audit.text
+
+    event_filtered = client.get("/admin/audit", params={"event_type": "synthetic.alpha"})
+    assert event_filtered.status_code == 200
+    assert "2 matching events" in event_filtered.text
+    assert "ALPHA_SUCCESS" in event_filtered.text
+    assert "ALPHA_FAILURE" in event_filtered.text
+    assert "BETA_FAILURE" not in event_filtered.text
+
+    outcome_filtered = client.get("/admin/audit", params={"outcome": "failure"})
+    assert outcome_filtered.status_code == 200
+    assert "2 matching events" in outcome_filtered.text
+    assert "ALPHA_FAILURE" in outcome_filtered.text
+    assert "BETA_FAILURE" in outcome_filtered.text
+    assert "ALPHA_SUCCESS" not in outcome_filtered.text
+
+    intersection = client.get(
+        "/admin/audit",
+        params={"event_type": "synthetic.alpha", "outcome": "failure"},
+    )
+    assert intersection.status_code == 200
+    assert "1 matching event" in intersection.text
+    assert "ALPHA_FAILURE" in intersection.text
+    assert "ALPHA_SUCCESS" not in intersection.text
+    assert "BETA_FAILURE" not in intersection.text
+
+    no_matches = client.get("/admin/audit", params={"event_type": "synthetic.missing"})
+    assert no_matches.status_code == 200
+    assert "No events (0 total)." in no_matches.text
 
 
 def test_non_admin_forbidden_from_admin_pages(client, make_user) -> None:
@@ -205,13 +262,37 @@ def test_htmx_admin_directory_and_audit_fragments(client, htmx, make_user) -> No
     assert_html_contains(adapter, "filter.target@example.gov")
     assert "<!doctype" not in filtered.text.lower()
 
+    with SessionLocal() as db:
+        admin = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert admin is not None
+        db.add_all(
+            [
+                AuditEvent(
+                    event_type="fragment.alpha",
+                    outcome="success",
+                    actor_user_id=admin.id,
+                    detail='{"marker":"FRAGMENT_ALPHA"}',
+                ),
+                AuditEvent(
+                    event_type="fragment.beta",
+                    outcome="failure",
+                    actor_user_id=admin.id,
+                    detail='{"marker":"FRAGMENT_BETA"}',
+                ),
+            ]
+        )
+        db.commit()
+
     audit = htmx.get(
         "/admin/audit",
-        params={"event_type": "auth.login"},
+        params={"event_type": "fragment.alpha"},
         headers={"HX-Target": "#audit-results-region", "Accept": "text/html"},
     )
     assert audit.status_code == 200
     assert_fragment_body(as_adapter(audit), contains="audit-results-region")
+    assert "FRAGMENT_ALPHA" in audit.text
+    assert "FRAGMENT_BETA" not in audit.text
+    assert "1 matching event" in audit.text
     assert "<html" not in audit.text.lower()
 
 

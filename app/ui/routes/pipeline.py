@@ -42,6 +42,7 @@ from hedron import (
     Surface,
     Table,
     TableColumn,
+    Text,
     Timeline,
     html,
 )
@@ -71,6 +72,7 @@ from app.connectors.registry import (
     writer_enabled,
 )
 from app.dependencies import Auth, DbSession, SettingsDep
+from app.domain.feedback import DataImpact
 from app.models import PipelineDefinition, PipelineUpload
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
@@ -94,8 +96,8 @@ from app.services.pipelines import list_pipelines, locators_overlap
 from app.services.secrets import list_user_secrets
 from app.ui.design_system import (
     DATA_MOVER_DESIGN,
-    PROCESS_FLOW_STEP_STYLE_CLASS,
     apply_data_recipe,
+    stacked_surface,
     surface_card,
 )
 from app.ui.design_system import DataMoverPageHeader as PageHeader
@@ -103,6 +105,8 @@ from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.params import NoticeQuery
+from app.ui.partials.feedback import feedback_panel
+from app.ui.presenters.feedback import run_outcome, verification_summary
 from app.ui.presenters.pipeline import SavedPipelineFields, saved_pipeline_form_data
 from app.ui.presenters.run_status import (
     EVENT_STAGE_LABELS,
@@ -115,6 +119,7 @@ from app.ui.presenters.run_status import (
 )
 from app.ui.regions import (
     MAIN_PANEL,
+    PIPELINE_SAVE_NOTICE,
     SIDE_NAV,
 )
 from app.ui.routes.pipeline_context import (
@@ -559,7 +564,7 @@ def _namespace_entries(catalog_access: CatalogAccess, provider: str) -> list[tup
 
 
 def _object_entries(
-    catalog_access: CatalogAccess, provider: str, namespace: str
+    catalog_access: CatalogAccess, provider: str, namespace: str, *, destination: bool = False
 ) -> list[tuple[str, str]]:
     try:
         page = catalog_access.list_objects(provider, namespace)
@@ -568,7 +573,18 @@ def _object_entries(
         # empty after a process restart. Keep the workspace usable so the user
         # can select another destination or provision a replacement.
         return []
-    return [(item.name, item.display_name) for item in page.items]
+    entries = [(item.name, item.display_name) for item in page.items]
+    return _destination_object_entries(provider, entries) if destination else entries
+
+
+def _destination_object_entries(
+    provider: str, entries: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """Keep only file formats the selected destination writer can publish."""
+
+    if provider.casefold() != "mcscop":
+        return entries
+    return [entry for entry in entries if entry[0].casefold().endswith(".parquet")]
 
 
 def _first_namespace(catalog_access: CatalogAccess, provider: str) -> str:
@@ -591,6 +607,7 @@ def _normalized_selection(
     *,
     preserve_create: bool = False,
     freeform_namespace: bool = False,
+    destination: bool = False,
 ) -> tuple[str, str]:
     """Keep a form selection valid when its provider changes."""
     if not provider:
@@ -612,7 +629,7 @@ def _normalized_selection(
         if namespace in namespace_names
         else namespaces[0][0]
     )
-    objects = _object_entries(catalog_access, provider, resolved_namespace)
+    objects = _object_entries(catalog_access, provider, resolved_namespace, destination=destination)
     object_names = {name for name, _ in objects}
     if preserve_create and object_name == CREATE_TABLE_VALUE:
         return resolved_namespace, CREATE_TABLE_VALUE
@@ -653,15 +670,22 @@ def _table_options(
     additional_tables: tuple[str, ...] = (),
     preferred_table: str = "",
     create_label: str = "table",
+    destination: bool = False,
 ):
-    entries = _object_entries(catalog_access, provider, schema_name) if schema_name else []
+    entries = (
+        _object_entries(catalog_access, provider, schema_name, destination=destination)
+        if schema_name
+        else []
+    )
     known = {name for name, _ in entries}
     options = [
         _option(name, display, selected=(name == preferred_table or index == 0))
         for index, (name, display) in enumerate(entries)
     ]
     for table_name in additional_tables:
-        if table_name not in known:
+        if table_name not in known and (
+            not destination or _destination_object_entries(provider, [(table_name, table_name)])
+        ):
             options.append(_option(table_name, table_name))
     if allow_create:
         options.append(
@@ -991,6 +1015,7 @@ def _destination_object_options(
         additional_tables=additional_tables,
         preferred_table=preferred_table,
         create_label=catalog.objects_label.casefold(),
+        destination=True,
     )
 
 
@@ -1005,7 +1030,8 @@ def _dataset_creator(
 ) -> NodeLike:
     attrs: dict[str, Any] = {
         "id": "pipeline-dataset-creator",
-        "class_": "data-mover-dataset-creator",
+        "class_": "hedron-stack data-mover-dataset-creator",
+        "data-hedron-gap": "sm",
     }
     if oob:
         attrs["hx-swap-oob"] = "outerHTML:#pipeline-dataset-creator"
@@ -1046,7 +1072,6 @@ def _dataset_creator(
                             maxlength="240",
                             placeholder="ri.compass.main.folder…",
                             autocomplete="off",
-                            class_="data-mover-rid-input",
                         ),
                     ),
                     FormField(
@@ -1250,7 +1275,7 @@ def _capability_surface(
 
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
-        Surface(
+        stacked_surface(
             PageHeader(
                 "Route capabilities",
                 eyebrow="What will be known before and after the run",
@@ -1261,7 +1286,7 @@ def _capability_surface(
             Grid(
                 facts(source_catalog),
                 facts(destination_catalog, destination=True),
-                columns=2,
+                columns={"base": 1, "xl": 2},
                 gap="md",
             ),
             appearance="plain",
@@ -1616,7 +1641,7 @@ def _schema_preview_surface(
     status_label = "Ready to compare" if preview_complete else "Limited preview"
     status_tone = "success" if preview_complete else "warning"
     limitation = limitations[0] if limitations else None
-    return Surface(
+    return stacked_surface(
         PageHeader(
             title,
             eyebrow="Destination schema" if destination else "Source schema",
@@ -1684,7 +1709,7 @@ def _pipeline_schema_preview_panel(
     )
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
-        Surface(
+        stacked_surface(
             PageHeader(
                 "Schema & row counts",
                 eyebrow="Pre-run review",
@@ -1695,7 +1720,7 @@ def _pipeline_schema_preview_panel(
             Grid(
                 _schema_preview_surface("Source", source),
                 _schema_preview_surface("Destination", destination, destination=True),
-                columns=2,
+                columns={"base": 1, "xl": 2},
                 gap="sm",
             ),
             id="pipeline-schema-preview" if include_id else None,
@@ -2101,6 +2126,7 @@ def _pipeline_preview_fragment(
             target_schema,
             target_table,
             preserve_create=True,
+            destination=True,
         )
     source_catalog = (
         CSV_SOURCE_CATALOG
@@ -2494,6 +2520,7 @@ def _pipeline_body(
             target_schema_name,
             target_table_name,
             preserve_create=target_table_name == CREATE_TABLE_VALUE,
+            destination=True,
         )
     source_object_name = source_table_display
     target_object_name = (
@@ -2548,7 +2575,25 @@ def _pipeline_body(
     target_runtime_ready = target_catalog is not None and _connection_runnable(
         connections[target_provider]
     )
-    initial_run_ready = source_runtime_ready and target_runtime_ready and not route_overlap
+    latest_loaded_run = (latest_runs or {}).get(loaded_pipeline.id) if loaded_pipeline else None
+    latest_facts = _run_manifest(getattr(latest_loaded_run, "verification_json", None))
+    reconciliation_blocked = bool(
+        latest_loaded_run is not None
+        and (
+            getattr(latest_loaded_run, "reconciliation_required", False)
+            or latest_facts.get("reconciliation_required")
+        )
+        and not (
+            getattr(latest_loaded_run, "reconciliation_reviewed_at", None)
+            or latest_facts.get("reconciliation_reviewed_at")
+        )
+    )
+    initial_run_ready = (
+        source_runtime_ready
+        and target_runtime_ready
+        and not route_overlap
+        and not reconciliation_blocked
+    )
     if route_overlap:
         availability_message = "Choose a destination object different from the source object."
     elif target_catalog is None:
@@ -2565,6 +2610,10 @@ def _pipeline_body(
         availability_message = f"Validate the {source_catalog.label} connection before running."
     elif not target_runtime_ready:
         availability_message = f"Validate the {target_catalog.label} connection before running."
+    elif reconciliation_blocked:
+        availability_message = (
+            "Review the previous destination state before starting another transfer."
+        )
     else:
         availability_message = "Source and destination connections are ready."
     if initial_run_ready and not pipeline_id:
@@ -2597,7 +2646,6 @@ def _pipeline_body(
     setup_flow = ProcessFlow(
         FlowStep(
             "Connect",
-            class_=PROCESS_FLOW_STEP_STYLE_CLASS,
             status=("complete" if connections and ready_count == len(connections) else "current"),
             description=(
                 f"{ready_count} of {len(connections)} connections validated."
@@ -2614,14 +2662,12 @@ def _pipeline_body(
         ),
         FlowStep(
             "Configure",
-            class_=PROCESS_FLOW_STEP_STYLE_CLASS,
             status="complete" if pipeline_id else "current",
             description="Choose the source, destination, and write policy.",
             status_text="Saved" if pipeline_id else "In progress",
         ),
         FlowStep(
             "Run",
-            class_=PROCESS_FLOW_STEP_STYLE_CLASS,
             status="current" if pipeline_id and initial_run_ready else "pending",
             description=(
                 "Start a transfer and follow each persisted worker event."
@@ -2634,6 +2680,7 @@ def _pipeline_body(
         direction="horizontal",
         collapse="never",
         density="compact",
+        appearance="plain",
     )
     return [
         PageHeader(
@@ -2647,9 +2694,12 @@ def _pipeline_body(
             density="compact",
         ),
         setup_flow,
-        alert_box(
-            "Pipeline saved. You can load or run it any time." if notice == "saved" else "",
-            kind="success",
+        html.div(
+            alert_box(
+                "Pipeline saved. You can load or run it any time." if notice == "saved" else "",
+                kind="success",
+            ),
+            id="pipeline-save-notice",
         ),
         NavigationTabs(
             (
@@ -2752,7 +2802,7 @@ def _pipeline_body(
                         Grid(
                             DATA_MOVER_DESIGN.apply(
                                 "data-mover-inset",
-                                Surface(
+                                stacked_surface(
                                     PageHeader(
                                         "Source",
                                         eyebrow="Read from",
@@ -2849,7 +2899,8 @@ def _pipeline_body(
                                             source_provider,
                                             source_schema_name,
                                         ),
-                                        Surface(
+                                        Expander(
+                                            "CSV alternative · Upload a local file",
                                             PageHeader(
                                                 "CSV alternative",
                                                 eyebrow="Local source",
@@ -2870,9 +2921,9 @@ def _pipeline_body(
                                                 if source_provider == "csv"
                                                 else None,
                                             ),
-                                            appearance="plain",
-                                            padding="sm",
-                                            elevation="none",
+                                            open=source_provider == "csv",
+                                            enhance="native",
+                                            id="pipeline-csv-alternative",
                                         ),
                                         gap="md",
                                     ),
@@ -2880,7 +2931,7 @@ def _pipeline_body(
                             ),
                             DATA_MOVER_DESIGN.apply(
                                 "data-mover-inset",
-                                Surface(
+                                stacked_surface(
                                     PageHeader(
                                         "Destination",
                                         eyebrow="Write to",
@@ -3050,7 +3101,7 @@ def _pipeline_body(
                                     ),
                                 ),
                             ),
-                            columns={"base": 1, "lg": 2},
+                            columns={"base": 1, "xl": 2},
                             gap="md",
                         ),
                         ConnectorFlow(
@@ -3156,6 +3207,7 @@ def _pipeline_body(
                         level=2,
                         density="compact",
                     ),
+                    html.div(id="pipeline-run-feedback"),
                     run_monitor
                     or html.div(
                         StateView(
@@ -3220,7 +3272,7 @@ def register_pipeline_routes(
 
     @app.page(
         "/pipeline",
-        fragment_regions=(MAIN_PANEL, SIDE_NAV),
+        fragment_regions=(MAIN_PANEL, SIDE_NAV, PIPELINE_SAVE_NOTICE),
         include_in_schema=False,
     )
     async def pipeline_page(
@@ -3489,7 +3541,7 @@ def _run_schema_results(run):
     differences = schema_diff(source_manifest, destination_manifest)
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
-        Surface(
+        stacked_surface(
             PageHeader(
                 "Run schema & row counts",
                 eyebrow="After-run review",
@@ -3502,7 +3554,7 @@ def _run_schema_results(run):
                 Grid(
                     _run_schema_surface("Source", source_manifest, f"{int(source_rows):,}"),
                     _run_schema_surface("Destination", destination_manifest, destination_rows),
-                    columns={"base": 1, "lg": 2},
+                    columns={"base": 1, "xl": 2},
                     gap="sm",
                 ),
                 open=False,
@@ -3530,6 +3582,12 @@ def _schema_diff_surface(differences: list[dict[str, str]]):
         "missing_destination": ("Missing at destination", "danger"),
         "extra_destination": ("Extra at destination", "info"),
     }
+    issues = sum(row["status"] != "match" for row in differences)
+    comparison_label = (
+        f"Review {issues} schema differences"
+        if issues
+        else f"All {len(differences)} columns match · view comparison"
+    )
     return Surface(
         PageHeader(
             "Schema comparison",
@@ -3538,37 +3596,42 @@ def _schema_diff_surface(differences: list[dict[str, str]]):
             level=3,
             density="compact",
         ),
-        ScrollRegion(
-            Table(
-                rows=[
-                    [
-                        Badge(
-                            status_labels.get(row["status"], ("Review", "warning"))[0],
-                            tone=cast(
-                                Literal["neutral", "info", "success", "warning", "danger"],
-                                status_labels.get(row["status"], ("Review", "warning"))[1],
+        Expander(
+            comparison_label,
+            ScrollRegion(
+                Table(
+                    rows=[
+                        [
+                            Badge(
+                                status_labels.get(row["status"], ("Review", "warning"))[0],
+                                tone=cast(
+                                    Literal["neutral", "info", "success", "warning", "danger"],
+                                    status_labels.get(row["status"], ("Review", "warning"))[1],
+                                ),
+                                size="sm",
                             ),
-                            size="sm",
-                        ),
-                        html.strong(row["name"]),
-                        f"{row['source_type']} · {row['source_nullable']}",
-                        f"{row['destination_type']} · {row['destination_nullable']}",
-                    ]
-                    for row in differences
-                ],
-                columns=[
-                    TableColumn(header="Status"),
-                    TableColumn(header="Column"),
-                    TableColumn(header="Source"),
-                    TableColumn(header="Destination"),
-                ],
-                density="compact",
-                sticky_header=True,
-                zebra=True,
+                            html.strong(row["name"]),
+                            f"{row['source_type']} · {row['source_nullable']}",
+                            f"{row['destination_type']} · {row['destination_nullable']}",
+                        ]
+                        for row in differences
+                    ],
+                    columns=[
+                        TableColumn(header="Status"),
+                        TableColumn(header="Column"),
+                        TableColumn(header="Source"),
+                        TableColumn(header="Destination"),
+                    ],
+                    density="compact",
+                    sticky_header=True,
+                    zebra=True,
+                ),
+                axis="block",
+                size="sm",
+                label="Schema comparison",
             ),
-            axis="block",
-            size="sm",
-            label="Schema comparison",
+            open=issues > 0,
+            enhance="native",
         ),
         appearance="plain",
         padding="sm",
@@ -3578,11 +3641,20 @@ def _schema_diff_surface(differences: list[dict[str, str]]):
 
 def _run_recovery_surface(request: Request, run, *, csrf_token: str):
     run_status = str(run.status or "")
-    if run_status not in {"failed", "failed_needs_reconciliation"}:
+    facts = _run_manifest(run.verification_json)
+    reconciliation_required = bool(
+        getattr(run, "reconciliation_required", False) or facts.get("reconciliation_required")
+    )
+    if run_status not in {"failed", "failed_needs_reconciliation", "cancelled"}:
         return None
-    review_recorded = bool(_run_manifest(run.verification_json).get("reconciliation_reviewed_at"))
+    review_recorded = bool(
+        getattr(run, "reconciliation_reviewed_at", None) or facts.get("reconciliation_reviewed_at")
+    )
     retry_form = None
-    if run_status == "failed" and run.retryable and run.pipeline_definition_id:
+    can_retry = (run_status == "failed" and run.retryable) or (
+        reconciliation_required and review_recorded
+    )
+    if can_retry and run.pipeline_definition_id:
         retry_form = html.form(
             csrf_hidden(csrf_token),
             html.input(type="hidden", name="pipeline_id", value=run.pipeline_definition_id),
@@ -3605,7 +3677,7 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
             method="post",
         )
     review_form = None
-    if run_status == "failed_needs_reconciliation":
+    if reconciliation_required and not review_recorded:
         review_form = html.form(
             csrf_hidden(csrf_token),
             Button(
@@ -3628,6 +3700,8 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
             action=form_action(request, f"/pipeline/runs/{run.id}/reconcile"),
             method="post",
         )
+    outcome = run_outcome(run)
+    impact = outcome.data_impact if outcome is not None else DataImpact.UNCERTAIN
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
         Surface(
@@ -3635,18 +3709,20 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
                 "Recovery guidance",
                 eyebrow="Operator action required",
                 description=(
-                    "The transfer failed and can be retried safely."
-                    if run_status == "failed" and run.retryable
+                    "Review recorded. Start a deliberate retry only after confirming the destination state."
+                    if can_retry and reconciliation_required
+                    else "The transfer failed and is eligible for retry."
+                    if can_retry
+                    else "The destination was not changed. Correct the issue before starting another run."
+                    if impact == DataImpact.UNCHANGED
+                    else "The destination changes were rolled back. Start the transfer again when ready."
+                    if impact == DataImpact.ROLLED_BACK
                     else "Destination state may be uncertain. Inspect it before retrying."
                 ),
                 level=3,
                 density="compact",
             ),
-            Alert(
-                run.error_summary or "The transfer ended without a recoverable summary.",
-                title=run.error_code or "Transfer failure",
-                tone="danger" if run_status == "failed" else "warning",
-            ),
+            feedback_panel(outcome, label="Pipeline recovery feedback"),
             ActionGroup(retry_form, review_form, gap="sm", collapse="never")
             if retry_form or review_form
             else None,
@@ -3673,6 +3749,13 @@ def _run_status_fragment(
         "failed_needs_reconciliation",
     }
     run_status = (run.status or "idle").lower()
+    facts = _run_manifest(run.verification_json)
+    reconciliation_required = bool(
+        getattr(run, "reconciliation_required", False) or facts.get("reconciliation_required")
+    )
+    reconciliation_reviewed = bool(
+        getattr(run, "reconciliation_reviewed_at", None) or facts.get("reconciliation_reviewed_at")
+    )
     run_badge_text = "Standing by"
     run_badge_tone = "info"
     if run_status == "succeeded":
@@ -3703,7 +3786,9 @@ def _run_status_fragment(
     stage_label, stage_description = run_stage_copy(run_status)
     if not stage_description:
         stage_description = "Worker state persisted to the run log."
-    flow_statuses = run_flow_statuses(run_status)
+    flow_statuses = run_flow_statuses(
+        run_status, getattr(run, "last_safe_stage", "") or facts.get("last_safe_stage", "")
+    )
     snapshot = parse_snapshot(run.definition_snapshot_json)
     source_label = _provider_label(snapshot.source_provider)
     target_label = _provider_label(snapshot.destination_provider)
@@ -3752,7 +3837,7 @@ def _run_status_fragment(
                 disabled=(
                     monitor_active
                     or not run.pipeline_definition_id
-                    or run_status == "failed_needs_reconciliation"
+                    or (reconciliation_required and not reconciliation_reviewed)
                     or (run_status == "failed" and not run.retryable)
                 ),
                 attrs=hx_attrs(
@@ -3770,7 +3855,11 @@ def _run_status_fragment(
             id=f"pipeline-run-again-form-{run.id}",
         )
         if run.pipeline_definition_id
-        and (run_status not in {"failed", "failed_needs_reconciliation"} or run.retryable)
+        and (
+            run_status not in {"failed", "failed_needs_reconciliation"}
+            or run.retryable
+            or (reconciliation_required and reconciliation_reviewed)
+        )
         else None
     )
     cancel_form = (
@@ -3879,6 +3968,7 @@ def _run_status_fragment(
             direction="horizontal",
             collapse="never",
             density="compact",
+            appearance="plain",
         ),
         Alert(
             stage_description,
@@ -3910,6 +4000,13 @@ def _run_status_fragment(
         ),
         _run_schema_results(run)
         if run_status in {"succeeded", "failed", "cancelled", "failed_needs_reconciliation"}
+        else None,
+        Text(
+            verification_summary(run),
+            role="caption",
+            overflow="wrap",
+        )
+        if run_status == "succeeded"
         else None,
         Expander(
             "Live event feed",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, status
@@ -10,9 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.db_compat import insert_for, scalar_returning
+from app.logging_config import log_event
 from app.models import RateLimitBucket, utcnow
 from app.security.client import client_ip
 from app.services.audit import record_event
+
+log = logging.getLogger(__name__)
 
 
 def _window_start(now: datetime, seconds: int) -> datetime:
@@ -115,6 +119,20 @@ def check_rate_limit(
         retry_after = max(
             1,
             int((window_started_at + timedelta(seconds=window_seconds) - now).total_seconds()),
+        )
+        reference_id = getattr(request.state, "support_reference", "") or getattr(
+            request.state, "request_id", ""
+        )
+        log_event(
+            log,
+            "security.rate_limited",
+            outcome="rejected",
+            error_code="auth_rate_limited" if "login" in scope else "request_unavailable",
+            reference_id=reference_id,
+            operation=scope,
+            retryable=True,
+            retry_after_seconds=retry_after,
+            limit_dimension=",".join(exceeded),
         )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,

@@ -110,7 +110,8 @@ def test_main_panel_nav_swaps_all_authenticated_routes(htmx) -> None:
         assert_hx_push_url(adapter)
         assert "hx-swap-oob" in response.text  # side-nav active state
         assert "data-mover-nav-footer" in response.text
-        assert "Demo mode · Credentials encrypted" in response.text
+        assert "Demo mode" in response.text
+        assert "Credentials encrypted" in response.text
         assert 'data-hedron-icon="data-mover-team"' in response.text
         assert 'data-hedron-icon="data-mover-activity"' in response.text
         assert_budget(response.text, max_bytes=200_000)
@@ -161,6 +162,31 @@ def test_toast_oob_appends_for_queueing() -> None:
     assert "hedron-toast-success" in markup
     assert "hedron-toast-danger" in markup
     assert "First" in markup and "Second" in markup
+
+
+def test_request_feedback_oob_replaces_toast_with_persistent_reference() -> None:
+    from hedron import html
+    from hedron.testing import render_html
+    from hedron_core.interaction import InteractionResult, materialize_interaction_nodes
+
+    from app.ui.interactions import APP_POLICY, request_feedback_oob
+
+    result = InteractionResult(
+        content=html.div(),
+        oob=(
+            request_feedback_oob(
+                "The request could not be completed.",
+                reference_id="ref-123",
+            ),
+        ),
+        policy=APP_POLICY,
+    )
+    markup = render_html(materialize_interaction_nodes(result))
+
+    assert 'id="hedron-toast"' in markup
+    assert 'hx-swap-oob="innerHTML"' in markup
+    assert 'id="request-feedback"' in markup
+    assert "ref-123" in markup
 
 
 def test_application_toasts_expire_after_three_seconds() -> None:
@@ -591,7 +617,8 @@ def test_fastapi_fixture_admin_round_trip(access_app, make_user) -> None:
     assert_page_document(users)
     assert_html_contains(users, "fixture.roundtrip@example.gov")
     assert_html_contains(users, "hedron-dialog")
-    assert_html_contains(users, 'data-hedron-split-collapse="lg"')
+    assert_html_contains(users, 'data-hedron-columns="1" data-hedron-columns-xl="3"')
+    assert_html_contains(users, 'data-hedron-span="1" data-hedron-span-xl="2"')
     assert_html_contains(users, "data-mover-app-shell")
     assert_html_contains(users, "data-mover-nav-group")
 

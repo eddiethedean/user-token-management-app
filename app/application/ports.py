@@ -18,6 +18,7 @@ class RequestMetadata:
 
     request_id: str = ""
     source_ip: str = ""
+    reference_id: str = ""
 
 
 class CredentialResolver(Protocol):

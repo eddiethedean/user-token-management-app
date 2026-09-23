@@ -32,6 +32,17 @@ actions and may destroy data — they are not a supported “undo account” pat
 | Federated users cannot use password form | `AUTHENTICATION_MODE=trusted_header` | Sign in through the proxy; see [auth-modes.md](auth-modes.md) |
 | Header auth never sees the user | Proxy not injecting / stripping identity header | Fix proxy; ensure app is not reachable without it |
 
+Every failed access journey keeps the browser message generic enough to avoid account enumeration.
+The page or toast shows a **Reference** value when the application can correlate the failure. Give
+that value to an operator; do not send passwords, reset URLs, credentials, or copied provider
+responses. Operators should search `reference_id` first, then inspect the matching `error_code`,
+`operation`, and `exception_type` event.
+
+Expired or used registration, invitation, and password-reset links are represented as
+`auth_link_invalid`. Request a fresh link instead of retrying the old URL. A directory or mail
+service failure is represented as `auth_account_unavailable`; retry after checking the service and
+the event's reference.
+
 ## CSRF and forms
 
 Login, register, and forgot-password use signed pre-authentication CSRF tokens. If POSTs fail with
@@ -81,22 +92,27 @@ root-upstream cookie-path fix, clear stale cookies, and inspect customized ingre
 | Connection save is rejected | A required provider field is empty or malformed | Recheck every required field. PostgreSQL ports must be numeric and within 1–65535; choose one of the displayed SSL modes |
 | Saved values appear blank | Expected non-reveal behavior | Enter a complete replacement bundle only when rotating or correcting the connection; Data Mover never repopulates plaintext credentials |
 | Status says `Not configured` | No encrypted credential bundle exists for that user/provider | Save the connection under **Connections → Credentials**; connections are owner-scoped |
-| Status says `Untested` | Credentials were saved without a connection test | Use **Test connection** under **Connections → Status** |
+| Status says `Untested` | The automatic check needs more provider setup, such as a default Foundry dataset RID, or a legacy bundle predates automatic checks | Complete the missing setup and save the changed bundle, or use **Test connection** under **Connections → Status** to retry without a change |
 | Status says `Connected`, but the real service is unavailable | Demo emulation, stale real check, or network change | In demo mode this is expected and does not prove remote reachability. In real mode run **Test connection** again and inspect app/connector logs |
 | I need a fully populated local demo | The normal app starts without user-owned connections | Run `make demo`; it creates the printed local account and seeds fake `.demo.invalid` credentials for MSS, MCS-COP, and PostgreSQL |
 | A repeated demo run shows fewer than 3/3 connections ready | A reused database contains a recognized legacy bundle, a stale current fake bundle, or an intentionally preserved unknown/real bundle | Run the current `make demo` again. Recognized legacy bundles are refreshed and stale current demo bundles are revalidated. Unknown or real bundles are preserved; use `seed-demo-connections --replace` only for a disposable demo database |
+
+Connection test references are persistent in **Connections → Status**. Known failure categories are
+`connection_authentication_failed`, `connection_permission_denied`, `connection_endpoint_blocked`,
+`connection_tls_failed`, `connection_timeout`, and `connection_provider_unavailable`. The page gives
+the safe remediation; provider correlation IDs, HTTP status, and duration remain in logs only.
 
 ## Pipelines and saved routes
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | Source and destination selection is rejected | One provider is not source-capable or the other is not destination-capable | Choose a source-capable provider and a destination-capable provider. Same-system copies are supported when the destination writer is enabled |
-| A connection is missing from Pipeline | It is not saved for the current user or its latest validation is not Connected | Save or replace it under **Connections → Credentials**, then use **Test connection** under **Connections → Status**. Pipeline intentionally hides unavailable connections |
+| A connection is missing from Pipeline | It is not saved for the current user or its latest validation is not Connected | Save or replace it under **Connections → Credentials** to run the automatic check, then review **Connections → Status**. Pipeline intentionally hides unavailable connections |
 | Save or Run is disabled | A required connection is missing, the CSV has not been scanned, the route is unsupported, or the destination writer is disabled | Follow the availability message above the route. Restore and test the connection, scan the CSV, choose a compatible route, or ask the operator to review the writer flag |
 | Cannot save a pipeline | Short name, unavailable connection, invalid catalog object, missing CSV scan, or invalid new-table name | Confirm both remote connections are Connected. Use a name with at least 3 characters and catalog values from the UI. New names must be 1–63 characters, start with a letter, and contain only letters, numbers, or underscores |
 | A saved pipeline is missing | Saved definitions are owner-scoped, or it is older than the 12 most recently updated entries shown | Sign in as the owner; update or recreate the route if it is outside the current list |
 | Run stays queued | The in-process runtime is paused or failed | Check the app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; restart the app after correcting the configuration |
-| Run completes but destination is unchanged | Demo connectors, or a Foundry writer flag is off | Demo mode does not write remotely. Real Foundry writers require `PIPELINE_ENABLE_MSS_WRITER` / `PIPELINE_ENABLE_MCSCOP_WRITER` |
+| Run completes but destination is unchanged | Demo connectors, or a provider writer was disabled | Demo mode does not write remotely. Confirm the destination's `PIPELINE_ENABLE_*_WRITER` override is enabled |
 | Run button says transfer is running | A run is already active | Wait for a terminal status or cancel |
 | Foundry destination branch is rejected | The saved route branch differs from the credential branch, but the frozen preview-upload API has no branch parameter | Select the configured credential branch or replace/test the credential with the intended default branch before saving the route |
 
@@ -131,3 +147,16 @@ not block enrollment.
 Shared DB-backed limits return generic throttling responses. If legitimate traffic is blocked, review
 `RATE_LIMIT_*` windows or add ingress throttling rather than disabling limits in production
 (`RATE_LIMIT_ENABLED` must stay true).
+
+## Reference-based support handoff
+
+1. Capture the page screenshot and the visible request, connection-test, or run reference.
+2. Record the UTC time, provider name, route name, and whether the user saw **Connected**,
+   **Unchanged**, **Verified**, or **Destination requires review**.
+3. Search structured logs by `reference_id`, then narrow by `run_id`, `provider`, or `error_code`.
+4. For `data_impact=uncertain`, inspect the provider destination before authorizing another run.
+5. Never ask the user to paste a token, password, reset link, SQL statement, provider response body,
+   or uploaded row value.
+
+See the [diagnostic event dictionary](diagnostics-event-dictionary.md) for fields and example
+searches.

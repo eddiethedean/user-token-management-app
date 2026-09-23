@@ -179,6 +179,16 @@ PIPELINE_RUN_MONITOR = FragmentRegion(
     selector="#pipeline-run-monitor",
     description="Persisted pipeline run status and events",
 )
+PIPELINE_RUN_FEEDBACK = FragmentRegion(
+    id="pipeline-run-feedback",
+    selector="#pipeline-run-feedback",
+    description="Persistent pipeline launch feedback",
+)
+PIPELINE_SAVE_NOTICE = FragmentRegion(
+    id="pipeline-save-notice",
+    selector="#pipeline-save-notice",
+    description="Pipeline save confirmation notice",
+)
 INVITATION_PANEL = FragmentRegion(
     id="invitation-panel",
     selector="#invitation-panel",

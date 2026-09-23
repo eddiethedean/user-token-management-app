@@ -35,7 +35,8 @@ Credential specifications are domain values under `app.domain.credentials`. Cata
 the application `CredentialResolver` port; the SQLAlchemy resolver in infrastructure performs the
 owner and purpose check before decrypting a bundle. Provider writer enablement is declared beside
 each provider's capability metadata, so adding a provider does not require editing a central flag
-map.
+map. The built-in PostgreSQL, MSS, and MCS-COP writers default to enabled and remain independently
+disableable through operator settings.
 
 There is **no public REST API**. Mutations are form/HTMX POSTs; GETs render HTML fragments or pages.
 
@@ -77,8 +78,10 @@ application-managed key ring (`API_TOKEN_ENCRYPTION_KEYS`; the name is retained 
 compatibility). The UI is write/replace oriented after save. Treat decrypted values as high-value
 credentials; lifecycle and revocation at the remote provider remain operator responsibility.
 
-Save stores credentials as `untested`. **Test connection** is a distinct action that calls the
-connector. Demo mode uses a process-local emulator on reserved `.demo.invalid` hosts; its result is
+Saving a new or changed credential bundle stores it as `untested`, then immediately calls the
+connector and persists the resulting status. An identical normalized bundle is neither re-encrypted
+nor retested. **Test connection** remains available for an explicit retry without a credential
+change. Demo mode uses a process-local emulator on reserved `.demo.invalid` hosts; its result is
 explicitly labeled as emulated, reports zero network latency, and is not evidence that a remote
 host or credential is valid. In real mode,
 credential decryption is limited to an owner-authorized catalog browse or connection test in the
@@ -141,7 +144,7 @@ owner's connected credential only for that request and persist only credential-f
 cache for `PIPELINE_CATALOG_TTL_SECONDS`; credential replacement or deletion invalidates that
 provider's rows. The UI receives a composed catalog factory; it does not construct SQLAlchemy cache
 or credential adapters. Route compatibility is derived from registered source/destination capabilities:
-MSS and PostgreSQL are source-capable, MCS-COP is destination-only, and CSV is source-only.
+MSS, MCS-COP, and PostgreSQL are source- and destination-capable; CSV is source-only.
 Connections status, Pipeline selectors, persistence, enqueue, and transfer execution enforce
 capabilities, route safety, and writer flags independently; hiding an option in the browser is not
 an authorization boundary.

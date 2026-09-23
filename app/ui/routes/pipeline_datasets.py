@@ -62,6 +62,7 @@ class TableOptions(Protocol):
         additional_tables: tuple[str, ...] = (),
         preferred_table: str = "",
         create_label: str = "table",
+        destination: bool = False,
     ) -> Sequence[NodeLike]: ...
 
 
@@ -165,6 +166,7 @@ def register_pipeline_dataset_routes(
                     allow_create=True,
                     preferred_table=CREATE_TABLE_VALUE,
                     create_label="file",
+                    destination=True,
                 ),
             ),
             id="pipeline-target-table-select",
