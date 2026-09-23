@@ -283,6 +283,45 @@ def test_foundry_writer_finalize_streams_committed_upload(foundry_sim, tmp_path)
     ]
 
 
+def test_foundry_writer_rejects_mixed_numeric_batches_before_upload(foundry_sim, tmp_path) -> None:
+    connector = FoundryConnector(_settings(tmp_path))
+    credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
+    locator = FoundryUploadLocator(
+        dataset_rid=DATASET, branch="master", file_name="mixed-types.snappy.parquet"
+    )
+    session = connector.prepare_destination(
+        credentials,
+        locator,
+        ObjectSchema(
+            locator=locator,
+            columns=(ColumnSchema(name="id", data_type="Int64"),),
+        ),
+        FoundryReplaceFilePolicy(),
+        run_id="mixed-numeric-types",
+    )
+    batches = (
+        pl.DataFrame({"id": [9007199254740993]}, schema={"id": pl.Int64}),
+        pl.DataFrame({"id": [1.5]}, schema={"id": pl.Float64}),
+    )
+    for sequence, frame in enumerate(batches, start=1):
+        connector.write_batch(
+            session,
+            TransferBatch(
+                frame=frame,
+                row_count=frame.height,
+                byte_count=int(frame.estimated_size()),
+                sequence=sequence,
+            ),
+        )
+
+    with pytest.raises(ConnectorError) as excinfo:
+        connector.finalize(session)
+
+    assert excinfo.value.code == TransferErrorCode.SCHEMA_DRIFT
+    assert "mixed-types.snappy.parquet" not in foundry_sim.files
+    assert foundry_sim.last_upload_publication == ""
+
+
 def test_foundry_writer_publishes_typed_empty_schema(foundry_sim, tmp_path) -> None:
     connector = FoundryConnector(_settings(tmp_path))
     credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
