@@ -101,9 +101,11 @@ prefer `.venv/bin/python` when that repository virtual environment exists, and o
 
 - health text must identify emulation, report zero network latency, and never claim remote
   authentication or reachability;
-- provider capabilities and metadata limitations must match the live adapters, except demo writers
-  are intentionally enabled;
+- provider capabilities and metadata limitations must match the live adapters; MSS, MCS-COP, and
+  PostgreSQL are source- and destination-capable, while CSV is source-only;
 - catalogs and frozen locators use the saved endpoint/database identity and Foundry branch;
+- credential saves compare normalized bundles, automatically test only new or changed values, and
+  preserve encryption, cache, timestamps, and health status for identical submissions;
 - destination state persists across connector instances for the lifetime of one registry load;
 - demo startup clears catalog-cache rows because emulated remote state does not survive a process
   restart;
@@ -191,7 +193,8 @@ Keep routes thin and make domain rules testable without a browser or database wh
 ### UI visual changes
 
 Use current Hedron primitives, recipes, the built-in Folio theme, and named spacing tokens for new
-presentation. Keep only product-level art direction in `app/static/theme.css`; component behavior
+presentation. Do not add a product theme stylesheet; Hedron 1.1 owns the shell collapse toggle.
+Component behavior
 and interaction states remain owned by Hedron. For a desktop visual pass, exercise the primary
 auth, workspace, form, data, and administration surfaces in both light and dark modes, including
 keyboard focus and browser console output.
@@ -226,6 +229,10 @@ is an intentional integration contract.
 ## Adding or changing a provider
 
 Provider work spans several contracts. Complete all of these before calling the provider supported:
+
+The built-in baseline is symmetric for remote providers: MSS, MCS-COP, and PostgreSQL each support
+source and destination roles, and all three writers default to enabled. CSV is the sole source-only
+provider. Preserve that matrix unless a provider's tested protocol changes.
 
 1. Add typed credential fields in `app/services/secrets_types.py` and register the provider in
    `app/services/secret_catalog.py`.
@@ -312,8 +319,9 @@ in `app/services/pipeline_metadata.py` own provenance labels and deterministic s
 
 The live monitor exposes cancellation, retryable-failure recovery, and reconciliation review. The
 reconciliation review is deliberately an operator acknowledgement, not a destination mutation or
-automatic retry. Preserve the `failed_needs_reconciliation` safety block unless a future provider
-contract adds a verified reconciliation operation.
+automatic retry. Persist the review separately from the uncertainty fact; it authorizes the explicit
+retry path only after operator inspection, while the run history continues to show that the original
+destination state was uncertain.
 
 Never log tokens, passwords, DSNs, raw CSV cells, or decrypted credential payloads. Use the stable
 connector error taxonomy in `app/connectors/errors.py` and redact provider responses before logging.

@@ -73,7 +73,7 @@ def test_secret_slots_render_and_htmx_never_reveals_token(client, htmx, make_use
     assert "Configured" not in deleted.text or "Not configured" in deleted.text
 
 
-def test_postgres_credentials_are_validated_encrypted_and_available_at_run_boundary(
+def test_postgres_credentials_are_saved_tested_and_available_at_run_boundary(
     client, make_user
 ) -> None:
     user = make_user("postgres.credentials@example.gov")
@@ -120,9 +120,9 @@ def test_postgres_credentials_are_validated_encrypted_and_available_at_run_bound
         assert owner is not None and stored is not None
         assert credentials["password"] not in stored.ciphertext
         assert credentials["host"] not in stored.ciphertext
-        assert stored.validation_status == "untested"
-        assert stored.validated_at is None
-        assert "Test the connection" in stored.validation_message
+        assert stored.validation_status == "connected"
+        assert stored.validated_at is not None
+        assert "Emulated connection only" in stored.validation_message
         assert (
             decrypt_user_credentials_for_run(
                 db,
@@ -141,6 +141,95 @@ def test_postgres_credentials_are_validated_encrypted_and_available_at_run_bound
             )
             == credentials["password"]
         )
+
+
+def test_unchanged_connection_is_not_reencrypted_or_retested(
+    client, make_user, monkeypatch
+) -> None:
+    import app.ui.routes.security as security_routes
+
+    user = make_user("unchanged.credentials@example.gov")
+    web_login(client, user.email, USER_PASSWORD)
+    credentials = {
+        "host": "warehouse.internal.example",
+        "port": "5432",
+        "database": "readiness",
+        "username": "relay_service",
+        "password": "database-password-42!",
+        "sslmode": "verify-full",
+        "connect_timeout": "10",
+        "application_name": "data-mover",
+    }
+    original_test = security_routes.test_user_connection
+    calls = 0
+
+    def counted_test(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_test(*args, **kwargs)
+
+    monkeypatch.setattr(security_routes, "test_user_connection", counted_test)
+    page = client.get("/security")
+    first = client.post(
+        "/security/secrets/postgres",
+        data={"csrf_token": csrf_from(page.text), **credentials},
+        headers={"HX-Request": "true", "HX-Target": "secret-slot-postgres"},
+    )
+    assert first.status_code == 200
+    assert calls == 1
+    with SessionLocal() as db:
+        stored = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == "postgres",
+            )
+        )
+        assert stored is not None
+        original_ciphertext = stored.ciphertext
+        original_updated_at = stored.updated_at
+        original_validated_at = stored.validated_at
+
+    unchanged = client.post(
+        "/security/secrets/postgres",
+        data={"csrf_token": csrf_from(page.text), **credentials},
+        headers={"HX-Request": "true", "HX-Target": "secret-slot-postgres"},
+    )
+    assert unchanged.status_code == 200
+    assert "No credential changes detected" in unchanged.text
+    assert calls == 1
+    with SessionLocal() as db:
+        stored = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == "postgres",
+            )
+        )
+        assert stored is not None
+        assert stored.ciphertext == original_ciphertext
+        assert stored.updated_at == original_updated_at
+        assert stored.validated_at == original_validated_at
+
+    changed = client.post(
+        "/security/secrets/postgres",
+        data={
+            "csrf_token": csrf_from(page.text),
+            **credentials,
+            "password": "replacement-database-password-43!",
+        },
+        headers={"HX-Request": "true", "HX-Target": "secret-slot-postgres"},
+    )
+    assert changed.status_code == 200
+    assert calls == 2
+    with SessionLocal() as db:
+        stored = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == "postgres",
+            )
+        )
+        assert stored is not None
+        assert stored.ciphertext != original_ciphertext
+        assert stored.validation_status == "connected"
 
 
 def test_mss_connection_without_dataset_remains_untested(client, make_user) -> None:
@@ -172,8 +261,8 @@ def test_mss_connection_without_dataset_remains_untested(client, make_user) -> N
         },
     )
     assert retested.status_code == 200
-    assert "Untested" in retested.text
-    assert "connection check is incomplete" in retested.text
+    assert "Needs setup" in retested.text
+    assert "default dataset RID" in retested.text
     assert 'id="security-activity"' not in retested.text
 
     with SessionLocal() as db:
@@ -185,9 +274,39 @@ def test_mss_connection_without_dataset_remains_untested(client, make_user) -> N
         )
         assert stored is not None
         assert stored.validation_status == "untested"
+        assert stored.validated_at is not None
 
 
-def test_mcscop_credentials_are_validated_encrypted_and_available_at_run_boundary(
+def test_native_connection_test_failure_stays_visible_with_status_and_reference(
+    client, make_user, monkeypatch
+) -> None:
+    user = make_user("native.connection.failure@example.gov")
+    web_login(client, user.email, USER_PASSWORD)
+    page = client.get("/security")
+    client.post(
+        "/security/secrets/mss",
+        data={
+            "csrf_token": csrf_from(page.text),
+            "endpoint": "https://mss.example",
+            "token": MSS_TOKEN,
+        },
+    )
+
+    def fail_connection(*args, **kwargs):
+        raise SecretStorageError("credential storage is unavailable")
+
+    monkeypatch.setattr("app.ui.routes.security.test_user_connection", fail_connection)
+    response = client.post(
+        "/security/secrets/mss/test",
+        data={"csrf_token": csrf_from(client.get("/security").text)},
+    )
+
+    assert response.status_code == 503
+    assert "connection test could not be completed" in response.text.casefold()
+    assert "ref-" in response.text
+
+
+def test_mcscop_credentials_are_saved_tested_and_available_at_run_boundary(
     client, make_user
 ) -> None:
     user = make_user("mcscop.credentials@example.gov")
@@ -223,7 +342,8 @@ def test_mcscop_credentials_are_validated_encrypted_and_available_at_run_boundar
         )
         assert owner is not None and stored is not None
         assert all(value not in stored.ciphertext for value in credentials.values())
-        assert stored.validation_status == "untested"
+        assert stored.validation_status == "connected"
+        assert stored.validated_at is not None
         assert (
             decrypt_user_credentials_for_run(
                 db,
@@ -301,9 +421,14 @@ def test_secret_validation_ownership_and_tampering(client, make_user) -> None:
 
     whitespace = client.post(
         "/security/secrets/mss",
-        data={"csrf_token": csrf, "token": " token-with-whitespace "},
+        data={
+            "csrf_token": csrf,
+            "endpoint": "https://mss.example",
+            "token": " token-with-whitespace ",
+        },
     )
     assert whitespace.status_code == 400
+    assert "API tokens must contain" in whitespace.text
 
     unknown = client.post(
         "/security/secrets/custom",

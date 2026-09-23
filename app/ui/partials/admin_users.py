@@ -57,8 +57,9 @@ def user_table(
     total_users: int | None = None,
     page_size: int = 50,
 ) -> Component[Any]:
-    """Directory body with Hedron Table; action cells keep Form/Dialog nodes."""
+    """Directory with native table actions and independently composed dialogs."""
     rows: list[list[NodeLike]] = []
+    dialogs: list[NodeLike] = []
     for user in users:
         actions: list[NodeLike] = []
         if user.status == UserStatus.PENDING.value:
@@ -107,24 +108,26 @@ def user_table(
             )
             if is_active:
                 actions.append(
-                    html.div(
-                        Button(
-                            action_label,
-                            type="button",
-                            variant="secondary",
-                            size="sm",
-                            attrs={"data-hedron-dialog-open": f"#{dialog_id}"},
+                    Button(
+                        action_label,
+                        type="button",
+                        variant="secondary",
+                        size="sm",
+                        attrs={"data-hedron-dialog-open": f"#{dialog_id}"},
+                    )
+                )
+                # Outside the end-aligned cell, native dialog copy cannot inherit
+                # table alignment and no application text-align override is needed.
+                dialogs.append(
+                    Dialog(
+                        "Disable account",
+                        html.p(
+                            f"Disable {user.email_original}? "
+                            "Active sessions for this account will be revoked."
                         ),
-                        Dialog(
-                            "Disable account",
-                            html.p(
-                                f"Disable {user.email_original}? "
-                                "Active sessions for this account will be revoked."
-                            ),
-                            toggle_form,
-                            id=dialog_id,
-                            open=False,
-                        ),
+                        toggle_form,
+                        id=dialog_id,
+                        open=False,
                     )
                 )
             else:
@@ -199,6 +202,7 @@ def user_table(
         )
     return Stack(
         table,
+        *dialogs,
         hedron_pagination(
             page=page,
             page_size=page_size,
@@ -375,40 +379,47 @@ def invitation_panel(
         alert_box(success, kind="success"),
         Form(
             csrf_hidden(csrf_token),
-            FormField(
-                name="email",
-                label="Government email",
-                id="invite_email",
-                required=True,
-                error=email_error or None,
-                control=TextInput(
-                    "email",
+            FormGrid(
+                FormField(
+                    name="email",
+                    label="Government email",
                     id="invite_email",
-                    type="email",
                     required=True,
-                ),
-            ),
-            FormField(
-                name="role",
-                label="Initial role",
-                id="invite_role",
-                required=True,
-                error=role_error or None,
-                control=Select(
-                    "role",
-                    [(role.name, role.name.title()) for role in roles],
-                    id="invite_role",
-                    required=True,
-                    value=(
-                        "user"
-                        if any(role.name == "user" for role in roles)
-                        else roles[0].name
-                        if roles
-                        else None
+                    error=email_error or None,
+                    control=TextInput(
+                        "email",
+                        id="invite_email",
+                        type="email",
+                        required=True,
                     ),
                 ),
+                FormField(
+                    name="role",
+                    label="Initial role",
+                    id="invite_role",
+                    required=True,
+                    error=role_error or None,
+                    control=Select(
+                        "role",
+                        [(role.name, role.name.title()) for role in roles],
+                        id="invite_role",
+                        required=True,
+                        value=(
+                            "user"
+                            if any(role.name == "user" for role in roles)
+                            else roles[0].name
+                            if roles
+                            else None
+                        ),
+                    ),
+                ),
+                columns=2,
+                gap="md",
             ),
-            Button("Send invitation", width="full", type="submit"),
+            ActionGroup(
+                Button("Send invitation", type="submit"),
+                align="end",
+            ),
             action=form_action(request, "admin/invitations"),
             method="post",
             **hx_attrs(
@@ -419,16 +430,19 @@ def invitation_panel(
                 indicator=INDICATOR,
             ),
         ),
-        ResourceList(
-            *pending_rows,
-            label="Invitation history",
-            density="comfortable",
-        )
-        if pending_rows
-        else StateView(
-            "No invitations yet.",
-            kind="empty",
-            description="Sent invitations and their current status will appear here.",
+        Stack(
+            ResourceList(
+                *pending_rows,
+                label="Invitation history",
+                density="comfortable",
+            )
+            if pending_rows
+            else StateView(
+                "No invitations yet.",
+                kind="empty",
+                description="Sent invitations and their current status will appear here.",
+            ),
+            gap="md",
         ),
         id="invitation-panel",
     )

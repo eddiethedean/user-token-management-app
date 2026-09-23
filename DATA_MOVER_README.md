@@ -33,7 +33,8 @@ without being able to reveal users' saved credentials.
 ## What the project provides
 
 - **User-owned connections** to supported data systems, with saved credentials protected at rest.
-- **Connection validation** before a system is offered for use in a transfer route.
+- **Change-aware connection validation** that tests new or changed bundles automatically while
+  preserving the latest result for identical resubmissions.
 - **Catalog browsing** using terminology appropriate to each provider, such as PostgreSQL tables or
   Foundry datasets, branches, and files.
 - **Reusable pipelines** that capture a source, destination, object selection, and write policy.
@@ -50,17 +51,18 @@ capability-driven rather than a fixed pair-by-pair allowlist:
 | Source | Destination | Availability |
 |---|---|---|
 | MSS | MSS, PostgreSQL, MCS-COP | Supported when the destination writer is enabled |
+| MCS-COP | MSS, PostgreSQL, MCS-COP | Supported when the destination writer is enabled |
 | PostgreSQL | PostgreSQL, MSS, MCS-COP | Supported when the destination writer is enabled |
 | CSV upload | PostgreSQL, MSS, MCS-COP | Supported when the destination writer is enabled |
 
-MCS-COP is destination-only and CSV is source-only. Same-system routes must use different objects;
-the builder rejects a PostgreSQL table-to-itself route and Foundry outputs that overlap their source
-files. A route is shown only when the source/destination capabilities are compatible, the required
-connection is ready, and the destination writer is enabled.
+CSV is source-only. Same-system routes must use different objects; the builder rejects a PostgreSQL
+table-to-itself route and Foundry outputs that overlap their source files. A route is shown only when
+the source/destination capabilities are compatible, the required connection is ready, and the
+destination writer is enabled.
 
-“Supported” describes an implemented route, not its deployment state. PostgreSQL writing is enabled
-by default; real MSS and MCS-COP writers remain opt-in through `PIPELINE_ENABLE_MSS_WRITER` and
-`PIPELINE_ENABLE_MCSCOP_WRITER` after provider and deployment approval.
+“Supported” describes an implemented route, not its deployment state. PostgreSQL, MSS, and MCS-COP
+writing are enabled by default; operators can disable a writer through its
+`PIPELINE_ENABLE_*_WRITER` setting.
 
 Advana, MongoDB, and arbitrary custom workloads are outside the current project scope.
 

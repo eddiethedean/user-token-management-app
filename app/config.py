@@ -68,6 +68,7 @@ class ConfigDefaults:
     email_retry_max_seconds: int = 3_600
     email_claim_timeout_seconds: int = 300
     email_from: str = "Data Mover <no-reply@example.gov>"
+    log_format: Literal["text", "json"] = "text"
     smtp_port: int = 25
     smtp_allow_legacy_port25_fallback: bool = False
     password_hash_scheme: Literal["argon2", "pbkdf2_sha256"] = "argon2"
@@ -91,8 +92,8 @@ class ConfigDefaults:
     pipeline_run_retention_days: int = 90
     pipeline_event_retention_days: int = 30
     pipeline_enable_postgres_writer: bool = True
-    pipeline_enable_mss_writer: bool = False
-    pipeline_enable_mcscop_writer: bool = False
+    pipeline_enable_mss_writer: bool = True
+    pipeline_enable_mcscop_writer: bool = True
     pipeline_apply_internal_ca_fix: bool = False
 
 
@@ -206,6 +207,7 @@ class Settings(BaseSettings):
         max_length=320,
         validation_alias=AliasChoices("EMAIL_FROM", "SMTP_FROM_EMAIL"),
     )
+    log_format: Literal["text", "json"] = CONFIG_DEFAULTS.log_format
     smtp_host: str = ""
     smtp_port: int = Field(default=CONFIG_DEFAULTS.smtp_port, ge=1, le=65535)
     smtp_allow_legacy_port25_fallback: bool = CONFIG_DEFAULTS.smtp_allow_legacy_port25_fallback

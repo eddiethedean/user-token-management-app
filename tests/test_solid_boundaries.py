@@ -72,9 +72,19 @@ def test_create_app_uses_its_composition_for_database_and_settings(tmp_path) -> 
     settings = _settings(tmp_path, "web.db")
     instance = create_app(settings)
     Base.metadata.create_all(instance.state.composition.database.engine)
+
+    @instance.get("/test-unexpected-feedback", include_in_schema=False)
+    def unexpected_feedback():
+        raise RuntimeError("synthetic unexpected failure")
+
     with TestClient(instance) as client:
         assert client.get("/health").status_code == 200
         assert client.get("/ready").status_code == 200
+        response = client.get("/test-unexpected-feedback", headers={"Accept": "text/html"})
+        assert response.status_code == 500
+        assert "Reference: ref-" in response.text
+        assert response.headers["X-Request-ID"] != response.headers["X-Support-Reference"]
+    assert Exception in instance.exception_handlers
 
 
 def test_pipeline_use_case_validates_values_before_store() -> None:
@@ -264,17 +274,27 @@ def test_security_connection_check_uses_the_request_runtime_database(tmp_path, m
         )
         db.commit()
 
+    observed = {}
+
     def connection_check(db, **kwargs):
+        observed["request"] = kwargs["request"]
         return db.get(User, kwargs["user"].id).email
 
     monkeypatch.setattr("app.ui.routes.security.test_user_connection", connection_check)
     try:
         result = asyncio.run(
             first.execution.run_owned_sync(
-                _test_user_connection_in_thread, first.settings, "first-user", "postgres"
+                _test_user_connection_in_thread,
+                first.settings,
+                "first-user",
+                "postgres",
+                "request-1",
+                "ref-1",
             )
         )
         assert result == "first@example.gov"
+        assert observed["request"].request_id == "request-1"
+        assert observed["request"].reference_id == "ref-1"
     finally:
         first.close()
         second.close()

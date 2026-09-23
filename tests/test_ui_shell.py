@@ -25,14 +25,11 @@ from starlette.requests import Request
 from app.config import Settings
 from app.ui import partials as ui
 from app.ui.design_system import (
-    APP_SHELL_NAV_STYLE_CLASS,
     DATA_MOVER_DESIGN,
-    DATA_MOVER_MOTION_RECIPES,
     DATA_MOVER_PRESENTATION,
-    DATA_MOVER_SCOPED_STYLES,
     DATA_MOVER_THEME_EXPORT,
-    PROCESS_FLOW_STEP_STYLE_CLASS,
     DataMoverPageHeader,
+    stacked_surface,
 )
 from app.ui.forms import submit_button
 from app.ui.hedron_styles import desktop_default_styles
@@ -81,11 +78,14 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Sign in")
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
-    assert_html_contains(response, 'href="/app-assets/hedron-desktop.css?v=3"')
-    assert_html_contains(response, 'href="/assets/theme.css?v=20"')
-    assert_html_contains(response, 'href="/app-assets/data-mover-components.css?v=13"')
-    assert_html_contains(response, 'src="/assets/app.js?v=14"')
-    assert response.body.count('src="/assets/app.js?v=14"') == 1
+    assert_html_contains(
+        response,
+        'href="/app-assets/hedron-desktop.css?v=220926.0&amp;shell=5"',
+    )
+    assert "/assets/theme.css" not in response.body
+    assert "/app-assets/data-mover-components.css" not in response.body
+    assert_html_contains(response, 'src="/assets/app.js?v=220926.0"')
+    assert response.body.count('src="/assets/app.js?v=220926.0"') == 1
     assert_html_contains(response, 'data-hedron-theme="folio"')
     assert_html_contains(
         response,
@@ -95,7 +95,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'name="color-scheme" content="dark"')
     assert_html_contains(response, 'src="/assets/brand/data-mover-mark-dark.png?v=1"')
     assert_html_contains(response, 'class="hedron-brand data-mover-brand"')
-    assert_html_contains(response, 'width="48"')
+    assert_html_contains(response, 'width="36"')
     assert_html_contains(response, 'src="/assets/brand/cdao-mark.png?v=1"')
     assert_html_contains(response, "Chief Digital and Artificial Intelligence Office")
     assert_html_contains(response, 'data-hedron-max-width="lg"')
@@ -105,7 +105,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Continue to workspace")
     assert_html_contains(response, "Test demo workspace")
     assert_html_contains(response, "Test environment · Transfers are simulated")
-    assert_html_contains(response, "Version 170926.1")
+    assert_html_contains(response, "Version 220926.0")
     assert_html_contains(response, "Demo mode")
     assert response.body.index('name="password"') < response.body.index("Forgot password?")
     assert "Sandbox" not in response.body
@@ -118,17 +118,48 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(light, 'src="/assets/brand/data-mover-mark-light.png?v=1"')
 
 
-def test_live_production_shell_reports_effective_runtime_mode() -> None:
+@pytest.mark.parametrize("path", ["/login", "/register", "/password/forgot"])
+@pytest.mark.parametrize("cookie", [None, "invalid"])
+def test_auth_pages_default_to_dark_without_valid_preference(access_app, path, cookie) -> None:
+    fixture = fastapi_fixture(access_app)
+    cookies = {} if cookie is None else {"data_mover_color_mode": cookie}
+    response = fixture.get(path, cookies=cookies)
+    assert_html_contains(response, 'data-theme="dark"')
+    assert_html_contains(response, 'name="color-scheme" content="dark"')
+    assert_html_contains(response, 'src="/assets/brand/data-mover-mark-dark.png?v=1"')
+
+
+def test_shell_defaults_to_dark_without_browser_preference() -> None:
+    settings = Settings.model_construct(app_env="test", app_name="Data Mover")
+    rendered = render_html(
+        app_shell(
+            "Workspace content",
+            request=_request(),
+            settings=settings,
+            auth=None,
+            page_title="Workspace",
+        )
+    )
+    assert 'data-theme="dark"' in rendered
+    assert 'name="color-scheme" content="dark"' in rendered
+
+
+@pytest.mark.parametrize("color_mode", ["light", "dark"])
+def test_live_production_shell_reports_effective_runtime_mode(color_mode) -> None:
     live_settings = Settings.model_construct(
         app_env="production",
         app_name="Data Mover",
         data_mover_mode="real",
     )
 
+    request = _request()
+    request.scope["headers"] = [
+        (b"cookie", f"data_mover_color_mode={color_mode}".encode()),
+    ]
     rendered = render_html(
         app_shell(
             "Live content",
-            request=_request(),
+            request=request,
             settings=live_settings,
             auth=None,
             page_title="Live",
@@ -139,7 +170,13 @@ def test_live_production_shell_reports_effective_runtime_mode() -> None:
     assert "Transfers use configured endpoints and may change remote systems" in rendered
     assert "Production environment · Remote systems may be changed" in rendered
     assert "Live transfers" in rendered
-    assert "Version 170926.1" in rendered
+    assert f'data-theme="{color_mode}"' in rendered
+    assert re.search(
+        r'class="hedron-environment-banner"[^>]*role="status"[^>]*'
+        r'data-hedron-environment-banner="true"[^>]*data-hedron-tone="danger"',
+        rendered,
+    )
+    assert "Version 220926.0" in rendered
     assert "Demo" not in rendered
     assert "Sandbox" not in rendered
 
@@ -161,7 +198,11 @@ def test_login_presentation_preserves_auth_and_runtime_contract(access_app, mode
     assert 'name="preauth_csrf_token"' in rendered
     assert 'name="next" value="/security"' in rendered
     assert "data-mover-login-card" in rendered
-    assert 'data-hedron-split-ratio="1-1"' in rendered
+    assert "data-mover-login-illustration" in rendered
+    assert "Secure transfer workflow" not in rendered
+    assert "hedron-process-flow" not in rendered
+    assert "Approved systems" in rendered
+    assert "A clear audit trail" in rendered
     if mode == "demo":
         assert "Demo workspace · No external systems are contacted." in rendered
     else:
@@ -178,6 +219,69 @@ def test_login_presentation_preserves_auth_and_runtime_contract(access_app, mode
         assert 'autocomplete="username"' in rendered
         assert 'href="/password/forgot"' in rendered
         assert 'href="/register"' in rendered
+
+
+def test_login_support_reference_has_a_copy_action(access_app) -> None:
+    from app.dependencies import get_settings
+    from app.ui.partials.auth import render_login_page
+
+    request = _request()
+    request.scope["app"] = access_app
+    response = render_login_page(
+        request,
+        get_settings(),
+        error="We could not complete sign-in.",
+        error_reference="req-12345",
+    )
+    rendered = bytes(response.body).decode()
+
+    assert "Reference: req-12345" in rendered
+    assert "Copy support reference" in rendered
+
+
+def test_invitation_panel_uses_native_grid_and_spaced_history() -> None:
+    html = render_html(
+        ui.invitation_panel(
+            _request(),
+            [],
+            [SimpleNamespace(name="user")],  # pyright: ignore[reportArgumentType]
+            csrf_token="invite-csrf",  # pyright: ignore[reportArgumentType]
+        )
+    )
+
+    assert 'data-hedron-columns="2"' in html
+    assert "Send invitation" in html
+    assert "No invitations yet." in html
+    assert 'class="hedron-stack"' in html
+
+
+def test_audit_details_are_revealed_by_native_disclosure() -> None:
+    from datetime import datetime
+
+    audit_event = SimpleNamespace(
+        occurred_at=datetime(2026, 9, 22, 12, 0),
+        event_type="auth.login",
+        outcome="failure",
+        source_ip="127.0.0.1",
+        detail='{"reason":"invalid_credentials","reference_id":"req-12345"}',
+    )
+    rendered = render_html(
+        ui.audit_results_body(
+            _request(),
+            [audit_event],  # pyright: ignore[reportArgumentType]
+            event_type_filter="",
+            outcome_filter="",
+            current_page=1,
+            page_count=1,
+            total_events=1,
+        )
+    )
+
+    assert "View details" in rendered
+    assert '<details class="hedron-expander">' in rendered
+    assert "invalid_credentials" in rendered
+    assert "req-12345" in rendered
+    assert 'title="' not in rendered
 
 
 def test_login_success_notice_remains_visible(access_app):
@@ -201,34 +305,12 @@ def test_brand_images_are_valid_png_responses(client) -> None:
 
 def test_hedron_theme_export_preserves_native_component_appearances(access_app) -> None:
     fixture = fastapi_fixture(access_app)
-    response = fixture.get("/app-assets/data-mover-components.css")
-    assert response.status_code == 200
-    assert DATA_MOVER_SCOPED_STYLES.css in response.body
-    assert DATA_MOVER_THEME_EXPORT.css not in response.body
-    # Generic component bundle rules would override the native appearance
-    # selectors and make secondary/danger controls look like primary actions.
-    assert "button.hedron-button {" not in response.body
-    assert "--hedron-color-bg:" not in response.body
-    assert "--hedron-color-accent:" not in response.body
     login_page = fixture.get("/login")
     assert 'data-hedron-environment-banner="true"' in login_page.body
     assert 'data-hedron-max-width="xl"' in login_page.body
     assert 'data-hedron-ambient-pattern="radial"' in login_page.body
-    assert "data-mover-login-header" in login_page.body
-    theme = fixture.get("/assets/theme.css")
-    assert theme.status_code == 200
-    assert "radial-gradient" not in theme.body
-    assert ":has(" not in theme.body
-    assert ".hedron-text-input" not in theme.body
-    assert ".hedron-app-shell-nav" not in theme.body
-    assert ".hedron-card::before" not in theme.body
-    assert '[data-hedron-mark="color-mode-toggle"] input::before' in theme.body
-    assert ".data-mover-password-field > input" not in theme.body
-    assert "@media (min-width: 36rem)" in theme.body
-    assert "> .data-mover-nav-footer" not in theme.body
-    assert ".data-mover-side-nav > :last-child" not in theme.body
-    assert "stroke='%23b66a00'" in theme.body
-    assert "fill='%237c86ff'" in theme.body
+    assert "/assets/theme.css" not in login_page.body
+    assert "/app-assets/data-mover-components.css" not in login_page.body
     desktop_styles = fixture.get("/app-assets/hedron-desktop.css")
     assert desktop_styles.status_code == 200
     assert desktop_styles.headers["content-type"].startswith("text/css")
@@ -239,19 +321,23 @@ def test_hedron_theme_export_preserves_native_component_appearances(access_app) 
     assert re.search(r"@media\s*\([^)]*hover\s*:\s*none", desktop_styles.body, re.IGNORECASE)
     assert re.search(r"@media\s*\([^)]*min-width\s*:", desktop_styles.body, re.IGNORECASE)
     assert "@media (prefers-reduced-motion: reduce)" in desktop_styles.body
+    assert "--hedron-nav-width: 12rem;" in desktop_styles.body
+    assert ".data-mover-app-shell {" not in desktop_styles.body
+    assert ".data-mover-nav-footer {" not in desktop_styles.body
     assert 'href="/hedron-static/hedron-default.css"' not in fixture.get("/login").body
 
 
-def test_document_head_can_disable_custom_theme() -> None:
+def test_document_head_uses_native_styles_only() -> None:
     rendered = render_html(
         document_head(
             request=_request(),
             page_title="Theme experiment",
             app_name="Data Mover",
-            custom_theme_enabled=False,
         )
     )
     assert "/assets/theme.css" not in rendered
+    assert "/app-assets/hedron-desktop.css" in rendered
+    assert "/assets/navigation.css" not in rendered
 
 
 def test_hedron_063_design_system_and_action_recipe() -> None:
@@ -276,29 +362,6 @@ def test_hedron_063_design_system_and_action_recipe() -> None:
     rendered = render_html(submit_button("Run transfer"))
     assert 'data-hedron-appearance="solid"' in rendered
     assert 'data-hedron-emphasis="primary"' in rendered
-
-
-def test_hedron_065_scoped_motion_and_application_style_contract(access_app) -> None:
-    from hedron_core.registry import get_registry
-
-    assert set(DATA_MOVER_MOTION_RECIPES) == {
-        "instant",
-        "standard",
-        "emphasized",
-        "reveal",
-        "elevate",
-        "crossfade",
-    }
-    assert PROCESS_FLOW_STEP_STYLE_CLASS in DATA_MOVER_SCOPED_STYLES.css
-    assert APP_SHELL_NAV_STYLE_CLASS in DATA_MOVER_SCOPED_STYLES.css
-    assert 'data-hedron-state~="current"' in DATA_MOVER_SCOPED_STYLES.css
-    assert "@media (min-width: 56rem) and (max-width: 90rem)" in DATA_MOVER_SCOPED_STYLES.css
-    assert "prefers-reduced-motion" not in DATA_MOVER_SCOPED_STYLES.css
-    styles = get_registry().application_styles()
-    assert [style.name for style in styles] == ["data-mover-art-direction"]
-    styles = list(styles)
-    assert styles[0].layer == "application"
-    assert styles[0].global_ is True
 
 
 def test_hedron_066_typography_and_context_contract(access_app) -> None:
@@ -326,6 +389,51 @@ def test_hedron_064_theme_export_is_conformant() -> None:
     exported = DATA_MOVER_THEME_EXPORT.to_dict()
     assert exported["design_tokens"]
     assert exported["conformance"]["ok"] is True
+
+
+def test_folio_visual_pass_uses_native_display_and_surface_composition(access_app) -> None:
+    fixture = fastapi_fixture(access_app)
+    login = fixture.get("/login")
+    assert 'data-hedron-theme="folio"' in login.body
+    assert 'class="hedron-heading hedron-type-display"' in login.body
+    assert "Move data. Keep control." in login.body
+    assert 'data-hedron-ambient-pattern="grid"' not in login.body
+    assert 'data-hedron-ambient-placement="fixed-canvas"' in login.body
+
+    inset = render_html(
+        DATA_MOVER_DESIGN.apply("data-mover-inset", stacked_surface("Heading", "Body"))
+    )
+    assert 'data-hedron-appearance="raised"' in inset
+    assert 'data-hedron-elevation="none"' in inset
+    assert 'class="hedron-stack" data-hedron-gap="md"' in inset
+
+
+@pytest.mark.parametrize(
+    ("path", "columns"),
+    [("/profile", 3), ("/admin/users", 3), ("/security", 2), ("/pipeline", 2)],
+)
+def test_desktop_panels_reflow_with_native_folio_grids(access_app, path, columns) -> None:
+    fixture = fastapi_fixture(access_app)
+    login = fixture.get("/login")
+    page = fixture.post(
+        "/login",
+        data={
+            "email": "admin@example.gov",
+            "password": "Tr0pic-Maple!River92",
+            "preauth_csrf_token": _preauth_token(login.body),
+            "next": path,
+        },
+    )
+    assert_page_document(page)
+    assert 'data-hedron-theme="folio"' in page.body
+    assert f'data-hedron-columns="1" data-hedron-columns-xl="{columns}"' in page.body
+    assert 'data-hedron-shell-header-density="standard"' in page.body
+    assert 'data-hedron-shell-header="static"' in page.body
+    assert 'data-hedron-shell-nav-offset="none"' in page.body
+    assert 'data-hedron-nav-footer-collapsed="show"' in page.body
+    assert 'data-hedron-ambient-placement="fixed-canvas"' in page.body
+    assert 'data-hedron-ambient-pattern="grid"' not in page.body
+    assert_ui_targets_subset_of_regions(page.body, APP_REGIONS)
 
 
 def test_hedron_064_presentation_contract_is_available() -> None:
@@ -431,8 +539,8 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
     assert 'hx-swap="none"' in signed_in.text
     assert 'class="hedron-account-summary data-mover-account-summary"' in signed_in.text
     assert 'class="hedron-account-copy"' in signed_in.text
-    assert 'data-hedron-nav-collapse="user"' in signed_in.text
-    assert 'data-hedron-mobile-collapse="off"' not in signed_in.text
+    assert 'data-hedron-nav-collapse="never"' in signed_in.text
+    assert 'class="hedron-app-shell-nav-toggle"' not in signed_in.text
     assert re.search(
         r'<a[^>]*href="/profile"[^>]*data-hedron-account-summary="true"',
         signed_in.text,
@@ -607,12 +715,13 @@ def test_user_directory_fragment_render() -> None:
     assert "No users found." in html
 
 
-def test_user_directory_groups_account_identity_in_one_column() -> None:
+@pytest.mark.parametrize("status", ["disabled", "active"])
+def test_user_directory_groups_account_identity_in_one_column(status) -> None:
     user = SimpleNamespace(
         id="user-1",
         email_original="ada@example.gov",
         full_name="Ada Lovelace",
-        status="disabled",
+        status=status,
         role_names=["user"],
     )
     html = render_html(
@@ -633,6 +742,9 @@ def test_user_directory_groups_account_identity_in_one_column() -> None:
     assert 'data-hedron-density="compact"' in html
     assert 'data-hedron-sticky-header="true"' in html
     assert 'data-hedron-zebra="true"' in html
+    if status == "active":
+        assert 'data-hedron-dialog-open="#toggle-user-user-1"' in html
+        assert html.index("</table>") < html.index('<dialog id="toggle-user-user-1"')
 
 
 def test_session_list_and_secret_slot_render_html() -> None:
@@ -693,9 +805,11 @@ def test_session_list_and_secret_slot_render_html() -> None:
             csrf_token="sec-csrf",
         )
     )
-    assert "Replace credentials" in configured_slot
+    assert "Save and test changes" in configured_slot
     assert "Delete connection" in configured_slot
-    assert configured_slot.index("Replace credentials") < configured_slot.index("Delete connection")
+    assert configured_slot.index("Save and test changes") < configured_slot.index(
+        "Delete connection"
+    )
 
     postgres_provider = next(
         provider for provider in SECRET_PROVIDERS if provider.name == "postgres"
@@ -708,7 +822,6 @@ def test_session_list_and_secret_slot_render_html() -> None:
     assert "Find these values in pgAdmin" in postgres
     assert "Login/Group Roles has the username" in postgres
     assert "pgAdmin cannot reveal an existing role password" in postgres
-    assert "data-mover-postgres-options-grid" in postgres
     assert all(
         f'id="postgres-{field}"' in postgres
         for field in ("host", "port", "database", "username", "password", "sslmode")
@@ -785,8 +898,8 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, 'id="side-nav"')
     assert_html_contains(profile, 'class="hedron-app-shell-nav data-mover-side-nav"')
     assert profile.body.count('data-hedron-variant="workspace"') >= 2
-    assert_html_contains(profile, 'data-hedron-nav-toggle="true"')
-    assert_html_contains(profile, 'data-hedron-nav-preference="data-mover-nav-collapsed"')
+    assert 'class="hedron-app-shell-nav-toggle"' not in profile.body
+    assert "data-hedron-nav-preference=" not in profile.body
     assert_html_contains(profile, 'data-hedron-icon="data-mover-pipeline"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-connections"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-account"')
@@ -875,7 +988,8 @@ def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:
     assert_html_contains(adapter, "security-tabs")
     assert_html_contains(adapter, "hx-swap-oob")
     assert_html_contains(adapter, "data-mover-nav-footer")
-    assert_html_contains(adapter, "Demo mode · Credentials encrypted")
+    assert_html_contains(adapter, "Demo mode")
+    assert_html_contains(adapter, "Credentials encrypted")
     assert_html_contains(adapter, 'data-hedron-icon="data-mover-team"')
     assert_html_contains(adapter, 'data-hedron-icon="data-mover-activity"')
     assert "<!doctype" not in security.text.lower()

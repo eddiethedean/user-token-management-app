@@ -2,7 +2,52 @@
 
 ## [Unreleased]
 
-Future changes will be listed here.
+### Changed
+
+- Enabled MSS, MCS-COP, and PostgreSQL as both pipeline sources and destinations by default while
+  keeping CSV source-only; operator writer flags can still disable individual remote destinations.
+- Connection saves now test new or changed credential bundles automatically. Identical normalized
+  submissions preserve the encrypted value and latest health result without retesting.
+- Added user-feedback and troubleshooting outcomes for sign-in, account recovery, connection
+  readiness, and pipeline execution. Added opaque support references, structured redacted events,
+  JSON/level logging configuration, and migration `0017_connection_feedback`.
+- Removed the product theme stylesheet and scoped workflow CSS in favor of stock Folio,
+  native Hedron recipes, typography, grids, surfaces, process flows, and color-mode controls.
+- Balanced shell branding with native container padding and account separation with a Divider.
+- Made the workspace header scroll naturally, eliminating sticky-header content overlap.
+- Retained only a navigation-collapse compatibility stylesheet because Hedron 1.0.18 does not
+  expose toggle appearance/icon props.
+- Simplified the sign-in workflow illustration into a compact native icon-and-caption row,
+  removing oversized status cards, sequence numbers, and decorative tracks.
+
+## [220926.0] — 2026-09-22
+
+### Changed
+
+- Bumped the application version for the desktop feedback improvements to sign-in support,
+  invitation and audit details, and pipeline run status.
+
+## [180926.3] — 2026-09-18
+
+### Changed
+
+- Bumped the release version for the Folio-native desktop visual refinement and verified
+  production live-mode banner contrast in light and dark themes.
+
+## [180926.2] — 2026-09-18
+
+### Fixed
+
+- Kept the sticky workspace header opaque while scrolling so page content cannot bleed through
+  the header controls.
+
+## [180926.1] — 2026-09-18
+
+### Changed
+
+- Bumped the release version for the Connect styling cache-busting deployment fix.
+
+## [180926.0] — 2026-09-18
 
 ### Changed
 
@@ -11,6 +56,11 @@ Future changes will be listed here.
   workspace, connection, account, team, and audit surfaces around its typography and palette.
 - Replaced bespoke navigation collapse, split-layout, password-field, form-control, login-surface,
   and dataset-feedback styling with Hedron's native components and presentation props where available.
+- Refreshed documentation screenshots and the demo screenshot guide for the desktop visual update.
+- Made dark mode the consistent default across sign-in, onboarding, and workspace pages while
+  preserving saved user preferences; newly created accounts start in dark mode.
+- Versioned application-owned CSS and JavaScript URLs with the release version so Connect redeploys
+  cannot reuse stale cached styling assets.
 
 ## [170926.1] — 2026-09-17
 

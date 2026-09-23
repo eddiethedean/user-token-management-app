@@ -17,10 +17,9 @@ from urllib.parse import urlencode
 from fastapi import HTTPException, Request, Response, status
 from fastapi.exception_handlers import (
     http_exception_handler,
-    request_validation_exception_handler,
 )
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from hedron import Heading, RenderMode, html
 from hedron.htmx import is_htmx_request
@@ -32,24 +31,30 @@ from sqlalchemy import text
 from starlette._utils import get_route_path
 
 from app import APP_VERSION
+from app.application.feedback import request_failure
 from app.config import get_settings
 from app.dependencies import clear_auth_cookies, set_auth_cookies
 from app.infrastructure.catalog_factory import build_catalog_runner
 from app.infrastructure.pipeline_authoring import build_pipeline_authoring_operation
-from app.logging_config import bind_request_id, clear_request_id, configure_logging
+from app.logging_config import (
+    bind_reference,
+    bind_request_id,
+    clear_request_id,
+    configure_logging,
+    log_event,
+    safe_exception_traceback,
+)
 from app.schema import assert_schema_current
 from app.security.cookies import APPLICATION_COOKIE_NAMES
 from app.services.auth import ensure_default_roles
-from app.ui.design_system import (
-    DATA_MOVER_SCOPED_STYLES,
-    surface_card,
-)
+from app.ui.design_system import surface_card
 from app.ui.hedron_styles import desktop_default_styles
 from app.ui.interactions import (
     ERROR_RESPONSE_POLICY,
     htmx_redirect,
     interaction_response,
     ok_fragment,
+    request_feedback_oob,
 )
 from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
@@ -61,6 +66,80 @@ configure_logging()
 settings = get_settings()
 log = logging.getLogger(__name__)
 REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}\Z")
+
+
+def _safe_request_id(value: str) -> str:
+    return value if REQUEST_ID_PATTERN.fullmatch(value) else str(uuid.uuid4())
+
+
+def _log_admission_failure(*, request_id: str, reference_id: str, method: str, path: str) -> None:
+    bind_request_id(request_id)
+    bind_reference(reference_id=reference_id)
+    try:
+        log_event(
+            log,
+            "http.request.completed",
+            outcome="error",
+            request_id=request_id,
+            reference_id=reference_id,
+            method=method,
+            path=path,
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            duration_ms=0,
+        )
+    finally:
+        clear_request_id()
+
+
+async def _admission_response(scope: dict, receive, send) -> None:
+    """Return a referenceable response when runtime admission is unavailable."""
+
+    headers = dict(scope.get("headers", ()))
+    supplied = headers.get(b"x-request-id", b"")
+    request_id = _safe_request_id(supplied.decode("latin-1", errors="ignore"))
+    reference_id = f"ref-{uuid.uuid4().hex[:16]}"
+    path = get_route_path(scope)
+    _log_admission_failure(
+        request_id=request_id,
+        reference_id=reference_id,
+        method=str(scope.get("method", "")),
+        path=path,
+    )
+    response = Response(
+        content=f"Data Mover is temporarily unavailable. Reference: {reference_id}.",
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        media_type="text/plain",
+        headers={
+            "X-Request-ID": request_id,
+            "X-Support-Reference": reference_id,
+            "Cache-Control": "no-store",
+        },
+    )
+    await response(scope, receive, send)
+
+
+def _service_unavailable_response(request: Request) -> Response:
+    """Return the same referenceable admission response from request middleware."""
+
+    request_id = _safe_request_id(request.headers.get("x-request-id", ""))
+    reference_id = f"ref-{uuid.uuid4().hex[:16]}"
+    _log_admission_failure(
+        request_id=request_id,
+        reference_id=reference_id,
+        method=request.method,
+        path=request.url.path,
+    )
+    return Response(
+        content=f"Data Mover is temporarily unavailable. Reference: {reference_id}.",
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        media_type="text/plain",
+        headers={
+            "X-Request-ID": request_id,
+            "X-Support-Reference": reference_id,
+            "Cache-Control": "no-store",
+        },
+    )
+
 
 # Data Mover owns CSRF; disable Hedron's Starlette-session CSRF.
 AR_SECURITY = access_registry_security_policy()
@@ -201,16 +280,6 @@ app.state.runtime_lifecycle = "not_started"
 
 static_directory = Path(__file__).resolve().parent / "static"
 
-# Register product CSS with Hedron's 0.65 application-style catalog so future
-# Registry inspection sees its provenance without exposing a host path.
-app.styles(
-    name="data-mover-art-direction",
-    source=static_directory / "theme.css",
-    global_=True,
-    layer="application",
-    allowed_roots=(static_directory.parent.parent,),
-)
-
 
 @app.get("/app-assets/hedron-desktop.css", include_in_schema=False)
 def hedron_desktop_styles() -> Response:
@@ -218,19 +287,6 @@ def hedron_desktop_styles() -> Response:
 
     return Response(
         desktop_default_styles(),
-        media_type="text/css",
-        headers={"Cache-Control": "public, max-age=3600"},
-    )
-
-
-@app.get("/app-assets/data-mover-components.css", include_in_schema=False)
-def data_mover_component_styles() -> Response:
-    """Serve bounded Data Mover interaction styles alongside Hedron's Folio theme."""
-
-    # Hedron's complete native stylesheet owns the component visual language;
-    # this compatibility endpoint only carries the app's scoped workflow rules.
-    return Response(
-        DATA_MOVER_SCOPED_STYLES.css,
         media_type="text/css",
         headers={"Cache-Control": "public, max-age=3600"},
     )
@@ -394,13 +450,6 @@ def create_app(settings_override=None) -> HedronPosit:
         return getattr(request.state, "settings", settings_override)
 
     instance.dependency_overrides[settings_dependency] = composed_settings
-    instance.styles(
-        name="data-mover-art-direction",
-        source=static_directory / "theme.css",
-        global_=True,
-        layer="application",
-        allowed_roots=(static_directory.parent.parent,),
-    )
     instance.mount("/assets", StaticFiles(directory=static_directory), name="assets")
     register_routes(
         instance,
@@ -412,6 +461,7 @@ def create_app(settings_override=None) -> HedronPosit:
     instance.middleware("http")(security_and_session_middleware)
     instance.add_exception_handler(HTTPException, cast(Any, friendly_http_errors))
     instance.add_exception_handler(RequestValidationError, cast(Any, friendly_validation_errors))
+    instance.add_exception_handler(Exception, cast(Any, friendly_unexpected_errors))
 
     @instance.get("/health", include_in_schema=False, response_model=HealthStatus)
     def composed_health() -> HealthStatus:
@@ -442,16 +492,6 @@ def create_app(settings_override=None) -> HedronPosit:
             headers={"Cache-Control": "public, max-age=3600"},
         )
 
-    @instance.get("/app-assets/data-mover-components.css", include_in_schema=False)
-    def composed_data_mover_component_styles() -> Response:
-        """Serve bounded Data Mover interaction styles alongside Folio."""
-
-        return Response(
-            DATA_MOVER_SCOPED_STYLES.css,
-            media_type="text/css",
-            headers={"Cache-Control": "public, max-age=3600"},
-        )
-
     instance.add_middleware(RuntimeOwnershipMiddleware)
     return instance
 
@@ -476,7 +516,7 @@ class RuntimeOwnershipMiddleware:
         path = get_route_path(scope)
         is_liveness = path == "/health"
         if lifecycle not in {"accepting", "draining", "fixture"} and not is_liveness:
-            await Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)(scope, receive, send)
+            await _admission_response(scope, receive, send)
             return
         execution = (
             getattr(app_state, "execution", None)
@@ -484,7 +524,7 @@ class RuntimeOwnershipMiddleware:
             else None
         )
         if lifecycle in {"accepting", "draining"} and execution is None and not is_liveness:
-            await Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)(scope, receive, send)
+            await _admission_response(scope, receive, send)
             return
         if execution is None:
             await self.application(scope, receive, send)
@@ -512,9 +552,7 @@ class RuntimeOwnershipMiddleware:
                     operation.__enter__()
                 except RuntimeAdmissionError:
                     operation = None
-                    await Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)(
-                        scope, receive, send
-                    )
+                    await _admission_response(scope, receive, send)
                     return
                 operation_entered = True
             await self.application(scope, receive, send)
@@ -536,14 +574,14 @@ async def security_and_session_middleware(request: Request, call_next):
     route_path = get_route_path(request.scope)
     is_liveness = route_path == "/health"
     if lifecycle not in {"accepting", "draining", "fixture"} and not is_liveness:
-        return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return _service_unavailable_response(request)
     if owner_active and execution is None and not is_liveness:
-        return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return _service_unavailable_response(request)
     active_settings = getattr(request.state, "settings", None) or (
         getattr(state, "settings", None) if owner_active else None
     )
     if active_settings is None and not is_liveness:
-        return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return _service_unavailable_response(request)
     active_settings = active_settings or get_settings()
     from app.connectors.registry import bind_registry, unbind_registry
     from app.database import bind_runtime, unbind_runtime
@@ -571,8 +609,11 @@ async def security_and_session_middleware(request: Request, call_next):
         if REQUEST_ID_PATTERN.fullmatch(supplied_request_id)
         else str(uuid.uuid4())
     )
+    request.state.support_reference = f"ref-{uuid.uuid4().hex[:16]}"
     bind_request_id(request.state.request_id)
+    bind_reference(reference_id=request.state.support_reference)
     started = time.perf_counter()
+    request.state.request_started_at = started
     try:
         response = await call_next(request)
         rotated = getattr(request.state, "rotated_tokens", None)
@@ -598,23 +639,19 @@ async def security_and_session_middleware(request: Request, call_next):
                 hsts += "; includeSubDomains"
             response.headers["Strict-Transport-Security"] = hsts
         duration_ms = int((time.perf_counter() - started) * 1000)
-        log.info(
-            "method=%s path=%s status=%s duration_ms=%s",
-            request.method,
-            request.url.path,
-            response.status_code,
-            duration_ms,
+        log_event(
+            log,
+            "http.request.completed",
+            outcome="success" if response.status_code < 400 else "error",
+            reference_id=request.state.support_reference,
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            duration_ms=duration_ms,
         )
         return response
-    except Exception:
-        duration_ms = int((time.perf_counter() - started) * 1000)
-        log.exception(
-            "request failed method=%s path=%s duration_ms=%s",
-            request.method,
-            request.url.path,
-            duration_ms,
-        )
-        raise
+    except Exception as exc:
+        return await friendly_unexpected_errors(request, exc)
     finally:
         clear_request_id()
         if budget_token is not None:
@@ -652,12 +689,34 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
             )
         clear_auth_cookies(response, active_settings, request)
         return response
+    reference_id = getattr(request.state, "support_reference", "")
     detail = exc.detail if isinstance(exc.detail, str) else "The request could not be completed."
+    outcome = None
+    if exc.status_code >= 500:
+        outcome = request_failure(reference_id=reference_id)
+        detail = outcome.message
     if is_htmx:
+        feedback_title = (
+            "Too many requests"
+            if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+            else "Request could not be completed."
+        )
+        if outcome is not None:
+            feedback_title = outcome.title
         return await interaction_response(
             request,
             ok_fragment(
-                request_error(detail),
+                html.div(
+                    request_error(detail),
+                    html.p(f"Reference: {reference_id}", role="caption") if reference_id else None,
+                ),
+                oob=(
+                    request_feedback_oob(
+                        detail,
+                        title=feedback_title,
+                        reference_id=reference_id,
+                    ),
+                ),
                 status_code=exc.status_code,
                 headers=exc.headers,
                 retarget="#hedron-toast",
@@ -674,6 +733,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
                 html.p(
                     f"Please wait {(exc.headers or {}).get('Retry-After', '60')} seconds and try again."
                 ),
+                html.p(f"Reference: {reference_id}", role="caption") if reference_id else None,
                 recipe="data-mover-auth-panel",
                 class_="auth-card",
             ),
@@ -698,6 +758,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
             surface_card(
                 Heading("Request error", level=1),
                 alert_box(detail),
+                html.p(f"Reference: {reference_id}", role="caption") if reference_id else None,
                 html.p(f"Status {exc.status_code}"),
                 recipe="data-mover-auth-panel",
                 class_="auth-card",
@@ -722,14 +783,29 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
     active_settings = getattr(request.state, "settings", None) or getattr(
         request.app.state, "settings", settings
     )
+    reference_id = getattr(request.state, "support_reference", "")
     if not is_htmx_request(request) and "text/html" not in request.headers.get("accept", ""):
-        return await request_validation_exception_handler(request, exc)
+        return JSONResponse(
+            {"detail": "Check the submitted values and try again.", "reference_id": reference_id},
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            headers={"X-Support-Reference": reference_id} if reference_id else None,
+        )
     message = "Check the submitted values and try again."
     if is_htmx_request(request):
         return await interaction_response(
             request,
             ok_fragment(
-                request_error(message),
+                html.div(
+                    request_error(message),
+                    html.p(f"Reference: {reference_id}", role="caption") if reference_id else None,
+                ),
+                oob=(
+                    request_feedback_oob(
+                        message,
+                        title="Check the submitted values",
+                        reference_id=reference_id,
+                    ),
+                ),
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 retarget="#hedron-toast",
                 reswap="innerHTML",
@@ -742,6 +818,12 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
         surface_card(
             Heading("Request error", level=1),
             alert_box(message),
+            html.p(
+                f"Reference: {reference_id}",
+                role="caption",
+            )
+            if reference_id
+            else None,
             recipe="data-mover-auth-panel",
             class_="auth-card",
         ),
@@ -756,6 +838,89 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
         mode=RenderMode.PAGE,
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
     )
+
+
+@app.exception_handler(Exception)
+async def friendly_unexpected_errors(request: Request, exc: Exception):
+    """Return a safe support reference when an unexpected request error escapes a route."""
+
+    reference_id = getattr(request.state, "support_reference", "") or f"ref-{uuid.uuid4().hex[:16]}"
+    request_id = _safe_request_id(
+        getattr(request.state, "request_id", "") or request.headers.get("x-request-id", "")
+    )
+    started = getattr(request.state, "request_started_at", None)
+    duration_ms = int((time.perf_counter() - started) * 1000) if started else 0
+    log_event(
+        log,
+        "http.request.failed",
+        outcome="failed",
+        request_id=request_id,
+        reference_id=reference_id,
+        method=request.method,
+        path=request.url.path,
+        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        duration_ms=duration_ms,
+        exception_type=type(exc).__name__,
+        traceback=safe_exception_traceback((type(exc), exc, exc.__traceback__)),
+    )
+    outcome = request_failure(reference_id=reference_id)
+    active_settings = getattr(request.state, "settings", None) or getattr(
+        request.app.state, "settings", settings
+    )
+    accepts_html = "text/html" in request.headers.get("accept", "")
+    if is_htmx_request(request):
+        response = await interaction_response(
+            request,
+            ok_fragment(
+                html.div(
+                    request_error(outcome.message),
+                    html.p(f"Reference: {reference_id}", role="caption"),
+                ),
+                oob=(
+                    request_feedback_oob(
+                        outcome.message,
+                        title=outcome.title,
+                        reference_id=reference_id,
+                    ),
+                ),
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                retarget="#hedron-toast",
+                reswap="innerHTML",
+                policy=ERROR_RESPONSE_POLICY,
+            ),
+            authenticated=bool(getattr(request.state, "hedron_authenticated", False)),
+            allow_undeclared_targets=True,
+        )
+    elif accepts_html:
+        response = render_component_response(
+            app_shell(
+                surface_card(
+                    Heading(outcome.title, level=1),
+                    alert_box(outcome.message),
+                    html.p(f"Reference: {reference_id}", role="caption"),
+                    recipe="data-mover-auth-panel",
+                    class_="auth-card",
+                ),
+                request=request,
+                settings=active_settings,
+                auth=None,
+                page_title=outcome.title,
+            ),
+            request=request,
+            mode=RenderMode.PAGE,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    else:
+        response = JSONResponse(
+            {
+                "detail": outcome.message,
+                "reference_id": reference_id,
+            },
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+    response.headers["X-Request-ID"] = request_id
+    response.headers["X-Support-Reference"] = reference_id
+    return response
 
 
 class HealthStatus(BaseModel):

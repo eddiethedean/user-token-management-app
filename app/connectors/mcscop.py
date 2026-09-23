@@ -1,4 +1,4 @@
-"""MCS-COP Foundry connector (destination only)."""
+"""MCS-COP Foundry connector."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ class McscopConnector(FoundryConnector):
         label="MCS-COP",
         technology="Palantir Foundry",
         mark="MCS",
-        source=False,
+        source=True,
         destination=True,
         object_model="dataset RID → branch → file",
         write_modes=("replace",),
         namespaces_label="Dataset",
         objects_label="File",
-        writer_enabled=False,
+        writer_enabled=True,
         writer_setting="pipeline_enable_mcscop_writer",
         schema_inspection=False,
         exact_row_counts=False,

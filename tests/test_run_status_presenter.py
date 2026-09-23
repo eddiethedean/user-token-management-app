@@ -24,6 +24,24 @@ def test_run_status_projection_covers_terminal_and_active_states() -> None:
 def test_run_flow_marks_failed_stage_as_blocked() -> None:
     assert run_flow_statuses("loading") == ("complete", "complete", "current", "pending")
     assert run_flow_statuses("failed") == ("blocked", "pending", "pending", "pending")
+    assert run_flow_statuses("failed", "inspect") == (
+        "complete",
+        "blocked",
+        "pending",
+        "pending",
+    )
+    assert run_flow_statuses("failed_needs_reconciliation", "transfer") == (
+        "complete",
+        "complete",
+        "blocked",
+        "pending",
+    )
+    assert run_flow_statuses("cancelled", "verify") == (
+        "complete",
+        "complete",
+        "complete",
+        "blocked",
+    )
     assert run_flow_statuses("succeeded") == ("complete", "complete", "complete", "complete")
 
 

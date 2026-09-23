@@ -40,6 +40,10 @@ PIPELINE_ALLOWED_HTTPS_HOSTS='mss.example.gov,mcscop.example.gov'
 EMAIL_BACKEND=console
 ```
 
+MSS, MCS-COP, and PostgreSQL are enabled as both sources and destinations by default. CSV is
+source-only. To suspend writes to one remote provider without removing its source access, set that
+provider's `PIPELINE_ENABLE_*_WRITER=false` and restart the app.
+
 Create the spool directory:
 
 ```bash
@@ -93,6 +97,10 @@ At minimum, set:
 - `EMAIL_BACKEND=smtp`, `EMAIL_REDACT_SENT_BODIES=true`, and the approved SMTP settings; and
 - `DATA_MOVER_MODE=real`, `PIPELINE_SPOOL_ROOT=deployment/spool`, and
   `PIPELINE_ALLOWED_HTTPS_HOSTS`.
+
+The default writer policy allows PostgreSQL, MSS, and MCS-COP destinations. If deployment policy
+requires a narrower set, add the relevant `PIPELINE_ENABLE_*_WRITER=false` override to `.env` and
+pass that variable through `rsconnect deploy`. CSV cannot be configured as a destination.
 
 Generate application secrets without putting them in shell history:
 

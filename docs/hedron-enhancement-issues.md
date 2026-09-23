@@ -1,6 +1,37 @@
-# Hedron Enhancement Issue Drafts (Data Mover App)
+# Hedron Enhancement Issues (Data Mover App)
 
-This file is a historical record of Hedron enhancement proposals and migration notes. It is
+## Native Folio desktop follow-ups — 2026-09-18
+
+The native-first visual pass verified these presentation gaps against installed Hedron 1.1.0
+and upstream main `fd7b9c083850430795fd579b80e7c8375cbfab09`. These issues request bounded native
+features, not application-owned CSS or alternate state/persistence authorities.
+
+Hedron 1.1.0 now includes the requested native presentation capabilities. The links below remain
+the upstream implementation record; Data Mover is pinned to the released feature line and uses
+native ProcessFlow and AppShell presentation in the pipeline surfaces.
+
+New issues:
+
+- [#943 Quiet unboxed ProcessFlow appearance, markers, and media placement](https://github.com/eddiethedean/hedron/issues/943)
+- [#944 FormGrid alignment for mixed help text and wrapped labels](https://github.com/eddiethedean/hedron/issues/944)
+- [#945 Sticky AppShell surface choices and header-aware navigation offsets](https://github.com/eddiethedean/hedron/issues/945)
+- [#946 Accessible native color-mode switch icons](https://github.com/eddiethedean/hedron/issues/946)
+
+Already open; not duplicated:
+
+- [#939 Horizontal AppShell chrome insets](https://github.com/eddiethedean/hedron/issues/939)
+- [#940 Ghost/icon-only navigation collapse controls](https://github.com/eddiethedean/hedron/issues/940)
+- [#941 Brand name/subtitle typography slots](https://github.com/eddiethedean/hedron/issues/941)
+- [#942 Transparent custom Brand marks](https://github.com/eddiethedean/hedron/issues/942)
+
+Current app composition: sign-in uses an unboxed Grid/Inline/Text composition rather than
+status cards; affected credential fields use Stack wrappers; the header scrolls naturally;
+the mode switch retains its visible native label; AppShell owns the collapse control.
+See [Hedron integration](hedron.md) for the current styling audit.
+
+## Historical migration proposals
+
+The rest of this file is a historical record of Hedron enhancement proposals and migration notes. It is
 not a list of current application workarounds. The descriptions below are time-bound migration
 notes from the Hedron 0.58.1-era review and are retained for upstream context; they should not be
 read as evidence that the described legacy handlers still exist locally. Consult the current

@@ -103,6 +103,7 @@ async def render_authenticated_view(
     csrf_token: str,
     push_path: str,
     headers: Mapping[str, str] | None = None,
+    status_code: int = 200,
 ) -> Response:
     """Serve main-panel nav fragment or full authenticated document."""
     if is_main_panel_nav(request):
@@ -119,6 +120,7 @@ async def render_authenticated_view(
                 ),
                 oob=(side_nav_oob(request, auth, settings),),
                 push_url=mounted_path(request, push_path),
+                status_code=status_code,
             ),
         )
     return render_page(
@@ -132,6 +134,7 @@ async def render_authenticated_view(
         ),
         request=request,
         authenticated=True,
+        status_code=status_code,
         headers=headers,
     )
 
