@@ -6,6 +6,11 @@ import json
 from pathlib import Path
 from urllib.parse import quote
 
+import httpx2
+
+from app.config import Settings
+from app.connectors.foundry import FoundryClient
+
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "providers"
 
 
@@ -40,6 +45,73 @@ def test_foundry_url_contract_encodes_paths_and_uses_branched_committed_upload()
     assert list_url.endswith("/files")
     assert "/content" in content_url
     assert upload_url.endswith("upload?branchName=master&transactionType=UPDATE")
+
+
+def test_foundry_client_builds_the_real_request_contract(tmp_path) -> None:
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if request.method == "GET" and request.url.path.endswith("/files"):
+            return httpx2.Response(200, request=request, json={"data": []})
+        if request.method == "GET" and request.url.path.endswith("/content"):
+            return httpx2.Response(200, request=request, content=b"event_id\n1\n")
+        if request.method == "POST" and request.url.path.endswith("/upload"):
+            return httpx2.Response(
+                200,
+                request=request,
+                json={"path": "readiness.snappy.parquet", "sizeBytes": 12},
+            )
+        return httpx2.Response(404, request=request, json={"error": "unexpected request"})
+
+    client = FoundryClient(
+        {
+            "endpoint": "http://localhost:8765",
+            "token": "contract-test-token",
+            "dataset_rid": "ri.foundry.main.dataset.example",
+        },
+        Settings(  # pyright: ignore[reportCallIssue]
+            _env_file=None,  # pyright: ignore[reportCallIssue]
+            data_mover_mode="demo",
+            pipeline_spool_root=str(tmp_path),
+        ),
+    )
+    client._client.close()
+    client._client = httpx2.Client(
+        transport=httpx2.MockTransport(handler),
+        headers=client.headers,
+        follow_redirects=False,
+    )
+    try:
+        client.list_files("ri.foundry.main.dataset.example", "release")
+        downloaded = tmp_path / "download.parquet"
+        client.download_file(
+            "ri.foundry.main.dataset.example",
+            "release",
+            "folder/part 1.parquet",
+            downloaded,
+        )
+        uploaded = tmp_path / "output.snappy.parquet"
+        uploaded.write_bytes(b"parquet-bytes")
+        client.upload_file(
+            "ri.foundry.main.dataset.example",
+            uploaded.name,
+            uploaded,
+            branch="release",
+        )
+    finally:
+        client.close()
+
+    assert downloaded.read_bytes() == b"event_id\n1\n"
+    assert requests[0].url.params["branchName"] == "release"
+    assert "contract-test-token" not in str(requests[1].url)
+    assert "folder%2Fpart%201.parquet" in str(requests[1].url)
+    assert requests[1].url.params["branchName"] == "release"
+    upload_request = requests[2]
+    assert upload_request.url.params["branchName"] == "release"
+    assert upload_request.url.params["transactionType"] == "UPDATE"
+    assert "preview" not in upload_request.url.params
+    assert upload_request.headers["authorization"] == "Bearer contract-test-token"
 
 
 def test_error_fixtures_are_sanitized() -> None:

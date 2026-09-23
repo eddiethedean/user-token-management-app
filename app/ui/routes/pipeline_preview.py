@@ -118,6 +118,7 @@ class NormalizedSelection(Protocol):
         *,
         preserve_create: bool = False,
         freeform_namespace: bool = False,
+        destination: bool = False,
     ) -> tuple[str, str]: ...
 
 
@@ -368,6 +369,7 @@ def register_pipeline_preview_routes(
                     destination_schema,
                     destination_table,
                     preserve_create=True,
+                    destination=True,
                 ),
             )
         preview_fragment = await run_owned_sync(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 from pathlib import Path
@@ -23,6 +24,7 @@ from app.connectors.locators import FoundryReplaceFilePolicy, FoundryUploadLocat
 from app.connectors.mcscop import McscopConnector
 from app.connectors.mss import MssConnector
 from app.connectors.registry import load_builtin_connectors, writer_enabled
+from app.ui.routes.pipeline import _destination_object_entries
 from tests.simulators.foundry import FOUNDRY_DATASET, FOUNDRY_TOKEN, FoundrySimulator
 from tests.simulators.links import FIXTURES
 
@@ -216,6 +218,24 @@ def test_foundry_client_follows_every_catalog_page(foundry_sim, tmp_path, monkey
     client.close()
 
 
+def test_mcscop_source_catalog_keeps_csv_but_destination_options_filter_it(
+    foundry_sim, tmp_path
+) -> None:
+    credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
+    settings = _settings(tmp_path)
+
+    mss_items = MssConnector(settings).list_objects(credentials, DATASET).items
+    mcscop_items = McscopConnector(settings).list_objects(credentials, DATASET).items
+
+    assert any(item.name == "notes.csv" for item in mss_items)
+    assert any(item.name == "notes.csv" for item in mcscop_items)
+    destination_entries = _destination_object_entries(
+        "mcscop", [(item.name, item.display_name) for item in mcscop_items]
+    )
+    assert all(name.casefold().endswith(".parquet") for name, _display in destination_entries)
+    assert all(name != "notes.csv" for name, _display in destination_entries)
+
+
 def test_foundry_client_rejects_repeated_catalog_cursor(foundry_sim, tmp_path, monkeypatch) -> None:
     client = FoundryClient(
         {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET},
@@ -256,6 +276,11 @@ def test_foundry_writer_finalize_streams_committed_upload(foundry_sim, tmp_path)
     assert manifest.remote_id == "readiness.snappy.parquet"
     assert manifest.rows == 2
     assert manifest.details["publication"] == "committed_upload"
+    uploaded = pl.read_parquet(io.BytesIO(foundry_sim.files["readiness.snappy.parquet"]))
+    assert uploaded.to_dicts() == [
+        {"event_id": 1, "unit_name": "A"},
+        {"event_id": 2, "unit_name": "B"},
+    ]
 
 
 def test_foundry_writer_publishes_typed_empty_schema(foundry_sim, tmp_path) -> None:
@@ -277,6 +302,9 @@ def test_foundry_writer_publishes_typed_empty_schema(foundry_sim, tmp_path) -> N
 
     assert manifest.rows == 0
     assert manifest.remote_id == "empty.snappy.parquet"
+    uploaded = pl.read_parquet(io.BytesIO(foundry_sim.files["empty.snappy.parquet"]))
+    assert uploaded.height == 0
+    assert uploaded.schema == {"event_id": pl.Int64}
 
 
 def test_foundry_writer_uses_local_manifest_after_malformed_success_metadata(
@@ -431,6 +459,106 @@ def test_upload_does_not_retry_non_400_client_errors(tmp_path) -> None:
     client.close()
 
 
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [
+        (401, TransferErrorCode.AUTHENTICATION_FAILED),
+        (403, TransferErrorCode.PERMISSION_DENIED),
+        (409, TransferErrorCode.DESTINATION_CONFLICT),
+        (429, TransferErrorCode.RATE_LIMITED),
+        (503, TransferErrorCode.PROVIDER_UNAVAILABLE),
+    ],
+)
+def test_upload_does_not_retry_non_400_statuses(tmp_path, status, code) -> None:
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx2.Response(status, request=request, json={"error": "failure"})
+
+    client = FoundryClient(
+        {"endpoint": "http://localhost:8765", "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+    client._client.close()
+    client._client = httpx2.Client(transport=httpx2.MockTransport(handler), follow_redirects=False)
+    payload = tmp_path / "output.snappy.parquet"
+    payload.write_bytes(b"parquet")
+
+    with pytest.raises(ConnectorError) as excinfo:
+        client.upload_file(DATASET, payload.name, payload)
+
+    assert excinfo.value.code == code
+    assert len(requests) == 1
+    assert "preview" not in requests[0].url.query.decode()
+    client.close()
+
+
+def test_upload_retries_only_the_documented_400_preview_compatibility(tmp_path) -> None:
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx2.Response(400, request=request, json={"error": "legacy"})
+        return httpx2.Response(
+            200,
+            request=request,
+            json={"path": "output.snappy.parquet", "sizeBytes": 7},
+        )
+
+    client = FoundryClient(
+        {"endpoint": "http://localhost:8765", "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+    client._client.close()
+    client._client = httpx2.Client(transport=httpx2.MockTransport(handler), follow_redirects=False)
+    payload = tmp_path / "output.snappy.parquet"
+    payload.write_bytes(b"parquet")
+
+    result = client.upload_file(DATASET, payload.name, payload, branch="release")
+
+    assert result["_publication"] == "legacy_preview_upload"
+    assert len(requests) == 2
+    assert "preview" not in requests[0].url.query.decode()
+    assert requests[1].url.params["preview"] == "true"
+    assert requests[1].url.params["branchName"] == "release"
+    client.close()
+
+
+def test_upload_uses_v1_fallback_only_for_http_404(tmp_path) -> None:
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        if "/api/v2/" in request.url.path:
+            return httpx2.Response(404, request=request, json={"error": "missing"})
+        return httpx2.Response(
+            200,
+            request=request,
+            json={"filePath": "output.snappy.parquet", "sizeBytes": 7},
+        )
+
+    client = FoundryClient(
+        {"endpoint": "http://localhost:8765", "token": TOKEN, "dataset_rid": DATASET},
+        _settings(tmp_path),
+    )
+    client._client.close()
+    client._client = httpx2.Client(transport=httpx2.MockTransport(handler), follow_redirects=False)
+    payload = tmp_path / "output.snappy.parquet"
+    payload.write_bytes(b"parquet")
+
+    result = client.upload_file(DATASET, payload.name, payload, branch="release")
+
+    assert result["_api_version"] == 1
+    assert len(requests) == 2
+    assert requests[1].url.path.endswith(
+        "/api/v1/datasets/ri.foundry.main.dataset.example/files:upload"
+    )
+    assert requests[1].url.params["branchId"] == "release"
+    client.close()
+
+
 def test_standard_upload_commits_without_preview_query(foundry_sim, tmp_path) -> None:
     parquet = tmp_path / "out.snappy.parquet"
     pl.DataFrame({"event_id": [1]}).write_parquet(parquet, compression="snappy")
@@ -494,6 +622,9 @@ def test_foundry_health_and_extract_with_default_rid(foundry_sim, tmp_path) -> N
     )
     batches = list(connector.extract(credentials, locator, batch_rows=25, batch_bytes=1024))
     assert batches and batches[0].row_count >= 1
+    assert pl.concat([batch.frame for batch in batches]).to_dicts() == [
+        {"event_id": 1, "unit_name": "Alpha"}
+    ]
     assert foundry_sim.last_download_branch == "release"
     assert list(spool.iterdir()) == []
     connector.abort(

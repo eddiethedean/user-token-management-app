@@ -564,7 +564,7 @@ def _namespace_entries(catalog_access: CatalogAccess, provider: str) -> list[tup
 
 
 def _object_entries(
-    catalog_access: CatalogAccess, provider: str, namespace: str
+    catalog_access: CatalogAccess, provider: str, namespace: str, *, destination: bool = False
 ) -> list[tuple[str, str]]:
     try:
         page = catalog_access.list_objects(provider, namespace)
@@ -573,7 +573,18 @@ def _object_entries(
         # empty after a process restart. Keep the workspace usable so the user
         # can select another destination or provision a replacement.
         return []
-    return [(item.name, item.display_name) for item in page.items]
+    entries = [(item.name, item.display_name) for item in page.items]
+    return _destination_object_entries(provider, entries) if destination else entries
+
+
+def _destination_object_entries(
+    provider: str, entries: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """Keep only file formats the selected destination writer can publish."""
+
+    if provider.casefold() != "mcscop":
+        return entries
+    return [entry for entry in entries if entry[0].casefold().endswith(".parquet")]
 
 
 def _first_namespace(catalog_access: CatalogAccess, provider: str) -> str:
@@ -596,6 +607,7 @@ def _normalized_selection(
     *,
     preserve_create: bool = False,
     freeform_namespace: bool = False,
+    destination: bool = False,
 ) -> tuple[str, str]:
     """Keep a form selection valid when its provider changes."""
     if not provider:
@@ -617,7 +629,7 @@ def _normalized_selection(
         if namespace in namespace_names
         else namespaces[0][0]
     )
-    objects = _object_entries(catalog_access, provider, resolved_namespace)
+    objects = _object_entries(catalog_access, provider, resolved_namespace, destination=destination)
     object_names = {name for name, _ in objects}
     if preserve_create and object_name == CREATE_TABLE_VALUE:
         return resolved_namespace, CREATE_TABLE_VALUE
@@ -658,15 +670,22 @@ def _table_options(
     additional_tables: tuple[str, ...] = (),
     preferred_table: str = "",
     create_label: str = "table",
+    destination: bool = False,
 ):
-    entries = _object_entries(catalog_access, provider, schema_name) if schema_name else []
+    entries = (
+        _object_entries(catalog_access, provider, schema_name, destination=destination)
+        if schema_name
+        else []
+    )
     known = {name for name, _ in entries}
     options = [
         _option(name, display, selected=(name == preferred_table or index == 0))
         for index, (name, display) in enumerate(entries)
     ]
     for table_name in additional_tables:
-        if table_name not in known:
+        if table_name not in known and (
+            not destination or _destination_object_entries(provider, [(table_name, table_name)])
+        ):
             options.append(_option(table_name, table_name))
     if allow_create:
         options.append(
@@ -996,6 +1015,7 @@ def _destination_object_options(
         additional_tables=additional_tables,
         preferred_table=preferred_table,
         create_label=catalog.objects_label.casefold(),
+        destination=True,
     )
 
 
@@ -2106,6 +2126,7 @@ def _pipeline_preview_fragment(
             target_schema,
             target_table,
             preserve_create=True,
+            destination=True,
         )
     source_catalog = (
         CSV_SOURCE_CATALOG
@@ -2499,6 +2520,7 @@ def _pipeline_body(
             target_schema_name,
             target_table_name,
             preserve_create=target_table_name == CREATE_TABLE_VALUE,
+            destination=True,
         )
     source_object_name = source_table_display
     target_object_name = (

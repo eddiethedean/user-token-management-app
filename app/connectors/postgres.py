@@ -373,6 +373,7 @@ class PostgresConnector:
         staging = f"dm_stage_{run_id.replace('-', '')[:12]}"
         conn = connect(credentials, self.settings)
         columns = [column.name for column in schema.columns]
+        staging_sequence = ""
         col_defs = sql.SQL(", ").join(
             sql.SQL("{} {}").format(
                 sql.Identifier(column.name),
@@ -381,6 +382,7 @@ class PostgresConnector:
             for column in schema.columns
         )
         try:
+            generated_columns: set[str] = set()
             with conn.cursor() as cursor:
                 recreates_schema = (
                     isinstance(write_policy, PostgresReplacePolicy)
@@ -408,6 +410,17 @@ class PostgresConnector:
                         )
                     )
                     cursor.execute(
+                        """
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = %s
+                          AND table_name = %s
+                          AND is_generated = 'ALWAYS'
+                        """,
+                        (locator.schema_name, locator.table),
+                    )
+                    generated_columns = {str(row[0]) for row in cursor.fetchall()}
+                    cursor.execute(
                         sql.SQL(
                             "CREATE TABLE {} (LIKE {} INCLUDING DEFAULTS INCLUDING GENERATED)"
                         ).format(
@@ -415,13 +428,35 @@ class PostgresConnector:
                             sql.Identifier(locator.schema_name, locator.table),
                         )
                     )
+                    for column_name in generated_columns:
+                        cursor.execute(
+                            sql.SQL("ALTER TABLE {} DROP COLUMN {}").format(
+                                sql.Identifier(locator.schema_name, staging),
+                                sql.Identifier(column_name),
+                            )
+                        )
                     if isinstance(write_policy, PostgresUpsertPolicy):
+                        cursor.execute(
+                            """
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_schema = %s AND table_name = %s
+                            """,
+                            (locator.schema_name, locator.table),
+                        )
+                        used_names = {str(row[0]) for row in cursor.fetchall()}
+                        candidate = "dm_row_number"
+                        suffix = 1
+                        while candidate in used_names:
+                            candidate = f"dm_row_number_{suffix}"
+                            suffix += 1
                         cursor.execute(
                             sql.SQL("ALTER TABLE {} ADD COLUMN {} BIGSERIAL").format(
                                 sql.Identifier(locator.schema_name, staging),
-                                sql.Identifier("dm_row_number"),
+                                sql.Identifier(candidate),
                             )
                         )
+                        staging_sequence = candidate
         except Exception:
             try:
                 conn.rollback()
@@ -437,16 +472,15 @@ class PostgresConnector:
                 )
             raise
         self._load_conn = conn
+        writable_columns = tuple(column for column in columns if column not in generated_columns)
         self._load_credentials = dict(credentials)
         return LoadSession(
             locator=locator,
             write_policy=write_policy,
             staging_name=staging,
-            columns=tuple(columns),
+            columns=writable_columns,
             metadata={
-                "staging_sequence": "dm_row_number"
-                if isinstance(write_policy, PostgresUpsertPolicy)
-                else ""
+                "staging_sequence": staging_sequence,
             },
         )
 
@@ -514,14 +548,29 @@ class PostgresConnector:
                     )
                     source = sql.SQL("SELECT {} FROM {}").format(columns, stage)
                     if load_session.metadata.get("staging_sequence"):
+                        nullable = sql.SQL(" OR ").join(
+                            sql.SQL("{} IS NULL").format(sql.Identifier(name))
+                            for name in policy.conflict_columns
+                        )
+                        non_null = sql.SQL(" AND ").join(
+                            sql.SQL("{} IS NOT NULL").format(sql.Identifier(name))
+                            for name in policy.conflict_columns
+                        )
+                        sequence = sql.Identifier(load_session.metadata["staging_sequence"])
                         source = sql.SQL(
+                            "SELECT {columns} FROM {stage} WHERE {nullable} "
+                            "UNION ALL "
+                            "SELECT {columns} FROM ("
                             "SELECT DISTINCT ON ({conflict}) {columns} FROM {stage} "
-                            "ORDER BY {conflict}, {sequence} DESC"
+                            "WHERE {non_null} ORDER BY {conflict}, {sequence} DESC"
+                            ") AS dm_non_null"
                         ).format(
+                            nullable=nullable,
+                            non_null=non_null,
                             conflict=conflict,
                             columns=columns,
                             stage=stage,
-                            sequence=sql.Identifier("dm_row_number"),
+                            sequence=sequence,
                         )
                     if policy.action == "ignore":
                         cursor.execute(
@@ -639,6 +688,14 @@ def _pg_type(data_type: str) -> str:
             if scale_text.casefold() != "none"
             else "NUMERIC"
         )
+    if folded.startswith("datetime"):
+        return (
+            "TIMESTAMPTZ"
+            if "time_zone=" in folded and "time_zone=none" not in folded
+            else "TIMESTAMP"
+        )
+    if folded.startswith("timestamp"):
+        return "TIMESTAMPTZ" if "with time zone" in folded else "TIMESTAMP"
     for dtype, mapped in _POLARS_TO_PG.items():
         if str(dtype).casefold() == folded:
             return mapped
@@ -652,8 +709,6 @@ def _pg_type(data_type: str) -> str:
         return "BOOLEAN"
     if folded in {"date"}:
         return "DATE"
-    if folded.startswith("timestamp"):
-        return "TIMESTAMP"
     if folded.startswith("time"):
         return "TIME"
     return "TEXT"
@@ -744,7 +799,9 @@ def _polars_type(data_type: str):
     if folded == "date":
         return pl.Date
     if folded.startswith("timestamp"):
-        return pl.Datetime("us")
+        return (
+            pl.Datetime("us", time_zone="UTC") if "with time zone" in folded else pl.Datetime("us")
+        )
     if folded.startswith("time"):
         return pl.Time
     if folded == "bytea":
