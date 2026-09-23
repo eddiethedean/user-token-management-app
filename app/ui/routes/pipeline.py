@@ -629,9 +629,7 @@ def _normalized_selection(
         if namespace in namespace_names
         else namespaces[0][0]
     )
-    objects = _object_entries(
-        catalog_access, provider, resolved_namespace, destination=destination
-    )
+    objects = _object_entries(catalog_access, provider, resolved_namespace, destination=destination)
     object_names = {name for name, _ in objects}
     if preserve_create and object_name == CREATE_TABLE_VALUE:
         return resolved_namespace, CREATE_TABLE_VALUE
