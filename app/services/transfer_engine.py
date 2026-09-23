@@ -128,12 +128,12 @@ def _reconcile_write_result(
             return "provider_write_count", None, facts
         expected_delta = destination_rows_after - destination_rows_before
         if expected_delta != expected_rows:
-            return (
-                weak_level,
-                "Append reconciliation failed: the destination row-count change was "
-                f"{expected_delta} for {expected_rows} source rows. Inspect the destination before retrying.",
-                facts,
-            )
+            # The aggregate table count can include writes from other runs or
+            # external clients. The statement manifest is per-run evidence;
+            # when the global delta disagrees, keep the run successful but
+            # downgrade verification because the extra change is unattributable.
+            facts["verification_limitation"] = "aggregate_count_changed_during_transfer"
+            return "provider_write_count", None, facts
         return "exact", None, facts
 
     if isinstance(policy, PostgresReplacePolicy):

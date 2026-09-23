@@ -32,6 +32,7 @@ from app.connectors.locators import (
     FoundryDatasetFilesLocator,
     Locator,
     PostgresAppendPolicy,
+    PostgresReplacePolicy,
     PostgresUpsertPolicy,
     WritePolicy,
     postgres_table,
@@ -46,6 +47,21 @@ def _settings(**values: object) -> Settings:
 
 def _run(run_id: str) -> PipelineRun:
     return cast(PipelineRun, SimpleNamespace(id=run_id))
+
+
+def _snapshot_with_policy(write_policy: WritePolicy) -> DefinitionSnapshot:
+    return DefinitionSnapshot(
+        name="reconciliation",
+        source_provider="mss",
+        destination_provider="postgres",
+        source=FoundryDatasetFilesLocator(
+            dataset_rid="ri.foundry.main.dataset.example",
+            branch="master",
+            file_paths=["source.parquet"],
+        ),
+        destination=postgres_table("public", "events"),
+        write_policy=write_policy,
+    )
 
 
 class _Source:
@@ -172,6 +188,94 @@ class _EmptyDestination(_Destination):
     def finalize(self, load_session: LoadSession) -> DestinationManifest:
         self.committed = True
         return DestinationManifest(locator=load_session.locator, rows=0, bytes=0)
+
+
+def test_append_reconciliation_downgrades_aggregate_delta_changed_by_concurrent_writer() -> None:
+    destination = _Destination()
+
+    level, error, facts = transfer_engine._reconcile_write_result(
+        _snapshot_with_policy(PostgresAppendPolicy()),
+        source_rows=5,
+        manifest=DestinationManifest(locator=postgres_table("public", "events"), rows=5),
+        destination_rows_before=10,
+        destination_rows_after=16,
+        destination=destination,
+    )
+
+    assert level == "provider_write_count"
+    assert error is None
+    assert facts["verification_limitation"] == "aggregate_count_changed_during_transfer"
+
+
+def test_append_reconciliation_still_flags_a_short_manifest() -> None:
+    level, error, facts = transfer_engine._reconcile_write_result(
+        _snapshot_with_policy(PostgresAppendPolicy()),
+        source_rows=5,
+        manifest=DestinationManifest(locator=postgres_table("public", "events"), rows=4),
+        destination_rows_before=10,
+        destination_rows_after=14,
+        destination=_Destination(),
+    )
+
+    assert level == "exact"
+    assert error is not None
+    assert facts["expected_rows"] == 5
+
+
+def test_replace_reconciliation_requires_exact_final_table_count() -> None:
+    snapshot = _snapshot_with_policy(PostgresReplacePolicy())
+    manifest = DestinationManifest(locator=postgres_table("public", "events"), rows=2)
+
+    exact_level, exact_error, _ = transfer_engine._reconcile_write_result(
+        snapshot,
+        source_rows=2,
+        manifest=manifest,
+        destination_rows_before=8,
+        destination_rows_after=2,
+        destination=_Destination(),
+    )
+    mismatch_level, mismatch_error, _ = transfer_engine._reconcile_write_result(
+        snapshot,
+        source_rows=2,
+        manifest=manifest,
+        destination_rows_before=8,
+        destination_rows_after=3,
+        destination=_Destination(),
+    )
+
+    assert exact_level == "exact"
+    assert exact_error is None
+    assert mismatch_level == "exact"
+    assert mismatch_error is not None
+
+
+def test_upsert_reconciliation_covers_ignored_and_updated_rows() -> None:
+    snapshot = _snapshot_with_policy(PostgresUpsertPolicy(conflict_columns=["id"]))
+    ignored_level, ignored_error, _ = transfer_engine._reconcile_write_result(
+        snapshot,
+        source_rows=4,
+        manifest=DestinationManifest(locator=postgres_table("public", "events"), rows=2),
+        destination_rows_before=10,
+        destination_rows_after=12,
+        destination=_Destination(),
+    )
+    updated_level, updated_error, _ = transfer_engine._reconcile_write_result(
+        snapshot,
+        source_rows=4,
+        manifest=DestinationManifest(
+            locator=postgres_table("public", "events"),
+            rows=3,
+            details={"expected_rows": "3"},
+        ),
+        destination_rows_before=10,
+        destination_rows_after=12,
+        destination=_Destination(),
+    )
+
+    assert ignored_level == "provider_write_count"
+    assert ignored_error is None
+    assert updated_level == "exact"
+    assert updated_error is None
 
 
 def test_demo_stage_pause_uses_injected_sleeper() -> None:

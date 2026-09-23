@@ -549,9 +549,7 @@ class PostgresConnector:
                     )
                     source = sql.SQL("SELECT {} FROM {}").format(columns, stage)
                     update_columns = [
-                        name
-                        for name in load_session.columns
-                        if name not in policy.conflict_columns
+                        name for name in load_session.columns if name not in policy.conflict_columns
                     ]
                     if load_session.metadata.get("staging_sequence"):
                         nullable = sql.SQL(" OR ").join(
@@ -639,9 +637,7 @@ class PostgresConnector:
         except psycopg.Error as exc:
             raise _postgres_connector_error(exc, operation="destination finalization") from None
         details = (
-            {"expected_rows": str(upsert_expected_rows)}
-            if upsert_expected_rows is not None
-            else {}
+            {"expected_rows": str(upsert_expected_rows)} if upsert_expected_rows is not None else {}
         )
         manifest = DestinationManifest(
             locator=locator, rows=int(loaded or 0), bytes=0, details=details
