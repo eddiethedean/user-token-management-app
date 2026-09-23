@@ -57,16 +57,17 @@ _INTEGER_DTYPE_RANGES = (
     (pl.UInt64, 0, 2**64 - 1),
 )
 _FLOAT_DTYPES = (pl.Float32, pl.Float64)
+PolarsDtype = pl.DataType | type[pl.DataType]
 
 
-def _integer_dtype_range(data_type: pl.DataType) -> tuple[int, int] | None:
+def _integer_dtype_range(data_type: PolarsDtype) -> tuple[int, int] | None:
     for dtype, minimum, maximum in _INTEGER_DTYPE_RANGES:
         if data_type == dtype:
             return minimum, maximum
     return None
 
 
-def _lossless_common_dtype(data_types: list[pl.DataType]) -> pl.DataType | None:
+def _lossless_common_dtype(data_types: list[PolarsDtype]) -> PolarsDtype | None:
     if not data_types:
         return None
     if all(data_type == data_types[0] for data_type in data_types):
@@ -102,15 +103,15 @@ def _lossless_common_dtype(data_types: list[pl.DataType]) -> pl.DataType | None:
 
 
 def _lossless_common_schema(
-    schemas: list[Mapping[str, pl.DataType]],
-) -> dict[str, pl.DataType] | None:
+    schemas: list[Mapping[str, PolarsDtype]],
+) -> dict[str, PolarsDtype] | None:
     if not schemas:
         return None
     columns = list(schemas[0])
     if any(list(schema) != columns for schema in schemas[1:]):
         return None
 
-    common: dict[str, pl.DataType] = {}
+    common: dict[str, PolarsDtype] = {}
     for column in columns:
         data_type = _lossless_common_dtype([schema[column] for schema in schemas])
         if data_type is None:
@@ -119,7 +120,7 @@ def _lossless_common_schema(
     return common
 
 
-def _schema_casts(schema: Mapping[str, pl.DataType]) -> list[pl.Expr]:
+def _schema_casts(schema: Mapping[str, PolarsDtype]) -> list[pl.Expr]:
     return [pl.col(column).cast(data_type, strict=True) for column, data_type in schema.items()]
 
 
