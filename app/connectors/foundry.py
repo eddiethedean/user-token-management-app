@@ -7,7 +7,7 @@ import re
 import shutil
 import ssl
 import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -103,7 +103,7 @@ def _lossless_common_dtype(data_types: list[PolarsDtype]) -> PolarsDtype | None:
 
 
 def _lossless_common_schema(
-    schemas: list[Mapping[str, PolarsDtype]],
+    schemas: Sequence[Mapping[str, PolarsDtype]],
 ) -> dict[str, PolarsDtype] | None:
     if not schemas:
         return None
