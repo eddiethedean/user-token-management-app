@@ -380,6 +380,7 @@ class PostgresConnector:
             for column in schema.columns
         )
         try:
+            generated_columns: set[str] = set()
             with conn.cursor() as cursor:
                 cursor.execute(
                     sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
@@ -405,6 +406,17 @@ class PostgresConnector:
                         )
                     )
                     cursor.execute(
+                        """
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = %s
+                          AND table_name = %s
+                          AND is_generated = 'ALWAYS'
+                        """,
+                        (locator.schema_name, locator.table),
+                    )
+                    generated_columns = {str(row[0]) for row in cursor.fetchall()}
+                    cursor.execute(
                         sql.SQL(
                             "CREATE TABLE {} (LIKE {} INCLUDING DEFAULTS INCLUDING GENERATED)"
                         ).format(
@@ -412,6 +424,13 @@ class PostgresConnector:
                             sql.Identifier(locator.schema_name, locator.table),
                         )
                     )
+                    for column_name in generated_columns:
+                        cursor.execute(
+                            sql.SQL("ALTER TABLE {} DROP COLUMN {}").format(
+                                sql.Identifier(locator.schema_name, staging),
+                                sql.Identifier(column_name),
+                            )
+                        )
                     if isinstance(write_policy, PostgresUpsertPolicy):
                         cursor.execute(
                             sql.SQL("ALTER TABLE {} ADD COLUMN {} BIGSERIAL").format(
@@ -434,12 +453,13 @@ class PostgresConnector:
                 )
             raise
         self._load_conn = conn
+        writable_columns = tuple(column for column in columns if column not in generated_columns)
         self._load_credentials = dict(credentials)
         return LoadSession(
             locator=locator,
             write_policy=write_policy,
             staging_name=staging,
-            columns=tuple(columns),
+            columns=writable_columns,
             metadata={
                 "staging_sequence": "dm_row_number"
                 if isinstance(write_policy, PostgresUpsertPolicy)
