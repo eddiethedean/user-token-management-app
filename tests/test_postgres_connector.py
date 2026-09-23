@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
+from decimal import Decimal
 from typing import LiteralString
 
 import polars as pl
@@ -11,14 +13,17 @@ import psycopg
 import pytest
 
 from app.connectors.base import ColumnSchema, LoadSession, ObjectSchema, TransferBatch
+from app.connectors.csv_source import CsvSourceConnector
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
+    CsvUploadLocator,
     PostgresAppendPolicy,
     PostgresReplacePolicy,
     PostgresUpsertPolicy,
     postgres_table,
 )
 from app.connectors.postgres import PostgresConnector, connect, drop_abandoned_staging
+from app.services.csv_uploads import inspect_csv
 from tests.postgres_support import connector_settings
 
 pytestmark = pytest.mark.postgres
@@ -376,6 +381,112 @@ def test_postgres_skips_generated_destination_columns(postgres_credentials) -> N
         postgres_credentials,
         "SELECT id, doubled FROM public.generated_destination",
     ) == [(3, 6)]
+
+
+def test_csv_decimal_values_round_trip_to_postgres_numeric(postgres_credentials) -> None:
+    content = b"amount,rate\n9007199254740993.01,1\n1,2.5\n-2.50,3.25\n"
+    inspection = inspect_csv("precise.csv", content)
+    credentials = {
+        "content": content,
+        "delimiter": inspection.delimiter,
+        "columns": json.dumps([column.name for column in inspection.columns]),
+        "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
+        "column_decimal_specs": json.dumps(
+            [
+                {"precision": column.decimal_precision, "scale": column.decimal_scale}
+                for column in inspection.columns
+            ]
+        ),
+    }
+    source_locator = CsvUploadLocator(
+        upload_id="00000000-0000-0000-0000-000000000001",
+        checksum_sha256="0" * 64,
+    )
+    source = CsvSourceConnector()
+    source_schema = source.inspect_object(credentials, source_locator)
+    batches = list(source.extract(credentials, source_locator, batch_rows=1_000, batch_bytes=1_024))
+    destination_locator = postgres_table("public", "precise_csv_decimals")
+    destination_schema = ObjectSchema(
+        locator=destination_locator,
+        columns=source_schema.columns,
+    )
+    destination = PostgresConnector(connector_settings())
+    session = destination.prepare_destination(
+        postgres_credentials,
+        destination_locator,
+        destination_schema,
+        PostgresAppendPolicy(),
+        run_id="csv-decimal-round-trip",
+    )
+    try:
+        for batch in batches:
+            destination.write_batch(session, batch)
+        manifest = destination.finalize(session)
+    except Exception:
+        destination.abort(session)
+        raise
+
+    assert manifest.rows == 3
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT amount, rate, pg_typeof(amount)::text "
+        "FROM public.precise_csv_decimals ORDER BY amount",
+    ) == [
+        (Decimal("-2.50"), Decimal("3.25"), "numeric"),
+        (Decimal("1.00"), Decimal("2.50"), "numeric"),
+        (Decimal("9007199254740993.01"), Decimal("1.00"), "numeric"),
+    ]
+
+
+def test_csv_decimal_append_rejects_existing_numeric_scale_that_would_round(
+    postgres_credentials,
+) -> None:
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.csv_decimal_scale_guard (amount NUMERIC(10, 2))",
+    )
+    _execute(
+        postgres_credentials,
+        "INSERT INTO public.csv_decimal_scale_guard VALUES (8.88)",
+    )
+    content = b'amount\n"1.2345 "\n'
+    inspection = inspect_csv("scale.csv", content)
+    credentials = {
+        "content": content,
+        "delimiter": inspection.delimiter,
+        "columns": json.dumps([column.name for column in inspection.columns]),
+        "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
+        "column_decimal_specs": json.dumps(
+            [
+                {"precision": column.decimal_precision, "scale": column.decimal_scale}
+                for column in inspection.columns
+            ]
+        ),
+    }
+    source = CsvSourceConnector()
+    source_locator = CsvUploadLocator(
+        upload_id="00000000-0000-0000-0000-000000000001",
+        checksum_sha256="0" * 64,
+    )
+    source_schema = source.inspect_object(credentials, source_locator)
+    destination_locator = postgres_table("public", "csv_decimal_scale_guard")
+    destination = PostgresConnector(connector_settings())
+
+    with pytest.raises(ConnectorError) as excinfo:
+        destination.prepare_destination(
+            postgres_credentials,
+            destination_locator,
+            source_schema,
+            PostgresAppendPolicy(),
+            run_id="csv-decimal-scale-guard",
+        )
+
+    assert excinfo.value.code == TransferErrorCode.SCHEMA_DRIFT
+    assert "without rounding" in str(excinfo.value)
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT amount FROM public.csv_decimal_scale_guard",
+    ) == [(Decimal("8.88"),)]
 
 
 def test_postgres_extract_uses_repeatable_read_snapshot(postgres_credentials, monkeypatch) -> None:

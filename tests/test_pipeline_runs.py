@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -133,6 +134,74 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
         )
         assert events
         assert all("token" not in event.message.casefold() for event in events)
+
+
+def test_csv_decimal_destination_is_rejected_before_a_run_is_queued(
+    client, demo_connections
+) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    csrf_token = csrf_from(page.text)
+
+    def upload_csv(filename: str, content: bytes) -> str:
+        response = client.post(
+            "/pipeline/csv/inspect",
+            data={"csrf_token": csrf_token},
+            files={"csv_file": (filename, content, "text/csv")},
+            headers={"HX-Request": "true", "HX-Target": "pipeline-csv-inspection"},
+        )
+        assert response.status_code == 200
+        match = re.search(r'name="source_upload_id" value="([^"]+)"', response.text)
+        assert match is not None
+        return match.group(1)
+
+    def save_pipeline(name: str, upload_id: str) -> str:
+        response = client.post(
+            "/pipeline/save",
+            data={
+                "csrf_token": csrf_token,
+                "pipeline_name": name,
+                "source_provider": "csv",
+                "source_upload_id": upload_id,
+                "destination_provider": "postgres",
+                "destination_schema": "public",
+                "destination_table": "csv_decimal_preflight",
+                "write_mode": "append",
+            },
+        )
+        assert response.status_code == 303
+        with SessionLocal() as db:
+            pipeline = db.scalar(select(PipelineDefinition).where(PipelineDefinition.name == name))
+            assert pipeline is not None
+            return pipeline.id
+
+    def start_run(pipeline_id: str):
+        return client.post(
+            "/pipeline/runs",
+            data={"csrf_token": csrf_token, "pipeline_id": pipeline_id},
+            headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor"},
+        )
+
+    compatible_upload = upload_csv("compatible.csv", b"amount\n1.20\n")
+    compatible_pipeline = save_pipeline("Create decimal target", compatible_upload)
+    created = start_run(compatible_pipeline)
+    assert created.status_code == 202
+
+    incompatible_upload = upload_csv("incompatible.csv", b'amount\n"1.2345 "\n')
+    incompatible_pipeline = save_pipeline("Reject decimal rounding", incompatible_upload)
+    rejected = start_run(incompatible_pipeline)
+
+    assert rejected.status_code == 422
+    assert "cannot hold all CSV decimal places" in rejected.text
+    with SessionLocal() as db:
+        assert (
+            db.scalar(
+                select(PipelineRun.id).where(
+                    PipelineRun.pipeline_definition_id == incompatible_pipeline
+                )
+            )
+            is None
+        )
 
 
 def test_worker_persists_writer_policy_denial_without_writing(

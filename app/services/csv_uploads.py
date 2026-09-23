@@ -9,6 +9,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import PurePosixPath
 
 from fastapi import Request
@@ -20,6 +21,7 @@ from app.services.audit import record_event
 MAX_CSV_UPLOAD_BYTES = 5 * 1024 * 1024
 MAX_CSV_COLUMNS = 200
 MAX_CSV_CELL_CHARACTERS = 131_072
+MAX_CSV_DECIMAL_PRECISION = 38
 _INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
 _DECIMAL_PATTERN = re.compile(r"^[+-]?(?:\d+\.\d*|\d*\.\d+)(?:[eE][+-]?\d+)?$")
 
@@ -31,6 +33,8 @@ class CsvColumnProfile:
     populated: int
     nulls: int
     example: str
+    decimal_precision: int = 0
+    decimal_scale: int = 0
 
 
 @dataclass(frozen=True)
@@ -82,6 +86,8 @@ def inspect_csv(filename: str, content: bytes) -> CsvInspection:
     populated = [0 for _ in headers]
     nulls = [0 for _ in headers]
     examples = ["" for _ in headers]
+    integer_digits = [0 for _ in headers]
+    decimal_scales = [0 for _ in headers]
     row_count = 0
     try:
         for row in rows:
@@ -100,19 +106,33 @@ def inspect_csv(filename: str, content: bytes) -> CsvInspection:
                     nulls[index] += 1
                     continue
                 populated[index] += 1
-                type_sets[index].add(_value_type(value))
+                value_type = _value_type(value)
+                if value_type in {"integer", "decimal"}:
+                    try:
+                        parts = Decimal(value).as_tuple()
+                    except InvalidOperation:
+                        value_type = "text"
+                    else:
+                        exponent = int(parts.exponent)
+                        integer_digits[index] = max(
+                            integer_digits[index], max(len(parts.digits) + exponent, 0)
+                        )
+                        decimal_scales[index] = max(decimal_scales[index], max(-exponent, 0))
+                type_sets[index].add(value_type)
                 if not examples[index]:
                     examples[index] = value[:80]
     except csv.Error as exc:
         raise ValueError("The CSV could not be parsed consistently.") from exc
 
     columns = tuple(
-        CsvColumnProfile(
-            name=header,
-            inferred_type=_merge_types(type_sets[index]),
-            populated=populated[index],
-            nulls=nulls[index],
-            example=examples[index],
+        _column_profile(
+            header,
+            type_sets[index],
+            populated[index],
+            nulls[index],
+            examples[index],
+            integer_digits[index],
+            decimal_scales[index],
         )
         for index, header in enumerate(headers)
     )
@@ -184,6 +204,20 @@ def inspection_from_upload(upload: PipelineUpload) -> CsvInspection:
         columns = tuple(CsvColumnProfile(**column) for column in raw_columns)
     except (json.JSONDecodeError, TypeError, KeyError) as exc:
         raise ValueError("The stored CSV profile is invalid.") from exc
+    if any(
+        column.inferred_type == "decimal" and column.decimal_precision == 0 for column in columns
+    ):
+        content = upload.content
+        if isinstance(content, str):
+            content = content.encode("utf-8")
+        if not isinstance(content, bytes):
+            raise ValueError("The stored CSV decimal profile is incomplete.")
+        return inspect_csv(upload.filename, content)
+    if any(
+        column.inferred_type == "decimal" and column.decimal_precision > MAX_CSV_DECIMAL_PRECISION
+        for column in columns
+    ):
+        raise ValueError(f"CSV decimal precision cannot exceed {MAX_CSV_DECIMAL_PRECISION} digits.")
     return CsvInspection(
         filename=upload.filename,
         size_bytes=upload.size_bytes,
@@ -234,3 +268,36 @@ def _merge_types(types: set[str]) -> str:
     if types <= {"date", "datetime"}:
         return "datetime"
     return "text"
+
+
+def _column_profile(
+    name: str,
+    types: set[str],
+    populated: int,
+    nulls: int,
+    example: str,
+    integer_digits: int,
+    decimal_scale: int,
+) -> CsvColumnProfile:
+    inferred_type = _merge_types(types)
+    if inferred_type != "decimal":
+        return CsvColumnProfile(
+            name=name,
+            inferred_type=inferred_type,
+            populated=populated,
+            nulls=nulls,
+            example=example,
+        )
+    scale = decimal_scale
+    precision = max(integer_digits + scale, scale, 1)
+    if precision > MAX_CSV_DECIMAL_PRECISION:
+        raise ValueError(f"CSV decimal precision cannot exceed {MAX_CSV_DECIMAL_PRECISION} digits.")
+    return CsvColumnProfile(
+        name=name,
+        inferred_type=inferred_type,
+        populated=populated,
+        nulls=nulls,
+        example=example,
+        decimal_precision=precision,
+        decimal_scale=scale,
+    )

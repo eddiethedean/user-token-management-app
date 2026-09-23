@@ -28,6 +28,7 @@ from app.connectors.base import (
     TransferBatch,
     bounded_frame_batches,
 )
+from app.connectors.decimal_validation import validate_decimal_destination_schema
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
     Locator,
@@ -383,16 +384,18 @@ class PostgresConnector:
         try:
             generated_columns: set[str] = set()
             with conn.cursor() as cursor:
+                recreates_schema = (
+                    isinstance(write_policy, PostgresReplacePolicy)
+                    and write_policy.schema_policy == "recreate"
+                )
+                if not recreates_schema:
+                    _validate_existing_decimal_columns(cursor, locator, schema)
                 cursor.execute(
                     sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
                         sql.Identifier(locator.schema_name)
                     )
                 )
-                recreate = (
-                    isinstance(write_policy, PostgresReplacePolicy)
-                    and write_policy.schema_policy == "recreate"
-                )
-                if recreate:
+                if recreates_schema:
                     # Build the complete replacement without touching the live
                     # table. finalize() performs the destructive swap atomically.
                     cursor.execute(
@@ -709,6 +712,38 @@ def _pg_type(data_type: str) -> str:
     if folded.startswith("time"):
         return "TIME"
     return "TEXT"
+
+
+def _validate_existing_decimal_columns(
+    cursor, locator: PostgresTableLocator, schema: ObjectSchema
+) -> None:
+    """Reject existing destination columns that would round CSV decimals."""
+
+    if not any("decimal" in column.data_type.casefold() for column in schema.columns):
+        return
+    cursor.execute(
+        """
+        SELECT column_name, data_type, numeric_precision, numeric_scale
+        FROM information_schema.columns
+        WHERE table_schema = %s AND table_name = %s
+        """,
+        (locator.schema_name, locator.table),
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        return
+    destination_columns = tuple(
+        ColumnSchema(
+            name=name,
+            data_type=(
+                f"Decimal(precision={precision}, scale={scale if scale is not None else 0})"
+                if data_type.casefold() in {"numeric", "decimal"} and precision is not None
+                else data_type
+            ),
+        )
+        for name, data_type, precision, scale in rows
+    )
+    validate_decimal_destination_schema(schema.columns, destination_columns)
 
 
 def _postgres_connector_error(exc: psycopg.Error, *, operation: str) -> ConnectorError:
