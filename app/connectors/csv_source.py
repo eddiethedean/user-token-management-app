@@ -107,11 +107,31 @@ class CsvSourceConnector:
         column_types = _metadata_list((credentials or {}).get("column_types"))
         schema_overrides = None
         if columns and len(columns) == len(column_types):
-            schema_overrides = {
-                name: pl.String
-                for name, inferred_type in zip(columns, column_types, strict=True)
-                if inferred_type in {"text", "empty"}
-            }
+            decimal_specs = _metadata_decimal_specs(
+                (credentials or {}).get("column_decimal_specs"), column_types
+            )
+            schema_overrides = {}
+            for index, (name, inferred_type) in enumerate(zip(columns, column_types, strict=True)):
+                if inferred_type in {"text", "empty"}:
+                    schema_overrides[name] = pl.String
+                elif inferred_type == "decimal":
+                    precision, scale = decimal_specs[index]
+                    if precision < 1:
+                        raise ConnectorError(
+                            TransferErrorCode.UNSUPPORTED_TYPE,
+                            "The CSV decimal precision could not be determined safely.",
+                            retryable=False,
+                        )
+                    if precision > 38:
+                        raise ConnectorError(
+                            TransferErrorCode.UNSUPPORTED_TYPE,
+                            "A CSV decimal exceeds the supported precision of 38 digits.",
+                            retryable=False,
+                        )
+                    schema_overrides[name] = pl.Decimal(
+                        precision=precision,
+                        scale=scale,
+                    )
         try:
             return pl.read_csv(
                 BytesIO(payload),
@@ -139,6 +159,34 @@ def _metadata_list(value) -> list[str]:
     if not isinstance(decoded, list) or not all(isinstance(item, str) for item in decoded):
         return []
     return decoded
+
+
+def _metadata_decimal_specs(value, column_types: list[str]) -> list[tuple[int, int]]:
+    column_count = len(column_types)
+    if not value:
+        return [(0, 0)] * column_count
+    try:
+        decoded = json.loads(value) if isinstance(value, str) else value
+    except (TypeError, ValueError):
+        decoded = None
+    if not isinstance(decoded, list) or len(decoded) != column_count:
+        return [(0, 0)] * column_count
+    specs: list[tuple[int, int]] = []
+    for inferred_type, item in zip(column_types, decoded, strict=True):
+        if inferred_type != "decimal":
+            specs.append((0, 0))
+            continue
+        if not isinstance(item, dict):
+            return [(0, 0)] * column_count
+        try:
+            precision = int(item.get("precision", 0))
+            scale = int(item.get("scale", 0))
+        except (TypeError, ValueError):
+            return [(0, 0)] * column_count
+        if precision < 1 or scale < 0 or scale > precision:
+            return [(0, 0)] * column_count
+        specs.append((precision, scale))
+    return specs
 
 
 def register() -> None:

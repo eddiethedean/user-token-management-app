@@ -269,6 +269,15 @@ def _credentials_for(db, settings, *, user, provider, snapshot) -> dict[str, str
             "delimiter": inspection.delimiter,
             "columns": json.dumps([column.name for column in inspection.columns]),
             "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
+            "column_decimal_specs": json.dumps(
+                [
+                    {
+                        "precision": column.decimal_precision,
+                        "scale": column.decimal_scale,
+                    }
+                    for column in inspection.columns
+                ]
+            ),
         }
     return decrypt_user_credentials_for_run(db, settings, user=user, provider=provider)
 
