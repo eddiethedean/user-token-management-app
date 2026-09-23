@@ -68,12 +68,35 @@ def test_csv_source_reuses_inspection_delimiter_and_normalized_headers() -> None
 
 
 def test_shared_batch_boundary_enforces_rows_and_bytes() -> None:
-    frame = pl.DataFrame({"value": ["x" * 100 for _ in range(10)]})
-    batches = list(bounded_frame_batches(frame, batch_rows=10, batch_bytes=250))
+    frame = pl.DataFrame(
+        {
+            "id": list(range(10)),
+            "value": [f"payload-{index}" for index in range(10)],
+        }
+    )
+    row_batches = list(bounded_frame_batches(frame, batch_rows=3, batch_bytes=10_000))
+    byte_limit = int(frame.slice(0, 1).estimated_size()) * 3
+    byte_batches = list(bounded_frame_batches(frame, batch_rows=100, batch_bytes=byte_limit))
 
-    assert sum(batch.row_count for batch in batches) == 10
-    assert all(batch.row_count <= 10 for batch in batches)
-    assert all(batch.byte_count <= 250 for batch in batches)
+    for batches in (row_batches, byte_batches):
+        recombined = pl.concat([batch.frame for batch in batches])
+        assert recombined.to_dicts() == frame.to_dicts()
+        assert sum(batch.row_count for batch in batches) == frame.height
+        assert all(batch.row_count == batch.frame.height for batch in batches)
+        assert all(batch.byte_count == batch.frame.estimated_size() for batch in batches)
+        assert all(
+            batch.byte_count <= (10_000 if batches is row_batches else byte_limit)
+            for batch in batches
+        )
+    assert all(batch.row_count <= 3 for batch in row_batches)
+
+    empty = pl.DataFrame(schema={"id": pl.Int64, "value": pl.String})
+    assert list(bounded_frame_batches(empty, batch_rows=3, batch_bytes=100)) == []
+
+    oversized = pl.DataFrame({"value": ["x" * 500]})
+    with pytest.raises(ConnectorError) as excinfo:
+        list(bounded_frame_batches(oversized, batch_rows=10, batch_bytes=100))
+    assert excinfo.value.code == TransferErrorCode.SOURCE_LIMIT_EXCEEDED
 
 
 def test_fake_csv_cannot_be_a_destination() -> None:
