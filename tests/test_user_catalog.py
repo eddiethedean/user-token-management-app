@@ -222,6 +222,7 @@ def test_catalog_cache_is_scoped_expiring_and_invalidated_by_real_credentials(
             select(PipelineCatalogCache).where(
                 PipelineCatalogCache.user_id == user_one.id,
                 PipelineCatalogCache.provider == "postgres",
+                PipelineCatalogCache.namespace == "public",
             )
         )
         assert stored is not None
@@ -231,6 +232,7 @@ def test_catalog_cache_is_scoped_expiring_and_invalidated_by_real_credentials(
         stored.expires_at = utcnow() - timedelta(seconds=1)
         db.commit()
         assert cache_one.get("postgres", "public") is None
+        assert cache_one.get("postgres", "analytics") == {"items": [{"name": "namespace-one"}]}
 
         cache_one.put("postgres", "public", {"items": [{"name": "before-replace"}]})
         cache_one.put("mss", "public", {"items": [{"name": "keep-mss"}]})
@@ -242,6 +244,7 @@ def test_catalog_cache_is_scoped_expiring_and_invalidated_by_real_credentials(
             credentials={**credentials, "database": "replacement"},
         )
         assert cache_one.get("postgres", "public") is None
+        assert cache_one.get("postgres", "analytics") is None
         assert cache_one.get("mss", "public") == {"items": [{"name": "keep-mss"}]}
 
         cache_one.put("postgres", "public", {"items": [{"name": "before-delete"}]})
