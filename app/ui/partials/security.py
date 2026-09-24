@@ -413,6 +413,7 @@ def connection_status_list(
                         path=f"security/secrets/{provider.name}/test",
                         target="#connection-status-list",
                         sync="#connection-status-list:drop",
+                        disabled_elt="find button[type='submit']",
                         indicator=INDICATOR,
                     ),
                 )
