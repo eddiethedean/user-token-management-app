@@ -3,8 +3,8 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0019_pipeline_metric_provenance"
-down_revision = "0018_pipeline_reconcile"
+revision = "0020_pipeline_metric_provenance"
+down_revision = "0019_connection_readiness"
 branch_labels = None
 depends_on = None
 
