@@ -48,7 +48,6 @@ def list_pipelines(db: Session, user: User) -> list[PipelineDefinition]:
             )
             .options(selectinload(PipelineDefinition.source_upload))
             .order_by(PipelineDefinition.updated_at.desc())
-            .limit(12)
         ).all()
     )
 
