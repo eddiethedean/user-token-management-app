@@ -355,7 +355,7 @@ def _redact_log_value(value: object) -> object:
     return value
 
 
-def configure_logging(*, level: int | None = None, log_format: str | None = None) -> None:
+def configure_logging(*, level: int | str | None = None, log_format: str | None = None) -> None:
     """Configure root logging once with a compact or JSON diagnostic format."""
     root = logging.getLogger()
     if getattr(root, "_access_registry_configured", False):
