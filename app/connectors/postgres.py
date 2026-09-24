@@ -8,10 +8,12 @@ import json
 import logging
 import re
 from collections.abc import Iterator, Mapping
+from uuid import uuid4
 
 import polars as pl
 import psycopg
 from psycopg import sql
+from pydantic import ValidationError
 
 from app.config import Settings, get_settings
 from app.connectors.base import (
@@ -132,6 +134,9 @@ class PostgresConnector:
         write_modes=("append", "upsert", "replace"),
         namespaces_label="Schema",
         objects_label="Table",
+        limitations=(
+            "Tables with quoted or nonstandard identifiers are omitted from the object list.",
+        ),
         writer_enabled=True,
         writer_setting="pipeline_enable_postgres_writer",
     )
@@ -195,14 +200,21 @@ class PostgresConnector:
                     """,
                     (schema_name,),
                 )
-                items = tuple(
-                    RemoteObject(
-                        name=row[0],
-                        display_name=row[0],
-                        locator=postgres_table(schema_name, row[0]),
+                items_list: list[RemoteObject] = []
+                for row in db_cursor.fetchall():
+                    table_name = row[0]
+                    try:
+                        locator = postgres_table(schema_name, table_name)
+                    except ValidationError:
+                        continue
+                    items_list.append(
+                        RemoteObject(
+                            name=table_name,
+                            display_name=table_name,
+                            locator=locator,
+                        )
                     )
-                    for row in db_cursor.fetchall()
-                )
+                items = tuple(items_list)
             return CatalogPage(items=items)
         finally:
             conn.close()
@@ -333,7 +345,7 @@ class PostgresConnector:
             # cursor; psycopg cannot execute SET through that cursor.
             with conn.cursor() as transaction_cursor:
                 transaction_cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            with conn.cursor(name=f"dm_{locator.table}") as cursor:
+            with conn.cursor(name=f"dm_{uuid4().hex}") as cursor:
                 query = sql.SQL("SELECT {} FROM {}").format(
                     sql.SQL(", ").join(sql.Identifier(name) for name in names),
                     sql.Identifier(locator.schema_name, locator.table),

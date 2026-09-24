@@ -37,6 +37,7 @@ from app.connectors.registry import (
     object_schema_inspector_for,
     row_counter_for,
 )
+from app.db_compat import insert_for
 from app.domain.locators import Locator
 from app.models import FoundryDataset, PipelineCatalogCache, User, new_id, utcnow
 
@@ -271,26 +272,49 @@ class UserCatalog:
             self.cache.put(provider, namespace, payload)
             return
         provider_id = provider.casefold()
-        row = self.db.scalar(
-            select(PipelineCatalogCache).where(
-                PipelineCatalogCache.user_id == self.user.id,
-                PipelineCatalogCache.provider == provider_id,
-                PipelineCatalogCache.namespace == namespace,
+        now = utcnow()
+        values = {
+            "id": new_id(),
+            "user_id": self.user.id,
+            "provider": provider_id,
+            "namespace": namespace,
+            "payload_json": json.dumps(payload, separators=(",", ":")),
+            "fetched_at": now,
+            "expires_at": now + timedelta(seconds=self.settings.pipeline_catalog_ttl_seconds),
+        }
+        if not isinstance(self.db.get_bind().dialect.name, str):
+            # Lightweight test doubles have no SQL dialect and cannot build a native upsert.
+            row = self.db.scalar(
+                select(PipelineCatalogCache).where(
+                    PipelineCatalogCache.user_id == self.user.id,
+                    PipelineCatalogCache.provider == provider_id,
+                    PipelineCatalogCache.namespace == namespace,
+                )
+            )
+            if row is None:
+                row = PipelineCatalogCache(**values)
+                self.db.add(row)
+            else:
+                row.payload_json = values["payload_json"]
+                row.fetched_at = now
+                row.expires_at = values["expires_at"]
+            self.db.commit()
+            return
+        statement = insert_for(self.db, PipelineCatalogCache).values(**values)
+        self.db.execute(
+            statement.on_conflict_do_update(
+                index_elements=[
+                    PipelineCatalogCache.user_id,
+                    PipelineCatalogCache.provider,
+                    PipelineCatalogCache.namespace,
+                ],
+                set_={
+                    "payload_json": values["payload_json"],
+                    "fetched_at": now,
+                    "expires_at": values["expires_at"],
+                },
             )
         )
-        now = utcnow()
-        if row is None:
-            row = PipelineCatalogCache(
-                id=new_id(),
-                user_id=self.user.id,
-                provider=provider_id,
-                namespace=namespace,
-                payload_json="{}",
-            )
-            self.db.add(row)
-        row.payload_json = json.dumps(payload, separators=(",", ":"))
-        row.fetched_at = now
-        row.expires_at = now + timedelta(seconds=self.settings.pipeline_catalog_ttl_seconds)
         self.db.commit()
 
     @staticmethod
