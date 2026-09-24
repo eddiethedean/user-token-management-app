@@ -126,6 +126,16 @@ def request_feedback_oob(
     )
 
 
+def request_feedback_clear_oob() -> OobUpdate:
+    """Remove a stale page-level request error after a successful action."""
+
+    return OobUpdate(
+        content=html.div(id="request-feedback"),
+        element_id="request-feedback",
+        swap="outerHTML",
+    )
+
+
 def user_match_count_oob(total: int) -> OobUpdate:
     return OobUpdate(
         content=Badge(f"{total} matching accounts", tone="info"),
@@ -216,7 +226,7 @@ def ok_fragment(
     return build_swap(
         content,
         toast=toast_oob(toast, tone=toast_tone) if toast else None,
-        oob=oob,
+        oob=(*oob, request_feedback_clear_oob()),
         push_url=push_url,
         redirect=redirect,
         status_code=status_code,
