@@ -61,6 +61,7 @@ from app.ui.regions import (
     PIPELINE_TARGET_SCHEMA_SELECT,
     PIPELINE_TARGET_SELECT,
     PIPELINE_TARGET_TABLE_SELECT,
+    REQUEST_FEEDBACK,
     TOAST_HOST,
 )
 from app.ui.routes.pipeline_context import WithUserCatalog, run_owned_sync
@@ -248,6 +249,7 @@ def register_pipeline_preview_routes(
             PIPELINE_TARGET_NODE,
             PIPELINE_TARGET_PROVIDER_LABEL,
             TOAST_HOST,
+            REQUEST_FEEDBACK,
         ),
         include_in_schema=False,
     )

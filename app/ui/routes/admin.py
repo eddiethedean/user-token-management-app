@@ -63,6 +63,7 @@ from app.ui.regions import (
     AUDIT_RESULTS_LAZY_BODY,
     INVITATION_PANEL,
     MAIN_PANEL,
+    REQUEST_FEEDBACK,
     SIDE_NAV,
     TOAST_HOST,
     USER_DIRECTORY,
@@ -90,6 +91,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
             USER_DIRECTORY,
             USER_DIRECTORY_BODY,
             USER_MATCH_COUNT,
+            REQUEST_FEEDBACK,
         ),
         include_in_schema=False,
     )
@@ -213,7 +215,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
 
     @app.action(
         "/admin/invitations",
-        fragment_regions=(INVITATION_PANEL, TOAST_HOST),
+        fragment_regions=(INVITATION_PANEL, TOAST_HOST, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def invite_submit(
@@ -391,7 +393,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
 
     @app.action(
         "/admin/users/{user_id}/toggle",
-        fragment_regions=(USER_DIRECTORY_BODY, USER_MATCH_COUNT, TOAST_HOST),
+        fragment_regions=(USER_DIRECTORY_BODY, USER_MATCH_COUNT, TOAST_HOST, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def toggle_user(
@@ -419,7 +421,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
 
     @app.action(
         "/admin/users/{user_id}/approve",
-        fragment_regions=(USER_DIRECTORY_BODY, USER_MATCH_COUNT, TOAST_HOST),
+        fragment_regions=(USER_DIRECTORY_BODY, USER_MATCH_COUNT, TOAST_HOST, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def approve_user(
@@ -449,7 +451,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
 
     @app.action(
         "/admin/users/{user_id}/deny",
-        fragment_regions=(USER_DIRECTORY_BODY, USER_MATCH_COUNT, TOAST_HOST),
+        fragment_regions=(USER_DIRECTORY_BODY, USER_MATCH_COUNT, TOAST_HOST, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def deny_user(
@@ -479,7 +481,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
 
     @app.action(
         "/admin/invitations/{invitation_id}/revoke",
-        fragment_regions=(INVITATION_PANEL, TOAST_HOST),
+        fragment_regions=(INVITATION_PANEL, TOAST_HOST, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def revoke_invitation_submit(
@@ -532,6 +534,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
             AUDIT_RESULTS_BODY,
             AUDIT_RESULTS_LAZY_BODY,
             AUDIT_MATCH_COUNT,
+            REQUEST_FEEDBACK,
         ),
         include_in_schema=False,
     )
@@ -618,7 +621,12 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
 
     @fragment_router.view(
         "/admin/audit/results",
-        fragment_regions=(AUDIT_RESULTS, AUDIT_RESULTS_LAZY_BODY, AUDIT_MATCH_COUNT),
+        fragment_regions=(
+            AUDIT_RESULTS,
+            AUDIT_RESULTS_LAZY_BODY,
+            AUDIT_MATCH_COUNT,
+            REQUEST_FEEDBACK,
+        ),
         include_in_schema=False,
     )
     async def audit_results_fragment(

@@ -26,6 +26,7 @@ from app.ui.regions import (
     PIPELINE_DATASET_CREATOR,
     PIPELINE_TARGET_SCHEMA_SELECT,
     PIPELINE_TARGET_TABLE_SELECT,
+    REQUEST_FEEDBACK,
     TOAST_HOST,
 )
 from app.ui.routes.pipeline_context import WithUserCatalog, WithUserSession, run_owned_sync
@@ -84,6 +85,7 @@ def register_pipeline_dataset_routes(
             PIPELINE_TARGET_SCHEMA_SELECT,
             PIPELINE_TARGET_TABLE_SELECT,
             TOAST_HOST,
+            REQUEST_FEEDBACK,
         ),
         include_in_schema=False,
     )

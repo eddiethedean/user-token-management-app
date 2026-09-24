@@ -13,7 +13,13 @@ from app.dependencies import Auth, DbSession, RequireCsrf
 from app.services.csv_uploads import MAX_CSV_UPLOAD_BYTES, store_csv_upload
 from app.ui.interactions import interaction_response, ok_fragment
 from app.ui.params import CsvUploadForm
-from app.ui.regions import CSV_INSPECTION, CSV_UPLOAD_STATE, PIPELINE_CSV_FILE, TOAST_HOST
+from app.ui.regions import (
+    CSV_INSPECTION,
+    CSV_UPLOAD_STATE,
+    PIPELINE_CSV_FILE,
+    REQUEST_FEEDBACK,
+    TOAST_HOST,
+)
 from app.ui.routes.pipeline_preview import CsvInspectionFragment
 
 
@@ -27,7 +33,13 @@ def register_pipeline_csv_routes(
 
     @app.action(
         "/pipeline/csv/inspect",
-        fragment_regions=(CSV_INSPECTION, CSV_UPLOAD_STATE, PIPELINE_CSV_FILE, TOAST_HOST),
+        fragment_regions=(
+            CSV_INSPECTION,
+            CSV_UPLOAD_STATE,
+            PIPELINE_CSV_FILE,
+            TOAST_HOST,
+            REQUEST_FEEDBACK,
+        ),
         include_in_schema=False,
     )
     async def pipeline_csv_inspect(

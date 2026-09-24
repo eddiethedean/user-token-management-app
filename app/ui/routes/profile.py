@@ -25,6 +25,7 @@ from app.ui.regions import (
     MAIN_PANEL,
     PROFILE_FORM,
     PROFILE_IDENTITY,
+    REQUEST_FEEDBACK,
     SIDE_NAV,
     TOAST_HOST,
 )
@@ -34,7 +35,7 @@ from app.ui.urls import redirect_path
 def register_profile_routes(app: Hedron) -> None:
     @app.page(
         "/profile",
-        fragment_regions=(MAIN_PANEL, SIDE_NAV),
+        fragment_regions=(MAIN_PANEL, SIDE_NAV, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def profile_page(
@@ -84,7 +85,13 @@ def register_profile_routes(app: Hedron) -> None:
 
     @app.action(
         "/profile",
-        fragment_regions=(PROFILE_FORM, PROFILE_IDENTITY, ACCOUNT_SUMMARY, TOAST_HOST),
+        fragment_regions=(
+            PROFILE_FORM,
+            PROFILE_IDENTITY,
+            ACCOUNT_SUMMARY,
+            TOAST_HOST,
+            REQUEST_FEEDBACK,
+        ),
         include_in_schema=False,
     )
     async def profile_submit(
