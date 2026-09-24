@@ -340,6 +340,7 @@ def test_user_connection(
             operation="test_connection",
             retryable=bool(exc.retryable),
             http_status=exc.http_status,
+            sqlstate=exc.sqlstate,
             provider_correlation_id=exc.provider_correlation_id,
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
