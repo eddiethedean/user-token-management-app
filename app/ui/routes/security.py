@@ -31,6 +31,7 @@ from app.services.accounts import (
 from app.services.auth import revoke_session
 from app.services.mailer import schedule_email_delivery
 from app.services.secrets import (
+    ConnectionNotConfiguredError,
     SecretStorageError,
     delete_user_secret,
     require_secret_provider,
@@ -395,7 +396,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
             if isinstance(exc, SecretStorageError):
                 safe_outcome = connection_failure(
                     "connection_not_configured"
-                    if "not configured" in str(exc).casefold()
+                    if isinstance(exc, ConnectionNotConfiguredError)
                     else "internal_error",
                     reference_id=getattr(request.state, "support_reference", ""),
                 )
@@ -633,7 +634,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
             reference_id = getattr(request.state, "support_reference", "")
             code = (
                 "connection_not_configured"
-                if isinstance(exc, SecretStorageError) and "not configured" in str(exc).casefold()
+                if isinstance(exc, ConnectionNotConfiguredError)
                 else "internal_error"
                 if isinstance(exc, SecretStorageError)
                 else "connection_invalid"
