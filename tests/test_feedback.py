@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import ast
 import json
 import logging
+import re
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from app.application.feedback import (
     account_failure,
@@ -14,7 +19,7 @@ from app.application.feedback import (
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.redaction import redact_mapping, redact_text
 from app.domain.feedback import DataImpact, FeedbackAction, FeedbackCode
-from app.logging_config import SafeFormatter
+from app.logging_config import _EVENT_OUTCOMES, _EVENT_REQUIRED_FIELDS, SafeFormatter
 from app.ui.presenters.feedback import connection_outcome, run_data_impact, run_outcome
 
 
@@ -180,6 +185,15 @@ def test_log_event_redacts_nested_diagnostic_values_before_formatting(caplog) ->
             logger,
             "pipeline.run.failed",
             outcome="failed",
+            reference_id="ref-1",
+            run_id="run-1",
+            user_id="user-1",
+            attempt=1,
+            operation="transfer",
+            stage="verify",
+            error_code="internal_error",
+            retryable=False,
+            data_impact="uncertain",
             cause={"password": "CANARY_PASSWORD", "nested": [{"token": "CANARY_TOKEN"}]},
         )
 
@@ -345,11 +359,18 @@ def test_log_event_rejects_untrusted_correlation_formats(caplog) -> None:
     from app.logging_config import log_event
 
     with caplog.at_level(logging.INFO):
+        with pytest.raises(ValueError, match="Unknown structured diagnostic event"):
+            log_event(logger, "test.invalid.fields", outcome="failed")
         log_event(
             logger,
-            "test.invalid.fields",
+            "connection.test.failed",
             outcome="failed",
+            error_code="internal_error",
             reference_id="not safe\nvalue",
+            provider="postgres",
+            operation="test_connection",
+            retryable=False,
+            duration_ms=1,
             provider_correlation_id="provider-secret/with spaces",
             sqlstate="1234",
         )
@@ -386,12 +407,23 @@ def test_text_formatter_keeps_the_same_diagnostic_fields_as_json() -> None:
         assert f"{field}=" in rendered
 
 
-def test_diagnostic_contract_supplies_required_connection_duration_and_level(caplog) -> None:
+def test_diagnostic_contract_rejects_missing_duration_and_assigns_level(caplog) -> None:
     logger = logging.getLogger("feedback-contract-test")
 
     with caplog.at_level(logging.INFO):
         from app.logging_config import log_event
 
+        with pytest.raises(ValueError, match="duration_ms"):
+            log_event(
+                logger,
+                "connection.test.failed",
+                outcome="failed",
+                error_code="internal_error",
+                reference_id="ref-1",
+                provider="postgres",
+                operation="test_connection",
+                retryable=False,
+            )
         log_event(
             logger,
             "connection.test.failed",
@@ -401,6 +433,7 @@ def test_diagnostic_contract_supplies_required_connection_duration_and_level(cap
             provider="postgres",
             operation="test_connection",
             retryable=False,
+            duration_ms=25,
         )
         log_event(
             logger,
@@ -409,11 +442,40 @@ def test_diagnostic_contract_supplies_required_connection_duration_and_level(cap
             reference_id="ref-2",
             provider="mss",
             operation="test_connection",
+            duration_ms=40,
         )
 
     failed, incomplete = caplog.records[-2:]
-    assert failed.duration_ms == 0
+    assert failed.duration_ms == 25
     assert incomplete.levelno == logging.INFO
+
+
+def test_diagnostic_event_registry_matches_application_and_documentation() -> None:
+    root = Path(__file__).resolve().parents[1]
+    registered = set(_EVENT_REQUIRED_FIELDS)
+    assert registered == set(_EVENT_OUTCOMES)
+
+    dictionary = (root / "docs/diagnostics-event-dictionary.md").read_text()
+    documented = {
+        match.group(1)
+        for match in re.finditer(r"^\| `([a-z][a-z0-9_.]+)` \|", dictionary, re.MULTILINE)
+    }
+    assert documented == registered
+
+    emitted: set[str] = set()
+    for path in (root / "app").rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "log_event"
+                and len(node.args) > 1
+                and isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+            ):
+                emitted.add(node.args[1].value)
+    assert emitted == registered
 
 
 def test_local_manifest_completion_does_not_claim_exact_verification() -> None:

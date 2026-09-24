@@ -38,7 +38,7 @@ from app.connectors.registry import (
     row_counter_for,
 )
 from app.db_compat import insert_for
-from app.domain.locators import Locator, PostgresTableLocator, WritePolicy
+from app.domain.locators import Locator, PostgresTableLocator, PostgresUpsertPolicy, WritePolicy
 from app.models import FoundryDataset, PipelineCatalogCache, User, new_id, utcnow
 
 CREATE_TABLE_VALUE = "__new__"
@@ -247,7 +247,14 @@ class UserCatalog:
                 )
             return result
         if isinstance(locator, PostgresTableLocator):
-            return self.inspect_object(provider, locator)
+            try:
+                return self.inspect_object(provider, locator)
+            except ConnectorError as exc:
+                if exc.code == TransferErrorCode.SOURCE_NOT_FOUND and not isinstance(
+                    write_policy, PostgresUpsertPolicy
+                ):
+                    return None
+                raise
         return None
 
     def count_rows(self, provider: str, locator: Locator) -> int | None:

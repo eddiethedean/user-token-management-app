@@ -536,7 +536,10 @@ def preflight_failure(
     action_label = "Review route"
     selected_reason_code = reason_code or "route_not_ready"
     if operation == "pipeline_csv_inspection":
-        message = "The CSV could not be inspected. Choose a supported CSV with a valid header and try again."
+        if "column names must be unique" in normalized or "duplicate" in normalized:
+            message = "CSV column names must be unique. Choose another CSV with a valid header."
+        else:
+            message = "The CSV could not be inspected. Choose a supported CSV with a valid header and try again."
         selected_reason_code = "csv_inspection_invalid"
     elif operation == "pipeline_dataset_create" and any(
         word in normalized for word in ("permission", "denied", "forbidden")
@@ -545,7 +548,10 @@ def preflight_failure(
         selected_reason_code = "destination_permission_denied"
         action_label = "Review connection"
     elif operation == "pipeline_dataset_create":
-        message = "The destination dataset could not be created. Review the connection, parent folder, and dataset name."
+        if "valid foundry folder rid" in normalized:
+            message = "Enter a valid Foundry folder RID."
+        else:
+            message = "The destination dataset could not be created. Review the connection, parent folder, and dataset name."
         selected_reason_code = "destination_dataset_creation_failed"
         action_label = "Review connection"
     elif "uncertain destination" in normalized or "reconciliation review" in normalized:
@@ -582,10 +588,11 @@ def preflight_failure(
     elif "pipeline is required" in normalized or "pipeline_id is required" in normalized:
         message = "Select or save a pipeline before starting a transfer."
         selected_reason_code = "pipeline_required"
+    elif "different from the source object" in normalized:
+        message = "Choose a destination different from the source object."
+        selected_reason_code = "same_source_and_destination"
     elif "connection" in normalized or "credential" in normalized:
-        message = (
-            "A required connection is not ready. Review its credentials and test it before running."
-        )
+        message = "Configure and validate the selected source connection before running this route."
         selected_reason_code = "connection_not_ready"
         action_label = "Review connection"
     elif "upload" in normalized and any(
