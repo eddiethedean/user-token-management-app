@@ -33,6 +33,7 @@ ToastTone = Literal["info", "success", "warning", "danger"]
 APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.MAIN_PANEL,
     region_defs.TOAST_HOST,
+    region_defs.REQUEST_FEEDBACK,
     region_defs.SIDE_NAV,
     region_defs.DIALOG_HOST,
     region_defs.ACCOUNT_SUMMARY,

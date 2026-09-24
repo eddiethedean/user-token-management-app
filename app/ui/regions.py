@@ -14,6 +14,11 @@ TOAST_HOST = FragmentRegion(
     selector="#hedron-toast",
     description="Transient toast notifications",
 )
+REQUEST_FEEDBACK = FragmentRegion(
+    id="request-feedback",
+    selector="#request-feedback",
+    description="Persistent page-level request feedback",
+)
 SIDE_NAV = FragmentRegion(
     id="side-nav",
     selector="#side-nav",
