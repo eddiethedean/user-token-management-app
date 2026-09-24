@@ -234,7 +234,7 @@ yet execute user-defined data-quality rules:
 |---|---|---|
 | Credential field validation and connection test | Connection setup | Confirm that a credential bundle is well formed and can reach its provider. |
 | Route, capability, locator, ownership, and write-policy validation | Save | Prevent unsupported or cross-owner definitions. |
-| Connection retest and source inspection | Run, before extraction | Fail before writes when the route can no longer be opened safely. |
+| Read-only source and destination readiness checks | Run submission, before enqueue and extraction | Catch stale source objects or permissions and destination access, schema, write-policy, or Foundry dataset/branch problems before a worker starts writing. |
 | Batch column-set and row/byte limit checks | During extraction/load | Detect column drift and enforce bounded execution, including rejecting one indivisible oversized row. |
 | Destination finalization and manifest capture | After load | Record provider-appropriate evidence about what the destination acknowledged. |
 
@@ -242,6 +242,13 @@ The current system does **not** provide rules such as “`event_id` must be uniq
 timestamps,” “amount must be non-negative,” or “quarantine invalid rows.” Verification telemetry
 also must not be interpreted as a universal row-by-row reconciliation guarantee; connector
 capabilities determine what can be observed.
+
+Run submission performs a read-only provider preflight before it creates the queued run. PostgreSQL
+checks source-table read access and verifies destination schema/table permissions against the chosen
+write mode, along with current schema, conversion, and upsert-key requirements. Foundry destination
+preflight resolves the selected dataset and branch; supported single-file source inspection also
+confirms that the selected file is still present. A failed preflight returns field-targeted guidance
+and a support reference without starting a worker or changing the destination.
 
 ## Future state: validation and transformation
 

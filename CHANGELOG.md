@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+## [240926.0] — 2026-09-24
+
+### Fixed
+
+- Preserve whether run metrics are exact, estimated, captured during execution, or unavailable, and
+  keep unsupported counts visibly unavailable.
+- Check provider readiness before queuing a transfer and return field-targeted diagnostics for
+  inaccessible PostgreSQL objects, incompatible schemas, or invalid Foundry targets.
+- Keep every saved route discoverable and make catalog-cache refreshes safe under concurrent reads.
+- Use SQLite-compatible writes for pipeline runs and clear stale request feedback after a
+  successful action.
+- Harden concurrent connection checks and give sign-in and throttling failures clear, safe recovery
+  guidance.
+
+### Changed
+
+- Bumped the application version to `240926.0`.
+- Load `LOG_LEVEL` and `LOG_FORMAT` from application settings, including protected `.env` values.
+
 ## [230926.2] — 2026-09-23
 
 ### Changed

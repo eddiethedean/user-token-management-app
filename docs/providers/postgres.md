@@ -1,9 +1,10 @@
 # PostgreSQL protocol notes
 
-Status: frozen for the first real-transfer release
+Status: implementation notes for the current PostgreSQL connector
 
-Evidence: `docs/archive/transfer_code/mss_pg.py`, `docs/archive/transfer_code/pg_mss.py`,
-`docs/archive/transfer_code/pg_mcs.py`, and the application's existing psycopg 3 driver
+Evidence: the current [`app/connectors/postgres.py`](../../app/connectors/postgres.py) connector and
+[`tests/test_postgres_connector.py`](../../tests/test_postgres_connector.py); archived transfer
+snippets are historical context only.
 
 ## Driver and identifiers
 
@@ -18,9 +19,16 @@ Connect, then:
 
 - `SELECT 1`
 - `SELECT current_database(), current_user, version()`
-- Optional non-mutating privilege probe: `SELECT has_schema_privilege(current_user, 'public', 'USAGE')`
 
 Do not create objects during a health check.
+
+## Run readiness preflight
+
+Before a run is queued, the connector checks that a PostgreSQL source table still exists and grants
+`SELECT`. For a PostgreSQL destination, it checks the schema and table permissions required by the
+selected write mode, validates the current schema and type conversions, and rechecks the selected
+upsert key against a current unique or primary constraint. These checks are read-only; a failed
+preflight returns a safe field-level diagnostic before a worker begins destination writes.
 
 ## Catalog
 
@@ -33,6 +41,8 @@ Read namespaces and tables from `information_schema` / `pg_catalog`. Inspect col
 - Open a dedicated connection, set `ISOLATION LEVEL REPEATABLE READ` before declaring the named
   cursor, and keep that transaction open until all batches have been consumed. This is explicit even
   when the database default is `READ COMMITTED`.
+- Generate the server-side cursor name locally; never derive it from user-supplied schema, table, or
+  route values.
 - The snapshot covers row extraction only. Schema inspection occurs before extraction on a separate
   connection, and destination verification uses the extracted totals and committed load manifest
   rather than issuing a second source read.

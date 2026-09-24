@@ -8,7 +8,7 @@ contracts; the prose may be edited without changing the code.
 |---|---|---|---|---:|---|---|
 | Sign-in | `auth_invalid` | Sign-in was not completed; credentials are not confirmed | Try again | Yes | Not applicable | Request |
 | Sign-in | `auth_rate_limited` | Too many sign-in attempts; wait before retrying | Wait and retry | Yes | Not applicable | Request |
-| Sign-in | temporary lockout | Sign-in is temporarily locked after repeated unsuccessful attempts | Wait 15 minutes or use password recovery | Yes | Not applicable | Request |
+| Sign-in | temporary lockout | Use the same generic sign-in failure and recovery guidance as for invalid credentials | Wait before retrying or use password recovery | Yes | Not applicable | Request |
 | Sign-in | `auth_trusted_identity_failed` | Organizational sign-in could not be completed | Use the approved entry point or contact an administrator | No | Not applicable | Request |
 | Sign-in | unexpected request failure | The request could not be completed | Retry or share the reference | Yes | Not applicable | Request |
 | Registration / recovery | invalid, expired, or used link | The link can no longer be used | Request a new link or access request | No | Not applicable | Request |

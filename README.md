@@ -95,8 +95,9 @@ is being revisited.
 ![Full-page Data Mover Connection status screen showing connected MSS, MCS-COP, and PostgreSQL checks](docs/screenshots/connections-status.jpg)
 
 The Connection status screen makes readiness explicit. Each provider shows its latest health-check
-result and offers an on-demand **Test connection** action; only connections that are saved and
-connected are available to Pipeline selectors.
+result and offers an on-demand **Test connection** action. Saved, connected connections appear in
+Pipeline selectors; an untested MSS or MCS-COP connection may also appear as a destination so you
+can create its first Foundry dataset.
 
 MSS, MCS-COP, and PostgreSQL can each be used as a source or destination. CSV uploads can only be
 used as sources. All three remote destination writers are enabled by default; an operator can
@@ -205,8 +206,9 @@ After signing in:
 2. Open **Connections → Status** and review the automatic checks from the saved connections. Use
    **Test connection** to repeat a check without changing credentials.
 3. Open **Pipeline → Route setup** and choose existing source and destination objects from the
-   demo catalogs. Only connections you have saved and validated appear. CSV files may also be
-   uploaded, scanned, and used as sources.
+   demo catalogs. Saved, validated connections appear in the selectors; an untested MSS or MCS-COP
+   connection is available only as a destination when creating its first Foundry dataset. CSV files
+   may also be uploaded, scanned, and used as sources.
 4. Select a write mode, save the route, and run it. Use **Live transfer** to follow persisted run
    events and **Saved routes** to load a reusable pipeline.
 

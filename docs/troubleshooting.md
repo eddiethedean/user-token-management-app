@@ -15,7 +15,7 @@
 | 404 on a rewritten `/proxy/8000/s/…/p/…/login` URL | An older app emitted a mounted absolute redirect and Workbench prefixed it again | Restart from the current revision (which emits relative redirects), then request a fresh link; do not hand-edit the old URL |
 | `Could not proxy POST request to /proxy/8000/login: connect ECONNREFUSED` while `make demo` says port 8765 | Workbench discovery did not activate, so the absolute login action fell back to Workbench's port 8000 while the demo listened on 8765 | Pull the current launcher, restart `make demo`, and open the newly printed Workbench URL. The launcher checks both `PATH` and `/usr/lib/rstudio-server/bin/rserver-url`; do not reuse the old port-8000 URL |
 | `HED-WB-0001` / `FWB-0001: Conflicting Workbench mount and origin` after `make demo` prints a Workbench URL | An inherited root or mount still contains an older Workbench port token | Pull the current launcher and restart `make demo`. A newly discovered URL now replaces stale `UVICORN_ROOT_PATH` and Hedron/FastAPI mount handoffs before the server starts |
-| Login POST → 500 `near "RETURNING": syntax error` | Host SQLite older than 3.35 (no `RETURNING`) | Pull the SQLAlchemy compat helpers (`app/db_compat.py`): SQLite uses upsert/update + select; PostgreSQL keeps `RETURNING`. `git pull` and restart `serve` |
+| Login or Run transfer POST → 500 `near "RETURNING": syntax error` | An older SQLite runtime does not support `RETURNING` | Update to the current release, which uses SQLite-compatible upsert/update + select fallbacks for login and pipeline-run writes while PostgreSQL keeps `RETURNING`; restart `serve` |
 | Workbench “page was not found” after `/proxy/8000/` → `/login` | Absolute `/login` escaped the proxy (older builds) | Pull the relative-redirect fix; or open the printed `/s/…/p/…` URL |
 | Links go to `/proxy/8000` instead of `/s/…/p/…` | Older builds invented a Proxied Servers prefix for hrefs | Pull the fastapi-workbench-style fix (Uvicorn `root_path` = session mount only); open the printed session URL |
 | Unstyled login / missing CSS under `/s/…/p/…` | Starlette 1.4 needs full `path` plus `root_path` for StaticFiles | Upgrade past the middleware fix that stops stripping the session prefix from `path` |
@@ -118,10 +118,10 @@ the safe remediation; provider correlation IDs, HTTP status, and duration remain
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | Source and destination selection is rejected | One provider is not source-capable or the other is not destination-capable | Choose a source-capable provider and a destination-capable provider. Same-system copies are supported when the destination writer is enabled |
-| A connection is missing from Pipeline | It is not saved for the current user or its latest validation is not Connected | Save or replace it under **Connections → Credentials** to run the automatic check, then review **Connections → Status**. Pipeline intentionally hides unavailable connections |
+| A connection is missing from Pipeline | It is not saved for the current user or its latest validation is not Connected | Save or replace it under **Connections → Credentials** to run the automatic check, then review **Connections → Status**. An untested MSS or MCS-COP connection can appear as a destination only while creating its first Foundry dataset |
 | Save or Run is disabled | A required connection is missing, the CSV has not been scanned, the route is unsupported, or the destination writer is disabled | Follow the availability message above the route. Restore and test the connection, scan the CSV, choose a compatible route, or ask the operator to review the writer flag |
 | Cannot save a pipeline | Short name, unavailable connection, invalid catalog object, missing CSV scan, or invalid new-table name | Confirm both remote connections are Connected. Use a name with at least 3 characters and catalog values from the UI. New names must be 1–63 characters, start with a letter, and contain only letters, numbers, or underscores |
-| A saved pipeline is missing | Saved definitions are owner-scoped, or it is older than the 12 most recently updated entries shown | Sign in as the owner; update or recreate the route if it is outside the current list |
+| A saved pipeline is missing | Saved definitions are owner-scoped, or the route was deleted | Sign in as the account that owns the route and check **Saved routes**; recreate it if it was deleted |
 | Run stays queued | The in-process runtime is paused or failed | Check the app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; restart the app after correcting the configuration |
 | Run completes but destination is unchanged | Demo connectors, or a provider writer was disabled | Demo mode does not write remotely. Confirm the destination's `PIPELINE_ENABLE_*_WRITER` override is enabled |
 | Run button says transfer is running | A run is already active | Wait for a terminal status or cancel |
@@ -155,8 +155,9 @@ not block enrollment.
 
 ## Rate limits
 
-Shared DB-backed limits return generic throttling responses. If legitimate traffic is blocked, review
-`RATE_LIMIT_*` windows or add ingress throttling rather than disabling limits in production
+Shared DB-backed limits return generic throttling responses with a **Retry-After** wait and a
+support reference. Wait for the displayed interval before retrying. If legitimate traffic is blocked,
+review `RATE_LIMIT_*` windows or add ingress throttling rather than disabling limits in production
 (`RATE_LIMIT_ENABLED` must stay true).
 
 ## Reference-based support handoff

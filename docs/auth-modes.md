@@ -46,11 +46,12 @@ Directory lookup (`DIRECTORY_LOOKUP_*`) is **eligibility**, not authentication, 
 
 ## Safe identity feedback
 
-Password failures keep the same generic browser copy for an unknown account, wrong password,
-pending approval, and disabled account. The application records only a stable reason code and
-opaque request reference for operators; it does not log the submitted email, password, or account
-existence decision as user-visible text. Trusted-header failures likewise say that organizational
-sign-in could not be completed and direct the user to the approved entry point or administrator.
+Password failures, including temporary lockout, keep the same generic browser copy and recovery
+guidance for an unknown account, wrong password, pending approval, and disabled account. The
+application records only a stable reason code and opaque request reference for operators; it does
+not log the submitted email, password, or account existence decision as user-visible text.
+Trusted-header failures likewise say that organizational sign-in could not be completed and direct
+the user to the approved entry point or administrator.
 
 Enrollment, invitation, and password-reset links show a safe expired/used-link message and a
 reference. Operators should use that reference with the event dictionary rather than asking the

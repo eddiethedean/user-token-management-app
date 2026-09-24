@@ -6,7 +6,8 @@ tags, so entries below describe repository milestones rather than asserting exte
 
 | Release note | Status | Scope |
 |---|---|---|
-| [Data Mover 230926.2](../../CHANGELOG.md#2309262) | Current repository release | Version bump |
+| [Data Mover 240926.0](../../CHANGELOG.md#2409260) | Current repository release | Pipeline readiness and metric provenance, saved-route and catalog reliability, sign-in recovery, and logging configuration |
+| [Data Mover 230926.2](../../CHANGELOG.md#2309262) | Historical repository release | Version bump |
 | [Data Mover 230926.1](../../CHANGELOG.md#2309261) | Historical repository release | Version bump and parallel CI tests with pytest-xdist |
 | [Data Mover 230926.0](../../CHANGELOG.md#2309260) | Historical repository release | Session refresh hardening and user-attributed audit and pipeline run diagnostics |
 | [Data Mover 220926.0](../../CHANGELOG.md#2209260) | Historical repository release | Desktop feedback improvements for sign-in, administration, and pipeline runs |

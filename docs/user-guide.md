@@ -46,10 +46,11 @@ entering real credentials.
 6. Select **Run transfer** to enqueue a durable run, then open **Live transfer** to follow persisted
    status and in-process task events.
 
-When an action fails, read the persistent feedback panel rather than relying on a disappearing
-toast. It states what happened, the next action, the known destination impact, and an opaque
-**Reference** for support. Connection references remain on the status card; pipeline references are
-the durable run IDs. Never paste credentials or a reset link into a support request.
+When an action fails, read the feedback panel rather than relying on a disappearing toast. It states
+what happened, the next action, the known destination impact, and an opaque **Reference** for
+support; a later successful action clears the old error. Connection references remain on the status
+card; pipeline references are the durable run IDs. Never paste credentials or a reset link into a
+support request.
 
 In demo mode, connectors never contact the hostnames you type. A demo health result says
 **Emulated connection only**, reports no network latency, and proves only that the saved fields can
