@@ -61,6 +61,7 @@ from app.ui.regions import (
     CONNECTION_STATUS_LIST,
     MAIN_PANEL,
     PASSWORD_FORM,
+    REQUEST_FEEDBACK,
     SECRET_SLOT_MCSCOP,
     SECRET_SLOT_MSS,
     SECRET_SLOT_POSTGRES,
@@ -104,7 +105,7 @@ def _credential_field_errors(specification, message: str) -> dict[str, str]:
 def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None:
     @app.page(
         "/security",
-        fragment_regions=(MAIN_PANEL, SIDE_NAV),
+        fragment_regions=(MAIN_PANEL, SIDE_NAV, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def security_page(
@@ -156,7 +157,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
 
     @fragment_router.view(
         "/profile/activity",
-        fragment_regions=(SECURITY_ACTIVITY, SECURITY_ACTIVITY_LAZY_BODY),
+        fragment_regions=(SECURITY_ACTIVITY, SECURITY_ACTIVITY_LAZY_BODY, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def security_activity_fragment(
@@ -192,7 +193,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
 
     @app.action(
         "/profile/password",
-        fragment_regions=(PASSWORD_FORM,),
+        fragment_regions=(PASSWORD_FORM, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def password_change_submit(
@@ -293,7 +294,13 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
 
     @app.action(
         "/profile/sessions/{session_id}/revoke",
-        fragment_regions=(SESSION_LIST, SESSION_COUNT, SECURITY_ACTIVITY, TOAST_HOST),
+        fragment_regions=(
+            SESSION_LIST,
+            SESSION_COUNT,
+            SECURITY_ACTIVITY,
+            TOAST_HOST,
+            REQUEST_FEEDBACK,
+        ),
         include_in_schema=False,
     )
     async def revoke_session_submit(
@@ -335,6 +342,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
             SECRET_SLOT_POSTGRES,
             CONNECTION_STATUS_LIST,
             TOAST_HOST,
+            REQUEST_FEEDBACK,
         ),
         include_in_schema=False,
     )
@@ -560,6 +568,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
             SECRET_SLOT_POSTGRES,
             CONNECTION_STATUS_LIST,
             TOAST_HOST,
+            REQUEST_FEEDBACK,
         ),
         include_in_schema=False,
     )
@@ -607,7 +616,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
 
     @app.action(
         "/security/secrets/{provider}/test",
-        fragment_regions=(CONNECTION_STATUS_LIST, TOAST_HOST),
+        fragment_regions=(CONNECTION_STATUS_LIST, TOAST_HOST, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def connection_test_submit(

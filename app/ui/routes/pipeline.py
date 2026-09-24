@@ -129,6 +129,7 @@ from app.ui.regions import (
     MAIN_PANEL,
     PIPELINE_SAVE_NOTICE,
     PIPELINE_SAVED_ROUTES,
+    REQUEST_FEEDBACK,
     SIDE_NAV,
 )
 from app.ui.routes.pipeline_context import (
@@ -4028,7 +4029,7 @@ def register_pipeline_routes(
 
     @app.page(
         "/pipeline",
-        fragment_regions=(MAIN_PANEL, SIDE_NAV, PIPELINE_SAVE_NOTICE),
+        fragment_regions=(MAIN_PANEL, SIDE_NAV, PIPELINE_SAVE_NOTICE, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def pipeline_page(
@@ -4123,7 +4124,7 @@ def register_pipeline_routes(
 
     @fragment_router.view(
         "/pipeline/saved-routes",
-        fragment_regions=(PIPELINE_SAVED_ROUTES,),
+        fragment_regions=(PIPELINE_SAVED_ROUTES, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def pipeline_saved_routes(
