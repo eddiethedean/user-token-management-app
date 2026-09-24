@@ -38,7 +38,7 @@ from app.connectors.registry import (
     row_counter_for,
 )
 from app.db_compat import insert_for
-from app.domain.locators import Locator
+from app.domain.locators import Locator, PostgresTableLocator, WritePolicy
 from app.models import FoundryDataset, PipelineCatalogCache, User, new_id, utcnow
 
 CREATE_TABLE_VALUE = "__new__"
@@ -192,6 +192,49 @@ class UserCatalog:
                 {"columns": [vars(column) for column in inspected.columns]},
             )
         return inspected
+
+    def inspect_object_fresh(self, provider: str, locator: Locator) -> ObjectSchema:
+        """Inspect live provider metadata without using the catalog cache."""
+
+        locator = validate_locator(locator)
+        inspector = self.schema_resolver(provider)
+        if not inspector.capabilities.schema_inspection:
+            raise ConnectorError(
+                code=TransferErrorCode.INTERNAL_ERROR,
+                summary="The selected provider does not support schema inspection.",
+                retryable=False,
+            )
+        return inspector.inspect_object(self._credentials_for(provider), locator)
+
+    def preflight_source(self, provider: str, locator: Locator) -> ObjectSchema:
+        """Run connector-specific source permission checks, then read live metadata."""
+
+        locator = validate_locator(locator)
+        inspector = self.schema_resolver(provider)
+        preflight = getattr(inspector, "preflight_source", None)
+        if callable(preflight):
+            return preflight(self._credentials_for(provider), locator)
+        return self.inspect_object_fresh(provider, locator)
+
+    def preflight_destination(
+        self,
+        provider: str,
+        locator: Locator,
+        source_schema: ObjectSchema,
+        write_policy: WritePolicy,
+    ) -> ObjectSchema | None:
+        """Run a connector-owned, read-only readiness check when available."""
+
+        locator = validate_locator(locator)
+        connector = self.schema_resolver(provider)
+        preflight = getattr(connector, "preflight_destination", None)
+        if callable(preflight):
+            return preflight(
+                self._credentials_for(provider), locator, source_schema, write_policy
+            )
+        if isinstance(locator, PostgresTableLocator):
+            return self.inspect_object(provider, locator)
+        return None
 
     def count_rows(self, provider: str, locator: Locator) -> int | None:
         locator = validate_locator(locator)

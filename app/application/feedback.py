@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 
 from app.connectors.errors import RETRYABLE_CODES, ConnectorError, TransferErrorCode
 from app.domain.feedback import (
@@ -520,39 +521,106 @@ def connection_failure(
     )
 
 
-def preflight_failure(*, reason: str = "", reference_id: str = "") -> FeedbackOutcome:
+def preflight_failure(
+    *,
+    reason: str = "",
+    reason_code: str = "",
+    field_errors: Mapping[str, str] | None = None,
+    reference_id: str = "",
+    operation: str = "enqueue",
+) -> FeedbackOutcome:
     """Project authoritative route checks into safe pre-enqueue guidance."""
 
     normalized = reason.casefold()
     action = FeedbackAction.RECONFIGURE
     action_label = "Review route"
-    if "uncertain destination" in normalized or "reconciliation review" in normalized:
+    selected_reason_code = reason_code or "route_not_ready"
+    if operation == "pipeline_csv_inspection":
+        message = "The CSV could not be inspected. Choose a supported CSV with a valid header and try again."
+        selected_reason_code = "csv_inspection_invalid"
+    elif operation == "pipeline_dataset_create" and any(
+        word in normalized for word in ("permission", "denied", "forbidden")
+    ):
+        message = "The destination connection cannot create a dataset in the selected folder. Review its access permissions."
+        selected_reason_code = "destination_permission_denied"
+        action_label = "Review connection"
+    elif operation == "pipeline_dataset_create":
+        message = "The destination dataset could not be created. Review the connection, parent folder, and dataset name."
+        selected_reason_code = "destination_dataset_creation_failed"
+        action_label = "Review connection"
+    elif "uncertain destination" in normalized or "reconciliation review" in normalized:
         message = "The previous transfer may have changed the destination. Inspect the destination and record reconciliation review before starting another run."
         action = FeedbackAction.RECONCILE
         action_label = "Review destination"
+        selected_reason_code = "destination_state_uncertain"
     elif "cannot store the csv decimal without rounding" in normalized:
         message = (
             "The destination table's numeric columns cannot hold all CSV decimal places. "
             "Choose a table with enough precision and scale, or update the destination column definitions."
         )
+        selected_reason_code = "destination_precision"
     elif "cannot store the source decimal without rounding" in normalized:
         message = (
             "The destination table's numeric columns cannot hold all source decimal places. "
             "Choose a table with enough precision and scale, or update the destination column definitions."
         )
+        selected_reason_code = "destination_precision"
     elif "cannot safely store the selected decimal cast" in normalized:
         message = (
             "The destination column cannot safely store the selected decimal values at its current precision. "
             "Choose an unconstrained numeric or text column, or select a different cast type."
         )
+        selected_reason_code = "destination_precision"
     elif "writer is not enabled" in normalized:
         message = "The selected destination is not enabled for writes. Choose another destination or contact an administrator."
+        selected_reason_code = "writer_disabled"
     elif "unsupported transfer route" in normalized or "unsupported provider" in normalized:
         message = (
             "The selected source and destination route is not supported. Choose a compatible route."
         )
+        selected_reason_code = "unsupported_route"
     elif "pipeline is required" in normalized or "pipeline_id is required" in normalized:
         message = "Select or save a pipeline before starting a transfer."
+        selected_reason_code = "pipeline_required"
+    elif "connection" in normalized or "credential" in normalized:
+        message = "A required connection is not ready. Review its credentials and test it before running."
+        selected_reason_code = "connection_not_ready"
+        action_label = "Review connection"
+    elif "upload" in normalized and any(
+        word in normalized for word in ("not found", "missing", "unavailable", "no longer")
+    ):
+        message = "The uploaded source file is no longer available. Upload and inspect it again."
+        selected_reason_code = "source_upload_unavailable"
+        action_label = "Review source"
+    elif "source" in normalized and any(
+        word in normalized for word in ("not found", "unavailable", "no longer", "missing")
+    ):
+        message = "The source object is not available. Review the source connection and selected object."
+        selected_reason_code = "source_unavailable"
+        action_label = "Review source"
+    elif "destination" in normalized and any(
+        word in normalized for word in ("not found", "unavailable", "no longer", "missing")
+    ):
+        message = "The destination object is not available. Review the destination connection and write target."
+        selected_reason_code = "destination_unavailable"
+        action_label = "Review destination"
+    elif not reason_code and any(
+        word in normalized for word in ("upsert", "unique key", "primary key", "conflict")
+    ):
+        message = "The destination write policy is not valid for this object. Review its keys and write permissions."
+        selected_reason_code = "write_policy_invalid"
+    elif reason_code == "source_permission_denied":
+        message = "The source connection cannot read the selected object. Review its access permissions."
+        action_label = "Review connection"
+    elif reason_code == "destination_permission_denied":
+        message = "The destination connection cannot prepare the selected write target. Review its access permissions."
+        action_label = "Review connection"
+    elif reason_code == "invalid_upsert_key":
+        message = "The selected upsert key no longer matches a unique destination constraint. Review the route key."
+    elif reason_code == "destination_schema_incompatible":
+        message = "The current source and destination schemas are not compatible with the saved route. Review the listed fields."
+    elif reason_code == "unsupported_conversion":
+        message = "The selected source type cannot be transferred safely with the current destination schema. Review the listed fields."
     else:
         message = "The route is not ready to run. Review the connection, source, destination, and write policy."
     outcome = FeedbackOutcome(
@@ -563,6 +631,7 @@ def preflight_failure(*, reason: str = "", reference_id: str = "") -> FeedbackOu
         action=action,
         action_label=action_label,
         reference_id=reference_id,
+        field_errors=dict(field_errors or {}),
     )
     log_event(
         log,
@@ -570,7 +639,8 @@ def preflight_failure(*, reason: str = "", reference_id: str = "") -> FeedbackOu
         outcome="rejected",
         error_code=str(outcome.code),
         reference_id=reference_id,
-        operation="enqueue",
+        operation=operation,
+        reason_code=selected_reason_code,
     )
     return outcome
 

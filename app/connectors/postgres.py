@@ -295,6 +295,309 @@ class PostgresConnector:
         finally:
             conn.close()
 
+    def preflight_source(self, credentials, locator: Locator) -> ObjectSchema:
+        """Confirm that the selected PostgreSQL source is readable now."""
+
+        if not isinstance(locator, PostgresTableLocator):
+            raise ConnectorError(
+                TransferErrorCode.SOURCE_NOT_FOUND,
+                "The selected PostgreSQL source is invalid.",
+                retryable=False,
+            )
+        conn = connect(credentials, self.settings)
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT c.oid, has_table_privilege(current_user, c.oid, 'SELECT')
+                    FROM pg_namespace n
+                    LEFT JOIN pg_class c ON c.relnamespace = n.oid
+                        AND c.relname = %s AND c.relkind IN ('r', 'p')
+                    WHERE n.nspname = %s
+                    """,
+                    (locator.table, locator.schema_name),
+                )
+                row = cursor.fetchone()
+            if row is None or row[0] is None:
+                raise ConnectorError(
+                    TransferErrorCode.SOURCE_NOT_FOUND,
+                    "The selected source table is no longer available.",
+                    retryable=False,
+                )
+            if not row[1]:
+                raise ConnectorError(
+                    TransferErrorCode.PERMISSION_DENIED,
+                    "The selected source table does not grant select permission.",
+                    retryable=False,
+                )
+        except psycopg.Error as exc:
+            raise _postgres_connector_error(exc, operation="source readiness check") from exc
+        finally:
+            conn.close()
+        return self.inspect_object(credentials, locator)
+
+    def preflight_destination(
+        self, credentials, locator: Locator, source_schema: ObjectSchema, write_policy: WritePolicy
+    ) -> ObjectSchema | None:
+        """Validate the selected PostgreSQL destination without changing it."""
+
+        if not isinstance(locator, PostgresTableLocator):
+            raise ConnectorError(
+                TransferErrorCode.DESTINATION_NOT_FOUND,
+                "The selected PostgreSQL destination is invalid.",
+                retryable=False,
+            )
+        conn = connect(credentials, self.settings)
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT n.oid,
+                           has_schema_privilege(current_user, n.oid, 'CREATE'),
+                           has_database_privilege(current_user, current_database(), 'CREATE'),
+                           c.oid,
+                           c.relkind,
+                           CASE WHEN c.oid IS NULL THEN false
+                                ELSE has_table_privilege(current_user, c.oid, 'INSERT') END,
+                           CASE WHEN c.oid IS NULL THEN false
+                                ELSE has_table_privilege(current_user, c.oid, 'UPDATE') END,
+                           CASE WHEN c.oid IS NULL THEN false
+                                ELSE has_table_privilege(current_user, c.oid, 'SELECT') END,
+                           CASE WHEN c.oid IS NULL THEN false
+                                ELSE has_table_privilege(current_user, c.oid, 'DELETE') END,
+                           CASE WHEN c.oid IS NULL THEN false
+                                ELSE pg_has_role(current_user, c.relowner, 'USAGE') END
+                    FROM (SELECT 1) AS seed
+                    LEFT JOIN pg_namespace n ON n.nspname = %s
+                    LEFT JOIN pg_class c ON c.relnamespace = n.oid
+                        AND c.relname = %s
+                    """,
+                    (locator.schema_name, locator.table),
+                )
+                facts = cursor.fetchone()
+                if facts is None:
+                    raise ConnectorError(
+                        TransferErrorCode.INTERNAL_ERROR,
+                        "The destination readiness check could not be completed.",
+                        retryable=False,
+                    )
+                (
+                    schema_oid,
+                    schema_create,
+                    database_create,
+                    table_oid,
+                    relation_kind,
+                    can_insert,
+                    can_update,
+                    can_select,
+                    can_delete,
+                    owns_table,
+                ) = facts
+                if table_oid is not None and relation_kind not in {"r", "p"}:
+                    raise ConnectorError(
+                        TransferErrorCode.DESTINATION_NOT_FOUND,
+                        "The selected PostgreSQL destination is not a writable table.",
+                        retryable=False,
+                    )
+                if not schema_create and not (schema_oid is None and database_create):
+                    raise ConnectorError(
+                        TransferErrorCode.PERMISSION_DENIED,
+                        "The destination schema does not grant the required create permission.",
+                        retryable=False,
+                    )
+                if table_oid is None:
+                    if relation_kind is not None:
+                        raise ConnectorError(
+                            TransferErrorCode.DESTINATION_CONFLICT,
+                            "The selected destination name is already used by a non-table object.",
+                            retryable=False,
+                        )
+                    if isinstance(write_policy, PostgresUpsertPolicy):
+                        raise ConnectorError(
+                            TransferErrorCode.DESTINATION_CONFLICT,
+                            "The destination upsert key is not available because the table does not exist.",
+                            retryable=False,
+                        )
+                    _validate_generated_key_policy(source_schema, write_policy)
+                    return None
+                recreates_schema = (
+                    isinstance(write_policy, PostgresReplacePolicy)
+                    and write_policy.schema_policy == "recreate"
+                )
+                if not can_insert and not recreates_schema:
+                    raise ConnectorError(
+                        TransferErrorCode.PERMISSION_DENIED,
+                        "The destination table does not grant insert permission.",
+                        retryable=False,
+                    )
+                if isinstance(write_policy, PostgresUpsertPolicy):
+                    if write_policy.action == "update" and not can_update:
+                        raise ConnectorError(
+                            TransferErrorCode.PERMISSION_DENIED,
+                            "The destination table does not grant update permission.",
+                            retryable=False,
+                        )
+                    if not can_select:
+                        raise ConnectorError(
+                            TransferErrorCode.PERMISSION_DENIED,
+                            "The destination table does not grant select permission required for upsert.",
+                            retryable=False,
+                        )
+                if isinstance(write_policy, PostgresReplacePolicy) and (
+                    not owns_table or (not recreates_schema and not can_delete)
+                ):
+                    raise ConnectorError(
+                        TransferErrorCode.PERMISSION_DENIED,
+                        "The destination table does not grant the ownership and delete permissions required for replacement.",
+                        retryable=False,
+                    )
+                if recreates_schema:
+                    return ObjectSchema(locator=locator, columns=source_schema.columns)
+                cursor.execute(
+                    """
+                    SELECT column_name, data_type, is_nullable, numeric_precision, numeric_scale,
+                           is_generated, is_identity, identity_generation, column_default
+                    FROM information_schema.columns
+                    WHERE table_schema = %s AND table_name = %s
+                    ORDER BY ordinal_position
+                    """,
+                    (locator.schema_name, locator.table),
+                )
+                destination_rows = cursor.fetchall()
+                source_names = {column.name for column in source_schema.columns}
+                for row in destination_rows:
+                    if row[6] == "YES" and row[0] in source_names:
+                        _identity_sequence_settings(cursor, locator, str(row[0]))
+                cursor.execute(
+                    """
+                    SELECT a.attname
+                    FROM pg_index i
+                    JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                    JOIN pg_class c ON c.oid = i.indrelid
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = %s AND c.relname = %s AND i.indisprimary
+                    ORDER BY a.attnum
+                    """,
+                    (locator.schema_name, locator.table),
+                )
+                primary_key = tuple(str(row[0]) for row in cursor.fetchall())
+                cursor.execute(
+                    """
+                    SELECT tc.constraint_name, kcu.column_name
+                    FROM information_schema.table_constraints AS tc
+                    JOIN information_schema.key_column_usage AS kcu
+                     ON tc.constraint_catalog = kcu.constraint_catalog
+                     AND tc.constraint_schema = kcu.constraint_schema
+                     AND tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema = kcu.table_schema
+                     AND tc.table_name = kcu.table_name
+                    WHERE tc.table_schema = %s AND tc.table_name = %s
+                      AND tc.constraint_type = 'UNIQUE'
+                    ORDER BY tc.constraint_name, kcu.ordinal_position
+                    """,
+                    (locator.schema_name, locator.table),
+                )
+                unique_columns: dict[str, list[str]] = {}
+                for constraint_name, column_name in cursor.fetchall():
+                    unique_columns.setdefault(str(constraint_name), []).append(str(column_name))
+
+            destination_columns = tuple(
+                ColumnSchema(
+                    name=str(row[0]),
+                    data_type=(
+                        f"Decimal(precision={row[3]}, scale={row[4]})"
+                        if row[1] in {"numeric", "decimal"} and row[3] is not None
+                        else str(row[1])
+                    ),
+                    nullable=row[2] == "YES",
+                )
+                for row in destination_rows
+            )
+            destination_names = {column.name for column in destination_columns}
+            generated = {
+                str(row[0]) for row in destination_rows if row[5] == "ALWAYS"
+            }
+            conflicts = source_names & generated
+            if conflicts:
+                column_name = sorted(conflicts)[0]
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    f"The source column '{column_name}' conflicts with a generated destination column.",
+                    retryable=False,
+                    field_errors={
+                        f"Destination column {column_name}":
+                        "This column is generated by the destination and cannot also be supplied by the source."
+                    },
+                )
+            for row in destination_rows:
+                name, _type, nullable, _precision, _scale, generated_kind, identity, _generation, default = row
+                if (
+                    source_names
+                    and
+                    name not in source_names
+                    and nullable == "NO"
+                    and not default
+                    and generated_kind != "ALWAYS"
+                    and identity != "YES"
+                ):
+                    raise ConnectorError(
+                        TransferErrorCode.SCHEMA_DRIFT,
+                        f"Required destination column '{name}' is missing from the source schema.",
+                        retryable=False,
+                        field_errors={
+                            f"Destination column {name}":
+                            "This required column has no source value or destination default."
+                        },
+                    )
+            if isinstance(write_policy, PostgresUpsertPolicy):
+                keys = tuple(write_policy.conflict_columns)
+                if not source_names:
+                    raise ConnectorError(
+                        TransferErrorCode.SCHEMA_DRIFT,
+                        "The current source schema is unavailable for the selected upsert key.",
+                        retryable=False,
+                    )
+                if not set(keys).issubset(source_names & destination_names):
+                    raise ConnectorError(
+                        TransferErrorCode.SCHEMA_DRIFT,
+                        "The destination upsert key includes a column missing from the current schema.",
+                        retryable=False,
+                        field_errors={
+                            "Write policy":
+                            "Every upsert key column must exist in both current schemas."
+                        },
+                    )
+                unique_keys = {frozenset(primary_key)}
+                unique_keys.update(frozenset(items) for items in unique_columns.values())
+                if frozenset(keys) not in unique_keys:
+                    raise ConnectorError(
+                        TransferErrorCode.DESTINATION_CONFLICT,
+                        "The destination upsert key does not match a current unique constraint.",
+                        retryable=False,
+                        field_errors={
+                            "Write policy":
+                            "Choose conflict columns that match a destination primary or unique key."
+                        },
+                    )
+            _validate_generated_key_policy(source_schema, write_policy)
+            with conn.cursor() as cursor:
+                _validate_destination_column_casts(cursor, locator, source_schema)
+            if not (
+                isinstance(write_policy, PostgresReplacePolicy)
+                and write_policy.schema_policy == "recreate"
+            ):
+                validate_decimal_destination_schema(source_schema.columns, destination_columns)
+            return ObjectSchema(
+                locator=locator,
+                columns=destination_columns,
+                primary_key=primary_key,
+                unique_constraints=tuple(tuple(items) for items in unique_columns.values()),
+            )
+        except psycopg.Error as exc:
+            raise _postgres_connector_error(exc, operation="destination readiness check") from exc
+        finally:
+            conn.close()
+
     def count_rows(self, credentials, locator: Locator) -> int | None:
         """Return the exact destination row count, or zero when the table is new."""
 
@@ -441,25 +744,6 @@ class PostgresConnector:
                 )
                 if not recreates_schema:
                     _validate_existing_decimal_columns(cursor, locator, schema)
-                cursor.execute(
-                    sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
-                        sql.Identifier(locator.schema_name)
-                    )
-                )
-                if recreates_schema:
-                    # Build the complete replacement without touching the live
-                    # table. finalize() performs the destructive swap atomically.
-                    cursor.execute(
-                        sql.SQL("CREATE TABLE {} ({})").format(
-                            sql.Identifier(locator.schema_name, staging), col_defs
-                        )
-                    )
-                else:
-                    cursor.execute(
-                        sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
-                            sql.Identifier(locator.schema_name, locator.table), col_defs
-                        )
-                    )
                     cursor.execute(
                         """
                         SELECT column_name, is_generated, is_identity, identity_generation
@@ -486,8 +770,46 @@ class PostgresConnector:
                                 generated_columns.add(name)
                         elif is_generated == "ALWAYS":
                             generated_columns.add(name)
+                    conflicts = set(columns) & generated_columns
+                    if conflicts:
+                        name = sorted(conflicts)[0]
+                        raise ConnectorError(
+                            TransferErrorCode.SCHEMA_DRIFT,
+                            f"The source column '{name}' conflicts with a generated destination column.",
+                            retryable=False,
+                        )
+                    if isinstance(write_policy, PostgresUpsertPolicy):
+                        _validate_upsert_policy(cursor, locator, schema, write_policy)
                     for column_name in supplied_identity_columns:
                         _identity_sequence_settings(cursor, locator, column_name)
+                    if not recreates_schema:
+                        cursor.execute(
+                            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+                            "WHERE table_schema = %s AND table_name = %s)",
+                            (locator.schema_name, locator.table),
+                        )
+                        destination_exists = bool(cursor.fetchone()[0])
+                        if destination_exists:
+                            _validate_destination_column_casts(cursor, locator, schema)
+                cursor.execute(
+                    sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
+                        sql.Identifier(locator.schema_name)
+                    )
+                )
+                if recreates_schema:
+                    # Build the complete replacement without touching the live
+                    # table. finalize() performs the destructive swap atomically.
+                    cursor.execute(
+                        sql.SQL("CREATE TABLE {} ({})").format(
+                            sql.Identifier(locator.schema_name, staging), col_defs
+                        )
+                    )
+                else:
+                    cursor.execute(
+                        sql.SQL("CREATE TABLE IF NOT EXISTS {} ({})").format(
+                            sql.Identifier(locator.schema_name, locator.table), col_defs
+                        )
+                    )
                     cursor.execute(
                         sql.SQL(
                             "CREATE TABLE {} (LIKE {} INCLUDING DEFAULTS INCLUDING GENERATED)"
@@ -1019,6 +1341,148 @@ def _validate_existing_decimal_columns(
     validate_decimal_destination_schema(schema.columns, destination_columns)
 
 
+def _validate_upsert_policy(
+    cursor,
+    locator: PostgresTableLocator,
+    source_schema: ObjectSchema,
+    policy: PostgresUpsertPolicy,
+) -> None:
+    """Recheck source columns and conflict constraints immediately before staging."""
+
+    cursor.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = %s AND table_name = %s
+        """,
+        (locator.schema_name, locator.table),
+    )
+    destination_columns = {str(row[0]) for row in cursor.fetchall()}
+    source_columns = {column.name for column in source_schema.columns}
+    key = tuple(policy.conflict_columns)
+    if not set(key).issubset(source_columns & destination_columns):
+        raise ConnectorError(
+            TransferErrorCode.SCHEMA_DRIFT,
+            "The destination upsert key includes a column missing from the current schema.",
+            retryable=False,
+        )
+    cursor.execute(
+        """
+        SELECT a.attname
+        FROM pg_index i
+        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+        JOIN pg_class c ON c.oid = i.indrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = %s AND c.relname = %s AND i.indisprimary
+        ORDER BY a.attnum
+        """,
+        (locator.schema_name, locator.table),
+    )
+    unique_keys: set[tuple[str, ...]] = {tuple(str(row[0]) for row in cursor.fetchall())}
+    cursor.execute(
+        """
+        SELECT tc.constraint_name, kcu.column_name
+        FROM information_schema.table_constraints AS tc
+        JOIN information_schema.key_column_usage AS kcu
+         ON tc.constraint_catalog = kcu.constraint_catalog
+         AND tc.constraint_schema = kcu.constraint_schema
+         AND tc.constraint_name = kcu.constraint_name
+         AND tc.table_schema = kcu.table_schema
+         AND tc.table_name = kcu.table_name
+        WHERE tc.table_schema = %s AND tc.table_name = %s
+          AND tc.constraint_type = 'UNIQUE'
+        ORDER BY tc.constraint_name, kcu.ordinal_position
+        """,
+        (locator.schema_name, locator.table),
+    )
+    unique_constraints: dict[str, list[str]] = {}
+    for constraint_name, column_name in cursor.fetchall():
+        unique_constraints.setdefault(str(constraint_name), []).append(str(column_name))
+    unique_keys.update(tuple(columns) for columns in unique_constraints.values())
+    if frozenset(key) not in {frozenset(columns) for columns in unique_keys}:
+        raise ConnectorError(
+            TransferErrorCode.DESTINATION_CONFLICT,
+            "The destination upsert key does not match a current unique constraint.",
+            retryable=False,
+            field_errors={
+                "Write policy":
+                "Choose conflict columns that match a destination primary or unique key."
+            },
+        )
+
+
+def _validate_generated_key_policy(source_schema: ObjectSchema, policy: WritePolicy) -> None:
+    """Check configured primary-key columns and generated-key collisions."""
+
+    source_columns = {column.name for column in source_schema.columns}
+    selected_keys = tuple(getattr(policy, "primary_key_columns", ()) or ())
+    missing_keys = set(selected_keys) - source_columns
+    if missing_keys:
+        name = sorted(missing_keys)[0]
+        raise ConnectorError(
+            TransferErrorCode.SCHEMA_DRIFT,
+            f"The selected destination key column '{name}' is missing from the source schema.",
+            retryable=False,
+            field_errors={
+                "Write policy": f"The selected key column {name} is not present in the source."
+            },
+        )
+    generated_name = str(getattr(policy, "auto_increment_primary_key", "") or "")
+    if generated_name and generated_name in source_columns:
+        raise ConnectorError(
+            TransferErrorCode.SCHEMA_DRIFT,
+            "The generated destination key already exists in the source schema.",
+            retryable=False,
+            field_errors={
+                "Write policy":
+                "Choose a generated key name that does not appear in the source columns."
+            },
+        )
+
+
+def _validate_destination_column_casts(
+    cursor, locator: PostgresTableLocator, source_schema: ObjectSchema
+) -> None:
+    """Ask PostgreSQL's planner to validate source-to-target column casts without writing."""
+
+    if not source_schema.columns:
+        return
+    target = sql.Identifier(locator.schema_name, locator.table)
+    columns = sql.SQL(", ").join(
+        sql.Identifier(column.name) for column in source_schema.columns
+    )
+    values = sql.SQL(", ").join(
+        sql.SQL("NULL::{}").format(sql.SQL(_pg_type(column.data_type)))
+        for column in source_schema.columns
+    )
+    try:
+        cursor.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = %s AND table_name = %s
+                  AND column_name = ANY(%s)
+                  AND is_identity = 'YES' AND identity_generation = 'ALWAYS'
+            )
+            """,
+            (locator.schema_name, locator.table, [column.name for column in source_schema.columns]),
+        )
+        uses_identity_override = bool(cursor.fetchone()[0])
+        identity_override = (
+            sql.SQL(" OVERRIDING SYSTEM VALUE") if uses_identity_override else sql.SQL("")
+        )
+        cursor.execute(
+            sql.SQL("EXPLAIN (COSTS OFF) INSERT INTO {} ({}){} SELECT {} WHERE false").format(
+                target, columns, identity_override, values
+            )
+        )
+        cursor.fetchall()
+    except psycopg.Error as exc:
+        raise _postgres_connector_error(
+            exc, operation="destination schema compatibility check"
+        ) from exc
+
+
 def _postgres_connector_error(exc: psycopg.Error, *, operation: str) -> ConnectorError:
     """Convert provider diagnostics to a safe, SQLSTATE-only transfer error."""
 
@@ -1029,7 +1493,7 @@ def _postgres_connector_error(exc: psycopg.Error, *, operation: str) -> Connecto
     detail = f" (SQLSTATE {safe_sqlstate})" if safe_sqlstate else ""
     if safe_sqlstate.startswith(("08", "40")):
         code = TransferErrorCode.PROVIDER_UNAVAILABLE
-    elif safe_sqlstate.startswith("22"):
+    elif safe_sqlstate.startswith("22") or safe_sqlstate in {"42703", "42804", "42846"}:
         code = TransferErrorCode.SCHEMA_DRIFT
     elif safe_sqlstate.startswith("23"):
         code = TransferErrorCode.DESTINATION_CONFLICT

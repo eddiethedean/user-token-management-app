@@ -11,6 +11,7 @@ from hedron_core import NodeLike
 from starlette.responses import Response
 
 from app.application.catalogs import CatalogAccess
+from app.application.feedback import preflight_failure
 from app.connectors.errors import ConnectorError
 from app.connectors.registry import writer_enabled
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
@@ -118,12 +119,27 @@ def register_pipeline_dataset_routes(
                 ),
             )
         except (ConnectorError, ValueError) as exc:
+            outcome = preflight_failure(
+                reason=str(exc),
+                field_errors=getattr(exc, "field_errors", {}),
+                reference_id=getattr(request.state, "support_reference", ""),
+                operation="pipeline_dataset_create",
+            )
+            detail = outcome.message
+            if outcome.field_errors:
+                detail += " " + " ".join(
+                    f"{name}: {message}" for name, message in outcome.field_errors.items()
+                )
+            if outcome.reference_id:
+                detail += f" Reference: {outcome.reference_id}."
             return await interaction_response(
                 request,
                 ok_fragment(
-                    dataset_creator_fragment(request, catalog, error=str(exc)),
+                    dataset_creator_fragment(request, catalog, error=detail),
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     region_id=PIPELINE_DATASET_CREATOR.id,
+                    toast=detail,
+                    toast_tone="danger",
                 ),
             )
 

@@ -62,6 +62,7 @@ _DIAGNOSTIC_FIELDS = frozenset(
         "status",
         "retry_after_seconds",
         "limit_dimension",
+        "reason_code",
     }
 )
 _EVENT_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
@@ -97,12 +98,14 @@ _EVENT_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
         "operation",
         "exception_type",
     ),
+    "auth.login.completed": ("reference_id", "user_id", "operation"),
     "auth.federated.rejected": (
         "error_code",
         "reference_id",
         "operation",
         "exception_type",
     ),
+    "auth.federated.completed": ("reference_id", "user_id", "operation"),
     "auth.registration.rejected": (
         "error_code",
         "reference_id",
@@ -155,6 +158,19 @@ _EVENT_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
         "provider",
         "operation",
         "exception_type",
+    ),
+    "connection.save_test.failed": (
+        "error_code",
+        "reference_id",
+        "provider",
+        "operation",
+        "exception_type",
+    ),
+    "pipeline.preflight.rejected": (
+        "error_code",
+        "reference_id",
+        "operation",
+        "reason_code",
     ),
     "pipeline.run.queued": (
         "reference_id",
@@ -250,23 +266,33 @@ _EVENT_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
         "operation",
     ),
 }
-_NUMERIC_EVENT_FIELDS = frozenset(
-    {
-        "attempt",
-        "duration_ms",
-        "http_status",
-        "retry_after_seconds",
-        "status",
-        "source_rows",
-        "source_bytes",
-        "loaded_rows",
-        "loaded_bytes",
-        "destination_rows_before",
-        "destination_rows_after",
-        "destination_row_delta",
-    }
-)
-_BOOLEAN_EVENT_FIELDS = frozenset({"retryable", "reconciliation_required"})
+_EVENT_OUTCOMES: dict[str, frozenset[str]] = {
+    "http.request.completed": frozenset({"success", "error"}),
+    "http.request.failed": frozenset({"failed"}),
+    "pipeline.run.unexpected_failure": frozenset({"failed"}),
+    "auth.login.rejected": frozenset({"rate_limited", "rejected"}),
+    "auth.login.completed": frozenset({"success"}),
+    "auth.federated.rejected": frozenset({"rejected"}),
+    "auth.federated.completed": frozenset({"success"}),
+    "auth.registration.rejected": frozenset({"failed"}),
+    "auth.registration_verification.rejected": frozenset({"rejected"}),
+    "auth.invitation.rejected": frozenset({"rejected"}),
+    "auth.password_reset.rejected": frozenset({"rejected"}),
+    "security.rate_limited": frozenset({"rejected"}),
+    "connection.test.completed": frozenset({"success", "incomplete", "superseded"}),
+    "connection.test.failed": frozenset({"failed"}),
+    "connection.save.failed": frozenset({"failed"}),
+    "connection.save_test.failed": frozenset({"failed"}),
+    "pipeline.preflight.rejected": frozenset({"rejected"}),
+    "pipeline.run.queued": frozenset({"success"}),
+    "pipeline.run.completed": frozenset({"success"}),
+    "pipeline.run.failed": frozenset({"failed", "uncertain"}),
+    "pipeline.run.cancelled": frozenset({"cancelled", "uncertain"}),
+    "pipeline.lease.heartbeat_failed": frozenset({"failed"}),
+    "feedback.mapping.unknown": frozenset({"failed"}),
+}
+if _EVENT_REQUIRED_FIELDS.keys() != _EVENT_OUTCOMES.keys():
+    raise RuntimeError("Structured diagnostic event fields and outcomes must share one registry.")
 _SAFE_CORRELATION = re.compile(r"[A-Za-z0-9._:-]{1,128}\Z")
 _SAFE_SQLSTATE = re.compile(r"[0-9A-Z]{5}\Z")
 
@@ -392,6 +418,11 @@ def log_event(
 ) -> None:
     """Emit one allowlisted, redacted diagnostic event."""
 
+    if not isinstance(event, str) or event not in _EVENT_REQUIRED_FIELDS:
+        raise ValueError(f"Unknown structured diagnostic event {event!r}.")
+    if not isinstance(outcome, str) or outcome not in _EVENT_OUTCOMES[event]:
+        raise ValueError(f"Unsupported outcome {outcome!r} for diagnostic event {event!r}.")
+
     safe_fields: dict[str, object] = {}
     for key, value in fields.items():
         if key not in _DIAGNOSTIC_FIELDS:
@@ -405,21 +436,24 @@ def log_event(
             if value and not _SAFE_SQLSTATE.fullmatch(value):
                 value = "[invalid]"
         safe_fields[key] = _redact_log_value(value)
-    for key in _EVENT_REQUIRED_FIELDS.get(event, ()):
-        if key in safe_fields:
-            continue
-        if key == "request_id":
-            safe_fields[key] = request_id_var.get()
-        elif key == "reference_id":
-            safe_fields[key] = reference_id_var.get()
-        elif key == "run_id":
-            safe_fields[key] = run_id_var.get()
-        elif key in _NUMERIC_EVENT_FIELDS:
-            safe_fields[key] = 0
-        elif key in _BOOLEAN_EVENT_FIELDS:
-            safe_fields[key] = False
-        else:
-            safe_fields[key] = ""
+    context_fields = {
+        "request_id": request_id_var.get(),
+        "reference_id": reference_id_var.get(),
+        "run_id": run_id_var.get(),
+    }
+    for key, value in context_fields.items():
+        if key not in safe_fields and value not in {"", "-"}:
+            safe_fields[key] = value
+    missing = tuple(
+        key
+        for key in _EVENT_REQUIRED_FIELDS[event]
+        if safe_fields.get(key) in (None, "", "-")
+    )
+    if missing:
+        raise ValueError(
+            f"Structured diagnostic event {event!r} is missing required fields: "
+            f"{', '.join(missing)}."
+        )
     safe_fields["event"] = event
     safe_fields["outcome"] = outcome
     if level is None:

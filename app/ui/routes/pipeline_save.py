@@ -10,6 +10,7 @@ from hedron import Hedron
 from starlette.responses import Response
 
 from app.application.dto import ActorContext
+from app.application.feedback import preflight_failure
 from app.application.pipelines import PipelineAuthoringOperation, SavePipelineAuthoringCommand
 from app.connectors.errors import ConnectorError
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
@@ -105,8 +106,21 @@ def register_pipeline_save_routes(
             )
             saved_pipeline_id = summary.id
         except (ConnectorError, PermissionError, ValueError) as exc:
+            outcome = preflight_failure(
+                reason=str(exc),
+                field_errors=getattr(exc, "field_errors", {}),
+                reference_id=getattr(request.state, "support_reference", ""),
+                operation="pipeline_save",
+            )
+            detail = outcome.message
+            if outcome.field_errors:
+                detail += " " + " ".join(
+                    f"{name}: {message}" for name, message in outcome.field_errors.items()
+                )
+            if outcome.reference_id:
+                detail += f" Reference: {outcome.reference_id}."
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail
             ) from exc
         if save_and_run:
             try:

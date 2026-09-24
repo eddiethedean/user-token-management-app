@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from app.domain.feedback import DataImpact
@@ -54,6 +54,7 @@ class ConnectorError(Exception):
     http_status: int | None = None
     sqlstate: str = ""
     data_impact: DataImpact | None = None
+    field_errors: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.retryable is None:
