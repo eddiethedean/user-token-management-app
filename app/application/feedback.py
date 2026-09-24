@@ -210,23 +210,23 @@ def auth_failure(*, reason: str = "invalid", reference_id: str = "") -> Feedback
         return FeedbackOutcome(
             code=FeedbackCode.AUTH_RATE_LIMITED,
             severity=FeedbackSeverity.WARNING,
-            title="Sign-in is temporarily locked.",
+            title="Sign-in could not be completed.",
             message=(
-                "Sign-in is temporarily locked after repeated unsuccessful attempts. "
-                "Wait 15 minutes before trying again, or use password recovery."
+                "Unable to sign in with those credentials at this time. Wait before trying again, "
+                "or use password recovery if you need help regaining access."
             ),
-            action=FeedbackAction.WAIT,
-            action_label="Wait and try again",
+            action=FeedbackAction.RETRY,
+            action_label="Try again",
             retryable=True,
             reference_id=reference_id,
         )
     return FeedbackOutcome(
         code=FeedbackCode.AUTH_INVALID,
-        severity=FeedbackSeverity.ERROR,
-        title="Sign-in was not completed.",
+        severity=FeedbackSeverity.WARNING,
+        title="Sign-in could not be completed.",
         message=(
-            "Unable to sign in with those credentials. Check your email and password, then try "
-            "again. If you recently made several attempts, wait before trying again."
+            "Unable to sign in with those credentials at this time. Wait before trying again, "
+            "or use password recovery if you need help regaining access."
         ),
         action=FeedbackAction.RETRY,
         action_label="Try again",
