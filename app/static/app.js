@@ -59,6 +59,7 @@ function restoreColorMode(form) {
 document.addEventListener("htmx:afterRequest", (event) => {
   const elt = event.detail.elt;
   if (event.detail.successful) {
+    document.getElementById("request-feedback")?.remove();
     const colorModeForm = elt.closest(colorModeFormSelector);
     restoreColorModeScroll(colorModeForm);
     clearColorModeTransition(colorModeForm);
@@ -80,6 +81,8 @@ document.addEventListener("click", (event) => {
 document.addEventListener("htmx:afterSettle", (event) => {
   if (!sideNavRequestPending || event.detail.target?.id !== "main-panel") return;
   sideNavRequestPending = false;
+  const heading = document.querySelector("#main-panel h1")?.textContent?.trim();
+  if (heading) document.title = heading;
   requestAnimationFrame(() => window.scrollTo({ left: 0, top: 0, behavior: "instant" }));
 });
 

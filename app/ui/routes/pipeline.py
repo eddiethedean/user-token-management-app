@@ -2738,12 +2738,13 @@ def _saved_pipeline_cards(
                     gap="xs",
                     collapse="never",
                 ),
+                density="compact",
             )
         )
     return ResourceList(
         *cards,
         label="Saved pipelines",
-        density="comfortable",
+        density="compact",
         id="pipeline-run-history",
     )
 
@@ -3117,6 +3118,7 @@ def _pipeline_body(
     notice: str = "",
     latest_runs: dict[str, object] | None = None,
     run_monitor: NodeLike = None,
+    run_status: str = "",
     demo_mode: bool = True,
     writer_policy: WriterPolicy,
 ):
@@ -3358,14 +3360,17 @@ def _pipeline_body(
         indicator=INDICATOR,
         busy="region",
     )
+    has_visible_run = run_monitor is not None
+    run_finished = run_status == "succeeded"
+    run_needs_review = run_status in {"failed", "failed_needs_reconciliation", "cancelled"}
     setup_flow = ProcessFlow(
         FlowStep(
             "Connect",
             status=("complete" if connections and ready_count == len(connections) else "current"),
             description=(
-                f"{ready_count} of {len(connections)} connections validated."
+                f"{ready_count} of {len(connections)} validated"
                 if connections
-                else "Add a source and destination connection."
+                else "Add source and target connections"
             ),
             status_text=(
                 "Ready"
@@ -3377,19 +3382,37 @@ def _pipeline_body(
         ),
         FlowStep(
             "Configure",
-            status="complete" if pipeline_id else "current",
-            description="Choose the source, destination, and write policy.",
-            status_text="Saved" if pipeline_id else "In progress",
+            status="complete" if pipeline_id or has_visible_run else "current",
+            description="Source, target, and write policy",
+            status_text="Saved" if pipeline_id or has_visible_run else "In progress",
         ),
         FlowStep(
             "Run",
-            status="current" if pipeline_id and initial_run_ready else "pending",
-            description=(
-                "Start a transfer and follow each persisted worker event."
-                if pipeline_id and initial_run_ready
-                else "Save a ready route or use Save and Run to start its first transfer."
+            status=(
+                "complete"
+                if run_finished
+                else "current"
+                if has_visible_run or pipeline_id and initial_run_ready
+                else "pending"
             ),
-            status_text="Ready" if pipeline_id and initial_run_ready else "Next",
+            description=(
+                "Review the latest transfer"
+                if has_visible_run
+                else "Ready to start a transfer"
+                if pipeline_id and initial_run_ready
+                else "Save a route to run it"
+            ),
+            status_text=(
+                "Succeeded"
+                if run_finished
+                else "Needs review"
+                if run_needs_review
+                else "In progress"
+                if has_visible_run
+                else "Ready"
+                if pipeline_id and initial_run_ready
+                else "Next"
+            ),
         ),
         label="Pipeline workflow",
         direction="horizontal",
@@ -3401,10 +3424,7 @@ def _pipeline_body(
         PageHeader(
             "Pipeline workspace",
             eyebrow="Data movement",
-            description=(
-                "Choose a route, run the transfer, then follow every stage from one focused "
-                "workspace."
-            ),
+            description="Build a route, run a transfer, and review the result.",
             actions=connection_summary,
             density="compact",
         ),
@@ -3437,6 +3457,11 @@ def _pipeline_body(
                             level=2,
                             density="compact",
                             actions=ActionGroup(
+                                _swap_direction_button(
+                                    request,
+                                    can_swap=swap_eligibility.allowed,
+                                    reason=swap_eligibility.reason,
+                                ),
                                 Button(
                                     "Save pipeline",
                                     variant="secondary",
@@ -3478,11 +3503,6 @@ def _pipeline_body(
                                 gap="sm",
                                 collapse="never",
                             ),
-                        ),
-                        _swap_direction_button(
-                            request,
-                            can_swap=swap_eligibility.allowed,
-                            reason=swap_eligibility.reason,
                         ),
                         html.div(
                             Alert(
@@ -4116,6 +4136,7 @@ def register_pipeline_routes(
                 if displayed_run is not None
                 else None
             ),
+            str(displayed_run.status) if displayed_run is not None else "",
             settings.is_demo_mode,
             catalog_runner_factory(request),
         )
@@ -4242,6 +4263,7 @@ def _pipeline_body_in_thread(
     loaded_source_inspection,
     latest_runs,
     run_monitor,
+    run_status,
     demo_mode,
     catalog_runner: CatalogOperationRunner,
 ):
@@ -4262,6 +4284,7 @@ def _pipeline_body_in_thread(
             loaded_source_inspection=loaded_source_inspection,
             latest_runs=latest_runs,
             run_monitor=run_monitor,
+            run_status=run_status,
             demo_mode=demo_mode,
             writer_policy=lambda provider: writer_enabled(provider, settings=settings),
         ),

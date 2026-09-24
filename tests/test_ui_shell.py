@@ -84,8 +84,8 @@ def test_login_page_document(access_app) -> None:
     )
     assert "/assets/theme.css" not in response.body
     assert "/app-assets/data-mover-components.css" not in response.body
-    assert_html_contains(response, 'src="/assets/app.js?v=240926.0&amp;ui=5"')
-    assert response.body.count('src="/assets/app.js?v=240926.0&amp;ui=5"') == 1
+    assert_html_contains(response, 'src="/assets/app.js?v=240926.0&amp;ui=7"')
+    assert response.body.count('src="/assets/app.js?v=240926.0&amp;ui=7"') == 1
     assert_html_contains(response, 'data-hedron-theme="folio"')
     assert_html_contains(
         response,
@@ -239,7 +239,7 @@ def test_login_support_reference_has_a_copy_action(access_app) -> None:
     assert "Copy support reference" in rendered
 
 
-def test_invitation_panel_uses_native_grid_and_spaced_history() -> None:
+def test_invitation_panel_uses_full_width_fields_and_spaced_history() -> None:
     html = render_html(
         ui.invitation_panel(
             _request(),
@@ -249,7 +249,7 @@ def test_invitation_panel_uses_native_grid_and_spaced_history() -> None:
         )
     )
 
-    assert 'data-hedron-columns="2"' in html
+    assert 'data-hedron-columns="1"' in html
     assert "Send invitation" in html
     assert "No invitations yet." in html
     assert 'class="hedron-stack"' in html
@@ -427,7 +427,7 @@ def test_desktop_panels_reflow_with_native_folio_grids(access_app, path, columns
     assert_page_document(page)
     assert 'data-hedron-theme="folio"' in page.body
     assert f'data-hedron-columns="1" data-hedron-columns-xl="{columns}"' in page.body
-    assert 'data-hedron-shell-header-density="standard"' in page.body
+    assert 'data-hedron-shell-header-density="compact"' in page.body
     assert 'data-hedron-shell-header="static"' in page.body
     assert 'data-hedron-shell-nav-offset="none"' in page.body
     assert 'data-hedron-nav-footer-collapsed="show"' in page.body

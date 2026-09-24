@@ -193,9 +193,10 @@ Keep routes thin and make domain rules testable without a browser or database wh
 ### UI visual changes
 
 Use current Hedron primitives, recipes, the built-in Folio theme, and named spacing tokens for new
-presentation. Do not add a product theme stylesheet; Hedron 1.1 owns the shell collapse toggle.
-Component behavior
-and interaction states remain owned by Hedron. For a desktop visual pass, exercise the primary
+presentation. Do not add a product theme stylesheet. Component behavior and interaction states
+remain owned by Hedron. Keep the desktop shell compact enough that the active workspace controls
+appear early, and ensure progress labels reflect the run actually displayed. In narrow sidebar
+panels, give form fields the full available width. For a desktop visual pass, exercise the primary
 auth, workspace, form, data, and administration surfaces in both light and dark modes, including
 keyboard focus and browser console output.
 

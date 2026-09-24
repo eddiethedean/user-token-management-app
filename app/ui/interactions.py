@@ -127,16 +127,6 @@ def request_feedback_oob(
     )
 
 
-def request_feedback_clear_oob() -> OobUpdate:
-    """Remove a stale page-level request error after a successful action."""
-
-    return OobUpdate(
-        content=html.div(id="request-feedback"),
-        element_id="request-feedback",
-        swap="outerHTML",
-    )
-
-
 def user_match_count_oob(total: int) -> OobUpdate:
     return OobUpdate(
         content=Badge(f"{total} matching accounts", tone="info"),
@@ -225,13 +215,10 @@ def ok_fragment(
 ) -> InteractionResult:
     """Build an InteractionResult via Hedron ``swap``, with AR toast-host + policy."""
     effective_policy = policy or APP_POLICY
-    feedback_updates = (
-        (*oob, request_feedback_clear_oob()) if effective_policy.declared_regions else oob
-    )
     return build_swap(
         content,
         toast=toast_oob(toast, tone=toast_tone) if toast else None,
-        oob=feedback_updates,
+        oob=oob,
         push_url=push_url,
         redirect=redirect,
         status_code=status_code,

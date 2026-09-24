@@ -67,7 +67,7 @@ THEME_CHOICES = ("folio",)
 DEFAULT_COLOR_MODE: Literal["light", "dark"] = "dark"
 UI_PREFERENCE_MAX_AGE = 31536000
 UI_SHELL_STYLES_VERSION = "5"
-UI_SCRIPT_VERSION = "5"
+UI_SCRIPT_VERSION = "7"
 
 BadgeTone = Literal["neutral", "info", "success", "warning", "danger"]
 StatusTone = Literal["info", "success", "warning", "danger"]
@@ -510,10 +510,10 @@ def app_shell(
                                 header_behavior="static",
                                 nav_behavior="sticky",
                                 nav_offset="none",
-                                shell_gap="standard",
-                                content_inset="standard",
-                                banner_spacing="standard",
-                                header_density="standard",
+                                shell_gap="compact",
+                                content_inset="compact",
+                                banner_spacing="tight",
+                                header_density="compact",
                                 footer_density="compact",
                                 # Both workspace status lines must remain visible even if a
                                 # stale Hedron navigation preference marks the shell collapsed.
@@ -658,7 +658,7 @@ def page_heading(eyebrow: str, title: str, lead: str, *extra: NodeLike) -> PageH
         eyebrow=eyebrow,
         description=lead,
         meta=extra[0] if len(extra) == 1 else None,
-        density="comfortable",
+        density="compact",
         title_measure="wide",
         description_measure="default",
         title_effect="none",
@@ -678,7 +678,7 @@ def main_panel(
         SwapReveal(
             StyleScope(
                 Container(
-                    Section(Stack(*body, gap="lg"), id="main-panel"),
+                    Section(Stack(*body, gap="md"), id="main-panel"),
                     query="inline-size",
                     name="workspace",
                     max_width="full",

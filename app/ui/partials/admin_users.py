@@ -413,7 +413,7 @@ def invitation_panel(
                         ),
                     ),
                 ),
-                columns=2,
+                columns=1,
                 gap="md",
             ),
             ActionGroup(

@@ -148,10 +148,9 @@ def secret_slot(
     field_errors = field_errors or {}
     top_error = error if error and not field_errors else ""
     if configured:
-        validation_message = secret.validation_message.rstrip(".")
         metadata = (
-            f"Credentials saved {secret.updated_at.strftime('%b %d, %Y at %H:%M')}. "
-            f"{validation_message}. Encrypted values cannot be revealed."
+            f"Saved {secret.updated_at.strftime('%b %d, %Y at %H:%M')} · "
+            "Encrypted values stay hidden. Review the latest check in Status."
         )
     else:
         metadata = f"No {provider.label} credentials are available to your runs."
@@ -379,20 +378,14 @@ def connection_status_list(
             else "neutral"
         )
         if configured and secret.validated_at:
-            validation_mode = {
-                "live": "Live validation",
-                "emulated": "Emulated validation",
-            }.get(secret.validation_mode, "Validation mode unavailable")
-            validation_scope = secret.validation_scope or "Validation scope unavailable"
-            detail = (
-                f"{outcome.title} {outcome.message} · {validation_mode} · "
-                f"{validation_scope} · Checked "
-                f"{secret.validated_at.strftime('%b %d at %H:%M')}"
-                if outcome
-                else f"{secret.validation_message} · {validation_mode} · "
-                f"{validation_scope} · Checked "
-                f"{secret.validated_at.strftime('%b %d at %H:%M')}"
-            )
+            checked = f"Checked {secret.validated_at.strftime('%b %d at %H:%M')}"
+            if connected:
+                detail = f"{secret.validation_scope or 'Provider connectivity'} · {checked}"
+            else:
+                message = (
+                    f"{outcome.title} {outcome.message}" if outcome else secret.validation_message
+                )
+                detail = f"{message} · {checked}"
         elif configured:
             detail = (
                 outcome.message
@@ -432,12 +425,7 @@ def connection_status_list(
         rows.append(
             ResourceRow(
                 provider.label,
-                description=(
-                    f"{catalog.technology} · {detail}"
-                    + (f" Reference: {outcome.reference_id}." if outcome.reference_id else "")
-                    if outcome
-                    else f"{catalog.technology} · {detail}"
-                ),
+                description=f"{catalog.technology} · {detail}",
                 mark=provider.mark,
                 meta=Badge(status_label, tone=status_tone),
                 actions=ActionGroup(
@@ -446,6 +434,7 @@ def connection_status_list(
                     gap="xs",
                     collapse="never",
                 ),
+                density="compact",
             )
         )
 
@@ -456,7 +445,7 @@ def connection_status_list(
         ResourceList(
             *rows,
             label="Connection readiness",
-            density="comfortable",
+            density="compact",
         ),
         **attrs,
     )
