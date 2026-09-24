@@ -300,6 +300,7 @@ def test_user_connection(
             user_id=user.id,
             provider=specification.name,
             operation="test_connection",
+            retryable=False,
             exception_type=type(exc).__name__,
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
