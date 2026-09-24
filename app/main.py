@@ -698,6 +698,9 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         return response
     reference_id = getattr(request.state, "support_reference", "")
     detail = exc.detail if isinstance(exc.detail, str) else "The request could not be completed."
+    if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+        retry_after = max(1, int((exc.headers or {}).get("Retry-After", "60")))
+        detail = f"Too many requests. Please wait {retry_after} seconds before trying again."
     outcome = None
     if exc.status_code >= 500:
         outcome = request_failure(reference_id=reference_id)
