@@ -632,6 +632,12 @@ def preflight_failure(
         message = "The selected upsert key no longer matches a unique destination constraint. Review the route key."
     elif reason_code == "destination_schema_incompatible":
         message = "The current source and destination schemas are not compatible with the saved route. Review the listed fields."
+    elif reason_code == "destination_precision":
+        message = (
+            "The destination's numeric columns cannot hold all source decimal places. "
+            "Review the destination precision and scale."
+        )
+        action_label = "Review destination"
     elif reason_code == "unsupported_conversion":
         message = "The selected source type cannot be transferred safely with the current destination schema. Review the listed fields."
     else:

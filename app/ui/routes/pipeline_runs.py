@@ -544,8 +544,12 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
             reason_code = "unsupported_conversion"
             field_message = "Review source and destination column types for a safe conversion."
         elif exc.code == TransferErrorCode.SCHEMA_DRIFT:
-            reason_code = "destination_schema_incompatible"
-            field_message = "Review the source and destination columns used by this route."
+            if "decimal" in str(exc).casefold():
+                reason_code = "destination_precision"
+                field_message = "The destination column cannot hold all source decimal places."
+            else:
+                reason_code = "destination_schema_incompatible"
+                field_message = "Review the source and destination columns used by this route."
         else:
             reason_code = "destination_unavailable"
             field_message = "Review the destination connection, schema, and selected table."
