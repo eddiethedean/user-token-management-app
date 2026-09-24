@@ -412,7 +412,7 @@ def connection_status_list(
                         variant="secondary",
                         size="sm",
                         type="submit",
-                        attrs={"id": f"test-connection-{provider.name}"},
+                        id=f"test-connection-{provider.name}",
                     ),
                     action=form_action(request, f"security/secrets/{provider.name}/test"),
                     method="post",
