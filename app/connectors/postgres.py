@@ -8,6 +8,7 @@ import json
 import logging
 import re
 from collections.abc import Iterator, Mapping
+from uuid import uuid4
 
 import polars as pl
 import psycopg
@@ -42,7 +43,6 @@ from app.connectors.locators import (
 )
 from app.connectors.registry import connector_settings, register_connector
 
-_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 _DECIMAL = re.compile(
     r"decimal\(precision=(?P<precision>\d+|None),\s*scale=(?P<scale>\d+|None)\)",
     re.IGNORECASE,
@@ -71,10 +71,18 @@ _POLARS_TO_PG = {
 
 
 def _ident(value: str) -> str:
-    if not _IDENT.fullmatch(value):
+    try:
+        identifier_size = len(value.encode("utf-8"))
+    except UnicodeEncodeError as exc:
         raise ConnectorError(
             TransferErrorCode.UNSUPPORTED_TYPE,
-            "PostgreSQL identifiers must be unquoted letters, numbers, or underscores.",
+            "PostgreSQL identifiers must be valid UTF-8.",
+            retryable=False,
+        ) from exc
+    if "\x00" in value or identifier_size > 63:
+        raise ConnectorError(
+            TransferErrorCode.UNSUPPORTED_TYPE,
+            "PostgreSQL identifiers must be valid and no longer than 63 bytes.",
             retryable=False,
         )
     return value
@@ -333,7 +341,7 @@ class PostgresConnector:
             # cursor; psycopg cannot execute SET through that cursor.
             with conn.cursor() as transaction_cursor:
                 transaction_cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            with conn.cursor(name=f"dm_{locator.table}") as cursor:
+            with conn.cursor(name=f"dm_{uuid4().hex}") as cursor:
                 query = sql.SQL("SELECT {} FROM {}").format(
                     sql.SQL(", ").join(sql.Identifier(name) for name in names),
                     sql.Identifier(locator.schema_name, locator.table),
