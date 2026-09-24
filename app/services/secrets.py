@@ -58,6 +58,10 @@ class SecretStorageError(CredentialEnvelopeError):
     pass
 
 
+class ConnectionNotConfiguredError(SecretStorageError):
+    """Raised when a connection test has no stored credential bundle."""
+
+
 @dataclass(frozen=True)
 class StoredCredentials:
     secret: UserSecret
@@ -269,7 +273,7 @@ def test_user_connection(
             )
         )
         if stored is None:
-            raise SecretStorageError("Configure the connection before testing it.")
+            raise ConnectionNotConfiguredError("Configure the connection before testing it.")
         credentials = decrypt_user_credentials_for_run(
             db,
             settings,
@@ -285,7 +289,7 @@ def test_user_connection(
             outcome="failed",
             error_code=(
                 "connection_not_configured"
-                if "not configured" in str(exc).casefold()
+                if isinstance(exc, ConnectionNotConfiguredError)
                 else str(TransferErrorCode.INTERNAL_ERROR)
             ),
             reference_id=reference_id,
@@ -481,7 +485,7 @@ def decrypt_user_credentials_for_run(
         )
     )
     if not stored:
-        raise SecretStorageError("The requested connection is not configured.")
+        raise ConnectionNotConfiguredError("The requested connection is not configured.")
     try:
         credentials = CredentialEnvelope.decrypt(settings, stored)
     except CredentialEnvelopeError as exc:
