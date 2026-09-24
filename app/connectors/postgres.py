@@ -13,6 +13,7 @@ from uuid import uuid4
 import polars as pl
 import psycopg
 from psycopg import sql
+from pydantic import ValidationError
 
 from app.config import Settings, get_settings
 from app.connectors.base import (
@@ -43,6 +44,7 @@ from app.connectors.locators import (
 )
 from app.connectors.registry import connector_settings, register_connector
 
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 _DECIMAL = re.compile(
     r"decimal\(precision=(?P<precision>\d+|None),\s*scale=(?P<scale>\d+|None)\)",
     re.IGNORECASE,
@@ -71,18 +73,10 @@ _POLARS_TO_PG = {
 
 
 def _ident(value: str) -> str:
-    try:
-        identifier_size = len(value.encode("utf-8"))
-    except UnicodeEncodeError as exc:
+    if not _IDENT.fullmatch(value):
         raise ConnectorError(
             TransferErrorCode.UNSUPPORTED_TYPE,
-            "PostgreSQL identifiers must be valid UTF-8.",
-            retryable=False,
-        ) from exc
-    if "\x00" in value or identifier_size > 63:
-        raise ConnectorError(
-            TransferErrorCode.UNSUPPORTED_TYPE,
-            "PostgreSQL identifiers must be valid and no longer than 63 bytes.",
+            "PostgreSQL identifiers must be unquoted letters, numbers, or underscores.",
             retryable=False,
         )
     return value
@@ -140,6 +134,9 @@ class PostgresConnector:
         write_modes=("append", "upsert", "replace"),
         namespaces_label="Schema",
         objects_label="Table",
+        limitations=(
+            "Tables with quoted or nonstandard identifiers are omitted from the object list.",
+        ),
         writer_enabled=True,
         writer_setting="pipeline_enable_postgres_writer",
     )
@@ -203,14 +200,21 @@ class PostgresConnector:
                     """,
                     (schema_name,),
                 )
-                items = tuple(
-                    RemoteObject(
-                        name=row[0],
-                        display_name=row[0],
-                        locator=postgres_table(schema_name, row[0]),
+                items_list: list[RemoteObject] = []
+                for row in db_cursor.fetchall():
+                    table_name = row[0]
+                    try:
+                        locator = postgres_table(schema_name, table_name)
+                    except ValidationError:
+                        continue
+                    items_list.append(
+                        RemoteObject(
+                            name=table_name,
+                            display_name=table_name,
+                            locator=locator,
+                        )
                     )
-                    for row in db_cursor.fetchall()
-                )
+                items = tuple(items_list)
             return CatalogPage(items=items)
         finally:
             conn.close()

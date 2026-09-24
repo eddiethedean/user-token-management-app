@@ -39,12 +39,10 @@ class PostgresTableLocator(BaseModel):
     @field_validator("schema_name", "table")
     @classmethod
     def validate_identifier(cls, value: str) -> str:
-        try:
-            identifier_size = len(value.encode("utf-8"))
-        except UnicodeEncodeError as exc:
-            raise ValueError("PostgreSQL identifiers must be valid UTF-8.") from exc
-        if "\x00" in value or identifier_size > 63:
-            raise ValueError("PostgreSQL identifiers must be valid and no longer than 63 bytes.")
+        if not IDENTIFIER_PATTERN.fullmatch(value):
+            raise ValueError(
+                "PostgreSQL identifiers must be unquoted letters, numbers, or underscores."
+            )
         return value
 
 
