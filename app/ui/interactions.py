@@ -224,10 +224,14 @@ def ok_fragment(
     policy: InteractionPolicy = APP_POLICY,
 ) -> InteractionResult:
     """Build an InteractionResult via Hedron ``swap``, with AR toast-host + policy."""
+    effective_policy = policy or APP_POLICY
+    feedback_updates = (
+        (*oob, request_feedback_clear_oob()) if effective_policy.declared_regions else oob
+    )
     return build_swap(
         content,
         toast=toast_oob(toast, tone=toast_tone) if toast else None,
-        oob=(*oob, request_feedback_clear_oob()),
+        oob=feedback_updates,
         push_url=push_url,
         redirect=redirect,
         status_code=status_code,
@@ -238,7 +242,7 @@ def ok_fragment(
         headers=dict(headers) if headers is not None else None,
         action_state=action_state,
         action_trace=action_trace,
-        policy=policy,
+        policy=effective_policy,
         cache="no-store",
     )
 
