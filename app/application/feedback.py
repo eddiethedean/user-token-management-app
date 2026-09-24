@@ -573,7 +573,7 @@ def preflight_failure(
         selected_reason_code = "destination_precision"
     elif "cannot safely store the selected decimal cast" in normalized:
         message = (
-            "The destination column cannot safely store the selected decimal values at its current precision. "
+            "The destination column cannot hold all source decimal places for the selected cast at its current precision. "
             "Choose an unconstrained numeric or text column, or select a different cast type."
         )
         selected_reason_code = "destination_precision"
