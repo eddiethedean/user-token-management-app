@@ -4791,21 +4791,13 @@ def _run_status_fragment(
         Grid(
             Metric(
                 "Extracted",
-                (
-                    f"{run.source_rows:,} rows"
-                    if run.source_rows_measured
-                    else "Unavailable"
-                ),
+                (f"{run.source_rows:,} rows" if run.source_rows_measured else "Unavailable"),
                 delta=_format_file_size(run.source_bytes),
                 delta_tone="up" if run.source_rows else "neutral",
             ),
             Metric(
                 "Loaded",
-                (
-                    f"{run.loaded_rows:,} rows"
-                    if run.loaded_rows_measured
-                    else "Unavailable"
-                ),
+                (f"{run.loaded_rows:,} rows" if run.loaded_rows_measured else "Unavailable"),
                 delta=_format_file_size(run.loaded_bytes),
                 delta_tone="up" if run.loaded_rows else "neutral",
             ),
