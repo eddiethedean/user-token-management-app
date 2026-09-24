@@ -212,7 +212,7 @@ def auth_failure(*, reason: str = "invalid", reference_id: str = "") -> Feedback
             severity=FeedbackSeverity.WARNING,
             title="Sign-in could not be completed.",
             message=(
-                "Unable to sign in with those credentials at this time. Wait before trying again, "
+                "Unable to sign in with those credentials. Wait before trying again, "
                 "or use password recovery if you need help regaining access."
             ),
             action=FeedbackAction.RETRY,
@@ -225,7 +225,7 @@ def auth_failure(*, reason: str = "invalid", reference_id: str = "") -> Feedback
         severity=FeedbackSeverity.WARNING,
         title="Sign-in could not be completed.",
         message=(
-            "Unable to sign in with those credentials at this time. Wait before trying again, "
+            "Unable to sign in with those credentials. Wait before trying again, "
             "or use password recovery if you need help regaining access."
         ),
         action=FeedbackAction.RETRY,
