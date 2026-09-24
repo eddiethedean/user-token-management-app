@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from hmac import compare_digest
 
 from fastapi import Request
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.application.feedback import connection_failure
@@ -229,6 +229,7 @@ def _store_encrypted_value(
     stored.updated_at = utcnow()
     stored.validation_status = "untested"
     stored.validated_at = None
+    stored.validation_check_id = None
     stored.validation_mode = "untested"
     stored.validation_scope = ""
     stored.validation_code = "connection_saved_untested"
@@ -305,7 +306,44 @@ def test_user_connection(
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
         raise
-    checked_at = utcnow()
+    check_id = new_id()
+    claim_result = execute_dml(
+        db,
+        update(UserSecret)
+        .where(
+            UserSecret.id == secret_id,
+            UserSecret.user_id == user.id,
+            UserSecret.provider == specification.name,
+            UserSecret.updated_at == credential_revision,
+        )
+        .values(
+            updated_at=credential_revision,
+            validation_check_id=check_id,
+        ),
+    )
+    db.commit()
+    if not claim_result.rowcount:
+        log_event(
+            log,
+            "connection.test.completed",
+            outcome="superseded",
+            reference_id=reference_id,
+            user_id=user.id,
+            provider=specification.name,
+            operation="test_connection",
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
+        db.expire_all()
+        current = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == specification.name,
+            )
+        )
+        if current is None:
+            raise ConnectionNotConfiguredError("Configure the connection before testing it.")
+        return current
+
     validation_mode = "emulated" if settings.is_demo_mode else "live"
     validation_scope = (
         "Emulated provider configuration"
@@ -395,13 +433,11 @@ def test_user_connection(
             UserSecret.user_id == user.id,
             UserSecret.provider == specification.name,
             UserSecret.updated_at == credential_revision,
-            or_(
-                UserSecret.validated_at.is_(None),
-                UserSecret.validated_at <= checked_at,
-            ),
+            UserSecret.validation_check_id == check_id,
         )
         .values(
             updated_at=credential_revision,
+            validation_check_id=None,
             validation_status=validation_status,
             validated_at=utcnow(),
             validation_mode=validation_mode,

@@ -19,6 +19,7 @@ def upgrade() -> None:
         batch.add_column(
             sa.Column("validation_scope", sa.String(length=160), nullable=False, server_default="")
         )
+        batch.add_column(sa.Column("validation_check_id", sa.String(length=36), nullable=True))
 
     user_secrets = sa.table(
         "user_secrets",
@@ -34,5 +35,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     with op.batch_alter_table("user_secrets") as batch:
+        batch.drop_column("validation_check_id")
         batch.drop_column("validation_scope")
         batch.drop_column("validation_mode")
