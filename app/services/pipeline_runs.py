@@ -14,11 +14,11 @@ from fastapi import Request
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
-from app.db_compat import insert_for, scalar_returning
 from app.connectors.errors import TransferErrorCode
 from app.connectors.locators import DefinitionSnapshot
 from app.connectors.redaction import redact_mapping, redact_text
 from app.connectors.registry import route_allowed, writer_enabled
+from app.db_compat import insert_for, scalar_returning
 from app.domain.feedback import DataImpact
 from app.logging_config import log_event
 from app.models import (
@@ -158,8 +158,12 @@ def enqueue_run(
             "idempotency_token": run.idempotency_token,
             "reconciliation_required": False,
         }
-        statement = insert_for(db, PipelineRun).values(**values).on_conflict_do_nothing(
-            index_elements=[PipelineRun.user_id, PipelineRun.idempotency_token]
+        statement = (
+            insert_for(db, PipelineRun)
+            .values(**values)
+            .on_conflict_do_nothing(
+                index_elements=[PipelineRun.user_id, PipelineRun.idempotency_token]
+            )
         )
         inserted_id = scalar_returning(
             db,
