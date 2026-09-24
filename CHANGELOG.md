@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [240926.1] — 2026-09-24
+
+### Changed
+
+- Bumped the application version to `240926.1`.
+- Refined the desktop workspace shell, pipeline actions and status, connection form layout, and
+  account and administration surfaces for clearer hierarchy and feedback.
+
 ## [240926.0] — 2026-09-24
 
 ### Fixed

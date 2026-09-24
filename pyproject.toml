@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "access-registry"
-version = "240926.0"
+version = "240926.1"
 description = "Data Mover — saved pipelines with encrypted user-owned connection credentials (Hedron + HTMX UI)"
 readme = "README.md"
 license = "MIT"
