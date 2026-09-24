@@ -792,7 +792,18 @@ class PostgresConnector:
                             )
                         destination_exists = bool(destination_row[0])
                         if destination_exists:
-                            _validate_destination_column_casts(cursor, locator, schema)
+                            transferable_schema = ObjectSchema(
+                                locator=schema.locator,
+                                columns=tuple(
+                                    column
+                                    for column in schema.columns
+                                    if column.name not in generated_columns
+                                ),
+                                primary_key=schema.primary_key,
+                                unique_constraints=schema.unique_constraints,
+                                estimated_rows=schema.estimated_rows,
+                            )
+                            _validate_destination_column_casts(cursor, locator, transferable_schema)
                 cursor.execute(
                     sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
                         sql.Identifier(locator.schema_name)

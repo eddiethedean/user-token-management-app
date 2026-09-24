@@ -27,6 +27,7 @@ from app.connectors.base import (
     RemoteObject,
     RowCounter,
 )
+from app.connectors.decimal_validation import validate_decimal_destination_schema
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import FoundryDatasetFilesLocator, parse_locator, validate_locator
 from app.connectors.registry import (
@@ -248,7 +249,11 @@ class UserCatalog:
             return result
         if isinstance(locator, PostgresTableLocator):
             try:
-                return self.inspect_object(provider, locator)
+                destination_schema = self.inspect_object(provider, locator)
+                validate_decimal_destination_schema(
+                    source_schema.columns, destination_schema.columns
+                )
+                return destination_schema
             except ConnectorError as exc:
                 if exc.code == TransferErrorCode.SOURCE_NOT_FOUND and not isinstance(
                     write_policy, PostgresUpsertPolicy
