@@ -325,8 +325,7 @@ def test_user_connection(
         validation_status = health.status
         validation_mode = (
             "emulated"
-            if settings.is_demo_mode
-            or "emulator" in str(health.server_identity or "").casefold()
+            if settings.is_demo_mode or "emulator" in str(health.server_identity or "").casefold()
             else "live"
         )
         validation_scope = (
