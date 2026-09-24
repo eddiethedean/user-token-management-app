@@ -229,9 +229,7 @@ class UserCatalog:
         connector = self.schema_resolver(provider)
         preflight = getattr(connector, "preflight_destination", None)
         if callable(preflight):
-            return preflight(
-                self._credentials_for(provider), locator, source_schema, write_policy
-            )
+            return preflight(self._credentials_for(provider), locator, source_schema, write_policy)
         if isinstance(locator, PostgresTableLocator):
             return self.inspect_object(provider, locator)
         return None

@@ -155,9 +155,7 @@ def register_pipeline_run_routes(
                 settings,
                 auth.user.id,
                 request,
-                lambda catalog: _read_only_pipeline_preflight(
-                    catalog, snapshot, csv_source_schema
-                ),
+                lambda catalog: _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema),
             )
             commands = PipelineCommands(
                 PipelineDependencies(
@@ -427,9 +425,7 @@ def register_pipeline_run_routes(
     return _start_pipeline_run
 
 
-def _csv_source_schema_before_run(
-    db, *, upload_id, source, user_id: str
-) -> ObjectSchema:
+def _csv_source_schema_before_run(db, *, upload_id, source, user_id: str) -> ObjectSchema:
     """Build the current, trusted CSV schema for the blocking pre-enqueue check."""
 
     if not isinstance(source, CsvUploadLocator):
@@ -487,9 +483,7 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
         elif callable(source_preflight):
             source_schema = source_preflight(snapshot.source_provider, snapshot.source)
         else:
-            source_schema = catalog.inspect_object(
-                snapshot.source_provider, snapshot.source
-            )
+            source_schema = catalog.inspect_object(snapshot.source_provider, snapshot.source)
         if not source_schema.columns and snapshot.source_provider.casefold() not in {
             "mss",
             "mcscop",
@@ -509,9 +503,7 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
         else:
             reason_code = "source_unavailable"
             source_message = "Review the selected source and confirm the connection can read it."
-        source_label = _readiness_target_label(
-            snapshot.source_provider, "source", snapshot.source
-        )
+        source_label = _readiness_target_label(snapshot.source_provider, "source", snapshot.source)
         source_fields = {source_label: source_message}
         source_fields.update(getattr(exc, "field_errors", {}))
         raise PipelineReadinessError(
@@ -566,8 +558,5 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
         )
         raise PipelineReadinessError(
             "destination_unavailable",
-            {
-                destination_label:
-                "Review the destination connection, schema, and selected table."
-            },
+            {destination_label: "Review the destination connection, schema, and selected table."},
         ) from exc

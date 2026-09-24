@@ -445,9 +445,7 @@ def log_event(
         if key not in safe_fields and value not in {"", "-"}:
             safe_fields[key] = value
     missing = tuple(
-        key
-        for key in _EVENT_REQUIRED_FIELDS[event]
-        if safe_fields.get(key) in (None, "", "-")
+        key for key in _EVENT_REQUIRED_FIELDS[event] if safe_fields.get(key) in (None, "", "-")
     )
     if missing:
         raise ValueError(

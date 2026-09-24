@@ -583,7 +583,9 @@ def preflight_failure(
         message = "Select or save a pipeline before starting a transfer."
         selected_reason_code = "pipeline_required"
     elif "connection" in normalized or "credential" in normalized:
-        message = "A required connection is not ready. Review its credentials and test it before running."
+        message = (
+            "A required connection is not ready. Review its credentials and test it before running."
+        )
         selected_reason_code = "connection_not_ready"
         action_label = "Review connection"
     elif "upload" in normalized and any(
@@ -595,7 +597,9 @@ def preflight_failure(
     elif "source" in normalized and any(
         word in normalized for word in ("not found", "unavailable", "no longer", "missing")
     ):
-        message = "The source object is not available. Review the source connection and selected object."
+        message = (
+            "The source object is not available. Review the source connection and selected object."
+        )
         selected_reason_code = "source_unavailable"
         action_label = "Review source"
     elif "destination" in normalized and any(
@@ -610,7 +614,9 @@ def preflight_failure(
         message = "The destination write policy is not valid for this object. Review its keys and write permissions."
         selected_reason_code = "write_policy_invalid"
     elif reason_code == "source_permission_denied":
-        message = "The source connection cannot read the selected object. Review its access permissions."
+        message = (
+            "The source connection cannot read the selected object. Review its access permissions."
+        )
         action_label = "Review connection"
     elif reason_code == "destination_permission_denied":
         message = "The destination connection cannot prepare the selected write target. Review its access permissions."
