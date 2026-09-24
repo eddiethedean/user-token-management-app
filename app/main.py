@@ -62,8 +62,8 @@ from app.ui.routes import register_routes
 from app.ui.security_policy import access_registry_security_policy
 from app.ui.urls import htmx_redirect_path, redirect_path
 
-configure_logging()
 settings = get_settings()
+configure_logging(level=settings.log_level, log_format=settings.log_format)
 log = logging.getLogger(__name__)
 REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}\Z")
 

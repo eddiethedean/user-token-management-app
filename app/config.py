@@ -69,6 +69,7 @@ class ConfigDefaults:
     email_claim_timeout_seconds: int = 300
     email_from: str = "Data Mover <no-reply@example.gov>"
     log_format: Literal["text", "json"] = "text"
+    log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"] = "INFO"
     smtp_port: int = 25
     smtp_allow_legacy_port25_fallback: bool = False
     password_hash_scheme: Literal["argon2", "pbkdf2_sha256"] = "argon2"
@@ -208,6 +209,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("EMAIL_FROM", "SMTP_FROM_EMAIL"),
     )
     log_format: Literal["text", "json"] = CONFIG_DEFAULTS.log_format
+    log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"] = (
+        CONFIG_DEFAULTS.log_level
+    )
     smtp_host: str = ""
     smtp_port: int = Field(default=CONFIG_DEFAULTS.smtp_port, ge=1, le=65535)
     smtp_allow_legacy_port25_fallback: bool = CONFIG_DEFAULTS.smtp_allow_legacy_port25_fallback
