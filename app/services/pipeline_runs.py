@@ -12,9 +12,9 @@ from pathlib import Path
 
 from fastapi import Request
 from sqlalchemy import and_, or_, select, update
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.db_compat import insert_for, scalar_returning
 from app.connectors.errors import TransferErrorCode
 from app.connectors.locators import DefinitionSnapshot
 from app.connectors.redaction import redact_mapping, redact_text
@@ -146,7 +146,6 @@ def enqueue_run(
         idempotency_token=idempotency_token,
     )
     if idempotency_token:
-        dialect_name = db.get_bind().dialect.name
         values = {
             "id": run.id,
             "pipeline_definition_id": run.pipeline_definition_id,
@@ -159,49 +158,33 @@ def enqueue_run(
             "idempotency_token": run.idempotency_token,
             "reconciliation_required": False,
         }
-        if dialect_name == "postgresql":
-            from sqlalchemy.dialects.postgresql import insert
-        elif dialect_name == "sqlite":
-            from sqlalchemy.dialects.sqlite import insert
-        else:
-            insert = None
-        if insert is not None:
-            inserted_id = db.scalar(
-                insert(PipelineRun)
-                .values(**values)
-                .on_conflict_do_nothing(
-                    index_elements=[PipelineRun.user_id, PipelineRun.idempotency_token]
+        statement = insert_for(db, PipelineRun).values(**values).on_conflict_do_nothing(
+            index_elements=[PipelineRun.user_id, PipelineRun.idempotency_token]
+        )
+        inserted_id = scalar_returning(
+            db,
+            statement,
+            PipelineRun.id,
+            fallback=lambda: db.scalar(
+                select(PipelineRun.id).where(
+                    PipelineRun.user_id == user.id,
+                    PipelineRun.idempotency_token == idempotency_token,
                 )
-                .returning(PipelineRun.id)
+            ),
+        )
+        if inserted_id is None:
+            existing = db.scalar(
+                select(PipelineRun).where(
+                    PipelineRun.user_id == user.id,
+                    PipelineRun.idempotency_token == idempotency_token,
+                )
             )
-            if inserted_id is None:
-                existing = db.scalar(
-                    select(PipelineRun).where(
-                        PipelineRun.user_id == user.id,
-                        PipelineRun.idempotency_token == idempotency_token,
-                    )
-                )
-                if existing is None:
-                    raise RunConflictError("The idempotent pipeline run could not be resolved.")
-                return existing
-            run = db.get(PipelineRun, inserted_id)
-            if run is None:
-                raise RunConflictError("The queued pipeline run could not be loaded.")
-        else:
-            try:
-                with db.begin_nested():
-                    db.add(run)
-                    db.flush()
-            except IntegrityError:
-                existing = db.scalar(
-                    select(PipelineRun).where(
-                        PipelineRun.user_id == user.id,
-                        PipelineRun.idempotency_token == idempotency_token,
-                    )
-                )
-                if existing is None:
-                    raise
-                return existing
+            if existing is None:
+                raise RunConflictError("The idempotent pipeline run could not be resolved.")
+            return existing
+        run = db.get(PipelineRun, inserted_id)
+        if run is None:
+            raise RunConflictError("The queued pipeline run could not be loaded.")
     else:
         db.add(run)
         db.flush()
@@ -463,12 +446,19 @@ def append_event(
     level: str = "info",
     detail: dict | None = None,
 ) -> PipelineRunEvent:
-    sequence = db.scalar(
+    statement = (
         update(PipelineRun)
         .where(PipelineRun.id == run.id)
         .values(next_event_sequence=PipelineRun.next_event_sequence + 1)
-        .returning(PipelineRun.next_event_sequence)
         .execution_options(synchronize_session=False)
+    )
+    sequence = scalar_returning(
+        db,
+        statement,
+        PipelineRun.next_event_sequence,
+        fallback=lambda: db.scalar(
+            select(PipelineRun.next_event_sequence).where(PipelineRun.id == run.id)
+        ),
     )
     if sequence is None:
         raise RunConflictError("The pipeline run no longer exists.")
