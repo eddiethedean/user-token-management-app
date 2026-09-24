@@ -187,6 +187,7 @@ def process_one(
                 summary=str(exc),
                 retryable=bool(exc.retryable),
                 lease_token=lease_token,
+                data_impact=exc.data_impact,
                 provider_correlation_id=exc.provider_correlation_id,
                 http_status=exc.http_status,
                 sqlstate=exc.sqlstate,

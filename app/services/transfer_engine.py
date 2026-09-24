@@ -670,7 +670,7 @@ def execute_transfer(
         )
         _refresh_published_foundry_cache(db, run, snapshot)
     except Exception as exc:
-        abort_result = AbortResult.ROLLED_BACK
+        abort_result = None
         if session is not None:
             abort_result = _abort_quietly(destination, session)
         if destination_committed:
@@ -685,6 +685,16 @@ def execute_transfer(
                 "Destination cleanup could not be confirmed after the transfer failed.",
                 retryable=False,
             ) from exc
+        if abort_result == AbortResult.ROLLED_BACK and not isinstance(exc, RunConflictError):
+            if isinstance(exc, ConnectorError):
+                exc.data_impact = DataImpact.ROLLED_BACK
+            else:
+                raise ConnectorError(
+                    TransferErrorCode.INTERNAL_ERROR,
+                    "The transfer failed after the destination changes were rolled back.",
+                    retryable=False,
+                    data_impact=DataImpact.ROLLED_BACK,
+                ) from exc
         raise
     finally:
         close = getattr(source_iterator, "close", None)
