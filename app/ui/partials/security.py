@@ -379,11 +379,18 @@ def connection_status_list(
             else "neutral"
         )
         if configured and secret.validated_at:
+            validation_mode = {
+                "live": "Live validation",
+                "emulated": "Emulated validation",
+            }.get(secret.validation_mode, "Validation mode unavailable")
+            validation_scope = secret.validation_scope or "Validation scope unavailable"
             detail = (
-                f"{outcome.title} {outcome.message} · Checked "
+                f"{outcome.title} {outcome.message} · {validation_mode} · "
+                f"{validation_scope} · Checked "
                 f"{secret.validated_at.strftime('%b %d at %H:%M')}"
                 if outcome
-                else f"{secret.validation_message} · Checked "
+                else f"{secret.validation_message} · {validation_mode} · "
+                f"{validation_scope} · Checked "
                 f"{secret.validated_at.strftime('%b %d at %H:%M')}"
             )
         elif configured:
@@ -405,6 +412,7 @@ def connection_status_list(
                         variant="secondary",
                         size="sm",
                         type="submit",
+                        id=f"test-connection-{provider.name}",
                     ),
                     action=form_action(request, f"security/secrets/{provider.name}/test"),
                     method="post",
@@ -413,6 +421,7 @@ def connection_status_list(
                         path=f"security/secrets/{provider.name}/test",
                         target="#connection-status-list",
                         sync="#connection-status-list:drop",
+                        disabled_elt=f"#test-connection-{provider.name}",
                         indicator=INDICATOR,
                     ),
                 )
