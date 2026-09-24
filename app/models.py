@@ -254,6 +254,12 @@ class UserSecret(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     validation_status: Mapped[str] = mapped_column(String(20), default="untested")
     validated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    validation_mode: Mapped[str] = mapped_column(
+        String(20), default="unknown", server_default="unknown"
+    )
+    validation_scope: Mapped[str] = mapped_column(
+        String(160), default="", server_default=""
+    )
     validation_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     validation_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
     validation_message: Mapped[str] = mapped_column(String(240), default="")

@@ -7,14 +7,14 @@ from dataclasses import dataclass
 from hmac import compare_digest
 
 from fastapi import Request
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.application.feedback import connection_failure
 from app.application.ports import RequestMetadata
 from app.config import Settings
 from app.connectors.base import ConnectionTester
-from app.connectors.errors import TransferErrorCode
+from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.redaction import redact_text
 from app.connectors.registry import connection_tester_for
 from app.db_compat import execute_dml, insert_for, supports_returning
@@ -229,6 +229,8 @@ def _store_encrypted_value(
     stored.updated_at = utcnow()
     stored.validation_status = "untested"
     stored.validated_at = None
+    stored.validation_mode = "untested"
+    stored.validation_scope = ""
     stored.validation_code = "connection_saved_untested"
     stored.validation_reference = ""
     stored.validation_message = "Saved. Connection check pending."
@@ -274,6 +276,8 @@ def test_user_connection(
         )
         if stored is None:
             raise ConnectionNotConfiguredError("Configure the connection before testing it.")
+        secret_id = stored.id
+        credential_revision = stored.updated_at
         credentials = decrypt_user_credentials_for_run(
             db,
             settings,
@@ -300,39 +304,50 @@ def test_user_connection(
             duration_ms=int((time.perf_counter() - started) * 1000),
         )
         raise
-    from app.connectors.errors import ConnectorError
-
+    checked_at = utcnow()
+    validation_mode = "emulated" if settings.is_demo_mode else "live"
+    validation_scope = (
+        "Emulated provider configuration"
+        if validation_mode == "emulated"
+        else "Provider connectivity and authentication"
+    )
+    validation_status = "failed"
+    validation_code = str(TransferErrorCode.INTERNAL_ERROR)
+    validation_message = connection_failure(
+        TransferErrorCode.INTERNAL_ERROR,
+        reference_id=reference_id,
+    ).message[:240]
+    completed_outcome: str | None = None
     try:
         resolver = connector_resolver or connection_tester_for
         health = resolver(provider).test_connection(credentials)
-        stored.validation_status = health.status
-        stored.validation_message = redact_text(health.message)[:240]
-        stored.validation_code = (
+        validation_status = health.status
+        validation_mode = (
+            "emulated"
+            if settings.is_demo_mode
+            or "emulator" in str(health.server_identity or "").casefold()
+            else "live"
+        )
+        validation_scope = (
+            "Emulated provider configuration"
+            if validation_mode == "emulated"
+            else "Provider connectivity and authentication"
+        )
+        validation_message = redact_text(health.message)[:240]
+        validation_code = (
             "connection_test_succeeded"
             if health.status == "connected"
             else "connection_test_incomplete"
         )
-        stored.validation_reference = reference_id
-        log_event(
-            log,
-            "connection.test.completed",
-            outcome="success" if health.status == "connected" else "incomplete",
-            reference_id=reference_id,
-            user_id=user.id,
-            provider=specification.name,
-            operation="test_connection",
-            duration_ms=int((time.perf_counter() - started) * 1000),
-        )
+        completed_outcome = "success" if health.status == "connected" else "incomplete"
     except ConnectorError as exc:
         feedback = connection_failure(
             exc.code,
             reference_id=reference_id,
             message=exc.summary,
         )
-        stored.validation_status = "failed"
-        stored.validation_code = str(feedback.code)
-        stored.validation_reference = reference_id
-        stored.validation_message = feedback.message[:240]
+        validation_code = str(feedback.code)
+        validation_message = feedback.message[:240]
         log_event(
             log,
             "connection.test.failed",
@@ -353,10 +368,8 @@ def test_user_connection(
             TransferErrorCode.INTERNAL_ERROR,
             reference_id=reference_id,
         )
-        stored.validation_status = "failed"
-        stored.validation_code = str(feedback.code)
-        stored.validation_reference = reference_id
-        stored.validation_message = feedback.message[:240]
+        validation_code = str(feedback.code)
+        validation_message = feedback.message[:240]
         log_event(
             log,
             "connection.test.failed",
@@ -371,20 +384,81 @@ def test_user_connection(
             duration_ms=int((time.perf_counter() - started) * 1000),
             traceback=safe_exception_traceback((type(exc), exc, exc.__traceback__)),
         )
-    stored.validated_at = utcnow()
-    stored.runtime_status = ""
     latency_ms = int((time.perf_counter() - started) * 1000)
-    if stored.validation_status == "connected" and latency_ms:
-        stored.validation_message = f"{stored.validation_message} · {latency_ms} ms"[:240]
+    if validation_status == "connected" and latency_ms:
+        validation_message = f"{validation_message} · {latency_ms} ms"[:240]
+    update_result = db.execute(
+        update(UserSecret)
+        .where(
+            UserSecret.id == secret_id,
+            UserSecret.user_id == user.id,
+            UserSecret.provider == specification.name,
+            UserSecret.updated_at == credential_revision,
+            or_(
+                UserSecret.validated_at.is_(None),
+                UserSecret.validated_at <= checked_at,
+            ),
+        )
+        .values(
+            updated_at=credential_revision,
+            validation_status=validation_status,
+            validated_at=utcnow(),
+            validation_mode=validation_mode,
+            validation_scope=validation_scope,
+            validation_code=validation_code,
+            validation_reference=reference_id,
+            validation_message=validation_message,
+            runtime_status="",
+        )
+    )
+    db.commit()
+    if not update_result.rowcount:
+        log_event(
+            log,
+            "connection.test.completed",
+            outcome="superseded",
+            reference_id=reference_id,
+            user_id=user.id,
+            provider=specification.name,
+            operation="test_connection",
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
+        db.expire_all()
+        current = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == specification.name,
+            )
+        )
+        if current is None:
+            raise ConnectionNotConfiguredError("Configure the connection before testing it.")
+        return current
+    if completed_outcome is not None:
+        log_event(
+            log,
+            "connection.test.completed",
+            outcome=completed_outcome,
+            reference_id=reference_id,
+            user_id=user.id,
+            provider=specification.name,
+            operation="test_connection",
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
     record_event(
         db,
         "connection.tested",
         request=request,
         actor=user,
         target=user,
-        detail={"provider": specification.name, "status": stored.validation_status},
+        detail={
+            "provider": specification.name,
+            "status": validation_status,
+            "mode": validation_mode,
+            "scope": validation_scope,
+        },
     )
     db.commit()
+    db.expire(stored)
     db.refresh(stored)
     return stored
 
@@ -491,7 +565,15 @@ def decrypt_user_credentials_for_run(
         credentials = CredentialEnvelope.decrypt(settings, stored)
     except CredentialEnvelopeError as exc:
         raise SecretStorageError(str(exc)) from exc
-    stored.last_used_at = utcnow()
+    credential_revision = stored.updated_at
+    db.execute(
+        update(UserSecret)
+        .where(
+            UserSecret.id == stored.id,
+            UserSecret.updated_at == credential_revision,
+        )
+        .values(last_used_at=utcnow(), updated_at=credential_revision)
+    )
     record_event(
         db,
         "api_token.used",
