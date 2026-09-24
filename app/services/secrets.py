@@ -387,7 +387,8 @@ def test_user_connection(
     latency_ms = int((time.perf_counter() - started) * 1000)
     if validation_status == "connected" and latency_ms:
         validation_message = f"{validation_message} · {latency_ms} ms"[:240]
-    update_result = db.execute(
+    update_result = execute_dml(
+        db,
         update(UserSecret)
         .where(
             UserSecret.id == secret_id,
@@ -409,7 +410,7 @@ def test_user_connection(
             validation_reference=reference_id,
             validation_message=validation_message,
             runtime_status="",
-        )
+        ),
     )
     db.commit()
     if not update_result.rowcount:
