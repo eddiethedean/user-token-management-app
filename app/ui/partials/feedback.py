@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
-from hedron import Alert, Badge, ClipboardCopy, Inline, Stack, Text, html
+from hedron import Alert, ClipboardCopy, Inline, LinkButton, Stack, Text, html
 from hedron_core import NodeLike
 
 from app.domain.feedback import DataImpact, FeedbackAction, FeedbackOutcome, FeedbackSeverity
@@ -35,7 +35,10 @@ def _impact_label(impact: DataImpact) -> str:
 
 
 def feedback_panel(
-    outcome: FeedbackOutcome | None, *, label: str = "Operation feedback"
+    outcome: FeedbackOutcome | None,
+    *,
+    label: str = "Operation feedback",
+    action_href: str | None = None,
 ) -> NodeLike:
     """Render durable, screen-reader-friendly feedback for a page or fragment."""
 
@@ -52,7 +55,13 @@ def feedback_panel(
         if outcome.reference_id
         else None
     )
-    action = Badge(outcome.action_label, tone="info") if outcome.action_label else None
+    action = (
+        LinkButton(outcome.action_label, href=action_href, appearance="ghost", size="sm")
+        if outcome.action_label and action_href
+        else Text(f"Next step: {outcome.action_label}.", role="caption")
+        if outcome.action_label
+        else None
+    )
     steps: list[str] = []
     if outcome.action == FeedbackAction.RECONCILE:
         steps = [

@@ -9,6 +9,7 @@ from hedron import Badge, Hedron, OobUpdate
 from hedron_core import NodeLike
 from starlette.responses import Response
 
+from app.application.feedback import preflight_failure
 from app.dependencies import Auth, DbSession, RequireCsrf
 from app.services.csv_uploads import MAX_CSV_UPLOAD_BYTES, store_csv_upload
 from app.ui.interactions import interaction_response, ok_fragment
@@ -60,12 +61,20 @@ def register_pipeline_csv_routes(
                 request=request,
             )
         except ValueError as exc:
+            outcome = preflight_failure(
+                reason=str(exc),
+                reference_id=getattr(request.state, "support_reference", ""),
+                operation="pipeline_csv_inspection",
+            )
+            detail = outcome.message
+            if outcome.reference_id:
+                detail += f" Reference: {outcome.reference_id}."
             return await interaction_response(
                 request,
                 ok_fragment(
-                    inspection_fragment(error=str(exc)),
+                    inspection_fragment(error=detail),
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    toast=str(exc),
+                    toast=detail,
                     toast_tone="danger",
                     oob=(
                         OobUpdate(

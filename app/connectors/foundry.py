@@ -871,6 +871,24 @@ class FoundryConnector:
         finally:
             client.close()
 
+    def preflight_destination(
+        self, credentials, locator: Locator, source_schema: ObjectSchema, write_policy: WritePolicy
+    ) -> ObjectSchema | None:
+        """Confirm the selected Foundry destination dataset and branch are available."""
+
+        if not isinstance(locator, FoundryUploadLocator):
+            raise ConnectorError(
+                TransferErrorCode.DESTINATION_NOT_FOUND,
+                "Foundry destination locator is invalid.",
+                retryable=False,
+            )
+        client = self._client(credentials)
+        try:
+            client.resolve_branch(locator.dataset_rid, locator.branch)
+        finally:
+            client.close()
+        return None
+
     def count_rows(self, credentials, locator: Locator) -> int | None:
         """Foundry file metadata does not provide a portable row-count API."""
 

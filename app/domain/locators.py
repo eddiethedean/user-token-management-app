@@ -188,6 +188,8 @@ class PostgresUpsertPolicy(ColumnTypeOverridesPolicy):
         for column in value:
             if not IDENTIFIER_PATTERN.fullmatch(column):
                 raise ValueError("Conflict columns must be valid PostgreSQL identifiers.")
+        if len(set(value)) != len(value):
+            raise ValueError("Conflict columns cannot be repeated.")
         return value
 
 

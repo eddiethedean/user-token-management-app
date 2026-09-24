@@ -20,13 +20,19 @@ from app.application.pipelines import (
     PipelineCommands,
     PipelineDependencies,
 )
-from app.connectors.base import ColumnSchema
-from app.connectors.decimal_validation import validate_decimal_destination_schema
+from app.connectors.base import ColumnSchema, ObjectSchema
+from app.connectors.csv_source import profiled_polars_type
 from app.connectors.errors import ConnectorError, TransferErrorCode
-from app.connectors.locators import CsvUploadLocator, PostgresReplacePolicy
+from app.connectors.locators import (
+    CsvUploadLocator,
+    FoundryDatasetFilesLocator,
+    FoundryUploadLocator,
+    PostgresTableLocator,
+)
 from app.connectors.registry import writer_enabled
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.models import PipelineDefinition, PipelineRun, PipelineRunEvent, PipelineUpload
+from app.services.column_casting import apply_column_type_overrides_to_schema
 from app.services.pipeline_runs import (
     owned_run,
     record_reconciliation_review,
@@ -72,6 +78,38 @@ class EventsLoader(Protocol):
     ) -> list[PipelineRunEvent]: ...
 
 
+class PipelineReadinessError(Exception):
+    """Safe, field-targeted failure from the blocking read-only preflight."""
+
+    def __init__(self, reason_code: str, field_errors: dict[str, str]) -> None:
+        super().__init__(reason_code)
+        self.reason_code = reason_code
+        self.field_errors = field_errors
+
+
+def _readiness_target_label(provider: str, role: str, locator: object) -> str:
+    provider_label = {
+        "postgres": "PostgreSQL",
+        "mss": "Foundry MSS",
+        "mcscop": "Foundry MCS-COP",
+        "csv": "CSV",
+    }.get(provider.casefold(), provider)
+    if isinstance(locator, PostgresTableLocator):
+        return f"{provider_label} {role} {locator.schema_name}.{locator.table}"
+    if isinstance(locator, FoundryUploadLocator):
+        return f"{provider_label} {role} {locator.dataset_rid} · {locator.file_name}"
+    if isinstance(locator, FoundryDatasetFilesLocator):
+        selected_file = (
+            locator.file_paths[0]
+            if isinstance(locator.file_paths, list) and len(locator.file_paths) == 1
+            else "selected files"
+        )
+        return f"{provider_label} {role} {locator.dataset_rid} · {selected_file}"
+    if isinstance(locator, CsvUploadLocator):
+        return "CSV source upload"
+    return f"{provider_label} {role}"
+
+
 def register_pipeline_run_routes(
     app: Hedron,
     fragment_router: HedronRouter,
@@ -101,31 +139,24 @@ def register_pipeline_run_routes(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pipeline not found")
         try:
             snapshot = snapshot_from_definition(pipeline)
-            source_decimal_columns = (
-                _csv_decimal_columns_before_run(
+            csv_source_schema = (
+                _csv_source_schema_before_run(
                     db,
                     upload_id=snapshot.source_upload_id,
                     source=snapshot.source,
                     user_id=auth.user.id,
                 )
                 if snapshot.source_provider.casefold() == "csv"
-                and snapshot.destination_provider.casefold() == "postgres"
-                else ()
+                else None
             )
-            if source_decimal_columns and not (
-                isinstance(snapshot.write_policy, PostgresReplacePolicy)
-                and snapshot.write_policy.schema_policy == "recreate"
-            ):
-                await run_owned_sync(
-                    request,
-                    with_user_catalog,
-                    settings,
-                    auth.user.id,
-                    request,
-                    lambda catalog: _validate_csv_decimal_destination(
-                        catalog, snapshot.destination, source_decimal_columns
-                    ),
-                )
+            await run_owned_sync(
+                request,
+                with_user_catalog,
+                settings,
+                auth.user.id,
+                request,
+                lambda catalog: _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema),
+            )
             commands = PipelineCommands(
                 PipelineDependencies(
                     writer_policy=lambda provider: writer_enabled(provider, settings=settings)
@@ -141,15 +172,30 @@ def register_pipeline_run_routes(
                     request=request,
                 ),
             )
-        except (ConnectorError, ValueError, LookupError) as exc:
+        except (PipelineReadinessError, ConnectorError, ValueError, LookupError) as exc:
+            field_errors = exc.field_errors if isinstance(exc, PipelineReadinessError) else {}
+            reason_code = exc.reason_code if isinstance(exc, PipelineReadinessError) else ""
             outcome = preflight_failure(
-                reason=str(exc), reference_id=getattr(request.state, "support_reference", "")
+                reason=reason_code or str(exc),
+                reason_code=reason_code,
+                field_errors=field_errors,
+                reference_id=getattr(request.state, "support_reference", ""),
+                operation="pipeline_readiness" if reason_code else "enqueue",
             )
+            action_href = None
+            if outcome.action_label == "Review connection":
+                action_href = mounted_path(request, "/security#connection-status-list")
+            elif outcome.action_label in {"Review route", "Review source", "Review destination"}:
+                action_href = mounted_path(request, f"/pipeline?pipeline_id={pipeline.id}")
             if is_htmx_request(request):
                 return await interaction_response(
                     request,
                     ok_fragment(
-                        feedback_panel(outcome, label="Pipeline preflight feedback"),
+                        feedback_panel(
+                            outcome,
+                            label="Pipeline preflight feedback",
+                            action_href=action_href,
+                        ),
                         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         retarget="#pipeline-run-feedback",
                         reswap="innerHTML",
@@ -236,7 +282,15 @@ def register_pipeline_run_routes(
                 return await interaction_response(
                     request,
                     ok_fragment(
-                        feedback_panel(outcome, label="Pipeline preflight feedback"),
+                        feedback_panel(
+                            outcome,
+                            label="Pipeline preflight feedback",
+                            action_href=(
+                                mounted_path(request, "/pipeline")
+                                if outcome.action_label == "Review route"
+                                else None
+                            ),
+                        ),
                         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                         retarget="#pipeline-run-feedback",
                         reswap="innerHTML",
@@ -371,38 +425,149 @@ def register_pipeline_run_routes(
     return _start_pipeline_run
 
 
-def _csv_decimal_columns_before_run(
-    db, *, upload_id, source, user_id: str
-) -> tuple[ColumnSchema, ...]:
-    """Load the trusted decimal profile needed for the pre-enqueue destination check."""
+def _csv_source_schema_before_run(db, *, upload_id, source, user_id: str) -> ObjectSchema:
+    """Build the current, trusted CSV schema for the blocking pre-enqueue check."""
 
     if not isinstance(source, CsvUploadLocator):
-        return ()
+        raise PipelineReadinessError(
+            "source_unavailable", {"Source": "Review the saved CSV source selection."}
+        )
     from app.services.csv_uploads import inspection_from_upload
 
     upload = db.get(PipelineUpload, upload_id or source.upload_id)
     if upload is None or upload.user_id != user_id:
-        raise ValueError("The CSV upload is no longer available.")
-    if upload.checksum_sha256 != source.checksum_sha256:
-        raise ValueError("The CSV upload no longer matches the saved pipeline.")
-    inspection = inspection_from_upload(upload)
-    return tuple(
-        ColumnSchema(
-            name=column.name,
-            data_type=f"Decimal(precision={column.decimal_precision}, scale={column.decimal_scale})",
+        raise PipelineReadinessError(
+            "source_unavailable", {"Source": "Upload and inspect the CSV file again."}
         )
-        for column in inspection.columns
-        if column.inferred_type == "decimal"
+    if upload.checksum_sha256 != source.checksum_sha256:
+        raise PipelineReadinessError(
+            "source_unavailable", {"Source": "Upload and inspect the CSV file again."}
+        )
+    try:
+        inspection = inspection_from_upload(upload)
+    except ValueError as exc:
+        raise PipelineReadinessError(
+            "source_unavailable", {"Source": "Upload and inspect the CSV file again."}
+        ) from exc
+    if not inspection.columns:
+        raise PipelineReadinessError(
+            "source_unavailable", {"Source": "Choose a CSV with a valid inspected header."}
+        )
+    try:
+        columns = tuple(
+            ColumnSchema(
+                name=column.name,
+                data_type=str(profiled_polars_type(column)),
+                nullable=True,
+            )
+            for column in inspection.columns
+        )
+    except ConnectorError as exc:
+        raise PipelineReadinessError(
+            "unsupported_conversion",
+            {"CSV columns": "Choose source types within the supported precision and type limits."},
+        ) from exc
+    return ObjectSchema(
+        locator=source,
+        columns=columns,
     )
 
 
-def _validate_csv_decimal_destination(catalog, destination, source_columns) -> None:
-    """Fail before queuing when the saved PostgreSQL table would round decimals."""
+def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
+    """Check current source and PostgreSQL destination readiness without writes."""
 
     try:
-        destination_schema = catalog.inspect_object("postgres", destination)
-    except ConnectorError as exc:
-        if exc.code == TransferErrorCode.SOURCE_NOT_FOUND:
+        source_preflight = getattr(catalog, "preflight_source", None)
+        if csv_source_schema is not None:
+            source_schema = csv_source_schema
+        elif callable(source_preflight):
+            raw_source_schema: object = source_preflight(snapshot.source_provider, snapshot.source)
+            if not isinstance(raw_source_schema, ObjectSchema):
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "The source connector returned invalid schema metadata.",
+                    retryable=False,
+                )
+            source_schema = raw_source_schema
+        else:
+            source_schema = catalog.inspect_object(snapshot.source_provider, snapshot.source)
+        if not source_schema.columns and snapshot.source_provider.casefold() not in {
+            "mss",
+            "mcscop",
+        }:
+            raise ConnectorError(
+                TransferErrorCode.SOURCE_NOT_FOUND,
+                "The selected source has no current schema.",
+                retryable=False,
+            )
+        source_schema = apply_column_type_overrides_to_schema(
+            source_schema, snapshot.write_policy.column_type_overrides
+        )
+    except Exception as exc:
+        if isinstance(exc, ConnectorError) and exc.code == TransferErrorCode.PERMISSION_DENIED:
+            reason_code = "source_permission_denied"
+            source_message = "Check read access to the selected source object."
+        else:
+            reason_code = "source_unavailable"
+            source_message = "Review the selected source and confirm the connection can read it."
+        source_label = _readiness_target_label(snapshot.source_provider, "source", snapshot.source)
+        source_fields = {source_label: source_message}
+        source_fields.update(getattr(exc, "field_errors", {}))
+        raise PipelineReadinessError(
+            reason_code,
+            source_fields,
+        ) from exc
+
+    try:
+        destination_preflight = getattr(catalog, "preflight_destination", None)
+        if callable(destination_preflight):
+            destination_preflight(
+                snapshot.destination_provider,
+                snapshot.destination,
+                source_schema,
+                snapshot.write_policy,
+            )
+        elif snapshot.destination_provider.casefold() == "postgres" and isinstance(
+            snapshot.destination, PostgresTableLocator
+        ):
+            catalog.inspect_object(snapshot.destination_provider, snapshot.destination)
+        else:
             return
-        raise
-    validate_decimal_destination_schema(source_columns, destination_schema.columns)
+    except ConnectorError as exc:
+        if exc.code == TransferErrorCode.PERMISSION_DENIED:
+            reason_code = "destination_permission_denied"
+            field_message = "Check write access to the selected destination schema and table."
+        elif exc.code == TransferErrorCode.DESTINATION_CONFLICT:
+            reason_code = "invalid_upsert_key"
+            field_message = "Review the destination upsert key and current unique constraints."
+        elif exc.code == TransferErrorCode.UNSUPPORTED_TYPE:
+            reason_code = "unsupported_conversion"
+            field_message = "Review source and destination column types for a safe conversion."
+        elif exc.code == TransferErrorCode.SCHEMA_DRIFT:
+            if "decimal" in str(exc).casefold():
+                reason_code = "destination_precision"
+                field_message = "The destination column cannot hold all source decimal places."
+            else:
+                reason_code = "destination_schema_incompatible"
+                field_message = "Review the source and destination columns used by this route."
+        else:
+            reason_code = "destination_unavailable"
+            field_message = "Review the destination connection, schema, and selected table."
+        destination_label = _readiness_target_label(
+            snapshot.destination_provider, "destination", snapshot.destination
+        )
+        destination_fields = {destination_label: field_message}
+        for field_name, message in exc.field_errors.items():
+            if field_name.startswith("Destination column "):
+                column_name = field_name.removeprefix("Destination column ")
+                field_name = f"{destination_label} · column {column_name}"
+            destination_fields[field_name] = message
+        raise PipelineReadinessError(reason_code, destination_fields) from exc
+    except Exception as exc:
+        destination_label = _readiness_target_label(
+            snapshot.destination_provider, "destination", snapshot.destination
+        )
+        raise PipelineReadinessError(
+            "destination_unavailable",
+            {destination_label: "Review the destination connection, schema, and selected table."},
+        ) from exc

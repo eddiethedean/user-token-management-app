@@ -74,7 +74,7 @@ from app.ui.regions import (
     TOAST_HOST,
 )
 from app.ui.routes.pipeline_context import run_owned_sync
-from app.ui.urls import htmx_redirect_path, redirect_path
+from app.ui.urls import htmx_redirect_path, mounted_path, redirect_path
 
 log = logging.getLogger(__name__)
 
@@ -136,7 +136,17 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 "Manage the encrypted credentials Data Mover uses to reach your remote sources.",
             ),
             alert_box(values["security_success"], kind="success"),
-            feedback_panel(page_feedback, label="Connection feedback") if page_feedback else None,
+            feedback_panel(
+                page_feedback,
+                label="Connection feedback",
+                action_href=(
+                    mounted_path(request, "/security#connection-status-list")
+                    if page_feedback.action_label in {"Review connection", "Test again"}
+                    else None
+                ),
+            )
+            if page_feedback
+            else None,
             ui.security_tabs(
                 request,
                 csrf_token=csrf,
