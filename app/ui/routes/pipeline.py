@@ -1476,11 +1476,19 @@ def _saved_run_summary(run: object | None) -> str:
     timestamp_label = (
         timestamp.strftime("%b %d, %H:%M") if timestamp is not None else "time unavailable"
     )
+    source_count = (
+        f"{getattr(run, 'source_rows', 0):,} extracted"
+        if getattr(run, "source_rows_measured", False)
+        else "source count unavailable"
+    )
+    loaded_count = (
+        f"{getattr(run, 'loaded_rows', 0):,} loaded"
+        if getattr(run, "loaded_rows_measured", False)
+        else "loaded count unavailable"
+    )
     return (
-        f"Last run {timestamp_label} · "
-        f"{getattr(run, 'source_rows', 0):,} extracted · "
-        f"{getattr(run, 'loaded_rows', 0):,} loaded · {destination} · "
-        f"{_run_duration_label(run)}"
+        f"Last run {timestamp_label} · {source_count} · {loaded_count} · "
+        f"{destination} · {_run_duration_label(run)}"
     )
 
 
@@ -4783,13 +4791,13 @@ def _run_status_fragment(
         Grid(
             Metric(
                 "Extracted",
-                f"{run.source_rows:,} rows",
+                (f"{run.source_rows:,} rows" if run.source_rows_measured else "Unavailable"),
                 delta=_format_file_size(run.source_bytes),
                 delta_tone="up" if run.source_rows else "neutral",
             ),
             Metric(
                 "Loaded",
-                f"{run.loaded_rows:,} rows",
+                (f"{run.loaded_rows:,} rows" if run.loaded_rows_measured else "Unavailable"),
                 delta=_format_file_size(run.loaded_bytes),
                 delta_tone="up" if run.loaded_rows else "neutral",
             ),

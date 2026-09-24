@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from app.domain.feedback import DataImpact
+
 
 class TransferErrorCode(StrEnum):
     CREDENTIALS_MISSING = "credentials_missing"
@@ -51,6 +53,7 @@ class ConnectorError(Exception):
     provider_correlation_id: str = ""
     http_status: int | None = None
     sqlstate: str = ""
+    data_impact: DataImpact | None = None
 
     def __post_init__(self) -> None:
         if self.retryable is None:

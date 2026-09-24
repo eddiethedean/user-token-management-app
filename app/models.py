@@ -385,8 +385,14 @@ class PipelineRun(Base):
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     source_rows: Mapped[int] = mapped_column(BigInteger, default=0)
+    source_rows_measured: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
     source_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     loaded_rows: Mapped[int] = mapped_column(BigInteger, default=0)
+    loaded_rows_measured: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
     loaded_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     next_event_sequence: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     source_manifest_json: Mapped[str | None] = mapped_column(Text, nullable=True)

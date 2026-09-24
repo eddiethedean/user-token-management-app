@@ -613,15 +613,19 @@ def add_counters(
     run: PipelineRun,
     *,
     lease_token: str,
-    source_rows: int = 0,
+    source_rows: int | None = None,
     source_bytes: int = 0,
-    loaded_rows: int = 0,
+    loaded_rows: int | None = None,
     loaded_bytes: int = 0,
 ) -> None:
     _refresh_and_require_lease(db, run, lease_token)
-    run.source_rows += source_rows
+    if source_rows is not None:
+        run.source_rows += source_rows
+        run.source_rows_measured = True
     run.source_bytes += source_bytes
-    run.loaded_rows += loaded_rows
+    if loaded_rows is not None:
+        run.loaded_rows += loaded_rows
+        run.loaded_rows_measured = True
     run.loaded_bytes += loaded_bytes
     db.commit()
 
@@ -643,6 +647,8 @@ def complete_run(
         redact_mapping(destination_manifest or {}), separators=(",", ":")
     )
     run.verification_json = json.dumps(redact_mapping(verification or {}), separators=(",", ":"))
+    run.source_rows_measured = True
+    run.loaded_rows_measured = True
     run.last_safe_stage = run.stage
     verification_level = str((verification or {}).get("verification_level", "")).casefold()
     completion_impact = DataImpact.VERIFIED if verification_level == "exact" else DataImpact.CHANGED
@@ -713,8 +719,10 @@ def fail_run(
         _refresh_and_require_lease(db, run, lease_token)
     code_value = str(code)
     failure_stage = run.stage
-    effective_needs_reconciliation = needs_reconciliation or _failure_requires_reconciliation(
-        run, code_value
+    effective_needs_reconciliation = (
+        False
+        if data_impact == DataImpact.ROLLED_BACK
+        else needs_reconciliation or _failure_requires_reconciliation(run, code_value)
     )
     resolved_impact = data_impact or _failure_data_impact(
         run, code_value, needs_reconciliation=effective_needs_reconciliation
