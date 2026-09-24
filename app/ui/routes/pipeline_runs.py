@@ -481,7 +481,14 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
         if csv_source_schema is not None:
             source_schema = csv_source_schema
         elif callable(source_preflight):
-            source_schema = source_preflight(snapshot.source_provider, snapshot.source)
+            raw_source_schema: object = source_preflight(snapshot.source_provider, snapshot.source)
+            if not isinstance(raw_source_schema, ObjectSchema):
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "The source connector returned invalid schema metadata.",
+                    retryable=False,
+                )
+            source_schema = raw_source_schema
         else:
             source_schema = catalog.inspect_object(snapshot.source_provider, snapshot.source)
         if not source_schema.columns and snapshot.source_provider.casefold() not in {

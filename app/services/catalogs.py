@@ -213,7 +213,14 @@ class UserCatalog:
         inspector = self.schema_resolver(provider)
         preflight = getattr(inspector, "preflight_source", None)
         if callable(preflight):
-            return preflight(self._credentials_for(provider), locator)
+            schema = preflight(self._credentials_for(provider), locator)
+            if not isinstance(schema, ObjectSchema):
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "The source connector returned invalid schema metadata.",
+                    retryable=False,
+                )
+            return schema
         return self.inspect_object_fresh(provider, locator)
 
     def preflight_destination(
@@ -229,7 +236,16 @@ class UserCatalog:
         connector = self.schema_resolver(provider)
         preflight = getattr(connector, "preflight_destination", None)
         if callable(preflight):
-            return preflight(self._credentials_for(provider), locator, source_schema, write_policy)
+            result = preflight(
+                self._credentials_for(provider), locator, source_schema, write_policy
+            )
+            if result is not None and not isinstance(result, ObjectSchema):
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "The destination connector returned invalid schema metadata.",
+                    retryable=False,
+                )
+            return result
         if isinstance(locator, PostgresTableLocator):
             return self.inspect_object(provider, locator)
         return None

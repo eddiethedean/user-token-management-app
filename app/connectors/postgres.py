@@ -791,7 +791,14 @@ class PostgresConnector:
                             "WHERE table_schema = %s AND table_name = %s)",
                             (locator.schema_name, locator.table),
                         )
-                        destination_exists = bool(cursor.fetchone()[0])
+                        destination_row = cursor.fetchone()
+                        if destination_row is None:
+                            raise ConnectorError(
+                                TransferErrorCode.PROVIDER_UNAVAILABLE,
+                                "Could not verify whether the destination table exists.",
+                                retryable=True,
+                            )
+                        destination_exists = bool(destination_row[0])
                         if destination_exists:
                             _validate_destination_column_casts(cursor, locator, schema)
                 cursor.execute(
@@ -1451,7 +1458,9 @@ def _validate_destination_column_casts(
     target = sql.Identifier(locator.schema_name, locator.table)
     columns = sql.SQL(", ").join(sql.Identifier(column.name) for column in source_schema.columns)
     values = sql.SQL(", ").join(
-        sql.SQL("NULL::{}").format(sql.SQL(_pg_type(column.data_type)))
+        sql.SQL("NULL::{}").format(
+            sql.SQL(_pg_type(column.data_type))  # type: ignore[arg-type]
+        )
         for column in source_schema.columns
     )
     try:
