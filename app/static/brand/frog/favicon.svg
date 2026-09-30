@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="32" height="32" role="img" aria-labelledby="frog-title">
+<title id="frog-title">Data Mover frog favicon</title>
+<style>
+.surface{fill:#F4F7FA}.edge{stroke:#12304B}.circuit{stroke:#B58105}.secondary{stroke:#8299AE}.micro{display:inline}
+@media(prefers-color-scheme:dark){.surface{fill:#081F34}.edge,.circuit{stroke:#FFD12B}.secondary{stroke:#52758F}}
+#light:target~.surface{fill:#F4F7FA}#light:target~.edge{stroke:#12304B}#light:target~.circuit{stroke:#B58105}#light:target~.secondary{stroke:#8299AE}
+#dark:target~.surface{fill:#081F34}#dark:target~.edge,#dark:target~.circuit{stroke:#FFD12B}#dark:target~.secondary{stroke:#52758F}
+@media(max-width:63px){.circuit,.secondary{display:none}}
+@media(max-width:31px){.full{display:none}.micro{display:inline}.edge{stroke-width:12}}
+</style>
+<g id="light"/><g id="dark"/>
+<rect class="surface" x="12" y="12" width="488" height="488" rx="108"/>
+<g stroke-linecap="round" stroke-linejoin="round">
+<path fill="#FFD12B" stroke="#111820" stroke-width="12" d="M83 291C120 239 185 198 246 168L320 124Q351 110 374 137L450 151Q480 164 450 181L367 218C331 246 310 288 280 319C247 351 219 371 170 373C109 378 64 350 83 291Z"/>
+<path fill="#111820" d="M110 270Q130 244 159 223C138 284 204 315 194 372Q153 377 125 366C129 330 85 307 110 270ZM231 177Q261 161 284 150C264 187 263 205 279 223C297 244 322 230 331 257L280 319Q271 326 262 334C274 281 244 261 235 233Q217 211 231 177ZM360 161Q392 183 459 166L451 184L366 222Q350 234 332 255L303 224Z"/>
+<path fill="#FFF4CD" d="M366 214Q401 197 443 187C411 210 378 217 351 240Q343 241 349 232Z"/>
+<circle cx="345" cy="171" r="37" fill="#111820" stroke="#FFD12B" stroke-width="10"/>
+<circle cx="356" cy="157" r="10" fill="#FFF4CD"/>
+</g>
+<rect class="edge" x="12" y="12" width="488" height="488" rx="108" fill="none" stroke-width="10"/>
+</svg>
