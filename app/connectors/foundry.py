@@ -435,17 +435,33 @@ class FoundryClient:
                 "Foundry returned invalid column sensitivity metadata.",
                 retryable=False,
             )
+        if schema.get("customMetadata") is not None and not isinstance(
+            schema.get("customMetadata"), dict
+        ):
+            raise ConnectorError(
+                TransferErrorCode.PROVIDER_UNAVAILABLE,
+                "Foundry returned invalid table sensitivity metadata.",
+                retryable=False,
+            )
         table_markers.update(matching_metadata_markers(schema.get("customMetadata"), configured))
         for item in fields or []:
-            if not isinstance(item, dict):
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("name"), str)
+                or not item["name"].strip()
+                or (
+                    item.get("customMetadata") is not None
+                    and not isinstance(item.get("customMetadata"), dict)
+                )
+            ):
                 raise ConnectorError(
                     TransferErrorCode.PROVIDER_UNAVAILABLE,
                     "Foundry returned invalid column sensitivity metadata.",
                     retryable=False,
                 )
-            name = str(item.get("name") or "")
+            name = item["name"]
             markers = matching_metadata_markers(item.get("customMetadata"), configured)
-            if name and markers:
+            if markers:
                 column_markers[name] = markers
 
         encoded_rid = quote(dataset_rid, safe=".")
@@ -469,14 +485,26 @@ class FoundryClient:
                     "Foundry returned invalid resource sensitivity markings.",
                     retryable=False,
                 ) from exc
-            if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+            if not isinstance(payload, dict):
                 raise ConnectorError(
                     TransferErrorCode.PROVIDER_UNAVAILABLE,
                     "Foundry returned incomplete resource sensitivity markings.",
                     retryable=False,
                 )
-            marking_ids.extend(str(item or "").strip() for item in payload["data"])
-            marking_ids = [marking_id for marking_id in marking_ids if marking_id]
+            page_marking_ids = payload.get("data", [])
+            if not isinstance(page_marking_ids, list):
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned incomplete resource sensitivity markings.",
+                    retryable=False,
+                )
+            if any(not isinstance(item, str) or not item.strip() for item in page_marking_ids):
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned invalid resource sensitivity markings.",
+                    retryable=False,
+                )
+            marking_ids.extend(item.strip() for item in page_marking_ids)
             if len(marking_ids) > MAX_FOUNDRY_MARKING_IDS:
                 raise ConnectorError(
                     TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
@@ -484,9 +512,15 @@ class FoundryClient:
                     retryable=False,
                 )
             next_cursor = payload.get("nextPageToken")
+            if next_cursor is not None and not isinstance(next_cursor, str):
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned an invalid resource marking cursor.",
+                    retryable=False,
+                )
             if not next_cursor:
                 break
-            cursor = str(next_cursor)
+            cursor = next_cursor
             if cursor in seen_cursors:
                 raise ConnectorError(
                     TransferErrorCode.PROVIDER_UNAVAILABLE,
@@ -520,7 +554,11 @@ class FoundryClient:
                     "Foundry returned invalid resource marking metadata.",
                     retryable=False,
                 ) from exc
-            if not isinstance(marking, dict) or not isinstance(marking.get("name"), str):
+            if (
+                not isinstance(marking, dict)
+                or not isinstance(marking.get("name"), str)
+                or not marking["name"].strip()
+            ):
                 raise ConnectorError(
                     TransferErrorCode.PROVIDER_UNAVAILABLE,
                     "Foundry returned incomplete resource marking metadata.",
