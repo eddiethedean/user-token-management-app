@@ -19,9 +19,9 @@ An unresolved finding blocks a run before destination writes. Selected actions a
 
 ## Implementation
 
-The pre-run review keys an action by detector and column, then binds the form value to a hash of the selected source identity. When the source changes, stale actions are discarded. The save handler validates and stores the chosen action list in guardrail_actions_json. The worker resolves those saved choices against the findings from its own scan before it prepares the destination.
+The pre-run review keys an action by detector and column, then binds the form value to a hash of the selected source identity. When the source changes, stale actions are discarded. The save handler validates and stores the chosen action list in guardrail_actions_json. A saved action remains the pipeline owner's handling policy for that column while it exists in the selected source, even if a later scan no longer finds a matching value. The worker records such an action as a saved decision and applies it consistently with the preflight schema projection.
 
-If the same column is flagged by multiple detectors with different decisions, Remove is the effective action. Removing a required destination key or every source column blocks the run. Before a run is queued, the destination preflight and planned-schema preview use the saved Hash/Remove projection.
+If the same column has decisions from multiple detectors, Remove is the effective action. Removing a primary or unique destination key or every source column blocks the run. Before a run is queued, the destination preflight and planned-schema preview use the saved Hash/Remove projection.
 
 ## Example
 

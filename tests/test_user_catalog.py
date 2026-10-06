@@ -310,6 +310,7 @@ def test_cached_foundry_schema_refreshes_markings_without_extending_cache_lifeti
             db,
             settings,
             user,
+            cache=SqlAlchemyCatalogCache(db, settings, user),
             schema_resolver=lambda _provider: cast(Any, Inspector()),
             credential_resolver=lambda **_kwargs: {"endpoint": "https://foundry.invalid"},
         )
@@ -322,6 +323,7 @@ def test_cached_foundry_schema_refreshes_markings_without_extending_cache_lifeti
         )
         assert refreshed.column_sensitivity_markers == (("ssn", ("pii",)),)
         assert cached.expires_at == expires_at
+        assert cached.fetched_at == now
         assert "SYNTHETIC-SSN" not in cached.payload_json
 
 

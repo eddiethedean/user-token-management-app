@@ -1067,6 +1067,87 @@ def test_successful_guardrail_run_records_original_source_schema_and_applied_act
     assert completed["guardrail"]["findings"][0]["outcome"] == "applied"
 
 
+def test_saved_guardrail_action_stays_applied_when_current_scan_has_no_match(monkeypatch) -> None:
+    class CapturingDestination(_Destination):
+        def __init__(self) -> None:
+            super().__init__()
+            self.output_columns: tuple[str, ...] = ()
+
+        def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
+            self.output_columns = tuple(batch.frame.columns)
+            return super().write_batch(load_session, batch)
+
+    monkeypatch.setattr(transfer_engine, "route_allowed", lambda *_args: True)
+    monkeypatch.setattr(transfer_engine, "writer_enabled", lambda provider, **kwargs: True)
+    for name in ("heartbeat", "transition", "add_counters", "append_event"):
+        monkeypatch.setattr(transfer_engine.pipeline_runs, name, lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs, "record_guardrail_review", lambda *args, **kwargs: None
+    )
+    completed: dict[str, Any] = {}
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs,
+        "complete_run",
+        lambda *args, **kwargs: completed.update(kwargs),
+    )
+    destination = CapturingDestination()
+    snapshot = _snapshot_with_policy(PostgresAppendPolicy()).model_copy(
+        update={
+            "guardrail_actions": [GuardrailAction(detector="ssn", column="ssn", action="remove")]
+        }
+    )
+
+    class SourceWithoutCurrentFinding(_Source):
+        def inspect_object(self, credentials: Credentials, locator: Locator) -> ObjectSchema:
+            return ObjectSchema(
+                locator=locator,
+                columns=(
+                    ColumnSchema(name="id", data_type="Int64"),
+                    ColumnSchema(name="ssn", data_type="Int64"),
+                ),
+            )
+
+        def extract(
+            self,
+            credentials: Credentials,
+            locator: Locator,
+            *,
+            batch_rows: int,
+            batch_bytes: int,
+        ) -> Iterator[TransferBatch]:
+            frame = pl.DataFrame({"id": [1], "ssn": [7]})
+            yield TransferBatch(frame, 1, int(frame.estimated_size()), 1)
+
+    transfer_engine.execute_transfer(
+        Mock(),
+        run=_run("saved-guardrail-run"),
+        lease_token="lease",
+        snapshot=snapshot,
+        source_credentials={},
+        destination_credentials={},
+        settings=_settings(
+            is_demo_mode=True,
+            app_env="test",
+            pipeline_lease_seconds=120,
+            pipeline_batch_rows=100,
+            pipeline_batch_target_bytes=1_048_576,
+            pipeline_max_run_seconds=60,
+            pipeline_max_source_bytes=1_048_576,
+            pipeline_max_spool_bytes=1_048_576,
+        ),
+        cancel_requested=lambda: False,
+        source_resolver=lambda _provider: SourceWithoutCurrentFinding(),
+        destination_resolver=lambda _provider: destination,
+    )
+
+    assert destination.output_columns == ("id",)
+    assert completed["guardrail"]["outcome"] == "applied"
+    finding = completed["guardrail"]["findings"][0]
+    assert finding["source"] == "Saved decision"
+    assert finding["action"] == "remove"
+    assert finding["outcome"] == "applied"
+
+
 def test_upsert_policy_requires_a_current_destination_key_and_source_columns() -> None:
     locator = postgres_table("public", "events")
     destination_schema = ObjectSchema(

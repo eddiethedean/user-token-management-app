@@ -829,6 +829,23 @@ def execute_transfer(
             }
             for column, count in sorted(ssn_counts.items())
         )
+        finding_keys = {
+            (str(finding.get("detector") or ""), str(finding.get("column") or ""))
+            for finding in findings
+        }
+        available_source_columns = {column.name for column in schema.columns}
+        for action in snapshot.guardrail_actions:
+            key = (action.detector, action.column)
+            if action.column in available_source_columns and key not in finding_keys:
+                findings.append(
+                    {
+                        "detector": action.detector,
+                        "source": "Saved decision",
+                        "column": action.column,
+                        "count": None,
+                    }
+                )
+                finding_keys.add(key)
         effective_actions, resolved_findings = _effective_actions(
             findings, snapshot.guardrail_actions
         )
@@ -840,6 +857,13 @@ def execute_transfer(
             protected_keys = set(policy.primary_key_columns)
         else:
             protected_keys = set()
+        if destination_schema_before is not None:
+            protected_keys.update(destination_schema_before.primary_key)
+            protected_keys.update(
+                name
+                for constraint in destination_schema_before.unique_constraints
+                for name in constraint
+            )
         removed_columns = tuple(
             sorted(name for name, action in effective_actions.items() if action == "remove")
         )

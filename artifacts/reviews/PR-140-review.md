@@ -2,11 +2,17 @@
 
 ## Follow-up review after fixes
 
-Reviewed October 6, 2026. The corrective changes on `codex/cdo-4551-sensitive-data-guardrails` address findings F1–F8 below. Foundry metadata now fails closed when it cannot be verified, refresh is available through the connector interface, resource markings are paginated, and saved actions are included in run readiness and planned-schema previews. PostgreSQL Remove transactionally drops selected columns from existing targets. Run outcomes remain pending until successful completion, and the source manifest retains the inspected schema before transformations.
+Reviewed October 6, 2026. The corrective changes on `codex/cdo-4551-sensitive-data-guardrails` address findings F1–F8 below and the three follow-up issues recorded during the current PR review. Foundry metadata now fails closed when it cannot be verified, refresh is available through the connector interface, resource markings are paginated, and saved actions are included in run readiness and planned-schema previews. PostgreSQL Remove transactionally drops selected columns from existing targets and blocks removal of existing primary or unique keys. Run outcomes remain pending until successful completion, and the source manifest retains the inspected schema before transformations. Saved column actions remain active while the column exists in the selected source, including runs where the latest detector scan has no match. The production catalog cache adapter preserves the original schema-cache expiry during metadata refresh.
 
-The final `make check PYTHON=./.venv/bin/python` completed successfully: 627 application tests passed at 80.29% coverage, and all 25 demo tests passed. Ruff lint and formatting, BasedPyright, Hedron checks, and the Posit compatibility matrix also passed. PostgreSQL integration coverage depends on local server binaries; this environment skips those integration cases, while the connector behavior is covered by unit and transfer tests.
+The final `make check PYTHON=./.venv/bin/python` completed successfully: 629 application tests passed at 80.40% coverage, and all 25 demo tests passed. Ruff lint and formatting, BasedPyright, Hedron checks, and the Posit compatibility matrix also passed. Four targeted guardrail tests passed, including two PostgreSQL integration cases against an ephemeral local server.
 
-See [current check results](PR-140-check-results.txt). The sections below preserve the original review evidence and findings from the earlier PR head; the follow-up fixes those findings.
+See [current check results](PR-140-check-results.txt). The sections below preserve the original review evidence and findings from earlier PR heads; the follow-up fixes those findings.
+
+## Latest review follow-up
+
+- **Existing PostgreSQL keys:** preflight and destination preparation now reject Remove for columns participating in a primary or unique index. The guardrail worker also protects keys reported by the live destination schema. An isolated PostgreSQL reproduction confirmed the primary key remains present after both rejection paths.
+- **Schema-cache expiry:** the cache port carries the expiry-preservation option into its SQLAlchemy adapter. The regression test now exercises the production adapter and confirms both `fetched_at` and `expires_at` remain unchanged while cached metadata is refreshed.
+- **Saved action consistency:** a saved action continues to apply to its selected column while that column exists in the selected source, even if its latest detector scan has no match. The worker records the decision and applies the same schema projection used by preflight; a regression test checks that the removed column never reaches the destination.
 
 Reviewed October 6, 2026: [PR #140](https://github.com/eddiethedean/user-token-management-app/pull/140), head `4af44ca898167d8c894d84c771fdc5549a8ba1dd`, base `bcc8f8a81a1b86c985f4d17d8c9e4a35a441ee8c`, merge base `834481f61a811e192ed914d9beaddd9d77e2df76`.
 

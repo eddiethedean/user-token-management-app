@@ -40,7 +40,7 @@ The preview scan helps the owner make a decision. The worker performs its own fu
 - Foundry markers are matched against the configured list. The default list is sensitive, pii, phi, ssn, cui, confidential, and restricted; matching is case- and punctuation-insensitive.
 - The current content detector recognizes SSN-shaped patterns. It reports counts by column and does not retain matched cell text. Other content patterns are not enabled by this implementation.
 - Hash uses HMAC-SHA-256. Its key is derived from the active API-token encryption key and scoped to the user and pipeline. Remove omits the column from the destination schema and rows. If a column has conflicting choices, Remove is the effective action.
-- Missing decisions, a missing guarded column, removal of a required destination key, or removal of every source column blocks the run before destination writes.
+- Missing decisions, a missing guarded column, removal of an existing primary or unique destination key, or removal of every source column blocks the run before destination writes.
 - Run review stores detector, source, column or table, count, action, outcome, scan totals, and blocked reason as applicable. It excludes matched values.
 - Screenshots on these pages come from the isolated demo workspace. Foundry markers and CSV contents are synthetic; remote endpoints remain untouched.
 

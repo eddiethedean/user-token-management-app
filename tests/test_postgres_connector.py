@@ -649,6 +649,50 @@ def test_postgres_remove_action_drops_existing_sensitive_column(postgres_credent
     assert rows == [(1,), (2,)]
 
 
+def test_postgres_remove_action_cannot_drop_existing_unique_keys(postgres_credentials) -> None:
+    locator = postgres_table("ops", "guardrail_key_remove")
+    _execute(postgres_credentials, "CREATE SCHEMA IF NOT EXISTS ops")
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE ops.guardrail_key_remove (ssn TEXT PRIMARY KEY, label TEXT)",
+    )
+    source_schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="ssn", data_type="String"),
+            ColumnSchema(name="label", data_type="String"),
+        ),
+        primary_key=("ssn",),
+        removed_columns=("ssn",),
+    )
+    connector = PostgresConnector(connector_settings())
+
+    with pytest.raises(ConnectorError, match="required destination key"):
+        connector.preflight_destination(
+            postgres_credentials, locator, source_schema, PostgresAppendPolicy()
+        )
+    with pytest.raises(ConnectorError, match="required destination key"):
+        connector.prepare_destination(
+            postgres_credentials,
+            locator,
+            ObjectSchema(
+                locator=locator,
+                columns=(ColumnSchema(name="label", data_type="String"),),
+                removed_columns=("ssn",),
+            ),
+            PostgresAppendPolicy(),
+            run_id="guardrail-key-remove",
+        )
+
+    primary_key = _fetchall(
+        postgres_credentials,
+        "SELECT column_name FROM information_schema.key_column_usage "
+        "WHERE table_schema = 'ops' AND table_name = 'guardrail_key_remove' "
+        "AND constraint_name = 'guardrail_key_remove_pkey'",
+    )
+    assert primary_key == [("ssn",)]
+
+
 def test_postgres_copy_errors_are_sanitized(postgres_credentials) -> None:
     marker = "AUDIT_SYNTHETIC_PRIVATE_CELL"
     _execute(postgres_credentials, "CREATE TABLE public.log_dest (id INTEGER)")

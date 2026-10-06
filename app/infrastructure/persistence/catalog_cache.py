@@ -38,17 +38,37 @@ class SqlAlchemyCatalogCache(CatalogCache):
             return None
         return payload if isinstance(payload, dict) else None
 
-    def put(self, provider: str, namespace: str, payload: dict[str, Any]) -> None:
+    def put(
+        self,
+        provider: str,
+        namespace: str,
+        payload: dict[str, Any],
+        *,
+        preserve_expiry: bool = False,
+    ) -> None:
         provider_id = provider.casefold()
         now = utcnow()
+        cached_row = None
+        if preserve_expiry:
+            cached_row = self.db.scalar(
+                select(PipelineCatalogCache).where(
+                    PipelineCatalogCache.user_id == self.user.id,
+                    PipelineCatalogCache.provider == provider_id,
+                    PipelineCatalogCache.namespace == namespace,
+                )
+            )
         values = {
             "id": new_id(),
             "user_id": self.user.id,
             "provider": provider_id,
             "namespace": namespace,
             "payload_json": json.dumps(payload, separators=(",", ":")),
-            "fetched_at": now,
-            "expires_at": now + timedelta(seconds=self.settings.pipeline_catalog_ttl_seconds),
+            "fetched_at": cached_row.fetched_at if cached_row is not None else now,
+            "expires_at": (
+                cached_row.expires_at
+                if cached_row is not None
+                else now + timedelta(seconds=self.settings.pipeline_catalog_ttl_seconds)
+            ),
         }
         statement = insert_for(self.db, PipelineCatalogCache).values(**values)
         self.db.execute(
@@ -60,7 +80,7 @@ class SqlAlchemyCatalogCache(CatalogCache):
                 ],
                 set_={
                     "payload_json": values["payload_json"],
-                    "fetched_at": now,
+                    "fetched_at": values["fetched_at"],
                     "expires_at": values["expires_at"],
                 },
             )

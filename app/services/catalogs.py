@@ -538,7 +538,7 @@ class UserCatalog:
         preserve_expiry: bool = False,
     ) -> None:
         if self.cache is not None:
-            self.cache.put(provider, namespace, payload)
+            self.cache.put(provider, namespace, payload, preserve_expiry=preserve_expiry)
             return
         provider_id = provider.casefold()
         now = utcnow()

@@ -40,7 +40,14 @@ class CatalogCache(Protocol):
 
     def get(self, provider: str, namespace: str) -> dict[str, Any] | None: ...
 
-    def put(self, provider: str, namespace: str, payload: dict[str, Any]) -> None: ...
+    def put(
+        self,
+        provider: str,
+        namespace: str,
+        payload: dict[str, Any],
+        *,
+        preserve_expiry: bool = False,
+    ) -> None: ...
 
 
 def system_clock() -> datetime:

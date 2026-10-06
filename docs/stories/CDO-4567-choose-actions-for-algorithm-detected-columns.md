@@ -12,7 +12,7 @@ A content finding is shown with its detector, column, and count, then receives t
 
 ## Implementation
 
-The scan result is validated as a value-free summary and tied to the currently selected source. The pipeline preview can retain the owner’s choice for that detector-and-column pair. On a run, the worker scans the actual extracted batches again, resolves each finding against the saved actions, and blocks if any finding remains unresolved. If the choice is complete, the action is applied by the shared batch transformation path.
+The scan result is validated as a value-free summary and tied to the currently selected source. The pipeline preview can retain the owner’s choice for that detector-and-column pair. On a run, the worker scans the actual extracted batches again, resolves each current finding against the saved actions, and blocks if any finding remains unresolved. A saved action also remains active for its column while that column exists in the selected source, even if the latest scan has no match. The shared batch transformation path applies the decision in either case.
 
 The current detector identifier is ssn. The finding and action format permits additional detector implementations without exposing their matched values.
 

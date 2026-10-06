@@ -15,11 +15,11 @@ The worker scans the full source and resolves all findings before it creates a d
 
 ## Implementation
 
-The worker extracts bounded batches, checks schema consistency, scans them for SSN patterns, and stores them in a bounded AES-GCM encrypted spool. Once the full scan is complete, it resolves metadata and content findings against the saved pipeline actions. Only a fully resolved review proceeds to destination staging. The worker then reads the reviewed batches, casts configured columns, transforms guarded columns, and writes those transformed batches.
+The worker extracts bounded batches, checks schema consistency, scans them for SSN patterns, and stores them in a bounded AES-GCM encrypted spool. Once the full scan is complete, it resolves findings against saved pipeline actions and applies saved column policies to columns that remain in the selected source. A missing action for a current finding blocks the run before destination staging. The worker then reads the reviewed batches, casts configured columns, transforms guarded columns, and writes those transformed batches.
 
 The HMAC key is derived from the active API-token encryption key and scoped to the user and pipeline. Digests are deterministic for the same value, column, user, pipeline, and active key; rotating the active key changes future digests. Remove cannot drop a required destination key, and a run cannot remove every source column. Run submission projects saved actions into the destination preflight and schema preview, so a destination that only accepts the post-Remove schema can be selected.
 
-For an existing PostgreSQL target, Remove transactionally drops the selected column from the live table before loading transformed rows. Existing values in that column are removed too. The run account must own the table. A dependent database object that prevents the column drop causes the transaction to roll back; the run does not publish partial changes.
+For an existing PostgreSQL target, Remove transactionally drops the selected column from the live table before loading transformed rows. Existing values in that column are removed too. The run account must own the table. Remove is blocked for a column in an existing primary or unique destination key. A dependent database object that prevents the column drop causes the transaction to roll back; the run does not publish partial changes.
 
 ## Example
 
