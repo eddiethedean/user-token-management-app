@@ -568,6 +568,14 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
             source_message = (
                 "A table-level sensitivity marking blocks content scanning for this source."
             )
+        elif (
+            isinstance(exc, ConnectorError) and exc.code == TransferErrorCode.SOURCE_LIMIT_EXCEEDED
+        ):
+            reason_code = TransferErrorCode.SOURCE_LIMIT_EXCEEDED.value
+            source_message = "The source exceeded the configured limit for content scanning."
+        elif isinstance(exc, ConnectorError) and exc.code == TransferErrorCode.RUN_TIMEOUT:
+            reason_code = TransferErrorCode.RUN_TIMEOUT.value
+            source_message = "Content scanning exceeded its time limit."
         else:
             reason_code = "source_unavailable"
             source_message = "Review the selected source and confirm the connection can read it."

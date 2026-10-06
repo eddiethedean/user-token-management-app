@@ -634,6 +634,12 @@ def preflight_failure(
     elif reason_code == "sensitive_data_guardrail_blocked":
         message = "A table-level sensitivity marking prevents scanning this source. Choose an approved source before running the transfer."
         action_label = "Review source"
+    elif reason_code == "source_limit_exceeded":
+        message = "Content scanning exceeded the configured source limit. Reduce the source scope or ask an administrator to review the limit."
+        action_label = "Review source"
+    elif reason_code == "run_timeout":
+        message = "Content scanning exceeded its time limit. Reduce the source scope and try again."
+        action_label = "Review source"
     elif reason_code == "destination_permission_denied":
         message = "The destination connection cannot prepare the selected write target. Review its access permissions."
         action_label = "Review connection"
