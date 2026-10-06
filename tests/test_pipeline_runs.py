@@ -19,6 +19,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.connectors.errors import TransferErrorCode
 from app.database import SessionLocal
+from app.domain.feedback import DataImpact
 from app.models import (
     PipelineDefinition,
     PipelineRun,
@@ -434,6 +435,227 @@ def test_partial_write_is_persisted_as_reconciliation_required(access_app) -> No
         facts = json.loads(run.verification_json or "{}")
         assert facts["data_impact"] == "uncertain"
         assert facts["reconciliation_required"] is True
+
+
+def _guardrail_review(*, clear: bool = False) -> dict[str, object]:
+    return {
+        "version": 1,
+        "outcome": "clear" if clear else "pending",
+        "execution_outcome": "not_started",
+        "destination_outcome": "pending",
+        "scan_complete": True,
+        "scanned_rows": 2,
+        "findings": []
+        if clear
+        else [
+            {
+                "detector": "ssn",
+                "column": "ssn",
+                "action": "remove",
+                "outcome": "selected",
+            }
+        ],
+        "actions": [] if clear else [{"detector": "ssn", "column": "ssn", "action": "remove"}],
+    }
+
+
+@pytest.mark.parametrize(
+    (
+        "clear",
+        "source_rows",
+        "loaded_rows",
+        "stage",
+        "code",
+        "data_impact",
+        "expected_outcome",
+        "expected_execution",
+        "expected_destination",
+    ),
+    [
+        (
+            False,
+            0,
+            0,
+            "loading",
+            TransferErrorCode.SCHEMA_DRIFT,
+            None,
+            "failed",
+            "not_started",
+            "unchanged",
+        ),
+        (
+            True,
+            0,
+            0,
+            "loading",
+            TransferErrorCode.SCHEMA_DRIFT,
+            None,
+            "clear",
+            "not_applicable",
+            "unchanged",
+        ),
+        (
+            False,
+            1,
+            1,
+            "transfer",
+            TransferErrorCode.PARTIAL_WRITE,
+            DataImpact.ROLLED_BACK,
+            "failed",
+            "partial",
+            "rolled_back",
+        ),
+        (
+            False,
+            2,
+            1,
+            "transfer",
+            TransferErrorCode.PARTIAL_WRITE,
+            None,
+            "reconciliation_required",
+            "completed",
+            "reconciliation_required",
+        ),
+    ],
+)
+def test_fail_run_persists_guardrail_terminal_outcomes(
+    access_app,
+    clear,
+    source_rows,
+    loaded_rows,
+    stage,
+    code,
+    data_impact,
+    expected_outcome,
+    expected_execution,
+    expected_destination,
+) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        run = PipelineRun(
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            guardrail_json=json.dumps(_guardrail_review(clear=clear)),
+            status=PipelineRunStatus.LOADING.value,
+            stage=stage,
+            source_rows=source_rows,
+            loaded_rows=loaded_rows,
+        )
+        db.add(run)
+        db.commit()
+
+        fail_run(
+            db,
+            run,
+            code=code,
+            summary="Synthetic guardrail terminal-state failure.",
+            data_impact=data_impact,
+        )
+        db.refresh(run)
+        review = json.loads(run.guardrail_json or "{}")
+
+        assert review["outcome"] == expected_outcome
+        assert review["execution_outcome"] == expected_execution
+        assert review["destination_outcome"] == expected_destination
+        if not clear:
+            assert review["findings"][0]["action"] == "remove"
+            assert review["findings"][0]["outcome"] == "selected"
+
+
+@pytest.mark.parametrize(
+    (
+        "clear",
+        "source_rows",
+        "loaded_rows",
+        "stage",
+        "data_impact",
+        "expected_outcome",
+        "expected_execution",
+        "expected_destination",
+    ),
+    [
+        (False, 0, 0, "loading", None, "cancelled", "not_started", "unchanged"),
+        (True, 0, 0, "loading", None, "clear", "not_applicable", "unchanged"),
+        (
+            False,
+            1,
+            1,
+            "transfer",
+            DataImpact.ROLLED_BACK,
+            "cancelled",
+            "partial",
+            "rolled_back",
+        ),
+        (
+            False,
+            2,
+            1,
+            "transfer",
+            None,
+            "reconciliation_required",
+            "completed",
+            "reconciliation_required",
+        ),
+    ],
+)
+def test_cancel_claimed_run_persists_guardrail_terminal_outcomes(
+    access_app,
+    clear,
+    source_rows,
+    loaded_rows,
+    stage,
+    data_impact,
+    expected_outcome,
+    expected_execution,
+    expected_destination,
+) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+        pipeline = save_pipeline(
+            db,
+            user=user,
+            name="Guardrail terminal cancellation",
+            source_provider="mss",
+            destination_provider="postgres",
+            write_mode="append",
+            available_providers={"mss", "postgres"},
+            source_schema="ri.foundry.main.dataset.demo-operations",
+            source_table="mission_orders.parquet",
+            destination_schema="public",
+            destination_table="guardrail_terminal_cancellation",
+        )
+        run = PipelineRun(
+            pipeline_definition_id=pipeline.id,
+            user_id=user.id,
+            definition_snapshot_json="{}",
+            guardrail_json=json.dumps(_guardrail_review(clear=clear)),
+            status=PipelineRunStatus.LOADING.value,
+            stage=stage,
+            lease_token="guardrail-lease",
+            lease_expires_at=utcnow() + timedelta(minutes=2),
+            source_rows=source_rows,
+            loaded_rows=loaded_rows,
+        )
+        db.add(run)
+        db.commit()
+
+        cancel_claimed_run(
+            db,
+            run,
+            lease_token="guardrail-lease",
+            data_impact=data_impact,
+        )
+        db.refresh(run)
+        review = json.loads(run.guardrail_json or "{}")
+
+        assert review["outcome"] == expected_outcome
+        assert review["execution_outcome"] == expected_execution
+        assert review["destination_outcome"] == expected_destination
+        if not clear:
+            assert review["findings"][0]["action"] == "remove"
+            assert review["findings"][0]["outcome"] == "selected"
 
 
 def test_unknown_failure_after_destination_work_requires_reconciliation(access_app) -> None:
