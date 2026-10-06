@@ -267,6 +267,108 @@ def test_worker_persists_writer_policy_denial_without_writing(
     denied.assert_called_once_with("postgres", settings=settings)
 
 
+def test_worker_blocks_later_page_foundry_pii_before_extract_or_destination_writes(
+    access_app, demo_connections, monkeypatch
+) -> None:
+    from app.connectors.mss import MssConnector
+    from app.connectors.registry import destination_writer_for as registry_destination_writer_for
+    from app.database import SessionLocal
+    from app.services.demo import DEMO_CONNECTION_CREDENTIALS
+    from tests.simulators.foundry import FOUNDRY_DATASET, FOUNDRY_TOKEN, FoundrySimulator
+
+    simulator = FoundrySimulator()
+    simulator.marking_pages = {
+        "": {"data": ["public"], "nextPageToken": "page-2"},
+        "page-2": {"data": ["pii"], "nextPageToken": ""},
+    }
+    simulator.marking_details["public"] = {"name": "Public"}
+
+    with simulator.serve():
+        settings = get_settings().model_copy(update={"pipeline_sensitive_metadata_markers": "pii"})
+        source = MssConnector(settings)
+        destination = registry_destination_writer_for("postgres")
+        source_extract_calls: list[bool] = []
+        destination_prepare_calls: list[bool] = []
+        destination_write_calls: list[bool] = []
+
+        original_extract = source.extract
+        original_prepare = destination.prepare_destination
+        original_write = destination.write_batch
+
+        def record_extract(*args, **kwargs):
+            source_extract_calls.append(True)
+            return original_extract(*args, **kwargs)
+
+        def record_prepare(*args, **kwargs):
+            destination_prepare_calls.append(True)
+            return original_prepare(*args, **kwargs)
+
+        def record_write(*args, **kwargs):
+            destination_write_calls.append(True)
+            return original_write(*args, **kwargs)
+
+        monkeypatch.setattr(source, "extract", record_extract)
+        monkeypatch.setattr(destination, "prepare_destination", record_prepare)
+        monkeypatch.setattr(destination, "write_batch", record_write)
+        monkeypatch.setattr("app.worker.source_reader_for", lambda _provider: source)
+        monkeypatch.setattr("app.worker.destination_writer_for", lambda _provider: destination)
+
+        def credentials_for(_db, _settings, *, provider, **_kwargs):
+            if provider == "mss":
+                return {
+                    "endpoint": simulator.base_url,
+                    "token": FOUNDRY_TOKEN,
+                    "dataset_rid": FOUNDRY_DATASET,
+                    "branch": "master",
+                }
+            return DEMO_CONNECTION_CREDENTIALS[provider]
+
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+            assert user is not None
+            pipeline = save_pipeline(
+                db,
+                user=user,
+                name="Later page PII block",
+                source_provider="mss",
+                destination_provider="postgres",
+                write_mode="append",
+                available_providers={"mss", "postgres"},
+                source_schema=FOUNDRY_DATASET,
+                source_table="notes.csv",
+                destination_schema="public",
+                destination_table="later_page_pii_block",
+            )
+            run = enqueue_run(
+                db,
+                user=user,
+                pipeline=pipeline,
+                snapshot=snapshot_from_definition(pipeline),
+            )
+            run_id = run.id
+
+        with SessionLocal() as db:
+            assert (
+                process_one(db, settings, run_id=run_id, credential_resolver=credentials_for)
+                is True
+            )
+
+        with SessionLocal() as db:
+            blocked = db.get(PipelineRun, run_id)
+            assert blocked is not None
+            assert blocked.status == PipelineRunStatus.BLOCKED.value
+            assert blocked.error_code == "sensitive_data_guardrail_blocked"
+            assert blocked.last_safe_stage == "guardrails"
+            assert blocked.source_rows == 0
+            assert blocked.loaded_rows == 0
+            assert json.loads(blocked.guardrail_json or "{}")["outcome"] == "blocked"
+
+        assert simulator.marking_requests == ["", "page-2"]
+        assert source_extract_calls == []
+        assert destination_prepare_calls == []
+        assert destination_write_calls == []
+
+
 def test_worker_unexpected_failures_do_not_log_exception_values(access_app, caplog, monkeypatch):
     from app import worker
 
