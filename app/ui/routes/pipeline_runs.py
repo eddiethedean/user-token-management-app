@@ -34,6 +34,7 @@ from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.domain.pipelines.guardrails import GuardrailAction
 from app.models import PipelineDefinition, PipelineRun, PipelineRunEvent, PipelineUpload
 from app.services.column_casting import apply_column_type_overrides_to_schema
+from app.services.guardrail_schema import project_schema_for_guardrails
 from app.services.pipeline_runs import (
     owned_run,
     record_reconciliation_review,
@@ -121,31 +122,7 @@ def _project_guardrail_schema(
         if any(column.name == action.column for column in source_schema.columns):
             if action.action == "remove" or by_column.get(action.column) != "remove":
                 by_column[action.column] = action.action
-    removed = {name for name, action in by_column.items() if action == "remove"}
-    columns = tuple(
-        ColumnSchema(
-            name=column.name,
-            data_type=("String" if by_column.get(column.name) == "hash" else column.data_type),
-            nullable=column.nullable,
-            sensitivity_markers=column.sensitivity_markers,
-        )
-        for column in source_schema.columns
-        if column.name not in removed
-    )
-    return ObjectSchema(
-        locator=source_schema.locator,
-        columns=columns,
-        primary_key=tuple(name for name in source_schema.primary_key if name not in removed),
-        unique_constraints=tuple(
-            constraint
-            for constraint in source_schema.unique_constraints
-            if not removed.intersection(constraint)
-        ),
-        estimated_rows=source_schema.estimated_rows,
-        sensitivity_markers=source_schema.sensitivity_markers,
-        column_sensitivity_markers=source_schema.column_sensitivity_markers,
-        removed_columns=tuple(sorted(removed)),
-    )
+    return project_schema_for_guardrails(source_schema, by_column)
 
 
 def register_pipeline_run_routes(

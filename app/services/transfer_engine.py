@@ -53,6 +53,7 @@ from app.services.column_casting import (
     apply_column_type_overrides_to_schema,
     cast_batch_columns,
 )
+from app.services.guardrail_schema import project_schema_for_guardrails
 from app.services.pipeline_metadata import manifest_metadata
 from app.services.pipeline_state import RunConflictError
 
@@ -369,35 +370,7 @@ def _effective_actions(
 
 
 def _transform_schema_for_guardrails(schema: ObjectSchema, actions: dict[str, str]) -> ObjectSchema:
-    removed = {name for name, action in actions.items() if action == "remove"}
-    transformed_columns = tuple(
-        ColumnSchema(
-            name=column.name,
-            data_type="String" if actions.get(column.name) == "hash" else column.data_type,
-            nullable=column.nullable,
-            sensitivity_markers=column.sensitivity_markers,
-        )
-        for column in schema.columns
-        if column.name not in removed
-    )
-    if schema.columns and not transformed_columns:
-        raise ConnectorError(
-            TransferErrorCode.SCHEMA_DRIFT,
-            "Sensitive-data actions would remove every source column.",
-            retryable=False,
-        )
-    return ObjectSchema(
-        locator=schema.locator,
-        columns=transformed_columns,
-        primary_key=tuple(name for name in schema.primary_key if name not in removed),
-        unique_constraints=tuple(
-            constraint
-            for constraint in schema.unique_constraints
-            if not removed.intersection(constraint)
-        ),
-        estimated_rows=schema.estimated_rows,
-        removed_columns=tuple(sorted(set(schema.removed_columns) | removed)),
-    )
+    return project_schema_for_guardrails(schema, actions)
 
 
 def _guardrail_hmac_key(settings: Settings, run: PipelineRun) -> bytes:
