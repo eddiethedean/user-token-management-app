@@ -534,7 +534,9 @@ class FoundryClient:
                 retryable=False,
             )
 
-        for marking_id in marking_ids:
+        # A marking may appear on more than one page. Preserve the provider's
+        # first-seen order while resolving each ID only once.
+        for marking_id in dict.fromkeys(marking_ids):
             direct = matching_metadata_markers(marking_id, configured)
             if direct:
                 table_markers.update(direct)

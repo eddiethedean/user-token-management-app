@@ -426,16 +426,28 @@ def test_foundry_sensitivity_metadata_skips_requests_when_no_markers_are_configu
 
 def test_foundry_sensitivity_metadata_follows_every_marking_page(foundry_sim, tmp_path) -> None:
     foundry_sim.marking_pages = {
-        "": {"data": ["public"], "nextPageToken": "page-2"},
-        "page-2": {"data": ["pii"], "nextPageToken": ""},
+        "": {"data": [], "nextPageToken": "page-2"},
+        "page-2": {"data": ["public", "public"], "nextPageToken": "page-3"},
+        "page-3": {"data": ["pii", "public"], "nextPageToken": ""},
     }
+    foundry_sim.marking_details["public"] = {"name": "Public"}
     client = FoundryClient({"endpoint": foundry_sim.base_url, "token": TOKEN}, _settings(tmp_path))
+    original_request = client.request
+    marking_name_requests: list[str] = []
+
+    def record_request(method, url, **kwargs):
+        if "/api/v2/admin/markings/" in url:
+            marking_name_requests.append(url.rsplit("/", 1)[-1])
+        return original_request(method, url, **kwargs)
+
+    client.request = record_request  # type: ignore[method-assign]
     table_markers, column_markers = client.sensitivity_metadata(
         DATASET, "master", frozenset({"pii"})
     )
     assert table_markers == ("pii",)
     assert column_markers == {}
-    assert foundry_sim.marking_requests == ["", "page-2"]
+    assert foundry_sim.marking_requests == ["", "page-2", "page-3"]
+    assert marking_name_requests == ["public"]
     client.close()
 
 
