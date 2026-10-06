@@ -985,7 +985,10 @@ def test_successful_guardrail_run_records_original_source_schema_and_applied_act
                 locator=locator,
                 columns=(
                     ColumnSchema(name="id", data_type="Int64"),
-                    ColumnSchema(name="ssn", data_type="String", sensitivity_markers=("pii",)),
+                    ColumnSchema(name="ssn", data_type="Int64", sensitivity_markers=("pii",)),
+                    ColumnSchema(
+                        name="alt_ssn", data_type="String", sensitivity_markers=("pii",)
+                    ),
                 ),
             )
 
@@ -997,20 +1000,38 @@ def test_successful_guardrail_run_records_original_source_schema_and_applied_act
             batch_rows: int,
             batch_bytes: int,
         ) -> Iterator[TransferBatch]:
-            frame = pl.DataFrame({"id": [1], "ssn": ["123-45-6789"]})
+            frame = pl.DataFrame({"id": [1], "ssn": [123456789], "alt_ssn": ["removed-value"]})
             yield TransferBatch(frame, 1, int(frame.estimated_size()), 1)
 
     class CapturingDestination(_Destination):
         def __init__(self) -> None:
             super().__init__()
             self.output_columns: tuple[str, ...] = ()
+            self.output_schema: ObjectSchema | None = None
+
+        def prepare_destination(
+            self,
+            credentials: Credentials,
+            locator: Locator,
+            schema: ObjectSchema,
+            write_policy: WritePolicy,
+            *,
+            run_id: str,
+        ) -> LoadSession:
+            self.output_schema = schema
+            return super().prepare_destination(
+                credentials, locator, schema, write_policy, run_id=run_id
+            )
 
         def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
             self.output_columns = tuple(batch.frame.columns)
+            assert batch.frame["ssn"].dtype == pl.String
+            assert batch.frame["ssn"][0] != "123456789"
             return super().write_batch(load_session, batch)
 
     monkeypatch.setattr(transfer_engine, "route_allowed", lambda *_args: True)
     monkeypatch.setattr(transfer_engine, "writer_enabled", lambda provider, **kwargs: True)
+    monkeypatch.setattr(transfer_engine, "_guardrail_hmac_key", lambda *_args: b"test-key")
     for name in ("heartbeat", "transition", "add_counters", "append_event"):
         monkeypatch.setattr(transfer_engine.pipeline_runs, name, lambda *args, **kwargs: None)
     monkeypatch.setattr(
@@ -1032,9 +1053,10 @@ def test_successful_guardrail_run_records_original_source_schema_and_applied_act
             file_paths=["source.parquet"],
         ),
         destination=postgres_table("public", "events"),
-        write_policy=PostgresAppendPolicy(),
+        write_policy=PostgresAppendPolicy(column_type_overrides={"id": "text"}),
         guardrail_actions=[
-            GuardrailAction(detector="foundry_metadata", column="ssn", action="remove")
+            GuardrailAction(detector="foundry_metadata", column="ssn", action="hash"),
+            GuardrailAction(detector="foundry_metadata", column="alt_ssn", action="remove"),
         ],
     )
     destination = CapturingDestination()
@@ -1061,8 +1083,17 @@ def test_successful_guardrail_run_records_original_source_schema_and_applied_act
     )
 
     source_columns = completed["source_manifest"]["schema"]["columns"]
-    assert [column["name"] for column in source_columns] == ["id", "ssn"]
-    assert destination.output_columns == ("id",)
+    assert [(column["name"], column["data_type"]) for column in source_columns] == [
+        ("id", "Int64"),
+        ("ssn", "Int64"),
+        ("alt_ssn", "String"),
+    ]
+    assert destination.output_columns == ("id", "ssn")
+    assert destination.output_schema is not None
+    assert [(column.name, column.data_type) for column in destination.output_schema.columns] == [
+        ("id", "String"),
+        ("ssn", "String"),
+    ]
     assert completed["guardrail"]["outcome"] == "applied"
     assert completed["guardrail"]["findings"][0]["outcome"] == "applied"
 
