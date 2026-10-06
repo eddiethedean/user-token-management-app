@@ -560,6 +560,14 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
         if isinstance(exc, ConnectorError) and exc.code == TransferErrorCode.PERMISSION_DENIED:
             reason_code = "source_permission_denied"
             source_message = "Check read access to the selected source object."
+        elif (
+            isinstance(exc, ConnectorError)
+            and exc.code == TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED
+        ):
+            reason_code = "sensitive_data_guardrail_blocked"
+            source_message = (
+                "A table-level sensitivity marking blocks content scanning for this source."
+            )
         else:
             reason_code = "source_unavailable"
             source_message = "Review the selected source and confirm the connection can read it."
