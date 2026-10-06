@@ -35,6 +35,15 @@ def csv_dialect(sample: str):
 
 
 def csv_headers(raw_headers: list[str], *, max_columns: int = 200) -> list[str]:
+    if any(
+        ord(character) < 32 or ord(character) == 127
+        for header in raw_headers
+        for character in header
+    ):
+        raise ValueError(
+            "CSV column names must not contain control characters such as line breaks or tabs. "
+            "Rename those columns and upload the file again."
+        )
     headers = [header.strip() for header in raw_headers]
     if not headers or any(not header for header in headers):
         raise ValueError("Every CSV column must have a name.")

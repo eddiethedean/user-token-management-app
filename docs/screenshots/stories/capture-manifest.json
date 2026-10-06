@@ -1,0 +1,124 @@
+{
+  "capturedAt": "2026-10-06T19:57:19.237Z",
+  "appVersion": "240926.1",
+  "mode": "isolated synthetic demo, APP_ENV=test",
+  "viewport": {
+    "width": 1440,
+    "height": 1100
+  },
+  "captures": [
+    {
+      "filename": "CDO-4552-metadata-findings.jpg",
+      "state": "Before a run: two metadata findings, no choices yet",
+      "text": "PRE-RUN REVIEW\n\nSensitive-data guardrails\n\nReview metadata and content findings, then choose Hash or Remove for each affected column.\n\nSSN scan not run\nDETECTION SOURCE\tAFFECTED COLUMN OR TABLE\tFINDING\tACTION\nFoundry metadata\tscore\tFlagged\t\nChoose an action\nHash\nRemove\n\nFoundry metadata\tunit_name\tFlagged\t\nChoose an action\nHash\nRemove\nScan source for SSNs",
+      "controls": [
+        {
+          "name": "guardrail_actions",
+          "selected": "Choose an action"
+        },
+        {
+          "name": "guardrail_actions",
+          "selected": "Choose an action"
+        }
+      ],
+      "sha256": "26e440f830d8a18c6370cc722a8b2dd841104ed8ac3f31d922473c914b957e7f"
+    },
+    {
+      "filename": "CDO-4559-metadata-actions.jpg",
+      "state": "Saved metadata choices: score Remove, unit_name Hash; no transfer yet",
+      "text": "PRE-RUN REVIEW\n\nSensitive-data guardrails\n\nReview metadata and content findings, then choose Hash or Remove for each affected column.\n\nSSN scan not run\nDETECTION SOURCE\tAFFECTED COLUMN OR TABLE\tFINDING\tACTION\nFoundry metadata\tscore\tFlagged\t\nChoose an action\nHash\nRemove\n\nFoundry metadata\tunit_name\tFlagged\t\nChoose an action\nHash\nRemove\nScan source for SSNs",
+      "controls": [
+        {
+          "name": "guardrail_actions",
+          "selected": "Remove"
+        },
+        {
+          "name": "guardrail_actions",
+          "selected": "Hash"
+        }
+      ],
+      "sha256": "3054dc20787336848c1e942742bc5c4f098b18fa14fb3c7761e52b9935fd8ef0"
+    },
+    {
+      "filename": "CDO-4556-table-block.jpg",
+      "state": "Pre-run table-level marking with disabled scan control",
+      "text": "PRE-RUN REVIEW\n\nSensitive-data guardrails\n\nA table-level Foundry marking blocks this source before extraction.\n\nSSN scan not run\nDETECTION SOURCE\tAFFECTED COLUMN OR TABLE\tFINDING\tACTION\nFoundry metadata\tTable-level sensitivity · readiness_rollup.parquet\tFlagged\tBlocked before destination writes\nScan source for SSNs",
+      "controls": [],
+      "sha256": "46fa7c48c3a656433b849682fbea81741fc684177a237cdac05283879f4165ed"
+    },
+    {
+      "filename": "CDO-4556-blocked-run.jpg",
+      "state": "Persisted table block: zero rows scanned, execution not started, destination unchanged",
+      "text": "RUN REVIEW\n\nSensitive-data guardrails\n\nThe run records finding names, counts, and actions. Matched cell values are never included. Execution: not started; destination: unchanged.\n\nBlocked before writes\nRows scanned\n0\nSource size\n0 B\nFindings\n1\nDETECTION SOURCE\tAFFECTED COLUMN OR TABLE\tFINDING\tACTION\tOUTCOME\nFoundry metadata\tTable-level sensitivity · ri.foundry.main.dataset.demo-operations\tFlagged\tNo Action\tblocked",
+      "controls": [],
+      "sha256": "0d4aa50e9c13a380e20257deaaee8d76ee2c50df48274b93b94e56508428276a"
+    },
+    {
+      "filename": "CDO-4563-content-scan.jpg",
+      "state": "Completed preview scan: ssn 2 rows, alternate 1 row, no decisions",
+      "text": "PRE-RUN REVIEW\n\nSensitive-data guardrails\n\nReview metadata and content findings, then choose Hash or Remove for each affected column.\n\nSSN scan complete\nDETECTION SOURCE\tAFFECTED COLUMN OR TABLE\tFINDING\tACTION\nContent scan\talternate\t1 rows\t\nChoose an action\nHash\nRemove\n\nContent scan\tssn\t2 rows\t\nChoose an action\nHash\nRemove\nScan source for SSNs",
+      "controls": [
+        {
+          "name": "guardrail_actions",
+          "selected": "Choose an action"
+        },
+        {
+          "name": "guardrail_actions",
+          "selected": "Choose an action"
+        }
+      ],
+      "sha256": "f37a40a32108affef195fa4371d3f0141d6eb298b5ed2dfbf6807c458ed2e433"
+    },
+    {
+      "filename": "CDO-4567-unresolved-run.jpg",
+      "state": "Unresolved findings block after the full scan: no actions, review required, destination unchanged",
+      "text": "RUN REVIEW\n\nSensitive-data guardrails\n\nThe run records finding names, counts, and actions. Matched cell values are never included. Execution: not started; destination: unchanged.\n\nBlocked before writes\nRows scanned\n1,002\nSource size\n21.5 KB\nFindings\n2\nDETECTION SOURCE\tAFFECTED COLUMN OR TABLE\tFINDING\tACTION\tOUTCOME\nContent scan\talternate\t1 matching row(s)\tNo Action\treview_required\nContent scan\tssn\t2 matching row(s)\tNo Action\treview_required",
+      "controls": [],
+      "sha256": "894c1df01c9a0629389194ce5af3d589f3cebe2b295fab70ad99faa754732a4a"
+    },
+    {
+      "filename": "CDO-4567-content-actions.jpg",
+      "state": "Saved choices after another preview scan: ssn Hash, alternate Remove",
+      "text": "PRE-RUN REVIEW\n\nSensitive-data guardrails\n\nReview metadata and content findings, then choose Hash or Remove for each affected column.\n\nSSN scan complete\nDETECTION SOURCE\tAFFECTED COLUMN OR TABLE\tFINDING\tACTION\nContent scan\talternate\t1 rows\t\nChoose an action\nHash\nRemove\n\nContent scan\tssn\t2 rows\t\nChoose an action\nHash\nRemove\nScan source for SSNs",
+      "controls": [
+        {
+          "name": "guardrail_actions",
+          "selected": "Remove"
+        },
+        {
+          "name": "guardrail_actions",
+          "selected": "Hash"
+        }
+      ],
+      "sha256": "f1290cee8e447b83d86f8aa3fdbdb469ae47955f7c718fc39397a3cd74576970"
+    },
+    {
+      "filename": "CDO-4571-transformed-run.jpg",
+      "state": "Successful worker run: 1002 scanned rows, two applied actions, destination committed",
+      "text": "RUN REVIEW\n\nSensitive-data guardrails\n\nThe run records finding names, counts, and actions. Matched cell values are never included. Execution: completed; destination: committed.\n\nActions applied\nRows scanned\n1,002\nSource size\n21.5 KB\nFindings\n2\nDETECTION SOURCE\tAFFECTED COLUMN OR TABLE\tFINDING\tACTION\tOUTCOME\nContent scan\talternate\t1 matching row(s)\tRemove\tapplied\nContent scan\tssn\t2 matching row(s)\tHash\tapplied",
+      "controls": [],
+      "sha256": "f2596adf3c7d31f4fc47c1a5231c49b3c76975d5aeec9b3ac58f922a4b0be09e"
+    },
+    {
+      "filename": "CDO-4571-destination-schema.jpg",
+      "state": "Persisted source has id, ssn, alternate; destination has id and ssn with alternate removed",
+      "text": "Source and destination manifests\n\nPERSISTED SCHEMA\n\nSource\n\nSchema and counts captured by the worker for this run.\n\nCaptured\nExact\nCaptured during run\nRows\n1,002\nColumns\n3\nPrimary key\nNone\nCOLUMN\tDETECTED TYPE\tNULLABILITY\tEXAMPLE\nid\tInt64\tNullable\t—\nssn\tString\tNullable\t—\nalternate\tString\tNullable\t—\n\nPERSISTED SCHEMA\n\nDestination\n\nSchema and counts captured by the worker for this run.\n\nCaptured\nExact\nCaptured during run\nRows\n0 → 1,002\nColumns\n2\nPrimary key\nNone\nCOLUMN\tDETECTED TYPE\tNULLABILITY\tEXAMPLE\nid\tInt64\tNullable\t—\nssn\tString\tNullable\t—",
+      "controls": [],
+      "sha256": "a07327f1cebe9084556ba49f283c6c6a3a2b40f105f3bbf0a56313a4dfae4ee5"
+    },
+    {
+      "filename": "CDO-4575-failed-run.jpg",
+      "state": "Destination preparation failure: decisions selected, transformation not started, destination unchanged",
+      "text": "RUN REVIEW\n\nSensitive-data guardrails\n\nThe run records finding names, counts, and actions. Matched cell values are never included. Execution: not started; destination: unchanged.\n\nAction selected; transfer failed\nRows scanned\n1,002\nSource size\n21.5 KB\nFindings\n2\nDETECTION SOURCE\tAFFECTED COLUMN OR TABLE\tFINDING\tACTION\tOUTCOME\nContent scan\talternate\t1 matching row(s)\tRemove\tselected\nContent scan\tssn\t2 matching row(s)\tHash\tselected",
+      "controls": [],
+      "sha256": "56c7b73c78db1efb8180aba96fe94d1eb7c770d75479c5e578922350b8a65353"
+    },
+    {
+      "filename": "CDO-4575-run-audit.jpg",
+      "state": "Audit event summary with filters, completed event, success badge, and collapsed detail control",
+      "text": "Event type\nOutcome\nApply filters\nClear\nWHEN\tEVENT\tOUTCOME\tSOURCE\tDETAIL\nOct 06\n19:57\tpipeline.run.completed\tsuccess\t—\t\nView details",
+      "controls": [],
+      "sha256": "8468aab5a4cbd7a17e8c77909698fd1ba057dac27239da50ab4f8b554d7b6eae"
+    }
+  ]
+}

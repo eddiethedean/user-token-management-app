@@ -268,6 +268,14 @@ guardrail actions, so validation checks the schema that will actually be written
 required PostgreSQL upsert or configured primary key blocks the run. When multiple findings target
 one column, Remove takes precedence over Hash.
 
+Saved decisions use the exact source column name, including leading or trailing spaces. Names
+containing control characters are rejected rather than silently renamed. A saved Hash or Remove
+decision continues to apply while its column exists, even if current metadata or content no longer
+flags it. Run submission validates that projected schema; the worker performs the complete content
+scan and resolves any new findings before destination staging.
+If an older saved decision trimmed a column name, select its action again using the exact name
+shown in the source review and save the pipeline.
+
 The selected PostgreSQL write mode still controls the remaining rows: append keeps prior rows and
 adds incoming rows, upsert keeps unmatched rows and applies the configured conflict action, and
 compatible replace replaces the rows while retaining the compatible table structure. Replace with

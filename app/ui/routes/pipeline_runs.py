@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 from starlette.responses import Response
 
 import app.services.pipeline_runs as pipeline_run_service
-from app.application.catalogs import CatalogAccess
 from app.application.feedback import preflight_failure
 from app.application.pipelines import (
     EnqueuePipelineCommand,
@@ -26,7 +25,6 @@ from app.connectors.csv_source import profiled_polars_type
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
     CsvUploadLocator,
-    DefinitionSnapshot,
     FoundryDatasetFilesLocator,
     FoundryUploadLocator,
     PostgresTableLocator,
@@ -125,39 +123,6 @@ def _project_guardrail_schema(
             if action.action == "remove" or by_column.get(action.column) != "remove":
                 by_column[action.column] = action.action
     return project_schema_for_guardrails(source_schema, by_column)
-
-
-def _eligible_guardrail_actions(
-    catalog: CatalogAccess, snapshot: DefinitionSnapshot, source_schema: ObjectSchema
-) -> list[GuardrailAction]:
-    """Keep only saved actions backed by current metadata or content findings."""
-
-    finding_keys = {
-        ("foundry_metadata", column.name)
-        for column in source_schema.columns
-        if column.sensitivity_markers
-    }
-    finding_keys.update(
-        ("foundry_metadata", name)
-        for name, markers in source_schema.column_sensitivity_markers
-        if markers
-    )
-    if any(action.detector == "ssn" for action in snapshot.guardrail_actions):
-        findings = catalog.scan_sensitive_content(
-            snapshot.source_provider,
-            snapshot.source,
-            source_upload_id=snapshot.source_upload_id or "",
-        )
-        finding_keys.update(
-            ("ssn", str(finding.get("column") or ""))
-            for finding in findings
-            if finding.get("detector") == "ssn" and finding.get("count")
-        )
-    return [
-        action
-        for action in snapshot.guardrail_actions
-        if (action.detector, action.column) in finding_keys
-    ]
 
 
 def register_pipeline_run_routes(
@@ -553,7 +518,6 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
         source_schema = apply_column_type_overrides_to_schema(
             source_schema, snapshot.write_policy.column_type_overrides
         )
-        eligible_actions = _eligible_guardrail_actions(catalog, snapshot, source_schema)
     except Exception as exc:
         if isinstance(exc, ConnectorError) and exc.code == TransferErrorCode.PERMISSION_DENIED:
             reason_code = "source_permission_denied"
@@ -586,7 +550,10 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
         ) from exc
 
     try:
-        projected_schema = _project_guardrail_schema(source_schema, eligible_actions)
+        # The worker continues applying saved column policies even when the
+        # latest scan or metadata has no match. Validate that same schema here;
+        # the worker performs the full scan before any destination writes.
+        projected_schema = _project_guardrail_schema(source_schema, snapshot.guardrail_actions)
         destination_preflight = getattr(catalog, "preflight_destination", None)
         if callable(destination_preflight):
             destination_preflight(

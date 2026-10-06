@@ -544,6 +544,11 @@ def preflight_failure(
     if operation == "pipeline_csv_inspection":
         if "column names must be unique" in normalized or "duplicate" in normalized:
             message = "CSV column names must be unique. Choose another CSV with a valid header."
+        elif "column names must not contain control characters" in normalized:
+            message = (
+                "CSV column names must not contain control characters such as line breaks or tabs. "
+                "Rename those columns and upload the file again."
+            )
         else:
             message = "The CSV could not be inspected. Choose a supported CSV with a valid header and try again."
         selected_reason_code = "csv_inspection_invalid"

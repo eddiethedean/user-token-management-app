@@ -2,9 +2,14 @@
 
 **Epic CDO-4551**
 
+Reviewed against the current implementation on October 6, 2026.
+
 This epic adds a pre-write review path for sensitive data in Data Mover pipelines. It combines sensitivity markers from Foundry metadata with a content scan for untagged Social Security number patterns, lets pipeline owners choose how flagged columns are handled, and records a value-free result with each run.
 
 [Issue export](../../artifacts/jira/data-mover-sensitive-data-guardrails-issues.csv) · [Story pages](#story-pages) · [Jira CDO-4551](https://idstjira.socom.mil/jira/browse/CDO-4551)
+
+[Open GitHub issue acceptance audit](../plans/open-guardrail-issue-acceptance.md) maps all 28
+open epic, story, and task issues to their implementation and verification evidence.
 
 ## User outcome
 
@@ -41,14 +46,28 @@ The preview scan helps the owner make a decision. The worker performs its own fu
 - The current content detector recognizes SSN-shaped patterns. It reports counts by column and does not retain matched cell text. Other content patterns are not enabled by this implementation.
 - Hash uses HMAC-SHA-256. Its key is derived from the active API-token encryption key and scoped to the user and pipeline. Remove omits the column from the destination schema and rows. If a column has conflicting choices, Remove is the effective action.
 - Missing decisions, a missing guarded column, removal of an existing primary or unique destination key, or removal of every source column blocks the run before destination writes.
+- Saved Hash/Remove choices remain active for columns still present in the source, even if the latest scan or metadata refresh no longer flags them. Destination preflight projects those same saved policies; the worker performs the full content scan.
+- Decisions preserve exact inspected column names, including surrounding spaces. Blank names, names over 256 characters, and ASCII control characters are unsupported. New CSV uploads reject control characters in headers with instructions to rename and re-upload; generated content-scan findings with unsupported names return safe HTTP 422 preview feedback.
 - Run review stores detector, source, column or table, count, action, outcome, scan totals, and blocked reason as applicable. It excludes matched values.
-- Screenshots on these pages come from the isolated demo workspace. Foundry markers and CSV contents are synthetic; remote endpoints remain untouched.
+- Screenshots on these pages were refreshed on October 6, 2026 using a fresh, isolated demo workspace. Foundry markers are supplied by the local emulator's inspection and refresh paths; CSV contents are synthetic. The [capture guide](../screenshots/stories/README.md) records fixtures, reproduction commands, and each image's scope. Automated verification is mapped in the [acceptance audit](../plans/open-guardrail-issue-acceptance.md).
 
 ## Screenshots
 
-![Pre-run review showing a synthetic Foundry column marker](../screenshots/stories/CDO-4552-metadata-findings.jpg)
+**Before a run: identify the columns requiring decisions.** Open **Route setup → Target schema & creator → Sensitive-data guardrails**.
 
-![Run review showing a completed content scan and applied Hash action](../screenshots/stories/CDO-4571-transformed-run.jpg)
+![Focused pre-run panel: score and unit_name are flagged by Foundry metadata; both actions are unresolved](../screenshots/stories/CDO-4552-metadata-findings.jpg)
+
+1. **Detection source**, on the left, says **Foundry metadata** for both rows.
+2. **Affected column or table**, in the middle, names `score` and `unit_name`.
+3. **Choose an action**, on the right, shows unresolved decisions. The **SSN scan not run** badge describes the content scan only; metadata findings already exist.
+
+**After a successful run: distinguish applied transformations from selected choices.** Open **Live transfer → Run schema & row counts**.
+
+![Focused run review: 1002 rows scanned; alternate Remove and ssn Hash both applied; destination committed](../screenshots/stories/CDO-4571-transformed-run.jpg)
+
+1. The description says **Execution: completed; destination: committed**, followed by the **Actions applied** badge.
+2. **Rows scanned: 1,002** shows the worker's complete scan, with two findings.
+3. The bottom rows pair `alternate` with **Remove / applied** and `ssn` with **Hash / applied**. The [enforcement story](CDO-4571-apply-guardrail-actions-before-destination-writes.md#screenshots) also shows the persisted source and destination schemas.
 
 ## Implementation map
 

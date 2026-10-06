@@ -2,6 +2,8 @@
 
 [Jira CDO-4571](https://idstjira.socom.mil/jira/browse/CDO-4571) · [Epic CDO-4551: Sensitive Data Guardrails](CDO-4551-sensitive-data-guardrails-epic.md) · [Issue export](../../artifacts/jira/data-mover-sensitive-data-guardrails-issues.csv)
 
+Reviewed against the current implementation on October 6, 2026.
+
 ## User story
 
 As a pipeline owner, I want Data Mover to enforce my selected actions consistently so sensitive columns are handled before transferred data reaches its destination.
@@ -19,23 +21,41 @@ The worker extracts bounded batches, checks schema consistency, scans them for S
 
 The HMAC key is derived from the active API-token encryption key and scoped to the user and pipeline. Digests are deterministic for the same value, column, user, pipeline, and active key; rotating the active key changes future digests. Remove cannot drop a required destination key, and a run cannot remove every source column. Run submission projects saved actions into the destination preflight and schema preview, so a destination that only accepts the post-Remove schema can be selected.
 
+Preflight uses saved policies for columns still present even when current metadata or scan results no longer flag them. It does not repeat the worker's content scan. Action lookup preserves exact inspected column names: `ssn` and ` ssn ` are distinct columns, so a choice cannot silently bind to the wrong one.
+
 For an existing PostgreSQL target, Remove transactionally drops the selected column from the live table before loading transformed rows. Existing values in that column are removed too. The run account must own the table. Remove is blocked for a column in an existing primary or unique destination key. A dependent database object that prevents the column drop causes the transaction to roll back; the run does not publish partial changes.
 
 ## Example
 
-Suppose a source has unit_name and the owner chose Hash:
+The synthetic CSV has `id`, `ssn`, and `alternate`. Choose Hash for `ssn` and Remove for `alternate`:
 
 | Before write | Destination |
 | --- | --- |
-| unit_name: redacted source value | unit_name: keyed 64-character HMAC digest |
+| id: source identifier | id: unchanged |
+| ssn: source value, redacted in review | ssn: keyed 64-character HMAC digest; nulls preserved |
+| alternate: source column | Column absent |
 
-For Remove, the unit_name column is absent from the destination schema and incoming rows. When the PostgreSQL table already exists, its prior unit_name values are removed by the same transaction; other existing rows remain according to the selected write mode. The example output is illustrative; the screenshot verifies that the demo run applied Hash and completed without displaying the source value.
+The images below show the persisted applied outcomes and schema removal. They do not expose row values or a digest. Automated acceptance checks verify actual HMAC output, null preservation, and removal from every batch. For an existing PostgreSQL table, prior values in the removed column are also removed by the transaction; other existing rows remain according to the write mode. That existing-table behavior is covered by PostgreSQL integration tests, rather than this new-target demo.
 
-## Screenshot
+## Screenshots
 
-![Successful demo transfer with the content finding marked Hash and applied](../screenshots/stories/CDO-4571-transformed-run.jpg)
+**Applied outcomes.** Open **Live transfer → Run schema & row counts → Sensitive-data guardrails** after the successful synthetic transfer.
 
-The isolated demo run extracted and loaded two synthetic rows. Its after-run review shows one content finding, Hash, and an applied outcome.
+![Successful run review showing 1002 scanned rows, alternate Remove applied, ssn Hash applied, and destination committed](../screenshots/stories/CDO-4571-transformed-run.jpg)
+
+1. The description says **Execution: completed; destination: committed** and the badge says **Actions applied**.
+2. The **Rows scanned** metric is **1,002**. Matches occur only in the final two rows; both findings were resolved before destination staging.
+3. The bottom **Action / Outcome** pairs are `alternate`: **Remove / applied** and `ssn`: **Hash / applied**.
+
+**Persisted schema effect.** Expand **Source and destination manifests** immediately below the run review.
+
+![Expanded source and destination manifests showing three source columns and two destination columns, with alternate absent from destination](../screenshots/stories/CDO-4571-destination-schema.jpg)
+
+1. The **Source** panel shows **Columns: 3** and retains the original `id`, `ssn`, and `alternate` columns for review.
+2. The **Destination** panel shows **Columns: 2** and lists only `id` and `ssn`. This is the visible effect of Remove.
+3. The destination keeps `ssn` with type **String**. Its applied Hash outcome is shown in the first image; a matching type alone does not demonstrate hashing.
+
+See [capture provenance](../screenshots/stories/README.md) and the [acceptance audit](../plans/open-guardrail-issue-acceptance.md) for the synthetic fixture and automated batch/output checks.
 
 ## Acceptance criteria and implementation
 

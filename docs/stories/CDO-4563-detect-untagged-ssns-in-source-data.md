@@ -2,6 +2,8 @@
 
 [Jira CDO-4563](https://idstjira.socom.mil/jira/browse/CDO-4563) · [Epic CDO-4551: Sensitive Data Guardrails](CDO-4551-sensitive-data-guardrails-epic.md) · [Issue export](../../artifacts/jira/data-mover-sensitive-data-guardrails-issues.csv)
 
+Reviewed against the current implementation on October 6, 2026.
+
 ## User story
 
 As a pipeline owner, I want Data Mover to detect SSNs in columns that lack sensitivity metadata so untagged sensitive data is still identified.
@@ -18,23 +20,32 @@ The SSN checker matches supported digit, hyphen, and space forms without returni
 
 The preview route binds scan results to the current source identity; changing the selected source invalidates results from the prior source. The worker independently scans every extracted batch and accumulates per-column counts while writing source batches into an encrypted, size-limited spool for the pre-write review.
 
+Preview validates generated findings before rendering action controls. A finding whose column name is blank, over 256 characters, or contains ASCII control characters returns safe HTTP 422 feedback with instructions to rename the unsupported column and scan again. New CSV uploads reject control characters in headers during inspection with instructions to rename and re-upload; tab delimiters and quoted multiline **cell values** remain supported. Guardrail decisions preserve exact inspected names rather than silently trimming them.
+
 This is a pattern detector, not an authoritative determination that an identifier is valid or belongs to a person.
 
 ## Example
 
-In the synthetic CSV fixture, one value in ssn_fixture matches the supported pattern. The review shows a count and column only:
+The synthetic CSV has 1,002 rows and three columns: `id`, `ssn`, and `alternate`. The first 1,000 rows have no matches; only the final two rows contain SSN-shaped values. The review shows counts and column names only:
 
 | Detection source | Affected column | Finding |
 | --- | --- | --- |
-| Content scan | ssn_fixture | 1 matching row |
+| Content scan | alternate | 1 matching row |
+| Content scan | ssn | 2 matching rows |
 
 The example value is redacted in the schema preview and is not present in the finding or run log.
 
 ## Screenshot
 
-![Completed SSN scan showing one redacted content finding](../screenshots/stories/CDO-4563-content-scan.jpg)
+Open **Route setup → Target schema & creator → Sensitive-data guardrails**, then choose **Scan source for SSNs**.
 
-The screenshot shows an uploaded synthetic CSV in demo mode. The matched value is redacted; no real identifier or remote endpoint is used.
+![Focused completed preview scan showing alternate with one matching row and ssn with two, without matched values](../screenshots/stories/CDO-4563-content-scan.jpg)
+
+1. The green **SSN scan complete** badge at the top confirms the preview scan finished.
+2. The left cells say **Content scan**. The middle **Finding** cells show `alternate` with **1 rows** and `ssn` with **2 rows** (the UI's current labels).
+3. The right selectors still say **Choose an action**. Detection has finished; decisions remain unresolved.
+
+This is a preview scan of a synthetic CSV, not an applied transformation. The worker's independent scan and 1,002-row total appear in the [enforcement story](CDO-4571-apply-guardrail-actions-before-destination-writes.md#screenshots). See [capture provenance](../screenshots/stories/README.md) and the [acceptance audit](../plans/open-guardrail-issue-acceptance.md).
 
 ## Acceptance criteria and implementation
 

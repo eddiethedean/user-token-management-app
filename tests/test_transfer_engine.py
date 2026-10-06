@@ -40,7 +40,7 @@ from app.connectors.locators import (
 from app.domain.pipelines.guardrails import GuardrailAction
 from app.models import PipelineRun
 from app.services import transfer_engine
-from app.ui.routes.pipeline_runs import _project_guardrail_schema
+from app.ui.routes.pipeline_runs import _project_guardrail_schema, _read_only_pipeline_preflight
 
 
 def _settings(**values: object) -> Settings:
@@ -89,6 +89,44 @@ def test_run_readiness_projects_saved_hash_and_remove_actions() -> None:
         ("email", "String"),
     ]
     assert projected.removed_columns == ("ssn",)
+
+
+@pytest.mark.parametrize("detector", ["ssn", "foundry_metadata"])
+@pytest.mark.parametrize("action", ["hash", "remove"])
+def test_run_readiness_honors_saved_actions_without_a_current_match(detector, action) -> None:
+    schema = ObjectSchema(
+        locator=postgres_table("ops", "events"),
+        columns=(
+            ColumnSchema(name="id", data_type="Int64"),
+            ColumnSchema(name="ssn", data_type="Int64"),
+        ),
+    )
+    snapshot = _snapshot_with_policy(PostgresAppendPolicy()).model_copy(
+        update={
+            "guardrail_actions": [GuardrailAction(detector=detector, column="ssn", action=action)]
+        }
+    )
+    catalog = Mock()
+    catalog.preflight_source.return_value = schema
+    catalog.scan_sensitive_content.return_value = []
+    expected_columns = [("id", "Int64")]
+    if action == "hash":
+        expected_columns.append(("ssn", "String"))
+
+    def accept_only_transformed_schema(provider, locator, source_schema, policy):
+        if [
+            (column.name, column.data_type) for column in source_schema.columns
+        ] != expected_columns:
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "Destination requires the saved guardrail projection.",
+            )
+
+    catalog.preflight_destination.side_effect = accept_only_transformed_schema
+    _read_only_pipeline_preflight(catalog, snapshot, None)
+    catalog.preflight_destination.assert_called_once()
+    # Full content scanning belongs to the worker's encrypted pre-write stage.
+    catalog.scan_sensitive_content.assert_not_called()
 
 
 class _Source:
@@ -976,8 +1014,10 @@ def test_guardrail_outcome_stays_pending_when_destination_preparation_fails(monk
     assert finding["outcome"] == "selected"
 
 
+@pytest.mark.parametrize("sensitive_column", ["ssn", " ssn "])
 def test_successful_guardrail_run_records_original_source_schema_and_applied_action(
     monkeypatch,
+    sensitive_column,
 ) -> None:
     class SensitiveSource(_Source):
         def inspect_object(self, credentials: Credentials, locator: Locator) -> ObjectSchema:
@@ -985,7 +1025,9 @@ def test_successful_guardrail_run_records_original_source_schema_and_applied_act
                 locator=locator,
                 columns=(
                     ColumnSchema(name="id", data_type="Int64"),
-                    ColumnSchema(name="ssn", data_type="Int64", sensitivity_markers=("pii",)),
+                    ColumnSchema(
+                        name=sensitive_column, data_type="Int64", sensitivity_markers=("pii",)
+                    ),
                     ColumnSchema(name="alt_ssn", data_type="String", sensitivity_markers=("pii",)),
                 ),
             )
@@ -998,7 +1040,9 @@ def test_successful_guardrail_run_records_original_source_schema_and_applied_act
             batch_rows: int,
             batch_bytes: int,
         ) -> Iterator[TransferBatch]:
-            frame = pl.DataFrame({"id": [1], "ssn": [123456789], "alt_ssn": ["removed-value"]})
+            frame = pl.DataFrame(
+                {"id": [1], sensitive_column: [123456789], "alt_ssn": ["removed-value"]}
+            )
             yield TransferBatch(frame, 1, int(frame.estimated_size()), 1)
 
     class CapturingDestination(_Destination):
@@ -1023,8 +1067,8 @@ def test_successful_guardrail_run_records_original_source_schema_and_applied_act
 
         def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
             self.output_columns = tuple(batch.frame.columns)
-            assert batch.frame["ssn"].dtype == pl.String
-            assert batch.frame["ssn"][0] != "123456789"
+            assert batch.frame[sensitive_column].dtype == pl.String
+            assert batch.frame[sensitive_column][0] != "123456789"
             return super().write_batch(load_session, batch)
 
     monkeypatch.setattr(transfer_engine, "route_allowed", lambda *_args: True)
@@ -1053,7 +1097,7 @@ def test_successful_guardrail_run_records_original_source_schema_and_applied_act
         destination=postgres_table("public", "events"),
         write_policy=PostgresAppendPolicy(column_type_overrides={"id": "text"}),
         guardrail_actions=[
-            GuardrailAction(detector="foundry_metadata", column="ssn", action="hash"),
+            GuardrailAction(detector="foundry_metadata", column=sensitive_column, action="hash"),
             GuardrailAction(detector="foundry_metadata", column="alt_ssn", action="remove"),
         ],
     )
@@ -1083,14 +1127,14 @@ def test_successful_guardrail_run_records_original_source_schema_and_applied_act
     source_columns = completed["source_manifest"]["schema"]["columns"]
     assert [(column["name"], column["data_type"]) for column in source_columns] == [
         ("id", "Int64"),
-        ("ssn", "Int64"),
+        (sensitive_column, "Int64"),
         ("alt_ssn", "String"),
     ]
-    assert destination.output_columns == ("id", "ssn")
+    assert destination.output_columns == ("id", sensitive_column)
     assert destination.output_schema is not None
     assert [(column.name, column.data_type) for column in destination.output_schema.columns] == [
         ("id", "String"),
-        ("ssn", "String"),
+        (sensitive_column, "String"),
     ]
     assert completed["guardrail"]["outcome"] == "applied"
     assert completed["guardrail"]["findings"][0]["outcome"] == "applied"

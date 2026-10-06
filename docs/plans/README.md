@@ -56,6 +56,7 @@ record the released code-to-copy-to-log and operator lookup contracts.
 | SOLID full-refactor review | [Isolation and lifecycle remediation plan](solid-full-refactor-review-remediation.md) | Implemented; FR1–FR5 acceptance closed |
 | SOLID drain-failure review | [Drain failures, cancellation origin, and failed startup plan](solid-runtime-drain-failure-remediation.md) | Implemented; D1–D3 acceptance closed |
 | Feedback and diagnostics | [User feedback and troubleshooting upgrade plan](user-feedback-observability-upgrade.md) | Implemented locally; deployment/provider gates remain external |
+| Sensitive-data guardrails | [Open GitHub issue acceptance audit](open-guardrail-issue-acceptance.md) | All 28 open acceptance records implemented; automated evidence indexed |
 
 ## Review convention
 

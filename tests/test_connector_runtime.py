@@ -68,6 +68,27 @@ def test_csv_source_reuses_inspection_delimiter_and_normalized_headers() -> None
     assert batches[0].frame["id"].to_list() == ["001", "002"]
 
 
+def test_csv_header_validation_preserves_tab_delimiters_and_multiline_cells() -> None:
+    content = b'id\tnote\n1\t"line one\nline two"\n2\tplain\n'
+    inspection = inspect_csv("notes.csv", content)
+    assert inspection.delimiter == "\t"
+    assert [column.name for column in inspection.columns] == ["id", "note"]
+    assert inspection.row_count == 2
+    connector = CsvSourceConnector()
+    locator = CsvUploadLocator(
+        upload_id="11111111-1111-1111-1111-111111111111", checksum_sha256="d" * 64
+    )
+    batches = list(
+        connector.extract(
+            {"content": content.decode(), "delimiter": inspection.delimiter},
+            locator,
+            batch_rows=100,
+            batch_bytes=10_000,
+        )
+    )
+    assert batches[0].frame["note"].to_list() == ["line one\nline two", "plain"]
+
+
 def test_csv_source_uses_profiled_types_instead_of_reinferring_them() -> None:
     content = (
         b"ready,service_date,observed_at,shift_time,amount,code\n"
