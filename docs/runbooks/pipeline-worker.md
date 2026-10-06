@@ -79,11 +79,15 @@ Never log tokens, passwords, DSNs, or cell values. Connector errors use the stab
 normal operation. The run ID is the primary reference after enqueue; the enqueue request's
 `reference_id` is still useful for locating the original submission.
 
-Important events are `pipeline.run.queued`, `pipeline.run.completed`, `pipeline.run.failed`,
-`pipeline.run.cancelled`, and `pipeline.lease.heartbeat_failed`. Search by `run_id` and inspect
+Important events are `pipeline.run.queued`, `pipeline.run.blocked`, `pipeline.run.completed`,
+`pipeline.run.failed`, `pipeline.run.cancelled`, and `pipeline.lease.heartbeat_failed`. Search by `run_id` and inspect
 `stage`, `error_code`, `retryable`, and `data_impact`. A `data_impact` of `uncertain` is a safety
 stop, not a suggestion to retry. Use the provider's native tools and the persisted manifests/events
 before recording reconciliation review.
+
+A `pipeline.run.blocked` event is a pre-write sensitive-data safety stop. Review the run's safe
+findings and saved decisions, resolve the required actions or select an allowed source, then enqueue
+a new run. Retrying the unchanged blocked run cannot resolve the finding.
 
 The in-process janitor drops expired events, terminal runs, catalog cache rows, and old spool files.
 Restart the app after correcting a runtime failure so the lifecycle supervisor can resume recovery

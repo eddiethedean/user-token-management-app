@@ -702,6 +702,7 @@ def block_run(
         log,
         "pipeline.run.blocked",
         outcome="blocked",
+        level=logging.WARNING,
         reference_id=run.id,
         error_code=run.error_code,
         run_id=run.id,
