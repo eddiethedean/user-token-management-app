@@ -485,19 +485,26 @@ class FoundryClient:
                     "Foundry returned invalid resource sensitivity markings.",
                     retryable=False,
                 ) from exc
-            if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+            if not isinstance(payload, dict):
                 raise ConnectorError(
                     TransferErrorCode.PROVIDER_UNAVAILABLE,
                     "Foundry returned incomplete resource sensitivity markings.",
                     retryable=False,
                 )
-            if any(not isinstance(item, str) or not item.strip() for item in payload["data"]):
+            page_marking_ids = payload.get("data", [])
+            if not isinstance(page_marking_ids, list):
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned incomplete resource sensitivity markings.",
+                    retryable=False,
+                )
+            if any(not isinstance(item, str) or not item.strip() for item in page_marking_ids):
                 raise ConnectorError(
                     TransferErrorCode.PROVIDER_UNAVAILABLE,
                     "Foundry returned invalid resource sensitivity markings.",
                     retryable=False,
                 )
-            marking_ids.extend(item.strip() for item in payload["data"])
+            marking_ids.extend(item.strip() for item in page_marking_ids)
             if len(marking_ids) > MAX_FOUNDRY_MARKING_IDS:
                 raise ConnectorError(
                     TransferErrorCode.SOURCE_LIMIT_EXCEEDED,

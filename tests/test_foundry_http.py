@@ -439,6 +439,15 @@ def test_foundry_sensitivity_metadata_follows_every_marking_page(foundry_sim, tm
     client.close()
 
 
+def test_foundry_sensitivity_metadata_accepts_omitted_resource_markings(foundry_sim, tmp_path) -> None:
+    foundry_sim.marking_pages = {"": {"nextPageToken": ""}}
+    client = FoundryClient({"endpoint": foundry_sim.base_url, "token": TOKEN}, _settings(tmp_path))
+
+    assert client.sensitivity_metadata(DATASET, "master", frozenset({"pii"})) == ((), {})
+
+    client.close()
+
+
 def test_foundry_connector_exposes_live_sensitivity_refresh(foundry_sim, tmp_path) -> None:
     foundry_sim.schema_payload = {
         "schema": {"fieldSchemaList": [{"name": "ssn", "customMetadata": {"pii": True}}]}
