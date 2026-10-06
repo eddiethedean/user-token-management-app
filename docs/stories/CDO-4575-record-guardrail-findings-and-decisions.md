@@ -14,7 +14,7 @@ The pipeline definition retains the owner’s action choices. The run record cap
 
 ## Implementation
 
-PipelineRun.guardrail_json stores a versioned, value-free review document. It contains scan status and totals, findings, selected actions, columns removed or hashed, outcome, and a blocked reason where applicable. While the destination is being prepared, selected actions have outcome `selected` and the overall review is `pending`; a destination-preparation, write, or publication failure therefore does not claim an action was applied. The successful run transaction records outcome `applied` after the transformed destination has committed. A completed scan with no findings records `clear`; a blocked run records `blocked`. The run service redacts the document before persistence. Run event messages and summaries also omit matched cell text.
+PipelineRun.guardrail_json stores a versioned, value-free review document. It contains scan status and totals, findings, selected actions, columns removed or hashed, execution outcome, destination outcome, overall outcome, and a blocked reason where applicable. While the destination is being prepared, selected actions have finding outcome `selected`, overall outcome `pending`, execution outcome `not_started`, and destination outcome `pending`. A terminal failure or cancellation keeps the selected decisions and records whether transformation never started, completed, or was partial, plus whether the destination stayed unchanged, rolled back, or needs reconciliation. Clear reviews keep outcome `clear` and still record the terminal destination state. The successful run transaction records outcome `applied` only after the transformed destination has committed. A completed scan with no findings records `clear`; a blocked run records `blocked`. The run service redacts the document before persistence. Run event messages and summaries also omit matched cell text.
 
 The source manifest records the schema inspected before guardrail transformations and configured type overrides. The destination manifest describes the resulting destination schema. This preserves removed source columns and the original type of a hashed source column for review.
 
@@ -26,7 +26,7 @@ The run review surface displays the persisted findings and outcome. The security
 | --- | --- | --- | --- | --- |
 | Content scan | unit_name | 1 matching row | Hash | Applied |
 
-If destination preparation fails after an owner selected Hash, the run instead retains the finding with action Hash and outcome `selected` under an overall `pending` review. It becomes `applied` only when the destination run completes successfully.
+If destination preparation fails after an owner selected Hash, the run retains the finding with action Hash and outcome `selected`; the terminal review reports `failed`, `not_started`, and `unchanged`. If a later write is cancelled or fails, the review records the observed execution and destination outcomes, including rollback or reconciliation when applicable. The action becomes `applied` only when the destination run completes successfully.
 
 A blocked run instead records outcome: blocked and a safe explanation, such as an unresolved action or a table-level Foundry marking. Neither record includes the matching value.
 

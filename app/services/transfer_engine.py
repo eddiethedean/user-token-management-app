@@ -331,6 +331,8 @@ def _guardrail_document(
     return {
         "version": 1,
         "outcome": outcome,
+        "execution_outcome": "not_started",
+        "destination_outcome": "unchanged" if outcome == "blocked" else "pending",
         "scan_complete": scan_complete,
         "scanned_rows": scanned_rows,
         "scanned_bytes": scanned_bytes,
@@ -1138,6 +1140,8 @@ def execute_transfer(
             guardrail={
                 **guardrail,
                 "outcome": "applied" if applied_actions else "clear",
+                "execution_outcome": "completed" if applied_actions else "not_applicable",
+                "destination_outcome": "committed",
                 "findings": [
                     {
                         **finding,

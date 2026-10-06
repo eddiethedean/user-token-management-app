@@ -650,6 +650,45 @@ def record_guardrail_review(
     db.commit()
 
 
+def _record_guardrail_terminal_outcome(
+    run: PipelineRun,
+    *,
+    outcome: str,
+    destination_outcome: str,
+) -> None:
+    """Replace an in-progress guardrail review with the run's terminal state."""
+
+    try:
+        document = json.loads(run.guardrail_json or "{}")
+    except (TypeError, ValueError):
+        return
+    if not isinstance(document, dict):
+        return
+    findings = document.get("findings")
+    review_outcome = document.get("outcome")
+    if review_outcome not in {"pending", "clear"}:
+        return
+    scanned_rows = document.get("scanned_rows")
+    has_selected_action = isinstance(findings, list) and any(
+        isinstance(finding, dict) and finding.get("action") for finding in findings
+    )
+    transformed_rows = max(0, int(run.source_rows or 0))
+    scanned_rows = max(0, scanned_rows) if isinstance(scanned_rows, int) else 0
+    if not has_selected_action:
+        execution_outcome = "not_applicable"
+    elif transformed_rows == 0:
+        execution_outcome = "not_started"
+    elif scanned_rows and transformed_rows >= scanned_rows:
+        execution_outcome = "completed"
+    else:
+        execution_outcome = "partial"
+    if review_outcome == "pending":
+        document["outcome"] = outcome
+    document["execution_outcome"] = execution_outcome
+    document["destination_outcome"] = destination_outcome
+    run.guardrail_json = json.dumps(redact_mapping(document), separators=(",", ":"))
+
+
 def block_run(
     db: Session,
     run: PipelineRun,
@@ -820,6 +859,19 @@ def fail_run(
     resolved_impact = data_impact or _failure_data_impact(
         run, code_value, needs_reconciliation=effective_needs_reconciliation
     )
+    _record_guardrail_terminal_outcome(
+        run,
+        outcome=("reconciliation_required" if effective_needs_reconciliation else "failed"),
+        destination_outcome=(
+            "reconciliation_required"
+            if effective_needs_reconciliation
+            else "rolled_back"
+            if resolved_impact == DataImpact.ROLLED_BACK
+            else "unchanged"
+            if resolved_impact == DataImpact.UNCHANGED
+            else "uncertain"
+        ),
+    )
     run.error_code = code_value
     run.error_summary = redact_text(summary)[:500]
     run.retryable = retryable and not effective_needs_reconciliation
@@ -915,6 +967,17 @@ def cancel_claimed_run(
     )
     failure_stage = run.stage
     reconciliation_required = resolved_impact == DataImpact.UNCERTAIN
+    _record_guardrail_terminal_outcome(
+        run,
+        outcome="reconciliation_required" if reconciliation_required else "cancelled",
+        destination_outcome=(
+            "reconciliation_required"
+            if reconciliation_required
+            else "rolled_back"
+            if resolved_impact == DataImpact.ROLLED_BACK
+            else "unchanged"
+        ),
+    )
     terminal_status = (
         PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value
         if reconciliation_required
