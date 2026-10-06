@@ -612,29 +612,66 @@ def test_postgres_append_creates_schema_and_staging(postgres_credentials) -> Non
     assert leftover == []
 
 
-def test_postgres_remove_action_drops_existing_sensitive_column(postgres_credentials) -> None:
+@pytest.mark.parametrize(
+    ("mode", "policy", "source_rows", "expected_rows"),
+    [
+        (
+            "append",
+            PostgresAppendPolicy(),
+            [(2, "updated row"), (3, "new row")],
+            [(1, "prior row"), (2, "updated row"), (3, "new row")],
+        ),
+        (
+            "upsert",
+            PostgresUpsertPolicy(conflict_columns=["id"], action="update"),
+            [(1, "updated row"), (2, "new row")],
+            [(1, "updated row"), (2, "new row")],
+        ),
+        (
+            "compatible-replace",
+            PostgresReplacePolicy(schema_policy="require_compatible"),
+            [(1, "updated row"), (2, "new row")],
+            [(1, "updated row"), (2, "new row")],
+        ),
+        (
+            "recreate",
+            PostgresReplacePolicy(schema_policy="recreate"),
+            [(1, "updated row"), (2, "new row")],
+            [(1, "updated row"), (2, "new row")],
+        ),
+    ],
+    ids=["append", "upsert", "compatible-replace", "recreate"],
+)
+def test_postgres_remove_action_matches_existing_target_write_mode(
+    postgres_credentials, mode, policy, source_rows, expected_rows
+) -> None:
     locator = postgres_table("ops", "guardrail_remove")
     _execute(postgres_credentials, "CREATE SCHEMA IF NOT EXISTS ops")
     _execute(
         postgres_credentials,
-        "CREATE TABLE ops.guardrail_remove (id INTEGER PRIMARY KEY, ssn TEXT)",
+        "CREATE TABLE ops.guardrail_remove (id INTEGER PRIMARY KEY, ssn TEXT, note TEXT NOT NULL)",
     )
     _execute(
         postgres_credentials,
-        "INSERT INTO ops.guardrail_remove (id, ssn) VALUES (1, 'SYNTHETIC-SSN')",
+        "INSERT INTO ops.guardrail_remove (id, ssn, note) VALUES (1, 'SYNTHETIC-SSN', 'prior row')",
     )
     schema = ObjectSchema(
         locator=locator,
-        columns=(ColumnSchema(name="id", data_type="Int64", nullable=False),),
+        columns=(
+            ColumnSchema(name="id", data_type="Int32", nullable=False),
+            ColumnSchema(name="note", data_type="String", nullable=False),
+        ),
         primary_key=("id",),
         removed_columns=("ssn",),
     )
     _load(
         postgres_credentials,
         locator,
-        PostgresAppendPolicy(),
-        pl.DataFrame({"id": [2]}),
-        "remove-existing-sensitive-column",
+        policy,
+        pl.DataFrame(
+            {"id": [row[0] for row in source_rows], "note": [row[1] for row in source_rows]}
+        ),
+        f"remove-existing-sensitive-column-{mode}",
         schema=schema,
     )
 
@@ -644,9 +681,54 @@ def test_postgres_remove_action_drops_existing_sensitive_column(postgres_credent
         "WHERE table_schema = 'ops' AND table_name = 'guardrail_remove' "
         "ORDER BY ordinal_position",
     )
-    rows = _fetchall(postgres_credentials, "SELECT id FROM ops.guardrail_remove ORDER BY id")
-    assert columns == [("id",)]
-    assert rows == [(1,), (2,)]
+    rows = _fetchall(
+        postgres_credentials,
+        "SELECT id, note FROM ops.guardrail_remove ORDER BY id, note",
+    )
+    assert columns == [("id",), ("note",)]
+    assert rows == expected_rows
+
+
+def test_postgres_remove_action_rolls_back_with_aborted_transfer(postgres_credentials) -> None:
+    locator = postgres_table("ops", "guardrail_remove_abort")
+    _execute(postgres_credentials, "CREATE SCHEMA IF NOT EXISTS ops")
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE ops.guardrail_remove_abort (id INTEGER PRIMARY KEY, ssn TEXT)",
+    )
+    _execute(
+        postgres_credentials,
+        "INSERT INTO ops.guardrail_remove_abort (id, ssn) VALUES (1, 'SYNTHETIC-SSN')",
+    )
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(ColumnSchema(name="id", data_type="Int32", nullable=False),),
+        primary_key=("id",),
+        removed_columns=("ssn",),
+    )
+    connector = PostgresConnector(connector_settings())
+    session = connector.prepare_destination(
+        postgres_credentials,
+        locator,
+        schema,
+        PostgresAppendPolicy(),
+        run_id="remove-existing-sensitive-column-abort",
+    )
+
+    connector.abort(session)
+
+    columns = _fetchall(
+        postgres_credentials,
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = 'ops' AND table_name = 'guardrail_remove_abort' "
+        "ORDER BY ordinal_position",
+    )
+    rows = _fetchall(
+        postgres_credentials,
+        "SELECT id, ssn FROM ops.guardrail_remove_abort ORDER BY id",
+    )
+    assert columns == [("id",), ("ssn",)]
+    assert rows == [(1, "SYNTHETIC-SSN")]
 
 
 def test_postgres_remove_action_cannot_drop_existing_unique_keys(postgres_credentials) -> None:

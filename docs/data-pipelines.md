@@ -268,6 +268,13 @@ guardrail actions, so validation checks the schema that will actually be written
 required PostgreSQL upsert or configured primary key blocks the run. When multiple findings target
 one column, Remove takes precedence over Hash.
 
+The selected PostgreSQL write mode still controls the remaining rows: append keeps prior rows and
+adds incoming rows, upsert keeps unmatched rows and applies the configured conflict action, and
+compatible replace replaces the rows while retaining the compatible table structure. Replace with
+schema recreation builds and swaps a table using the projected schema. In each mode, a failed run
+rolls back the column removal with the rest of the destination transaction, preserving the existing
+table and its prior values.
+
 The worker scans and encrypts source batches before preparing the destination, so it writes the same
 rows it reviewed. Temporary spool records use an ephemeral encryption key and are deleted when the
 run ends. Run history, audit details, and logs store only detector, column, count, action, and outcome
