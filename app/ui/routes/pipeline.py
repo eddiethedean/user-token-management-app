@@ -4813,6 +4813,12 @@ def _run_guardrail_surface(run):
             eyebrow="Run review",
             description=(
                 "The run records finding names, counts, and actions. Matched cell values are never included."
+                + (
+                    f" Execution: {str(review.get('execution_outcome')).replace('_', ' ')};"
+                    f" destination: {str(review.get('destination_outcome')).replace('_', ' ')}."
+                    if review.get("execution_outcome") or review.get("destination_outcome")
+                    else ""
+                )
             ),
             level=3,
             density="compact",
@@ -4823,8 +4829,14 @@ def _run_guardrail_surface(run):
                 if review_outcome == "applied"
                 else "No sensitive findings"
                 if review_outcome == "clear"
-                else "Action selected; transfer incomplete"
+                else "Action selected; transfer in progress"
                 if review_outcome == "pending"
+                else "Action selected; transfer failed"
+                if review_outcome == "failed"
+                else "Action selected; transfer cancelled"
+                if review_outcome == "cancelled"
+                else "Destination needs reconciliation"
+                if review_outcome == "reconciliation_required"
                 else "Review complete"
                 if scan_complete
                 else "Scan not run",
@@ -4836,6 +4848,8 @@ def _run_guardrail_surface(run):
                 if review_outcome == "clear"
                 else "info"
                 if review_outcome == "pending"
+                else "warning"
+                if review_outcome in {"failed", "cancelled", "reconciliation_required"}
                 else "success"
                 if scan_complete
                 else "info",
