@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from starlette.responses import Response
 
 import app.services.pipeline_runs as pipeline_run_service
+from app.application.catalogs import CatalogAccess
 from app.application.feedback import preflight_failure
 from app.application.pipelines import (
     EnqueuePipelineCommand,
@@ -25,6 +26,7 @@ from app.connectors.csv_source import profiled_polars_type
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
     CsvUploadLocator,
+    DefinitionSnapshot,
     FoundryDatasetFilesLocator,
     FoundryUploadLocator,
     PostgresTableLocator,
@@ -126,7 +128,7 @@ def _project_guardrail_schema(
 
 
 def _eligible_guardrail_actions(
-    catalog, snapshot, source_schema: ObjectSchema
+    catalog: CatalogAccess, snapshot: DefinitionSnapshot, source_schema: ObjectSchema
 ) -> list[GuardrailAction]:
     """Keep only saved actions backed by current metadata or content findings."""
 
@@ -141,20 +143,16 @@ def _eligible_guardrail_actions(
         if markers
     )
     if any(action.detector == "ssn" for action in snapshot.guardrail_actions):
-        scan_content = getattr(catalog, "scan_sensitive_content", None)
-        if callable(scan_content):
-            findings = scan_content(
-                snapshot.source_provider,
-                snapshot.source,
-                source_upload_id=snapshot.source_upload_id or "",
-            )
-            finding_keys.update(
-                ("ssn", str(finding.get("column") or ""))
-                for finding in findings
-                if isinstance(finding, dict)
-                and finding.get("detector") == "ssn"
-                and finding.get("count")
-            )
+        findings = catalog.scan_sensitive_content(
+            snapshot.source_provider,
+            snapshot.source,
+            source_upload_id=snapshot.source_upload_id or "",
+        )
+        finding_keys.update(
+            ("ssn", str(finding.get("column") or ""))
+            for finding in findings
+            if finding.get("detector") == "ssn" and finding.get("count")
+        )
     return [
         action
         for action in snapshot.guardrail_actions
