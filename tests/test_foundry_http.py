@@ -272,6 +272,26 @@ def test_foundry_sensitivity_metadata_fails_closed_when_schema_is_unavailable(
     client.close()
 
 
+def test_foundry_sensitivity_metadata_preserves_whitespace_in_column_names(
+    foundry_sim, tmp_path
+) -> None:
+    foundry_sim.schema_payload = {
+        "schema": {
+            "fieldSchemaList": [
+                {"name": " ssn ", "customMetadata": {"pii": True}},
+            ]
+        }
+    }
+    client = FoundryClient({"endpoint": foundry_sim.base_url, "token": TOKEN}, _settings(tmp_path))
+
+    _table_markers, column_markers = client.sensitivity_metadata(
+        DATASET, "master", frozenset({"pii"})
+    )
+
+    assert column_markers == {" ssn ": ("pii",)}
+    client.close()
+
+
 @pytest.mark.parametrize(
     "schema_result",
     [

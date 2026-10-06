@@ -459,7 +459,7 @@ class FoundryClient:
                     "Foundry returned invalid column sensitivity metadata.",
                     retryable=False,
                 )
-            name = item["name"].strip()
+            name = item["name"]
             markers = matching_metadata_markers(item.get("customMetadata"), configured)
             if markers:
                 column_markers[name] = markers
