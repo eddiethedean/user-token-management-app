@@ -178,6 +178,14 @@ class UserCatalog:
                 summary="The selected provider does not support schema inspection.",
                 retryable=False,
             )
+        refresh_sensitivity: SensitivityMetadataInspector | None = None
+        if provider.casefold() in {"mss", "mcscop"}:
+            refresh_sensitivity = cast(
+                SensitivityMetadataInspector | None,
+                getattr(inspector, "inspect_sensitivity_metadata", None),
+            )
+            if not callable(refresh_sensitivity):
+                raise self._missing_foundry_metadata_refresh()
         cache_namespace = ""
         if (
             provider.casefold() in {"mss", "mcscop"}
@@ -211,33 +219,29 @@ class UserCatalog:
                             ).items()
                         ),
                     )
-                    refresh_sensitivity = cast(
-                        SensitivityMetadataInspector | None,
-                        getattr(inspector, "inspect_sensitivity_metadata", None),
+                    assert refresh_sensitivity is not None
+                    table_markers, column_markers = refresh_sensitivity(
+                        self._credentials_for(provider), locator
                     )
-                    if callable(refresh_sensitivity):
-                        table_markers, column_markers = refresh_sensitivity(
-                            self._credentials_for(provider), locator
-                        )
-                        cached_schema = ObjectSchema(
-                            locator=locator,
-                            columns=(
-                                ()
-                                if table_markers
-                                else tuple(
-                                    ColumnSchema(
-                                        name=column.name,
-                                        data_type=column.data_type,
-                                        nullable=column.nullable,
-                                        example="",
-                                        sensitivity_markers=column_markers.get(column.name, ()),
-                                    )
-                                    for column in cached_schema.columns
+                    cached_schema = ObjectSchema(
+                        locator=locator,
+                        columns=(
+                            ()
+                            if table_markers
+                            else tuple(
+                                ColumnSchema(
+                                    name=column.name,
+                                    data_type=column.data_type,
+                                    nullable=column.nullable,
+                                    example="",
+                                    sensitivity_markers=column_markers.get(column.name, ()),
                                 )
-                            ),
-                            sensitivity_markers=tuple(table_markers),
-                            column_sensitivity_markers=tuple(sorted(column_markers.items())),
-                        )
+                                for column in cached_schema.columns
+                            )
+                        ),
+                        sensitivity_markers=tuple(table_markers),
+                        column_sensitivity_markers=tuple(sorted(column_markers.items())),
+                    )
                     # Scrub examples from schema cache rows written by earlier
                     # versions before they can be reused by a later request.
                     self._write_cache(
@@ -333,15 +337,16 @@ class UserCatalog:
                     SensitivityMetadataInspector | None,
                     getattr(inspector, "inspect_sensitivity_metadata", None),
                 )
-                if callable(inspect_sensitivity):
-                    table_markers, column_markers = inspect_sensitivity(credentials, locator)
-                    if table_markers:
-                        raise ConnectorError(
-                            TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED,
-                            "A table-level Foundry sensitivity marking blocks content scanning.",
-                            retryable=False,
-                        )
-                    ignored_sensitive_columns = set(column_markers)
+                if not callable(inspect_sensitivity):
+                    raise self._missing_foundry_metadata_refresh()
+                table_markers, column_markers = inspect_sensitivity(credentials, locator)
+                if table_markers:
+                    raise ConnectorError(
+                        TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED,
+                        "A table-level Foundry sensitivity marking blocks content scanning.",
+                        retryable=False,
+                    )
+                ignored_sensitive_columns = set(column_markers)
 
         source = source_reader_for(provider_id)
         counts: dict[str, int] = {}
@@ -386,6 +391,14 @@ class UserCatalog:
             }
             for column, count in sorted(counts.items())
         ]
+
+    @staticmethod
+    def _missing_foundry_metadata_refresh() -> ConnectorError:
+        return ConnectorError(
+            TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED,
+            "Foundry sensitivity metadata could not be verified for this source.",
+            retryable=False,
+        )
 
     def inspect_object_fresh(self, provider: str, locator: Locator) -> ObjectSchema:
         """Inspect live provider metadata without using the catalog cache."""

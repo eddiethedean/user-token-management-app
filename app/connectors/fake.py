@@ -897,6 +897,14 @@ class FakeFoundryConnector:
             estimated_rows=None,
         )
 
+    def inspect_sensitivity_metadata(
+        self, credentials: Mapping[str, str], locator: Locator
+    ) -> tuple[tuple[str, ...], dict[str, tuple[str, ...]]]:
+        """The local Foundry emulator has no external sensitivity markings."""
+
+        self._validate(credentials)
+        return (), {}
+
     def count_rows(self, credentials, locator: Locator) -> int | None:
         self._validate(credentials)
         return None
