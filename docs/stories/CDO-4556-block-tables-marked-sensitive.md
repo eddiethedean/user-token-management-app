@@ -14,7 +14,7 @@ A configured table-level Foundry sensitivity marker blocks the selected source. 
 
 Foundry inspection returns a table-level marker separately from column markers. During run validation, the transfer engine checks that field before it transitions to extraction. If present, it persists a blocked, value-free guardrail record and exits before source extraction or destination writes. The UI reflects the same rule in the pre-run review.
 
-The preview scan refreshes the live Foundry marking list before it opens a source iterator, so a table-level marking blocks preview scans too. Missing or malformed sensitivity metadata is treated as unavailable and fails closed; it is never interpreted as a clean table.
+The preview scan refreshes the live Foundry marking list before it opens a source iterator, so a table-level marking blocks preview scans too. Missing or malformed schema fields, resource marking IDs, pagination, or marking-name responses are treated as unavailable and fail closed; they are never interpreted as a clean table.
 
 The run may validate connections and inspect destination metadata before this check, but it does not extract source rows or stage/write destination data.
 
