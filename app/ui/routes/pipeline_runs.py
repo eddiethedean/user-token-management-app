@@ -125,6 +125,43 @@ def _project_guardrail_schema(
     return project_schema_for_guardrails(source_schema, by_column)
 
 
+def _eligible_guardrail_actions(
+    catalog, snapshot, source_schema: ObjectSchema
+) -> list[GuardrailAction]:
+    """Keep only saved actions backed by current metadata or content findings."""
+
+    finding_keys = {
+        ("foundry_metadata", column.name)
+        for column in source_schema.columns
+        if column.sensitivity_markers
+    }
+    finding_keys.update(
+        ("foundry_metadata", name)
+        for name, markers in source_schema.column_sensitivity_markers
+        if markers
+    )
+    if any(action.detector == "ssn" for action in snapshot.guardrail_actions):
+        scan_content = getattr(catalog, "scan_sensitive_content", None)
+        if callable(scan_content):
+            findings = scan_content(
+                snapshot.source_provider,
+                snapshot.source,
+                source_upload_id=snapshot.source_upload_id or "",
+            )
+            finding_keys.update(
+                ("ssn", str(finding.get("column") or ""))
+                for finding in findings
+                if isinstance(finding, dict)
+                and finding.get("detector") == "ssn"
+                and finding.get("count")
+            )
+    return [
+        action
+        for action in snapshot.guardrail_actions
+        if (action.detector, action.column) in finding_keys
+    ]
+
+
 def register_pipeline_run_routes(
     app: Hedron,
     fragment_router: HedronRouter,
@@ -518,7 +555,7 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
         source_schema = apply_column_type_overrides_to_schema(
             source_schema, snapshot.write_policy.column_type_overrides
         )
-        source_schema = _project_guardrail_schema(source_schema, snapshot.guardrail_actions)
+        eligible_actions = _eligible_guardrail_actions(catalog, snapshot, source_schema)
     except Exception as exc:
         if isinstance(exc, ConnectorError) and exc.code == TransferErrorCode.PERMISSION_DENIED:
             reason_code = "source_permission_denied"
@@ -535,12 +572,13 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
         ) from exc
 
     try:
+        projected_schema = _project_guardrail_schema(source_schema, eligible_actions)
         destination_preflight = getattr(catalog, "preflight_destination", None)
         if callable(destination_preflight):
             destination_preflight(
                 snapshot.destination_provider,
                 snapshot.destination,
-                source_schema,
+                projected_schema,
                 snapshot.write_policy,
             )
         elif snapshot.destination_provider.casefold() == "postgres" and isinstance(
@@ -550,6 +588,15 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
         else:
             return
     except ConnectorError as exc:
+        if "would remove every source column" in str(exc).casefold():
+            raise PipelineReadinessError(
+                "destination_schema_incompatible",
+                {
+                    "Sensitive-data actions": (
+                        "Remove actions cannot eliminate every source column. Review the saved actions."
+                    )
+                },
+            ) from exc
         if exc.code == TransferErrorCode.PERMISSION_DENIED:
             reason_code = "destination_permission_denied"
             field_message = "Check write access to the selected destination schema and table."
