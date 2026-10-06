@@ -986,9 +986,7 @@ def test_successful_guardrail_run_records_original_source_schema_and_applied_act
                 columns=(
                     ColumnSchema(name="id", data_type="Int64"),
                     ColumnSchema(name="ssn", data_type="Int64", sensitivity_markers=("pii",)),
-                    ColumnSchema(
-                        name="alt_ssn", data_type="String", sensitivity_markers=("pii",)
-                    ),
+                    ColumnSchema(name="alt_ssn", data_type="String", sensitivity_markers=("pii",)),
                 ),
             )
 
