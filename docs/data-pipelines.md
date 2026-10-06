@@ -14,10 +14,11 @@ that recipe. The definition says where data comes from, where it goes, and how t
 should be written. A run takes a fixed snapshot of that definition, moves the data in the
 background, and records what happened without storing credentials in the recipe.
 
-Today, Data Mover is focused on controlled movement: select a source and destination, save the
-route, run it manually, and verify the result. The future design adds scheduling and governed
-processing: start the pipeline now or on an owner-defined schedule, validate incoming data, apply an
-ordered set of transformations, validate the result, and only then write it to the destination.
+Today, Data Mover is focused on controlled movement: select a source and destination, review
+sensitive-data findings, save the route, run it manually, and verify the result. Current guardrails
+scan source metadata and content before destination staging, then apply saved Hash or Remove
+decisions. The future design adds scheduling and broader governed processing with user-defined
+data-quality rules and ordered transformation steps.
 
 ```mermaid
 flowchart TB
@@ -49,16 +50,18 @@ and review.
 ## What a pipeline means today
 
 A current Data Mover pipeline is a reusable, owner-scoped **extract-and-load route**. It identifies
-one source selection, one destination object, and one destination write policy. It is not currently
-a general directed graph and it does not contain user-authored transformation or data-quality nodes.
+one source selection, one destination object, one destination write policy, and saved sensitive-data
+actions. It is not currently a general directed graph and it does not contain user-authored
+transformation or data-quality nodes.
 
 The saved definition contains:
 
 - a display name and owner;
 - source and destination provider IDs;
 - versioned, provider-specific locators, such as a PostgreSQL table, Foundry dataset file, or CSV
-  upload and checksum; and
-- a typed write policy, such as PostgreSQL append, upsert, or replace, or Foundry file replace.
+  upload and checksum;
+- a typed write policy, such as PostgreSQL append, upsert, or replace, or Foundry file replace; and
+- saved Hash or Remove decisions for detected sensitive columns.
 
 Credentials are deliberately absent. The definition refers to the owner's provider slots, and the
 runtime decrypts the necessary credential bundles only after it claims a run. The separate catalog
@@ -141,7 +144,7 @@ flowchart LR
     S --> V[Save validation]
     D --> V
     W --> V
-    V -->|valid| PD[(Pipeline definition v3)]
+    V -->|valid| PD[(Pipeline definition v4)]
     V -->|invalid| E[Field or route error]
     PD --> A[(Audit event)]
 ```
@@ -160,8 +163,8 @@ normalizes and validates the submitted route, including:
 
 The service then creates or updates an owner-scoped `pipeline_definitions` row and records a
 sanitized `pipeline.created` or `pipeline.updated` audit event. Schema and row-count previews help
-the user review a route, but the current saved contract is the locator and write-policy JSON—not a
-frozen copy of previewed records.
+the user review a route. The saved contract also contains sensitive-column decisions; it never
+stores previewed cell values.
 
 ## Current state: running a pipeline
 
@@ -179,20 +182,22 @@ flowchart TD
     Q --> L[In-process runtime claims and renews lease]
     L --> K[Parse snapshot and decrypt required credentials]
     K --> V[Validate connections and inspect source]
-    V --> X[Extract next bounded Polars batch]
-    X --> G{Batch outcome}
-    G -->|valid batch| D[Prepare destination and load batch]
+    V --> X[Read source in bounded batches]
+    X --> G[Scan and encrypt source batches before destination staging]
+    G --> H{Findings resolved?}
+    H -->|no| B[Block before destination writes]
+    H -->|yes| D[Prepare destination]
+    D --> T[Transform each batch before writing]
     D --> M[(Persist counters and events)]
-    M --> X
-    G -->|source complete| F[Finalize destination]
+    M --> F[Finalize destination]
     F --> C[Capture destination count and schema when available]
     C --> P[(Persist manifests, verification facts, and success)]
-    G -->|cancel, limit, or schema drift| E[Failed or cancelled]
+    X -->|cancel, limit, or schema drift| E[Failed or cancelled]
     D -->|uncertain write or lost lease| N[Failed: reconciliation needed]
 ```
 
 The persisted run snapshot isolates a run from later edits to the reusable definition. Run events,
-status, row and byte counters, manifests, and sanitized failures remain in the application database;
+status, row and byte counters, manifests, guardrail findings, and sanitized failures remain in the application database;
 the browser only polls those persisted facts. Event numbers are allocated atomically on the run row,
 so worker and cancellation transactions cannot publish the same sequence.
 
@@ -202,10 +207,10 @@ so worker and cancellation transactions cannot publish the same sequence.
 |---|---|
 | `queued` | Persist the snapshot and wait for the app runtime to claim a lease. |
 | `validating` | Parse the snapshot, resolve the owner's credentials, test both connections, inspect the source schema, and collect best-effort destination metadata. |
-| `extracting` | Open the source iterator and read Polars batches bounded by both configured rows and estimated in-memory bytes. A single row larger than the byte ceiling fails explicitly. The first batch can supply portable schema metadata. |
-| `loading` | Prepare the destination, enforce run size/time limits and stable batch columns, write each batch, and persist acknowledged counters. |
+| `extracting` | Read and scan the complete source in bounded Polars batches before destination staging. The worker records SSN-match counts only and encrypts a temporary batch spool. It blocks table-level markings, unresolved findings, missing marked columns, or a required key selected for removal. A single oversized row or a spool over its configured limit fails before writes. |
+| `loading` | Prepare the destination, transform every reviewed batch with the saved Hash or Remove decisions before handing it to the writer, and persist acknowledged counters. |
 | `verifying` | Finalize the destination and capture provider-appropriate manifests, counts, checksums, remote IDs, and schema metadata when available. |
-| terminal | Persist `succeeded`, `failed`, `cancelled`, or `failed_needs_reconciliation` and release the lease. |
+| terminal | Persist `succeeded`, `blocked`, `failed`, `cancelled`, or `failed_needs_reconciliation` and release the lease. A `blocked` run confirms no destination writes occurred. |
 
 The worker renews its lease approximately every one-third of the configured lease duration from a
 dedicated database session. Every lease-guarded state/counter mutation refreshes the run and verifies
@@ -235,6 +240,7 @@ yet execute user-defined data-quality rules:
 | Credential field validation and connection test | Connection setup | Confirm that a credential bundle is well formed and can reach its provider. |
 | Route, capability, locator, ownership, and write-policy validation | Save | Prevent unsupported or cross-owner definitions. |
 | Read-only source and destination readiness checks | Run submission, before enqueue and extraction | Catch stale source objects or permissions and destination access, schema, write-policy, or Foundry dataset/branch problems before a worker starts writing. |
+| Foundry sensitivity metadata and SSN content scan | Before destination staging | Detect configured Foundry table/column markers and supported SSN patterns. Table-level markings and unresolved column findings block writes; a column action hashes or removes the full affected column. |
 | Batch column-set and row/byte limit checks | During extraction/load | Detect column drift and enforce bounded execution, including rejecting one indivisible oversized row. |
 | Destination finalization and manifest capture | After load | Record provider-appropriate evidence about what the destination acknowledged. |
 
@@ -242,6 +248,24 @@ The current system does **not** provide rules such as “`event_id` must be uniq
 timestamps,” “amount must be non-negative,” or “quarantine invalid rows.” Verification telemetry
 also must not be interpreted as a universal row-by-row reconciliation guarantee; connector
 capabilities determine what can be observed.
+
+Sensitive-data findings are the exception to the otherwise future-facing transformation roadmap.
+For Foundry, Data Mover reads dataset schema metadata and resource markings. Operators configure
+marker names with `PIPELINE_SENSITIVE_METADATA_MARKERS`; matching is case-insensitive and ignores
+punctuation. Table-level markings block the run. Column-level metadata findings require a saved
+Hash or Remove choice. The content scan checks untagged columns for SSN patterns; each match
+requires a saved Hash or Remove choice. Hashing uses deterministic
+HMAC-SHA256 with a key derived from the active connection-encryption key and scoped to the user and
+pipeline. Hashes preserve nulls and are emitted as strings; Remove drops the column. Removing a
+required PostgreSQL upsert or configured primary key blocks the run. When multiple findings target
+one column, Remove takes precedence over Hash.
+
+The worker scans and encrypts source batches before preparing the destination, so it writes the same
+rows it reviewed. Temporary spool records use an ephemeral encryption key and are deleted when the
+run ends. Run history, audit details, and logs store only detector, column, count, action, and outcome
+fields; matched source values and schema examples are excluded.
+Migration `0021` also removes previously persisted schema examples from run manifests and cached
+Foundry schemas.
 
 Run submission performs a read-only provider preflight before it creates the queued run. PostgreSQL
 checks source-table read access and verifies destination schema/table permissions against the chosen

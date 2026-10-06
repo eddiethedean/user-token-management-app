@@ -44,6 +44,10 @@ from app.connectors.redaction import redact_text
 from app.connectors.registry import connector_settings
 from app.connectors.tls import ssl_context_for_bundle
 from app.domain.csv_inference import CsvColumnProfile, csv_dialect, csv_headers, profile_csv_rows
+from app.domain.pipelines.guardrails import (
+    configured_marker_values,
+    matching_metadata_markers,
+)
 
 SUPPORTED_SUFFIXES = (".csv", ".parquet")
 DEFAULT_BRANCHES = ("master", "main")
@@ -391,6 +395,97 @@ class FoundryClient:
             "The Foundry dataset exceeded the catalog page limit.",
             retryable=False,
         )
+
+    def sensitivity_metadata(
+        self, dataset_rid: str, branch: str, configured: frozenset[str]
+    ) -> tuple[tuple[str, ...], dict[str, tuple[str, ...]]]:
+        """Read configured table/column markers without retaining free-form metadata."""
+
+        if not configured:
+            return (), {}
+        table_markers: set[str] = set()
+        column_markers: dict[str, tuple[str, ...]] = {}
+        schema_url = f"{self.base_url}/api/v2/datasets/{dataset_rid}/getSchema"
+        try:
+            payload = self.request(
+                "GET", schema_url, params={"branchName": branch}
+            ).json()
+        except ConnectorError as exc:
+            # Schema-less datasets and older Foundry deployments can report
+            # not-found for getSchema. File inspection remains authoritative
+            # for the transfer schema; permission failures stay fail-closed.
+            if exc.code != TransferErrorCode.SOURCE_NOT_FOUND:
+                raise
+            payload = {}
+        except (ValueError, json.JSONDecodeError):
+            payload = {}
+        if isinstance(payload, dict):
+            schema = payload.get("schema")
+            if isinstance(schema, dict):
+                table_markers.update(
+                    matching_metadata_markers(schema.get("customMetadata"), configured)
+                )
+                fields = schema.get("fieldSchemaList")
+                if isinstance(fields, list):
+                    for item in fields:
+                        if not isinstance(item, dict):
+                            continue
+                        name = str(item.get("name") or "")
+                        markers = matching_metadata_markers(item.get("customMetadata"), configured)
+                        if name and markers:
+                            column_markers[name] = markers
+
+        encoded_rid = quote(dataset_rid, safe=".")
+        markings_url = f"{self.base_url}/api/v2/filesystem/resources/{encoded_rid}/markings"
+        try:
+            payload = self.request("GET", markings_url).json()
+        except ConnectorError as exc:
+            if exc.code != TransferErrorCode.SOURCE_NOT_FOUND:
+                raise
+            payload = {}
+        except (ValueError, json.JSONDecodeError):
+            payload = {}
+        ids = payload.get("data", []) if isinstance(payload, dict) else []
+        if isinstance(ids, list):
+            for item in ids:
+                marking_id = str(item or "").strip()
+                if not marking_id:
+                    continue
+                direct = matching_metadata_markers(marking_id, configured)
+                if direct:
+                    table_markers.update(direct)
+                    continue
+                marking_url = f"{self.base_url}/api/v2/admin/markings/{quote(marking_id, safe='')}"
+                try:
+                    marking = self.request("GET", marking_url).json()
+                except ConnectorError as exc:
+                    if exc.code == TransferErrorCode.SOURCE_NOT_FOUND:
+                        continue
+                    raise
+                except (ValueError, json.JSONDecodeError):
+                    continue
+                if isinstance(marking, dict):
+                    table_markers.update(
+                        matching_metadata_markers(marking.get("name"), configured)
+                    )
+        return tuple(sorted(table_markers)), column_markers
+
+    def inspect_sensitivity_metadata(
+        self, credentials, locator: Locator
+    ) -> tuple[tuple[str, ...], dict[str, tuple[str, ...]]]:
+        """Refresh Foundry markings without downloading or profiling source files."""
+
+        if not isinstance(locator, FoundryDatasetFilesLocator):
+            return (), {}
+        client = self._client(credentials)
+        try:
+            branch = locator.branch or client.default_branch
+            configured = configured_marker_values(
+                self.settings.pipeline_sensitive_metadata_markers
+            )
+            return client.sensitivity_metadata(locator.dataset_rid, branch, configured)
+        finally:
+            client.close()
 
     def resolve_branch(
         self, dataset_rid: str, preferred_branch: str | None = None
@@ -807,14 +902,32 @@ class FoundryConnector:
     def inspect_object(self, credentials, locator: Locator) -> ObjectSchema:
         if not isinstance(locator, FoundryDatasetFilesLocator):
             return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
-        if not isinstance(locator.file_paths, list) or len(locator.file_paths) != 1:
-            return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
-        file_path = locator.file_paths[0]
         client = self._client(credentials)
+        configured = configured_marker_values(self.settings.pipeline_sensitive_metadata_markers)
         spool_root = Path(self.settings.pipeline_spool_root or "/tmp")
         spool_root.mkdir(parents=True, exist_ok=True)
         try:
             branch, listed = client.resolve_branch(locator.dataset_rid, locator.branch)
+            table_markers, column_markers = client.sensitivity_metadata(
+                locator.dataset_rid, branch, configured
+            )
+            if table_markers:
+                return ObjectSchema(
+                    locator=locator,
+                    columns=(),
+                    estimated_rows=None,
+                    sensitivity_markers=table_markers,
+                    column_sensitivity_markers=tuple(sorted(column_markers.items())),
+                )
+            if not isinstance(locator.file_paths, list) or len(locator.file_paths) != 1:
+                return ObjectSchema(
+                    locator=locator,
+                    columns=(),
+                    estimated_rows=None,
+                    sensitivity_markers=table_markers,
+                    column_sensitivity_markers=tuple(sorted(column_markers.items())),
+                )
+            file_path = locator.file_paths[0]
             entry = next(
                 (item for item in supported_files(listed) if item.get("path") == file_path),
                 None,
@@ -827,7 +940,13 @@ class FoundryConnector:
                 )
             size = int(entry.get("sizeBytes") or 0)
             if size > MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES:
-                return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
+                return ObjectSchema(
+                    locator=locator,
+                    columns=(),
+                    estimated_rows=None,
+                    sensitivity_markers=table_markers,
+                    column_sensitivity_markers=tuple(sorted(column_markers.items())),
+                )
             with tempfile.TemporaryDirectory(prefix="foundry-schema-", dir=spool_root) as temp_dir:
                 local_file = Path(temp_dir) / "source"
                 try:
@@ -840,7 +959,13 @@ class FoundryConnector:
                     )
                 except ConnectorError as exc:
                     if exc.code == TransferErrorCode.SOURCE_LIMIT_EXCEEDED:
-                        return ObjectSchema(locator=locator, columns=(), estimated_rows=None)
+                        return ObjectSchema(
+                            locator=locator,
+                            columns=(),
+                            estimated_rows=None,
+                            sensitivity_markers=table_markers,
+                            column_sensitivity_markers=tuple(sorted(column_markers.items())),
+                        )
                     raise
                 try:
                     profiles: tuple[CsvColumnProfile, ...] = ()
@@ -863,10 +988,13 @@ class FoundryConnector:
                         data_type=str(dtype),
                         nullable=True,
                         example=profiles[index].example if index < len(profiles) else "",
+                        sensitivity_markers=column_markers.get(name, ()),
                     )
                     for index, (name, dtype) in enumerate(schema.items())
                 ),
                 estimated_rows=None,
+                sensitivity_markers=table_markers,
+                column_sensitivity_markers=tuple(sorted(column_markers.items())),
             )
         finally:
             client.close()

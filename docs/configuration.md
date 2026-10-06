@@ -21,7 +21,7 @@ Most deployments only need to make decisions in these areas:
 | Email | `EMAIL_BACKEND`, `EMAIL_FROM`, `SMTP_*` | Whether links are printed locally or sent through the approved relay |
 | Diagnostics | `LOG_FORMAT`, `LOG_LEVEL` | Compact local text or structured production JSON logs at the selected level |
 | Directory gate | `DIRECTORY_LOOKUP_*` | Optional authoritative eligibility check for enrollment; it does not replace authentication |
-| Live transfers | `DATA_MOVER_MODE`, `PIPELINE_SPOOL_ROOT`, `PIPELINE_ALLOWED_HTTPS_HOSTS`, `PIPELINE_ENABLE_*_WRITER` | Whether real movement is enabled, where temporary data is stored, and which destinations are allowed |
+| Live transfers | `DATA_MOVER_MODE`, `PIPELINE_SPOOL_ROOT`, `PIPELINE_ALLOWED_HTTPS_HOSTS`, `PIPELINE_ENABLE_*_WRITER`, `PIPELINE_SENSITIVE_METADATA_MARKERS` | Whether real movement is enabled, where temporary data is stored, which destinations are allowed, and which Foundry labels trigger sensitivity review |
 
 If you are changing a value because of performance, queue behavior, or a
 network constraint, override the corresponding setting in `.env` only after
@@ -99,6 +99,14 @@ operations require them:
 - `PIPELINE_BATCH_ROWS` and `PIPELINE_BATCH_TARGET_BYTES` bound emitted real-connector batches by
   rows and estimated in-memory bytes (defaults: 25,000 rows and 64 MiB). A single indivisible row
   above the byte ceiling fails the run.
+- `PIPELINE_SENSITIVE_METADATA_MARKERS` is a comma-, semicolon-, or newline-separated list of
+  Foundry metadata marker names to treat as sensitive. Matching is case-insensitive and ignores
+  punctuation. The default recognizes `sensitive`, `pii`, `phi`, `ssn`, `cui`, `confidential`, and
+  `restricted`. Table-level Foundry markings block a run; column-level matches require a saved Hash
+  or Remove decision. Sources are also scanned for supported SSN patterns before destination
+  writes. Hash values use a pipeline- and user-scoped HMAC key derived from the active
+  `API_TOKEN_ENCRYPTION_KEYS` key; rotating that key changes future hashes, so coordinate key
+  rotation with any downstream use of hashed identifiers.
 - `PIPELINE_LEASE_SECONDS` controls task ownership (default: 120 seconds); a claimed task renews from
   an independent database session at roughly one-third of that interval.
 - `PIPELINE_CATALOG_TTL_SECONDS` controls the owner/provider/namespace metadata cache (default: 300
@@ -139,7 +147,7 @@ The inventory below is intentionally complete so this page and `.env.example` ca
 | Email and SMTP | `EMAIL_BACKEND`, `EMAIL_REDACT_SENT_BODIES`, `EMAIL_MAX_ATTEMPTS`, `EMAIL_RETRY_BASE_SECONDS`, `EMAIL_RETRY_MAX_SECONDS`, `EMAIL_CLAIM_TIMEOUT_SECONDS`, `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_ALLOW_LEGACY_PORT25_FALLBACK`, `SMTP_USERNAME`, `SMTP_PASSWORD` |
 | Diagnostics | `LOG_FORMAT`, `LOG_LEVEL` |
 | Password hashing and policy | `PASSWORD_HASH_SCHEME`, `PBKDF2_ITERATIONS`, `PASSWORD_BLOCKLIST_PATH` |
-| Pipeline runtime and limits | `DATA_MOVER_MODE`, `PIPELINE_WORKER_ID`, `PIPELINE_BACKGROUND_POLL_SECONDS`, `PIPELINE_JANITOR_INTERVAL_SECONDS`, `PIPELINE_LEASE_SECONDS`, `PIPELINE_BATCH_ROWS`, `PIPELINE_BATCH_TARGET_BYTES`, `PIPELINE_MAX_RUN_SECONDS`, `PIPELINE_MAX_SOURCE_BYTES`, `PIPELINE_MAX_SPOOL_BYTES`, `PIPELINE_SPOOL_ROOT` |
+| Pipeline runtime and limits | `DATA_MOVER_MODE`, `PIPELINE_WORKER_ID`, `PIPELINE_BACKGROUND_POLL_SECONDS`, `PIPELINE_JANITOR_INTERVAL_SECONDS`, `PIPELINE_LEASE_SECONDS`, `PIPELINE_BATCH_ROWS`, `PIPELINE_BATCH_TARGET_BYTES`, `PIPELINE_MAX_RUN_SECONDS`, `PIPELINE_MAX_SOURCE_BYTES`, `PIPELINE_MAX_SPOOL_BYTES`, `PIPELINE_SPOOL_ROOT`, `PIPELINE_SENSITIVE_METADATA_MARKERS` |
 | Provider HTTP and catalog policy | `PIPELINE_HTTP_CONNECT_SECONDS`, `PIPELINE_HTTP_READ_SECONDS`, `PIPELINE_HTTP_WRITE_SECONDS`, `PIPELINE_HTTP_RETRY_ATTEMPTS`, `PIPELINE_CATALOG_TTL_SECONDS`, `PIPELINE_CONNECTION_MAX_AGE_SECONDS`, `PIPELINE_ALLOWED_HTTPS_HOSTS`, `PIPELINE_CA_BUNDLE` |
 | Pipeline retention and writers | `PIPELINE_RUN_RETENTION_DAYS`, `PIPELINE_EVENT_RETENTION_DAYS`, `PIPELINE_ENABLE_POSTGRES_WRITER`, `PIPELINE_ENABLE_MSS_WRITER`, `PIPELINE_ENABLE_MCSCOP_WRITER`, `PIPELINE_APPLY_INTERNAL_CA_FIX` |
 

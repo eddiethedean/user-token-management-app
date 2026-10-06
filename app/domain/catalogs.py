@@ -47,6 +47,7 @@ class ColumnSchema:
     data_type: str
     nullable: bool = True
     example: str = ""
+    sensitivity_markers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -56,3 +57,5 @@ class ObjectSchema:
     primary_key: tuple[str, ...] = ()
     unique_constraints: tuple[tuple[str, ...], ...] = ()
     estimated_rows: int | None = None
+    sensitivity_markers: tuple[str, ...] = ()
+    column_sensitivity_markers: tuple[tuple[str, tuple[str, ...]], ...] = ()

@@ -15,10 +15,15 @@ from app.application.pipelines import PipelineAuthoringOperation, SavePipelineAu
 from app.connectors.errors import ConnectorError
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.domain.column_types import parse_column_type_override_values
+from app.domain.pipelines.guardrails import (
+    guardrail_source_key,
+    parse_guardrail_action_values,
+)
 from app.ui.params import (
     PipelineAutoIncrementPrimaryKeyForm,
     PipelineColumnTypeOverridesForm,
     PipelineConflictColumnsForm,
+    PipelineGuardrailActionsForm,
     PipelineIdForm,
     PipelineNameForm,
     PipelineOptionalTableForm,
@@ -63,6 +68,7 @@ def register_pipeline_save_routes(
         destination_table_new: PipelineOptionalTableForm = "",
         conflict_columns: PipelineConflictColumnsForm = "",
         column_type_overrides: PipelineColumnTypeOverridesForm = None,
+        guardrail_actions: PipelineGuardrailActionsForm = None,
         primary_key_columns: PipelinePrimaryKeyColumnsForm = "",
         auto_increment_primary_key: PipelineAutoIncrementPrimaryKeyForm = "",
         source_upload_id: PipelineIdForm = "",
@@ -97,6 +103,15 @@ def register_pipeline_save_routes(
                     conflict_columns=conflict_columns,
                     column_type_overrides=parse_column_type_override_values(
                         column_type_overrides or ()
+                    ),
+                    guardrail_actions=parse_guardrail_action_values(
+                        guardrail_actions or (),
+                        expected_source_key=guardrail_source_key(
+                            source_provider,
+                            source_schema,
+                            source_table,
+                            source_upload_id,
+                        ),
                     ),
                     primary_key_columns=primary_key_columns,
                     auto_increment_primary_key=auto_increment_primary_key,

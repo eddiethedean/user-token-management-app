@@ -54,6 +54,8 @@ __all__ = [
     "enqueue_run",
     "janitor",
     "request_cancel",
+    "record_guardrail_review",
+    "block_run",
     "record_reconciliation_review",
     "snapshot_from_definition",
 ]
@@ -624,6 +626,99 @@ def add_counters(
     db.commit()
 
 
+def record_guardrail_review(
+    db: Session,
+    run: PipelineRun,
+    *,
+    lease_token: str,
+    guardrail: dict[str, object],
+) -> None:
+    """Persist a whitelisted, value-free guardrail review for this run."""
+
+    _refresh_and_require_lease(db, run, lease_token)
+    safe_document = redact_mapping(guardrail)
+    run.guardrail_json = json.dumps(safe_document, separators=(",", ":"))
+    findings = safe_document.get("findings", []) if isinstance(safe_document, dict) else []
+    finding_count = len(findings) if isinstance(findings, list) else 0
+    append_event(
+        db,
+        run,
+        f"Sensitive-data scan completed: {finding_count} finding(s) recorded.",
+        stage="guardrails",
+        level="warning" if finding_count else "info",
+    )
+    db.commit()
+
+
+def block_run(
+    db: Session,
+    run: PipelineRun,
+    *,
+    lease_token: str,
+    summary: str,
+    guardrail: dict[str, object],
+) -> None:
+    """Stop a pre-write run on unresolved sensitivity findings."""
+
+    _refresh_and_require_lease(db, run, lease_token)
+    safe_document = redact_mapping(guardrail)
+    run.guardrail_json = json.dumps(safe_document, separators=(",", ":"))
+    run.error_code = TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED.value
+    run.error_summary = redact_text(summary)[:500]
+    run.retryable = False
+    run.last_safe_stage = "guardrails"
+    run.data_impact = DataImpact.UNCHANGED.value
+    run.reconciliation_required = False
+    run.reconciliation_reviewed_at = None
+    _transition(run, PipelineRunStatus.BLOCKED.value, lease_token=lease_token)
+    run.verification_json = json.dumps(
+        _failure_facts(
+            run,
+            TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED.value,
+            DataImpact.UNCHANGED,
+            reconciliation_required=False,
+            last_safe_stage="guardrails",
+        ),
+        separators=(",", ":"),
+    )
+    append_event(
+        db,
+        run,
+        run.error_summary,
+        stage="guardrails",
+        level="warning",
+    )
+    run_detail = _run_diagnostic_detail(run, stage="guardrails")
+    record_event(
+        db,
+        "pipeline.run.blocked",
+        target=db.get(User, run.user_id),
+        outcome="blocked",
+        detail=run_detail,
+    )
+    findings = safe_document.get("findings", []) if isinstance(safe_document, dict) else []
+    finding_count = len(findings) if isinstance(findings, list) else 0
+    log_event(
+        log,
+        "pipeline.run.blocked",
+        outcome="blocked",
+        reference_id=run.id,
+        error_code=run.error_code,
+        run_id=run.id,
+        pipeline_id=run.pipeline_definition_id or "",
+        user_id=run.user_id,
+        attempt=run.attempt,
+        operation="transfer",
+        stage="guardrails",
+        data_impact=run.data_impact,
+        run_status=run.status,
+        finding_count=finding_count,
+        source_provider=run_detail["source_provider"],
+        destination_provider=run_detail["destination_provider"],
+    )
+    db.commit()
+
+
 def complete_run(
     db: Session,
     run: PipelineRun,
@@ -983,6 +1078,9 @@ def snapshot_from_definition(pipeline: PipelineDefinition) -> DefinitionSnapshot
                 "destination": json.loads(pipeline.destination_locator_json),
                 "write_policy": json.loads(pipeline.write_policy_json),
                 "source_upload_id": pipeline.source_upload_id,
+                "guardrail_actions": json.loads(
+                    getattr(pipeline, "guardrail_actions_json", "[]") or "[]"
+                ),
             }
         )
     )

@@ -24,6 +24,7 @@ WORKER_OWNED_STATUSES = {
 }
 
 TERMINAL_STATUSES = {
+    PipelineRunStatus.BLOCKED.value,
     PipelineRunStatus.SUCCEEDED.value,
     PipelineRunStatus.FAILED.value,
     PipelineRunStatus.CANCELLED.value,
@@ -40,6 +41,7 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     PipelineRunStatus.VALIDATING.value: frozenset(
         {
             PipelineRunStatus.EXTRACTING.value,
+            PipelineRunStatus.BLOCKED.value,
             PipelineRunStatus.FAILED.value,
             PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
             PipelineRunStatus.CANCELLED.value,
@@ -48,6 +50,7 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     PipelineRunStatus.EXTRACTING.value: frozenset(
         {
             PipelineRunStatus.LOADING.value,
+            PipelineRunStatus.BLOCKED.value,
             PipelineRunStatus.FAILED.value,
             PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
             PipelineRunStatus.CANCELLED.value,
@@ -77,6 +80,7 @@ STAGE_FOR_STATUS = {
     PipelineRunStatus.EXTRACTING.value: "inspect",
     PipelineRunStatus.LOADING.value: "transfer",
     PipelineRunStatus.VERIFYING.value: "verify",
+    PipelineRunStatus.BLOCKED.value: "guardrails",
     PipelineRunStatus.SUCCEEDED.value: "verify",
     PipelineRunStatus.FAILED.value: "failed",
     PipelineRunStatus.CANCELLED.value: "cancelled",

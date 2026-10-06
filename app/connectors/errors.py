@@ -21,6 +21,7 @@ class TransferErrorCode(StrEnum):
     SOURCE_NOT_FOUND = "source_not_found"
     DESTINATION_NOT_FOUND = "destination_not_found"
     SCHEMA_DRIFT = "schema_drift"
+    SENSITIVE_DATA_GUARDRAIL_BLOCKED = "sensitive_data_guardrail_blocked"
     UNSUPPORTED_TYPE = "unsupported_type"
     SOURCE_LIMIT_EXCEEDED = "source_limit_exceeded"
     SPOOL_LIMIT_EXCEEDED = "spool_limit_exceeded"

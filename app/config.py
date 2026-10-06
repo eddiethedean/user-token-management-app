@@ -92,6 +92,9 @@ class ConfigDefaults:
     pipeline_connection_max_age_seconds: int = 900
     pipeline_run_retention_days: int = 90
     pipeline_event_retention_days: int = 30
+    pipeline_sensitive_metadata_markers: str = (
+        "sensitive,pii,phi,ssn,cui,confidential,restricted"
+    )
     pipeline_enable_postgres_writer: bool = True
     pipeline_enable_mss_writer: bool = True
     pipeline_enable_mcscop_writer: bool = True
@@ -272,6 +275,9 @@ class Settings(BaseSettings):
     )
     pipeline_event_retention_days: int = Field(
         default=CONFIG_DEFAULTS.pipeline_event_retention_days, ge=1, le=365
+    )
+    pipeline_sensitive_metadata_markers: str = Field(
+        default=CONFIG_DEFAULTS.pipeline_sensitive_metadata_markers, max_length=2_000
     )
     pipeline_allowed_https_hosts: str = ""
     pipeline_ca_bundle: str = ""

@@ -123,6 +123,21 @@ def run_outcome(run: Any) -> FeedbackOutcome | None:
             reference_kind=ReferenceKind.RUN,
             reference_id=str(run.id),
         )
+    if status == "blocked":
+        return FeedbackOutcome(
+            code=TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED.value,
+            severity=FeedbackSeverity.WARNING,
+            title="Sensitive-data review is required.",
+            message=(
+                "No destination writes occurred. Review the flagged columns, choose Hash or Remove, "
+                "save the route, then start a new run."
+            ),
+            action=FeedbackAction.RECONFIGURE,
+            action_label="Review route",
+            data_impact=DataImpact.UNCHANGED,
+            reference_kind=ReferenceKind.RUN,
+            reference_id=str(run.id),
+        )
     if status == "cancelled":
         impact = run_data_impact(run)
         return FeedbackOutcome(

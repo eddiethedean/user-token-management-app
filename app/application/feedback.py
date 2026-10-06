@@ -92,6 +92,12 @@ _PIPELINE_FAILURE_COPY = {
         FeedbackAction.RECONFIGURE,
         DataImpact.UNCHANGED,
     ),
+    TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED: (
+        "Sensitive-data review is required.",
+        "No destination writes occurred. Review the flagged columns, choose Hash or Remove, save the route, then start a new run.",
+        FeedbackAction.RECONFIGURE,
+        DataImpact.UNCHANGED,
+    ),
     TransferErrorCode.UNSUPPORTED_TYPE: (
         "The selected route contains an unsupported data type.",
         "Choose a compatible source or destination, or ask an administrator about supported types.",

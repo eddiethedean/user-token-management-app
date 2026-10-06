@@ -43,7 +43,9 @@ If the database is already Alembic-managed, omit `--adopt-existing` and run plai
 
 Data-movement revisions add owner-scoped saved pipelines (`0007`), connection catalog and
 health/runtime metadata (`0008`), owner-scoped CSV pipeline sources (`0009`), persisted connection
-readiness details (`0019`), and explicit run-metric provenance (`0020`). Do not remove or rewrite
+readiness details (`0019`), explicit run-metric provenance (`0020`), and saved sensitive-data
+guardrail actions and run findings (`0021`). Revision `0021` also strips previously persisted schema
+examples from run manifests and Foundry schema-cache rows. Do not remove or rewrite
 these rows outside an approved retention/migration procedure: saved definitions may hold foreign
 keys to CSV uploads, and credential ciphertext depends on the configured key ring.
 

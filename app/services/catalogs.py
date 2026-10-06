@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
@@ -29,7 +30,12 @@ from app.connectors.base import (
 )
 from app.connectors.decimal_validation import validate_decimal_destination_schema
 from app.connectors.errors import ConnectorError, TransferErrorCode
-from app.connectors.locators import FoundryDatasetFilesLocator, parse_locator, validate_locator
+from app.connectors.locators import (
+    CsvUploadLocator,
+    FoundryDatasetFilesLocator,
+    parse_locator,
+    validate_locator,
+)
 from app.connectors.registry import (
     capabilities_for,
     catalog_browser_for,
@@ -37,10 +43,12 @@ from app.connectors.registry import (
     load_builtin_connectors,
     object_schema_inspector_for,
     row_counter_for,
+    source_reader_for,
 )
 from app.db_compat import insert_for
 from app.domain.locators import Locator, PostgresTableLocator, PostgresUpsertPolicy, WritePolicy
-from app.models import FoundryDataset, PipelineCatalogCache, User, new_id, utcnow
+from app.domain.pipelines.guardrails import scan_ssn_frame
+from app.models import FoundryDataset, PipelineCatalogCache, PipelineUpload, User, new_id, utcnow
 
 CREATE_TABLE_VALUE = "__new__"
 NEW_TABLE_VALUE_PREFIX = f"{CREATE_TABLE_VALUE}:"
@@ -179,10 +187,72 @@ class UserCatalog:
             cached = self._read_cache(provider, cache_namespace)
             if cached is not None and isinstance(cached.get("columns"), list):
                 try:
-                    return ObjectSchema(
-                        locator=locator,
-                        columns=tuple(ColumnSchema(**item) for item in cached["columns"]),
+                    cached_columns = tuple(
+                        ColumnSchema(
+                            **{
+                                **item,
+                                "example": "",
+                                "sensitivity_markers": tuple(
+                                    item.get("sensitivity_markers") or ()
+                                ),
+                            }
+                        )
+                        for item in cached["columns"]
                     )
+                    cached_schema = ObjectSchema(
+                        locator=locator,
+                        columns=cached_columns,
+                        sensitivity_markers=tuple(cached.get("sensitivity_markers") or ()),
+                        column_sensitivity_markers=tuple(
+                            (str(name), tuple(markers or ()))
+                            for name, markers in (cached.get("column_sensitivity_markers") or {}).items()
+                        ),
+                    )
+                    refresh_sensitivity = getattr(
+                        inspector, "inspect_sensitivity_metadata", None
+                    )
+                    if callable(refresh_sensitivity):
+                        table_markers, column_markers = refresh_sensitivity(
+                            self._credentials_for(provider), locator
+                        )
+                        cached_schema = ObjectSchema(
+                            locator=locator,
+                            columns=(
+                                ()
+                                if table_markers
+                                else tuple(
+                                    ColumnSchema(
+                                        name=column.name,
+                                        data_type=column.data_type,
+                                        nullable=column.nullable,
+                                        example="",
+                                        sensitivity_markers=column_markers.get(
+                                            column.name, ()
+                                        ),
+                                    )
+                                    for column in cached_schema.columns
+                                )
+                            ),
+                            sensitivity_markers=tuple(table_markers),
+                            column_sensitivity_markers=tuple(
+                                sorted(column_markers.items())
+                            ),
+                        )
+                    # Scrub examples from schema cache rows written by earlier
+                    # versions before they can be reused by a later request.
+                    self._write_cache(
+                        provider,
+                        cache_namespace,
+                        {
+                            "columns": [vars(column) for column in cached_schema.columns],
+                            "sensitivity_markers": list(cached_schema.sensitivity_markers),
+                            "column_sensitivity_markers": {
+                                name: list(markers)
+                                for name, markers in cached_schema.column_sensitivity_markers
+                            },
+                        },
+                    )
+                    return cached_schema
                 except (TypeError, ValueError):
                     pass
         inspected = inspector.inspect_object(self._credentials_for(provider), locator)
@@ -190,9 +260,135 @@ class UserCatalog:
             self._write_cache(
                 provider,
                 cache_namespace,
-                {"columns": [vars(column) for column in inspected.columns]},
+                {
+                    "columns": [
+                        {**vars(column), "example": ""}
+                        for column in inspected.columns
+                    ],
+                    "sensitivity_markers": list(inspected.sensitivity_markers),
+                    "column_sensitivity_markers": {
+                        name: list(markers)
+                        for name, markers in inspected.column_sensitivity_markers
+                    },
+                },
             )
         return inspected
+
+    def scan_sensitive_content(
+        self,
+        provider: str,
+        locator: Locator,
+        *,
+        source_upload_id: str = "",
+    ) -> list[dict[str, object]]:
+        """Scan a complete source through bounded batches and return counts only."""
+
+        locator = validate_locator(locator)
+        provider_id = provider.casefold()
+        ignored_sensitive_columns: set[str] = set()
+        if provider_id == "csv":
+            if not isinstance(locator, CsvUploadLocator):
+                raise ConnectorError(
+                    TransferErrorCode.SOURCE_NOT_FOUND,
+                    "The CSV source selection is no longer available.",
+                    retryable=False,
+                )
+            upload = self.db.get(PipelineUpload, source_upload_id or locator.upload_id)
+            if (
+                upload is None
+                or upload.user_id != self.user.id
+                or upload.checksum_sha256 != locator.checksum_sha256
+            ):
+                raise ConnectorError(
+                    TransferErrorCode.SOURCE_NOT_FOUND,
+                    "The CSV source selection is no longer available.",
+                    retryable=False,
+                )
+            from app.services.csv_uploads import inspection_from_upload
+
+            inspection = inspection_from_upload(upload)
+            content = upload.content
+            credentials = {
+                "content": content.decode("utf-8") if isinstance(content, bytes) else "",
+                "delimiter": inspection.delimiter,
+                "quote_char": inspection.quote_char,
+                "columns": json.dumps([column.name for column in inspection.columns]),
+                "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
+                "column_timezones": json.dumps(
+                    [column.timezone_aware for column in inspection.columns]
+                ),
+                "column_decimal_specs": json.dumps(
+                    [
+                        {
+                            "precision": column.decimal_precision,
+                            "scale": column.decimal_scale,
+                        }
+                        for column in inspection.columns
+                    ]
+                ),
+            }
+        else:
+            credentials = self._credentials_for(provider_id)
+            if provider_id in {"mss", "mcscop"}:
+                inspector = self.schema_resolver(provider_id)
+                inspect_sensitivity = getattr(
+                    inspector, "inspect_sensitivity_metadata", None
+                )
+                if callable(inspect_sensitivity):
+                    table_markers, column_markers = inspect_sensitivity(
+                        credentials, locator
+                    )
+                    if table_markers:
+                        raise ConnectorError(
+                            TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED,
+                            "A table-level Foundry sensitivity marking blocks content scanning.",
+                            retryable=False,
+                        )
+                    ignored_sensitive_columns = set(column_markers)
+
+        source = source_reader_for(provider_id)
+        counts: dict[str, int] = {}
+        total_bytes = 0
+        started = time.monotonic()
+        iterator = source.extract(
+            credentials,
+            locator,
+            batch_rows=self.settings.pipeline_batch_rows,
+            batch_bytes=self.settings.pipeline_batch_target_bytes,
+        )
+        try:
+            for batch in iterator:
+                total_bytes += int(batch.byte_count)
+                if total_bytes > self.settings.pipeline_max_source_bytes:
+                    raise ConnectorError(
+                        TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
+                        "The source exceeded the configured scan limit.",
+                        retryable=False,
+                    )
+                if time.monotonic() - started > self.settings.pipeline_max_run_seconds:
+                    raise ConnectorError(
+                        TransferErrorCode.RUN_TIMEOUT,
+                        "The sensitive-data scan exceeded its time limit.",
+                        retryable=False,
+                    )
+                for name, count in scan_ssn_frame(
+                    batch.frame,
+                    ignored_columns=ignored_sensitive_columns,
+                ).items():
+                    counts[name] = counts.get(name, 0) + count
+        finally:
+            close = getattr(iterator, "close", None)
+            if close is not None:
+                close()
+        return [
+            {
+                "detector": "ssn",
+                "source": "Content scan",
+                "column": column,
+                "count": count,
+            }
+            for column, count in sorted(counts.items())
+        ]
 
     def inspect_object_fresh(self, provider: str, locator: Locator) -> ObjectSchema:
         """Inspect live provider metadata without using the catalog cache."""
