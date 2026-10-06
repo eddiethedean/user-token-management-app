@@ -261,6 +261,178 @@ def test_foundry_client_rejects_repeated_catalog_cursor(foundry_sim, tmp_path, m
     client.close()
 
 
+def test_foundry_sensitivity_metadata_fails_closed_when_schema_is_unavailable(
+    foundry_sim, tmp_path
+) -> None:
+    foundry_sim.schema_payload = {"schema": None}
+    client = FoundryClient({"endpoint": foundry_sim.base_url, "token": TOKEN}, _settings(tmp_path))
+    with pytest.raises(ConnectorError) as error:
+        client.sensitivity_metadata(DATASET, "master", frozenset({"pii"}))
+    assert error.value.code == TransferErrorCode.PROVIDER_UNAVAILABLE
+    client.close()
+
+
+@pytest.mark.parametrize(
+    "schema_result",
+    [
+        ConnectorError(TransferErrorCode.SOURCE_NOT_FOUND, "not found"),
+        ValueError("invalid json"),
+        {},
+        {"schema": {"fieldSchemaList": "invalid"}},
+        {"schema": {"fieldSchemaList": [None]}},
+    ],
+)
+def test_foundry_schema_metadata_errors_fail_closed(foundry_sim, tmp_path, schema_result) -> None:
+    client = FoundryClient({"endpoint": foundry_sim.base_url, "token": TOKEN}, _settings(tmp_path))
+
+    class Response:
+        def json(self):
+            if isinstance(schema_result, Exception):
+                raise schema_result
+            return schema_result
+
+    client.request = lambda *_args, **_kwargs: Response()  # type: ignore[method-assign]
+    with pytest.raises(ConnectorError) as error:
+        client.sensitivity_metadata(DATASET, "master", frozenset({"pii"}))
+    assert error.value.code == TransferErrorCode.PROVIDER_UNAVAILABLE
+    client.close()
+
+
+@pytest.mark.parametrize(
+    "marking_result",
+    [
+        ConnectorError(TransferErrorCode.SOURCE_NOT_FOUND, "not found"),
+        ValueError("invalid json"),
+        {},
+        {"data": ["marking"], "nextPageToken": "repeat"},
+    ],
+)
+def test_foundry_resource_marking_errors_fail_closed(foundry_sim, tmp_path, marking_result) -> None:
+    client = FoundryClient({"endpoint": foundry_sim.base_url, "token": TOKEN}, _settings(tmp_path))
+    calls = 0
+
+    class Response:
+        def __init__(self, result):
+            self.result = result
+
+        def json(self):
+            if isinstance(self.result, Exception):
+                raise self.result
+            return self.result
+
+    def request(_method, url, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if url.endswith("getSchema"):
+            return Response({"schema": {"fieldSchemaList": []}})
+        return Response(marking_result)
+
+    client.request = request  # type: ignore[method-assign]
+    with pytest.raises(ConnectorError) as error:
+        client.sensitivity_metadata(DATASET, "master", frozenset({"pii"}))
+    assert error.value.code == TransferErrorCode.PROVIDER_UNAVAILABLE
+    assert calls == (
+        3 if isinstance(marking_result, dict) and "nextPageToken" in marking_result else 2
+    )
+    client.close()
+
+
+@pytest.mark.parametrize(
+    "marking_result",
+    [
+        ConnectorError(TransferErrorCode.SOURCE_NOT_FOUND, "not found"),
+        ValueError("invalid json"),
+        {},
+    ],
+)
+def test_foundry_marking_name_errors_fail_closed(foundry_sim, tmp_path, marking_result) -> None:
+    client = FoundryClient({"endpoint": foundry_sim.base_url, "token": TOKEN}, _settings(tmp_path))
+
+    class Response:
+        def __init__(self, result):
+            self.result = result
+
+        def json(self):
+            if isinstance(self.result, Exception):
+                raise self.result
+            return self.result
+
+    def request(_method, url, **_kwargs):
+        if url.endswith("getSchema"):
+            return Response({"schema": {"fieldSchemaList": []}})
+        if url.endswith("/markings"):
+            return Response({"data": ["unmapped"], "nextPageToken": ""})
+        return Response(marking_result)
+
+    client.request = request  # type: ignore[method-assign]
+    with pytest.raises(ConnectorError) as error:
+        client.sensitivity_metadata(DATASET, "master", frozenset({"pii"}))
+    assert error.value.code == TransferErrorCode.PROVIDER_UNAVAILABLE
+    client.close()
+
+
+def test_foundry_marking_enumeration_is_bounded(foundry_sim, tmp_path, monkeypatch) -> None:
+    client = FoundryClient({"endpoint": foundry_sim.base_url, "token": TOKEN}, _settings(tmp_path))
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def json(self):
+            return self.payload
+
+    def request(_method, url, **_kwargs):
+        payload = (
+            {"schema": {"fieldSchemaList": []}} if url.endswith("getSchema") else {"data": ["pii"]}
+        )
+        return Response(payload)
+
+    client.request = request  # type: ignore[method-assign]
+    monkeypatch.setattr("app.connectors.foundry.MAX_FOUNDRY_MARKING_IDS", 0)
+    with pytest.raises(ConnectorError) as error:
+        client.sensitivity_metadata(DATASET, "master", frozenset({"pii"}))
+    assert error.value.code == TransferErrorCode.SOURCE_LIMIT_EXCEEDED
+    client.close()
+
+
+def test_foundry_sensitivity_metadata_skips_requests_when_no_markers_are_configured(
+    foundry_sim, tmp_path
+) -> None:
+    client = FoundryClient({"endpoint": foundry_sim.base_url, "token": TOKEN}, _settings(tmp_path))
+    client.request = lambda *_args, **_kwargs: pytest.fail("No metadata request is required")  # type: ignore[method-assign]
+    assert client.sensitivity_metadata(DATASET, "master", frozenset()) == ((), {})
+    client.close()
+
+
+def test_foundry_sensitivity_metadata_follows_every_marking_page(foundry_sim, tmp_path) -> None:
+    foundry_sim.marking_pages = {
+        "": {"data": ["public"], "nextPageToken": "page-2"},
+        "page-2": {"data": ["pii"], "nextPageToken": ""},
+    }
+    client = FoundryClient({"endpoint": foundry_sim.base_url, "token": TOKEN}, _settings(tmp_path))
+    table_markers, column_markers = client.sensitivity_metadata(
+        DATASET, "master", frozenset({"pii"})
+    )
+    assert table_markers == ("pii",)
+    assert column_markers == {}
+    assert foundry_sim.marking_requests == ["", "page-2"]
+    client.close()
+
+
+def test_foundry_connector_exposes_live_sensitivity_refresh(foundry_sim, tmp_path) -> None:
+    foundry_sim.schema_payload = {
+        "schema": {"fieldSchemaList": [{"name": "ssn", "customMetadata": {"pii": True}}]}
+    }
+    settings = _settings(tmp_path)
+    settings.pipeline_sensitive_metadata_markers = "pii"
+    connector = MssConnector(settings)
+    findings = connector.inspect_sensitivity_metadata(
+        {"endpoint": foundry_sim.base_url, "token": TOKEN},
+        FoundryDatasetFilesLocator(dataset_rid=DATASET, branch="master", file_paths=["notes.csv"]),
+    )
+    assert findings == ((), {"ssn": ("pii",)})
+
+
 def test_foundry_writer_finalize_streams_committed_upload(foundry_sim, tmp_path) -> None:
     settings = _settings(tmp_path)
     connector = FoundryConnector(settings)

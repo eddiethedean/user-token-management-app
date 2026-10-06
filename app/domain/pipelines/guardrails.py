@@ -7,7 +7,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -53,9 +53,7 @@ class GuardrailFinding:
         }
 
 
-_SSN_PATTERN = re.compile(
-    r"(?<!\d)(?!000|666|9\d\d)\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}(?!\d)"
-)
+_SSN_PATTERN = re.compile(r"(?<!\d)(?!000|666|9\d\d)\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}(?!\d)")
 _SSN_NUMBER_PATTERN = re.compile(r"^\d{1,9}$")
 
 
@@ -154,18 +152,20 @@ def parse_guardrail_scan_result(
         if not isinstance(item, Mapping):
             raise ValueError("The sensitive-data scan summary is invalid.")
         try:
-            detector = str(item.get("detector") or "")
+            detector_value = str(item.get("detector") or "")
+            if detector_value != "ssn":
+                raise ValueError("The sensitive-data scan summary is invalid.")
             column = GuardrailAction(
-                detector=detector,
+                detector="ssn",
                 column=str(item.get("column") or ""),
                 action="hash",
             ).column
             count = int(item.get("count") or 0)
         except (TypeError, ValueError) as exc:
             raise ValueError("The sensitive-data scan summary is invalid.") from exc
-        if detector != "ssn" or count < 1:
+        if count < 1:
             raise ValueError("The sensitive-data scan summary is invalid.")
-        key = (detector, column)
+        key = ("ssn", column)
         if key in seen:
             continue
         seen.add(key)
@@ -188,9 +188,7 @@ def configured_marker_values(value: str | Sequence[str] | None) -> frozenset[str
     else:
         candidates = value or ()
     return frozenset(
-        normalized
-        for item in candidates
-        if (normalized := normalize_marker(str(item)))
+        normalized for item in candidates if (normalized := normalize_marker(str(item)))
     )
 
 
@@ -253,9 +251,7 @@ def contains_supported_ssn(value: object) -> bool:
     return _SSN_PATTERN.search(text) is not None
 
 
-def scan_ssn_frame(
-    frame: object, *, ignored_columns: Sequence[str] = ()
-) -> dict[str, int]:
+def scan_ssn_frame(frame: Any, *, ignored_columns: Sequence[str] = ()) -> dict[str, int]:
     """Count matching cells by column; no matched values leave this function."""
 
     columns = getattr(frame, "columns", ())

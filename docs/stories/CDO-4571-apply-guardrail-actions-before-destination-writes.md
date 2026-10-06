@@ -17,7 +17,9 @@ The worker scans the full source and resolves all findings before it creates a d
 
 The worker extracts bounded batches, checks schema consistency, scans them for SSN patterns, and stores them in a bounded AES-GCM encrypted spool. Once the full scan is complete, it resolves metadata and content findings against the saved pipeline actions. Only a fully resolved review proceeds to destination staging. The worker then reads the reviewed batches, casts configured columns, transforms guarded columns, and writes those transformed batches.
 
-The HMAC key is derived from the active API-token encryption key and scoped to the user and pipeline. Digests are deterministic for the same value, column, user, pipeline, and active key; rotating the active key changes future digests. Remove cannot drop a required destination key, and a run cannot remove every source column.
+The HMAC key is derived from the active API-token encryption key and scoped to the user and pipeline. Digests are deterministic for the same value, column, user, pipeline, and active key; rotating the active key changes future digests. Remove cannot drop a required destination key, and a run cannot remove every source column. Run submission projects saved actions into the destination preflight and schema preview, so a destination that only accepts the post-Remove schema can be selected.
+
+For an existing PostgreSQL target, Remove transactionally drops the selected column from the live table before loading transformed rows. Existing values in that column are removed too. The run account must own the table. A dependent database object that prevents the column drop causes the transaction to roll back; the run does not publish partial changes.
 
 ## Example
 
@@ -27,7 +29,7 @@ Suppose a source has unit_name and the owner chose Hash:
 | --- | --- |
 | unit_name: redacted source value | unit_name: keyed 64-character HMAC digest |
 
-For Remove, the unit_name column is absent from both the destination schema and rows. The example output is illustrative; the screenshot verifies that the demo run applied Hash and completed without displaying the source value.
+For Remove, the unit_name column is absent from the destination schema and incoming rows. When the PostgreSQL table already exists, its prior unit_name values are removed by the same transaction; other existing rows remain according to the selected write mode. The example output is illustrative; the screenshot verifies that the demo run applied Hash and completed without displaying the source value.
 
 ## Screenshot
 
@@ -40,6 +42,7 @@ The isolated demo run extracted and loaded two synthetic rows. Its after-run rev
 - Full scan and unresolved-action validation occur before destination staging in [transfer_engine.py](../../app/services/transfer_engine.py).
 - HMAC transformation and column removal are applied to each batch before write_batch in [transfer_engine.py](../../app/services/transfer_engine.py).
 - The transformed schema is used to prepare the destination, so removed columns are not created there.
+- Saved decisions are included in the pre-run destination schema projection by [pipeline_runs.py](../../app/ui/routes/pipeline_runs.py) and the planned schema preview by [pipeline.py](../../app/ui/routes/pipeline.py). PostgreSQL applies selected column drops in its destination transaction in [postgres.py](../../app/connectors/postgres.py).
 - Blocked outcomes identify the reason and are persisted without cell values through [pipeline_runs.py](../../app/services/pipeline_runs.py).
 
 ## Related implementation

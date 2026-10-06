@@ -31,6 +31,8 @@ Pipeline owners can review what was flagged before data reaches a destination. A
 5. The worker reads and scans bounded source batches. Unresolved findings block the run before destination staging.
 6. The worker transforms each reviewed batch, writes the transformed data, and persists a value-free run review.
 
+Foundry metadata must be verified before a source is treated as unmarked. An unavailable or malformed schema/marking response fails closed. Resource markings are read across all pages. Saved actions are projected into run preflight; for an existing PostgreSQL target, Remove also drops the selected column and its prior values in the same transaction. A run record calls an action applied only after successful completion, while preserving the original inspected source schema alongside the transformed destination schema.
+
 The preview scan helps the owner make a decision. The worker performs its own full-source scan during the run and keeps reviewed batches in a bounded, encrypted spool. A table-level marker is checked before extraction.
 
 ## Shared behavior

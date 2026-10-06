@@ -1679,8 +1679,7 @@ def _foundry_source_preview(
     if inspected is not None:
         table_sensitivity_markers = list(inspected.sensitivity_markers)
         column_sensitivity_markers = {
-            name: list(markers)
-            for name, markers in inspected.column_sensitivity_markers
+            name: list(markers) for name, markers in inspected.column_sensitivity_markers
         }
         column_sensitivity_markers.update(
             {
@@ -1843,8 +1842,7 @@ def _route_schema_preview(
         if inspected is not None
         else [],
         "column_sensitivity_markers": {
-            name: list(markers)
-            for name, markers in inspected.column_sensitivity_markers
+            name: list(markers) for name, markers in inspected.column_sensitivity_markers
         }
         if inspected is not None
         else {},
@@ -2245,6 +2243,7 @@ def _guardrail_action_control(
 ):
     def encoded(action: str) -> str:
         return json.dumps([detector, column, action, source_key], separators=(",", ":"))
+
     if request is None:
         return html.input(
             type="hidden",
@@ -2322,9 +2321,7 @@ def _guardrail_review_surface(
         for column in sorted(column_markers)
         if column
     )
-    content_findings = parse_guardrail_scan_result(
-        scan_result, expected_source_key=source_key
-    )
+    content_findings = parse_guardrail_scan_result(scan_result, expected_source_key=source_key)
     findings.extend(content_findings)
     action_map = action_lookup(guardrail_actions)
     existing = {(str(item["detector"]), str(item["column"])) for item in findings}
@@ -2433,9 +2430,7 @@ def _guardrail_review_surface(
                 tone="success" if scan_complete else "neutral",
             ),
         ),
-        html.input(
-            type="hidden", name="guardrail_scan_result", value=scan_result or ""
-        ),
+        html.input(type="hidden", name="guardrail_scan_result", value=scan_result or ""),
         html.input(
             type="hidden",
             name="guardrail_scan_complete",
@@ -2544,21 +2539,62 @@ def _pipeline_schema_preview_panel(
         destination=True,
         creating=destination_create,
     )
+    current_destination = destination
+    has_existing_destination = bool(
+        destination is not None
+        and destination.get("schema_provenance") == "catalog"
+        and destination.get("status") not in {"Created by run", "Planned for first run"}
+    )
     planning_new_schema = destination_create and (
         live_destination is None or write_mode == "replace"
     )
     planned_destination = None
-    if planning_new_schema and source is not None and destination is not None:
+    planned_guardrail_actions: dict[str, str] = {}
+    for action in guardrail_actions or []:
+        if action.action == "remove" or planned_guardrail_actions.get(action.column) != "remove":
+            planned_guardrail_actions[action.column] = action.action
+    removed_columns = {
+        name for name, action in planned_guardrail_actions.items() if action == "remove"
+    }
+    has_guardrail_projection = bool(planned_guardrail_actions)
+    if (
+        (planning_new_schema or has_guardrail_projection)
+        and source is not None
+        and destination is not None
+    ):
         source_columns = list(source.get("columns") or [])
-        planned_columns = [
+        projected_source_columns = [
             {
                 **column,
-                "data_type": _planned_column_type(
-                    destination_provider, column, column_type_overrides or {}
+                "data_type": (
+                    "String"
+                    if planned_guardrail_actions.get(str(column.get("name") or "")) == "hash"
+                    else _planned_column_type(
+                        destination_provider, column, column_type_overrides or {}
+                    )
                 ),
             }
             for column in source_columns
+            if str(column.get("name") or "") not in removed_columns
         ]
+        if has_existing_destination and write_mode != "replace" and has_guardrail_projection:
+            source_by_name = {
+                str(column.get("name") or ""): column for column in projected_source_columns
+            }
+            planned_columns = [
+                {
+                    **column,
+                    **(
+                        {"data_type": source_by_name[str(column.get("name") or "")]["data_type"]}
+                        if str(column.get("name") or "") in source_by_name
+                        else {}
+                    ),
+                }
+                for column in (current_destination or {}).get("columns", [])
+                if str(column.get("name") or "") not in removed_columns
+            ]
+        else:
+            planned_columns = projected_source_columns
         planned_key = [item.strip() for item in primary_key_columns.split(",") if item.strip()]
         source_names = {str(column.get("name") or "") for column in source_columns}
         plan_warning = (
@@ -2584,6 +2620,9 @@ def _pipeline_schema_preview_panel(
                     )
             elif not planned_key:
                 planned_key = list(source.get("primary_key") or [])
+            if removed_columns.intersection(planned_key) and not plan_warning:
+                plan_warning = "A selected Remove action targets a required destination key."
+            planned_key = [name for name in planned_key if name not in removed_columns]
             if (
                 planned_key
                 and source_names
@@ -2601,14 +2640,16 @@ def _pipeline_schema_preview_panel(
             "size_bytes": None,
             "columns": planned_columns,
             "primary_key": planned_key if destination_provider == "postgres" else [],
-            "status": "Planned for next run" if live_destination else "Planned for first run",
+            "status": "Planned for next run"
+            if has_existing_destination
+            else "Planned for first run",
             "schema_provenance": "planned" if source_columns else "unavailable",
             "schema_complete": bool(source_columns),
             "row_provenance": "unavailable",
             "size_provenance": "unavailable",
             "plan_warning": plan_warning,
         }
-        if live_destination is None:
+        if not has_existing_destination:
             destination = planned_destination
     return DATA_MOVER_DESIGN.apply(
         "data-mover-inset",
@@ -2634,13 +2675,17 @@ def _pipeline_schema_preview_panel(
                 *(
                     [
                         _schema_preview_surface(
-                            "Next run: replacement table",
+                            (
+                                "Next run: replacement table"
+                                if write_mode == "replace"
+                                else "Next run: guardrail projection"
+                            ),
                             planned_destination,
                             destination=True,
                             request=request,
                         )
                     ]
-                    if live_destination is not None and planned_destination is not None
+                    if has_existing_destination and planned_destination is not None
                     else []
                 ),
                 columns={"base": 1, "xl": 2},
@@ -4774,10 +4819,26 @@ def _run_guardrail_surface(run):
             meta=Badge(
                 "Blocked before writes"
                 if review_outcome == "blocked"
+                else "Actions applied"
+                if review_outcome == "applied"
+                else "No sensitive findings"
+                if review_outcome == "clear"
+                else "Action selected; transfer incomplete"
+                if review_outcome == "pending"
                 else "Review complete"
                 if scan_complete
                 else "Scan not run",
-                tone="warning" if review_outcome == "blocked" else "success" if scan_complete else "info",
+                tone="warning"
+                if review_outcome == "blocked"
+                else "success"
+                if review_outcome == "applied"
+                else "success"
+                if review_outcome == "clear"
+                else "info"
+                if review_outcome == "pending"
+                else "success"
+                if scan_complete
+                else "info",
             ),
         ),
         Grid(
@@ -5255,7 +5316,8 @@ def _run_status_fragment(
             gap="sm",
         ),
         _run_schema_results(run)
-        if run_status in {"succeeded", "failed", "cancelled", "failed_needs_reconciliation", "blocked"}
+        if run_status
+        in {"succeeded", "failed", "cancelled", "failed_needs_reconciliation", "blocked"}
         else None,
         Text(
             verification_summary(run),

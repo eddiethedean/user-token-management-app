@@ -1,0 +1,15 @@
+PR #140 follow-up verification — October 6, 2026
+
+Command: make check PYTHON=./.venv/bin/python
+
+Results:
+- Ruff lint: passed.
+- Ruff format check: passed (211 files already formatted).
+- BasedPyright: passed (0 errors, 0 warnings, 0 notes).
+- Hedron check: passed; informational notices only.
+- Posit compatibility matrix: passed (all five mount cases).
+- Application tests: 627 passed; coverage 80.29% (required 80%).
+- Demo-app tests: 25 passed.
+- Git diff whitespace validation: passed.
+
+The local environment skips opt-in PostgreSQL integration tests when PostgreSQL server binaries are unavailable. Guardrail, manifest, projection, Foundry protocol, and cache behavior are covered by the passing default suite.

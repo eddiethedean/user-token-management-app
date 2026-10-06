@@ -684,7 +684,7 @@ def block_run(
     append_event(
         db,
         run,
-        run.error_summary,
+        run.error_summary or summary,
         stage="guardrails",
         level="warning",
     )
@@ -728,6 +728,7 @@ def complete_run(
     source_manifest: dict | None = None,
     destination_manifest: dict | None = None,
     verification: dict | None = None,
+    guardrail: dict | None = None,
 ) -> None:
     _refresh_and_require_lease(db, run, lease_token)
     run.source_manifest_json = json.dumps(
@@ -737,6 +738,8 @@ def complete_run(
         redact_mapping(destination_manifest or {}), separators=(",", ":")
     )
     run.verification_json = json.dumps(redact_mapping(verification or {}), separators=(",", ":"))
+    if guardrail is not None:
+        run.guardrail_json = json.dumps(redact_mapping(guardrail), separators=(",", ":"))
     run.source_rows_measured = True
     run.loaded_rows_measured = True
     run.last_safe_stage = run.stage

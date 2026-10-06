@@ -569,7 +569,7 @@ def test_pipeline_can_be_saved_with_postgres_destination(client, demo_connection
         )
         assert pipeline is not None
         assert pipeline.destination_provider == "postgres"
-        assert pipeline.definition_version == 3
+        assert pipeline.definition_version == 4
         policy = parse_write_policy(json.loads(pipeline.write_policy_json))
         assert isinstance(policy, PostgresUpsertPolicy)
         assert policy.conflict_columns == ["event_id"]

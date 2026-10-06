@@ -223,9 +223,7 @@ class _EncryptedBatchSpool:
 
     _HEADER = struct.Struct(">QQQQ")
 
-    def __init__(
-        self, *, run_id: str, maximum_bytes: int, directory: str | None = None
-    ) -> None:
+    def __init__(self, *, run_id: str, maximum_bytes: int, directory: str | None = None) -> None:
         self._file = tempfile.TemporaryFile(mode="w+b", dir=directory or None)
         self._cipher = AESGCM(AESGCM.generate_key(bit_length=256))
         self._run_id = run_id.encode("utf-8")
@@ -247,9 +245,7 @@ class _EncryptedBatchSpool:
                 retryable=False,
             )
         self._file.write(
-            self._HEADER.pack(
-                batch.sequence, batch.row_count, batch.byte_count, len(ciphertext)
-            )
+            self._HEADER.pack(batch.sequence, batch.row_count, batch.byte_count, len(ciphertext))
         )
         self._file.write(nonce)
         self._file.write(ciphertext)
@@ -279,9 +275,7 @@ class _EncryptedBatchSpool:
                 )
             associated_data = struct.pack(">QQQ", sequence, row_count, byte_count)
             try:
-                plaintext = self._cipher.decrypt(
-                    nonce, ciphertext, self._run_id + associated_data
-                )
+                plaintext = self._cipher.decrypt(nonce, ciphertext, self._run_id + associated_data)
                 frame = pl.read_ipc(io.BytesIO(plaintext))
             except Exception as exc:
                 raise ConnectorError(
@@ -365,8 +359,7 @@ def _effective_actions(
         if selected:
             effective.setdefault(column, set()).add(selected)
     resolved_actions = {
-        column: "remove" if "remove" in values else "hash"
-        for column, values in effective.items()
+        column: "remove" if "remove" in values else "hash" for column, values in effective.items()
     }
     for finding in resolved_findings:
         column = str(finding.get("column") or "")
@@ -375,9 +368,7 @@ def _effective_actions(
     return resolved_actions, resolved_findings
 
 
-def _transform_schema_for_guardrails(
-    schema: ObjectSchema, actions: dict[str, str]
-) -> ObjectSchema:
+def _transform_schema_for_guardrails(schema: ObjectSchema, actions: dict[str, str]) -> ObjectSchema:
     removed = {name for name, action in actions.items() if action == "remove"}
     transformed_columns = tuple(
         ColumnSchema(
@@ -405,6 +396,7 @@ def _transform_schema_for_guardrails(
             if not removed.intersection(constraint)
         ),
         estimated_rows=schema.estimated_rows,
+        removed_columns=tuple(sorted(set(schema.removed_columns) | removed)),
     )
 
 
@@ -440,7 +432,9 @@ def _transform_batch_for_guardrails(
             if value is None:
                 values.append(None)
                 continue
-            encoded = value if isinstance(value, bytes) else str(value).encode("utf-8", errors="replace")
+            encoded = (
+                value if isinstance(value, bytes) else str(value).encode("utf-8", errors="replace")
+            )
             digest = hmac.new(
                 hmac_key,
                 name.encode("utf-8") + b"\x00" + encoded,
@@ -725,9 +719,7 @@ def execute_transfer(
     ssn_counts: dict[str, int] = {}
     metadata_findings = _metadata_guardrail_findings(source_schema)
     metadata_sensitive_columns = {
-        str(finding["column"])
-        for finding in metadata_findings
-        if finding.get("column")
+        str(finding["column"]) for finding in metadata_findings if finding.get("column")
     }
     spool = _EncryptedBatchSpool(
         run_id=run.id,
@@ -802,7 +794,7 @@ def execute_transfer(
             source_schema_columns = expected
             for column, count in scan_ssn_frame(
                 extracted_batch.frame,
-                ignored_columns=metadata_sensitive_columns,
+                ignored_columns=tuple(sorted(metadata_sensitive_columns)),
             ).items():
                 ssn_counts[column] = ssn_counts.get(column, 0) + count
             spool.append(extracted_batch)
@@ -878,15 +870,22 @@ def execute_transfer(
         applied_actions = [
             action
             for action in snapshot.guardrail_actions
-            if (action.detector, action.column) in {
+            if (action.detector, action.column)
+            in {
                 (str(finding.get("detector") or ""), str(finding.get("column") or ""))
                 for finding in findings
             }
         ]
+        # Persist the selected decision as pending until destination commit.
+        # A later preparation, cast, cancellation, or publication failure must
+        # not claim that a transform was applied to a completed transfer.
+        for finding in resolved_findings:
+            if finding.get("action") and finding.get("outcome") != "blocked":
+                finding["outcome"] = "selected"
         guardrail = _guardrail_document(
             resolved_findings,
             actions=applied_actions,
-            outcome="blocked" if blocked_reason else "applied",
+            outcome=("blocked" if blocked_reason else "pending" if applied_actions else "clear"),
             scan_complete=True,
             scanned_rows=scanned_rows,
             scanned_bytes=scanned_bytes,
@@ -924,6 +923,7 @@ def execute_transfer(
             )
             return
 
+        source_manifest_schema = schema
         original_schema = apply_column_type_overrides_to_schema(
             schema, snapshot.write_policy.column_type_overrides
         )
@@ -998,9 +998,7 @@ def execute_transfer(
                     sequence=batch.sequence,
                 )
             source_batch_bytes = batch.byte_count
-            batch = cast_batch_columns(
-                batch, snapshot.write_policy.column_type_overrides
-            )
+            batch = cast_batch_columns(batch, snapshot.write_policy.column_type_overrides)
             batch = _transform_batch_for_guardrails(
                 batch,
                 effective_actions,
@@ -1108,12 +1106,14 @@ def execute_transfer(
             source_manifest={
                 "rows": extracted_rows,
                 "bytes": extracted_bytes,
-                "schema": _schema_manifest(schema),
+                "schema": _schema_manifest(source_manifest_schema),
                 "metadata": manifest_metadata(
                     rows=extracted_rows,
-                    schema_available=bool(schema.columns),
+                    schema_available=bool(source_manifest_schema.columns),
                     row_provenance="exact",
-                    schema_provenance=("captured" if schema.columns else "unavailable"),
+                    schema_provenance=(
+                        "captured" if source_manifest_schema.columns else "unavailable"
+                    ),
                 ),
             },
             destination_manifest={
@@ -1138,6 +1138,17 @@ def execute_transfer(
                 ),
             },
             verification=verification,
+            guardrail={
+                **guardrail,
+                "outcome": "applied" if applied_actions else "clear",
+                "findings": [
+                    {
+                        **finding,
+                        "outcome": ("applied" if finding.get("action") else finding.get("outcome")),
+                    }
+                    for finding in resolved_findings
+                ],
+            },
         )
         _refresh_published_foundry_cache(db, run, snapshot)
     except Exception as exc:

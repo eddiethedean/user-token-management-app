@@ -612,6 +612,43 @@ def test_postgres_append_creates_schema_and_staging(postgres_credentials) -> Non
     assert leftover == []
 
 
+def test_postgres_remove_action_drops_existing_sensitive_column(postgres_credentials) -> None:
+    locator = postgres_table("ops", "guardrail_remove")
+    _execute(postgres_credentials, "CREATE SCHEMA IF NOT EXISTS ops")
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE ops.guardrail_remove (id INTEGER PRIMARY KEY, ssn TEXT)",
+    )
+    _execute(
+        postgres_credentials,
+        "INSERT INTO ops.guardrail_remove (id, ssn) VALUES (1, 'SYNTHETIC-SSN')",
+    )
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(ColumnSchema(name="id", data_type="Int64", nullable=False),),
+        primary_key=("id",),
+        removed_columns=("ssn",),
+    )
+    _load(
+        postgres_credentials,
+        locator,
+        PostgresAppendPolicy(),
+        pl.DataFrame({"id": [2]}),
+        "remove-existing-sensitive-column",
+        schema=schema,
+    )
+
+    columns = _fetchall(
+        postgres_credentials,
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = 'ops' AND table_name = 'guardrail_remove' "
+        "ORDER BY ordinal_position",
+    )
+    rows = _fetchall(postgres_credentials, "SELECT id FROM ops.guardrail_remove ORDER BY id")
+    assert columns == [("id",)]
+    assert rows == [(1,), (2,)]
+
+
 def test_postgres_copy_errors_are_sanitized(postgres_credentials) -> None:
     marker = "AUDIT_SYNTHETIC_PRIVATE_CELL"
     _execute(postgres_credentials, "CREATE TABLE public.log_dest (id INTEGER)")

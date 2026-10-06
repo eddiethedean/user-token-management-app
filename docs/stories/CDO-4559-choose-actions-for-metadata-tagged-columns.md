@@ -13,13 +13,15 @@ Every column flagged by Foundry metadata gets an action selector with two choice
 - **Hash** replaces each non-null value with an HMAC-SHA-256 digest.
 - **Remove** drops the column from the destination schema and every transferred batch.
 
+For PostgreSQL, Remove also drops that column from an existing destination table inside the same transaction as the transfer. This clears the selected column from existing destination rows as well as omitting it from incoming rows. The run account must own the table, and PostgreSQL dependencies that prevent a safe column drop cause the transaction to fail without publishing the transfer.
+
 An unresolved finding blocks a run before destination writes. Selected actions are stored with the pipeline definition and copied into the run review.
 
 ## Implementation
 
 The pre-run review keys an action by detector and column, then binds the form value to a hash of the selected source identity. When the source changes, stale actions are discarded. The save handler validates and stores the chosen action list in guardrail_actions_json. The worker resolves those saved choices against the findings from its own scan before it prepares the destination.
 
-If the same column is flagged by multiple detectors with different decisions, Remove is the effective action. Removing a required destination key or every source column blocks the run.
+If the same column is flagged by multiple detectors with different decisions, Remove is the effective action. Removing a required destination key or every source column blocks the run. Before a run is queued, the destination preflight and planned-schema preview use the saved Hash/Remove projection.
 
 ## Example
 

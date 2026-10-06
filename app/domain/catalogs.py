@@ -59,3 +59,4 @@ class ObjectSchema:
     estimated_rows: int | None = None
     sensitivity_markers: tuple[str, ...] = ()
     column_sensitivity_markers: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    removed_columns: tuple[str, ...] = ()

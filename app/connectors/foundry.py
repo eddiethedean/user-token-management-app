@@ -53,6 +53,7 @@ SUPPORTED_SUFFIXES = (".csv", ".parquet")
 DEFAULT_BRANCHES = ("master", "main")
 MAX_FOUNDRY_CATALOG_PAGES = 1_000
 MAX_FOUNDRY_CATALOG_FILES = 100_000
+MAX_FOUNDRY_MARKING_IDS = 10_000
 
 _INTEGER_DTYPE_RANGES = (
     (pl.Int8, -(2**7), 2**7 - 1),
@@ -407,85 +408,126 @@ class FoundryClient:
         column_markers: dict[str, tuple[str, ...]] = {}
         schema_url = f"{self.base_url}/api/v2/datasets/{dataset_rid}/getSchema"
         try:
-            payload = self.request(
-                "GET", schema_url, params={"branchName": branch}
-            ).json()
+            payload = self.request("GET", schema_url, params={"branchName": branch}).json()
         except ConnectorError as exc:
-            # Schema-less datasets and older Foundry deployments can report
-            # not-found for getSchema. File inspection remains authoritative
-            # for the transfer schema; permission failures stay fail-closed.
-            if exc.code != TransferErrorCode.SOURCE_NOT_FOUND:
-                raise
-            payload = {}
-        except (ValueError, json.JSONDecodeError):
-            payload = {}
-        if isinstance(payload, dict):
-            schema = payload.get("schema")
-            if isinstance(schema, dict):
-                table_markers.update(
-                    matching_metadata_markers(schema.get("customMetadata"), configured)
+            raise ConnectorError(
+                TransferErrorCode.PROVIDER_UNAVAILABLE,
+                "Foundry sensitivity metadata could not be verified.",
+                retryable=exc.retryable,
+            ) from exc
+        except (ValueError, json.JSONDecodeError) as exc:
+            raise ConnectorError(
+                TransferErrorCode.PROVIDER_UNAVAILABLE,
+                "Foundry returned invalid sensitivity metadata.",
+                retryable=False,
+            ) from exc
+        if not isinstance(payload, dict) or not isinstance(payload.get("schema"), dict):
+            raise ConnectorError(
+                TransferErrorCode.PROVIDER_UNAVAILABLE,
+                "Foundry returned incomplete sensitivity metadata.",
+                retryable=False,
+            )
+        schema = payload["schema"]
+        fields = schema.get("fieldSchemaList")
+        if not isinstance(fields, list):
+            raise ConnectorError(
+                TransferErrorCode.PROVIDER_UNAVAILABLE,
+                "Foundry returned invalid column sensitivity metadata.",
+                retryable=False,
+            )
+        table_markers.update(matching_metadata_markers(schema.get("customMetadata"), configured))
+        for item in fields or []:
+            if not isinstance(item, dict):
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned invalid column sensitivity metadata.",
+                    retryable=False,
                 )
-                fields = schema.get("fieldSchemaList")
-                if isinstance(fields, list):
-                    for item in fields:
-                        if not isinstance(item, dict):
-                            continue
-                        name = str(item.get("name") or "")
-                        markers = matching_metadata_markers(item.get("customMetadata"), configured)
-                        if name and markers:
-                            column_markers[name] = markers
+            name = str(item.get("name") or "")
+            markers = matching_metadata_markers(item.get("customMetadata"), configured)
+            if name and markers:
+                column_markers[name] = markers
 
         encoded_rid = quote(dataset_rid, safe=".")
         markings_url = f"{self.base_url}/api/v2/filesystem/resources/{encoded_rid}/markings"
-        try:
-            payload = self.request("GET", markings_url).json()
-        except ConnectorError as exc:
-            if exc.code != TransferErrorCode.SOURCE_NOT_FOUND:
-                raise
-            payload = {}
-        except (ValueError, json.JSONDecodeError):
-            payload = {}
-        ids = payload.get("data", []) if isinstance(payload, dict) else []
-        if isinstance(ids, list):
-            for item in ids:
-                marking_id = str(item or "").strip()
-                if not marking_id:
-                    continue
-                direct = matching_metadata_markers(marking_id, configured)
-                if direct:
-                    table_markers.update(direct)
-                    continue
-                marking_url = f"{self.base_url}/api/v2/admin/markings/{quote(marking_id, safe='')}"
-                try:
-                    marking = self.request("GET", marking_url).json()
-                except ConnectorError as exc:
-                    if exc.code == TransferErrorCode.SOURCE_NOT_FOUND:
-                        continue
-                    raise
-                except (ValueError, json.JSONDecodeError):
-                    continue
-                if isinstance(marking, dict):
-                    table_markers.update(
-                        matching_metadata_markers(marking.get("name"), configured)
-                    )
-        return tuple(sorted(table_markers)), column_markers
-
-    def inspect_sensitivity_metadata(
-        self, credentials, locator: Locator
-    ) -> tuple[tuple[str, ...], dict[str, tuple[str, ...]]]:
-        """Refresh Foundry markings without downloading or profiling source files."""
-
-        if not isinstance(locator, FoundryDatasetFilesLocator):
-            return (), {}
-        client = self._client(credentials)
-        try:
-            branch = locator.branch or client.default_branch
-            configured = configured_marker_values(
-                self.settings.pipeline_sensitive_metadata_markers
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        marking_ids: list[str] = []
+        for _page_number in range(MAX_FOUNDRY_CATALOG_PAGES):
+            params = {"pageToken": cursor} if cursor else {}
+            try:
+                payload = self.request("GET", markings_url, params=params).json()
+            except ConnectorError as exc:
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry resource sensitivity markings could not be verified.",
+                    retryable=exc.retryable,
+                ) from exc
+            except (ValueError, json.JSONDecodeError) as exc:
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned invalid resource sensitivity markings.",
+                    retryable=False,
+                ) from exc
+            if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned incomplete resource sensitivity markings.",
+                    retryable=False,
+                )
+            marking_ids.extend(str(item or "").strip() for item in payload["data"])
+            marking_ids = [marking_id for marking_id in marking_ids if marking_id]
+            if len(marking_ids) > MAX_FOUNDRY_MARKING_IDS:
+                raise ConnectorError(
+                    TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
+                    "The Foundry resource has too many markings to verify safely.",
+                    retryable=False,
+                )
+            next_cursor = payload.get("nextPageToken")
+            if not next_cursor:
+                break
+            cursor = str(next_cursor)
+            if cursor in seen_cursors:
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned a repeated resource marking cursor.",
+                )
+            seen_cursors.add(cursor)
+        else:
+            raise ConnectorError(
+                TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
+                "The Foundry resource markings exceeded the page limit.",
+                retryable=False,
             )
-            return client.sensitivity_metadata(locator.dataset_rid, branch, configured)
-        finally:
-            client.close()
+
+        for marking_id in marking_ids:
+            direct = matching_metadata_markers(marking_id, configured)
+            if direct:
+                table_markers.update(direct)
+                continue
+            marking_url = f"{self.base_url}/api/v2/admin/markings/{quote(marking_id, safe='')}"
+            try:
+                marking = self.request("GET", marking_url).json()
+            except ConnectorError as exc:
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "A Foundry resource marking could not be verified.",
+                    retryable=exc.retryable,
+                ) from exc
+            except (ValueError, json.JSONDecodeError) as exc:
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned invalid resource marking metadata.",
+                    retryable=False,
+                ) from exc
+            if not isinstance(marking, dict) or not isinstance(marking.get("name"), str):
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned incomplete resource marking metadata.",
+                    retryable=False,
+                )
+            table_markers.update(matching_metadata_markers(marking.get("name"), configured))
+        return tuple(sorted(table_markers)), column_markers
 
     def resolve_branch(
         self, dataset_rid: str, preferred_branch: str | None = None
@@ -816,6 +858,21 @@ class FoundryConnector:
 
     def _client(self, credentials) -> FoundryClient:
         return FoundryClient(credentials, self.settings)
+
+    def inspect_sensitivity_metadata(
+        self, credentials, locator: Locator
+    ) -> tuple[tuple[str, ...], dict[str, tuple[str, ...]]]:
+        """Refresh Foundry markings without downloading or profiling source files."""
+
+        if not isinstance(locator, FoundryDatasetFilesLocator):
+            return (), {}
+        client = self._client(credentials)
+        try:
+            branch = locator.branch or client.default_branch
+            configured = configured_marker_values(self.settings.pipeline_sensitive_metadata_markers)
+            return client.sensitivity_metadata(locator.dataset_rid, branch, configured)
+        finally:
+            client.close()
 
     def create_dataset(
         self, credentials, *, parent_folder_rid: str, name: str

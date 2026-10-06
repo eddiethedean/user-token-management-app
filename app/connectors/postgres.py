@@ -424,6 +424,20 @@ class PostgresConnector:
                     isinstance(write_policy, PostgresReplacePolicy)
                     and write_policy.schema_policy == "recreate"
                 )
+                removed_destination_columns = set(source_schema.removed_columns)
+                if removed_destination_columns and not recreates_schema and not owns_table:
+                    cursor.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = %s AND table_name = %s",
+                        (locator.schema_name, locator.table),
+                    )
+                    existing_names = {str(row[0]) for row in cursor.fetchall()}
+                    if removed_destination_columns.intersection(existing_names):
+                        raise ConnectorError(
+                            TransferErrorCode.PERMISSION_DENIED,
+                            "The destination table must be owned by the run account to remove selected sensitive columns.",
+                            retryable=False,
+                        )
                 if not can_insert and not recreates_schema:
                     raise ConnectorError(
                         TransferErrorCode.PERMISSION_DENIED,
@@ -539,6 +553,7 @@ class PostgresConnector:
                 if (
                     source_names
                     and name not in source_names
+                    and name not in source_schema.removed_columns
                     and nullable == "NO"
                     and not default
                     and generated_kind != "ALWAYS"
@@ -834,6 +849,19 @@ class PostgresConnector:
                     for column_name in generated_columns:
                         cursor.execute(
                             sql.SQL("ALTER TABLE {} DROP COLUMN {}").format(
+                                sql.Identifier(locator.schema_name, staging),
+                                sql.Identifier(column_name),
+                            )
+                        )
+                    for column_name in schema.removed_columns:
+                        cursor.execute(
+                            sql.SQL("ALTER TABLE {} DROP COLUMN IF EXISTS {}").format(
+                                sql.Identifier(locator.schema_name, locator.table),
+                                sql.Identifier(column_name),
+                            )
+                        )
+                        cursor.execute(
+                            sql.SQL("ALTER TABLE {} DROP COLUMN IF EXISTS {}").format(
                                 sql.Identifier(locator.schema_name, staging),
                                 sql.Identifier(column_name),
                             )

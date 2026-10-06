@@ -14,7 +14,9 @@ The pipeline definition retains the owner’s action choices. The run record cap
 
 ## Implementation
 
-PipelineRun.guardrail_json stores a versioned, value-free review document. It contains scan status and totals, findings, saved actions that applied to those findings, columns removed or hashed, outcome, and a blocked reason where applicable. record_guardrail_review and block_run redact the document before persistence. Run event messages and summaries also omit matched cell text.
+PipelineRun.guardrail_json stores a versioned, value-free review document. It contains scan status and totals, findings, selected actions, columns removed or hashed, outcome, and a blocked reason where applicable. While the destination is being prepared, selected actions have outcome `selected` and the overall review is `pending`; a destination-preparation, write, or publication failure therefore does not claim an action was applied. The successful run transaction records outcome `applied` after the transformed destination has committed. A completed scan with no findings records `clear`; a blocked run records `blocked`. The run service redacts the document before persistence. Run event messages and summaries also omit matched cell text.
+
+The source manifest records the schema inspected before guardrail transformations and configured type overrides. The destination manifest describes the resulting destination schema. This preserves removed source columns and the original type of a hashed source column for review.
 
 The run review surface displays the persisted findings and outcome. The security audit event includes run identifiers and transfer metadata; detailed guardrail findings are shown in the run review rather than copied into the audit event payload.
 
@@ -23,6 +25,8 @@ The run review surface displays the persisted findings and outcome. The security
 | Detection source | Column | Finding | Action | Outcome |
 | --- | --- | --- | --- | --- |
 | Content scan | unit_name | 1 matching row | Hash | Applied |
+
+If destination preparation fails after an owner selected Hash, the run instead retains the finding with action Hash and outcome `selected` under an overall `pending` review. It becomes `applied` only when the destination run completes successfully.
 
 A blocked run instead records outcome: blocked and a safe explanation, such as an unresolved action or a table-level Foundry marking. Neither record includes the matching value.
 
@@ -36,8 +40,9 @@ Both images come from the isolated demo workspace. The first shows the detailed 
 
 ## Acceptance criteria and implementation
 
-- Run-level guardrail data includes findings, actions, scan totals, removed/hashed columns, and outcome in [transfer_engine.py](../../app/services/transfer_engine.py).
+- Run-level guardrail data includes findings, selected actions, scan totals, removed/hashed columns, and completion outcome in [transfer_engine.py](../../app/services/transfer_engine.py).
 - The run service redacts and persists review data in [pipeline_runs.py](../../app/services/pipeline_runs.py); the schema fields are added in [migration 0021](../../migrations/versions/0021_sensitive_data_guardrails.py).
+- The source manifest captures the pre-transform source schema; the destination manifest captures the projected result.
 - The run review displays counts and actions without cell values in [pipeline.py](../../app/ui/routes/pipeline.py).
 - The audit event associates the completed run with the pipeline and run identifiers; detailed guardrail findings remain on the run review.
 

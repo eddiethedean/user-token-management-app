@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from typing import Protocol
 
 from fastapi import BackgroundTasks, HTTPException, Request, status
@@ -31,6 +31,7 @@ from app.connectors.locators import (
 )
 from app.connectors.registry import writer_enabled
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
+from app.domain.pipelines.guardrails import GuardrailAction
 from app.models import PipelineDefinition, PipelineRun, PipelineRunEvent, PipelineUpload
 from app.services.column_casting import apply_column_type_overrides_to_schema
 from app.services.pipeline_runs import (
@@ -108,6 +109,43 @@ def _readiness_target_label(provider: str, role: str, locator: object) -> str:
     if isinstance(locator, CsvUploadLocator):
         return "CSV source upload"
     return f"{provider_label} {role}"
+
+
+def _project_guardrail_schema(
+    source_schema: ObjectSchema, actions: Sequence[GuardrailAction]
+) -> ObjectSchema:
+    """Use saved guardrail decisions when checking the destination write schema."""
+
+    by_column: dict[str, str] = {}
+    for action in actions:
+        if any(column.name == action.column for column in source_schema.columns):
+            if action.action == "remove" or by_column.get(action.column) != "remove":
+                by_column[action.column] = action.action
+    removed = {name for name, action in by_column.items() if action == "remove"}
+    columns = tuple(
+        ColumnSchema(
+            name=column.name,
+            data_type=("String" if by_column.get(column.name) == "hash" else column.data_type),
+            nullable=column.nullable,
+            sensitivity_markers=column.sensitivity_markers,
+        )
+        for column in source_schema.columns
+        if column.name not in removed
+    )
+    return ObjectSchema(
+        locator=source_schema.locator,
+        columns=columns,
+        primary_key=tuple(name for name in source_schema.primary_key if name not in removed),
+        unique_constraints=tuple(
+            constraint
+            for constraint in source_schema.unique_constraints
+            if not removed.intersection(constraint)
+        ),
+        estimated_rows=source_schema.estimated_rows,
+        sensitivity_markers=source_schema.sensitivity_markers,
+        column_sensitivity_markers=source_schema.column_sensitivity_markers,
+        removed_columns=tuple(sorted(removed)),
+    )
 
 
 def register_pipeline_run_routes(
@@ -503,6 +541,7 @@ def _read_only_pipeline_preflight(catalog, snapshot, csv_source_schema) -> None:
         source_schema = apply_column_type_overrides_to_schema(
             source_schema, snapshot.write_policy.column_type_overrides
         )
+        source_schema = _project_guardrail_schema(source_schema, snapshot.guardrail_actions)
     except Exception as exc:
         if isinstance(exc, ConnectorError) and exc.code == TransferErrorCode.PERMISSION_DENIED:
             reason_code = "source_permission_denied"

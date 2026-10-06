@@ -14,7 +14,9 @@ The default configured markers are sensitive, pii, phi, ssn, cui, confidential, 
 
 ## Implementation
 
-The Foundry connector reads dataset resource markings and schema column markings alongside schema inspection. It returns table-level and column-level markers in the source schema object. The catalog layer caches the schema and marker result while clearing any example values before reuse. The pre-run review combines markers from both the schema and the column marker map so the same finding is not duplicated.
+The Foundry connector reads dataset resource markings and schema column markings alongside schema inspection. It follows every resource-marking page before reporting a result and returns table-level and column-level markers in the source schema object. The catalog layer refreshes live markings when it reuses a cached schema, clears any old example values, and preserves the original cache expiry. The pre-run review combines markers from both the schema and the column marker map so the same finding is not duplicated.
+
+Sensitivity metadata is fail-closed: a missing schema, malformed response, inaccessible resource-marking list, or unresolved marking name is an unavailable-source error. Data Mover does not treat an unknown result as a verified source with no markers. Configure a token with access to both the dataset schema and its resource markings before running a Foundry transfer.
 
 The review labels each finding “Foundry metadata” and shows the affected table or column. A table-level finding is presented as a block; a column finding receives a Hash/Remove control in the related [action story](CDO-4559-choose-actions-for-metadata-tagged-columns.md).
 
@@ -39,6 +41,7 @@ The demo uses an injected synthetic pii marker to show the review behavior; it i
 - Configured Foundry markers are normalized and matched in [guardrails.py](../../app/domain/pipelines/guardrails.py) and [foundry.py](../../app/connectors/foundry.py).
 - Table and column markers are carried by the source schema and rendered separately in [pipeline.py](../../app/ui/routes/pipeline.py).
 - Findings expose marker source and affected name, not cell values. Catalog schema cache examples are cleared in [catalogs.py](../../app/services/catalogs.py).
+- The Foundry reader rejects unavailable or malformed sensitivity responses and follows resource-marking pagination in [foundry.py](../../app/connectors/foundry.py).
 
 ## Related implementation
 

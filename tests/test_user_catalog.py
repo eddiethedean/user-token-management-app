@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -11,9 +13,9 @@ import pytest
 from sqlalchemy import select
 
 from app.config import Settings
-from app.connectors.base import ProviderCapabilities, RemoteNamespace
-from app.connectors.errors import ConnectorError
-from app.connectors.locators import postgres_table
+from app.connectors.base import ColumnSchema, ProviderCapabilities, RemoteNamespace
+from app.connectors.errors import ConnectorError, TransferErrorCode
+from app.connectors.locators import FoundryDatasetFilesLocator, postgres_table
 from app.database import SessionLocal
 from app.infrastructure.persistence.catalog_cache import SqlAlchemyCatalogCache
 from app.models import PipelineCatalogCache, User, utcnow
@@ -251,3 +253,105 @@ def test_catalog_cache_is_scoped_expiring_and_invalidated_by_real_credentials(
         assert delete_user_secret(db, user=user_one, provider="postgres") is True
         assert cache_one.get("postgres", "public") is None
         assert cache_two.get("postgres", "public") == {"items": [{"name": "owner-two"}]}
+
+
+def test_cached_foundry_schema_refreshes_markings_without_extending_cache_lifetime(
+    access_app, make_user
+) -> None:
+    del access_app
+    from app.config import get_settings
+
+    settings = get_settings()
+    locator = FoundryDatasetFilesLocator(
+        dataset_rid="ri.foundry.main.dataset.example",
+        branch="master",
+        file_paths=["source.parquet"],
+    )
+    cache_key = "schema:" + hashlib.sha256(locator.model_dump_json().encode()).hexdigest()
+    now = utcnow()
+    expires_at = now + timedelta(seconds=90)
+
+    class Inspector:
+        capabilities = SimpleNamespace(schema_inspection=True)
+
+        def inspect_sensitivity_metadata(self, credentials, selected_locator):
+            assert selected_locator == locator
+            return (), {"ssn": ("pii",)}
+
+        def inspect_object(self, credentials, selected_locator):
+            raise AssertionError("The cached schema should be reused")
+
+    with SessionLocal() as db:
+        user = make_user("foundry-cache-refresh@example.gov")
+        cached = PipelineCatalogCache(
+            id="foundry-schema-cache",
+            user_id=user.id,
+            provider="mss",
+            namespace=cache_key,
+            payload_json=json.dumps(
+                {
+                    "columns": [
+                        {
+                            "name": "ssn",
+                            "data_type": "String",
+                            "nullable": True,
+                            "example": "SYNTHETIC-SSN",
+                            "sensitivity_markers": [],
+                        }
+                    ]
+                }
+            ),
+            fetched_at=now,
+            expires_at=expires_at,
+        )
+        db.add(cached)
+        db.commit()
+        access = catalogs.UserCatalog(
+            db,
+            settings,
+            user,
+            schema_resolver=lambda _provider: cast(Any, Inspector()),
+            credential_resolver=lambda **_kwargs: {"endpoint": "https://foundry.invalid"},
+        )
+
+        refreshed = access.inspect_object("mss", locator)
+        db.refresh(cached)
+
+        assert refreshed.columns == (
+            ColumnSchema(name="ssn", data_type="String", example="", sensitivity_markers=("pii",)),
+        )
+        assert refreshed.column_sensitivity_markers == (("ssn", ("pii",)),)
+        assert cached.expires_at == expires_at
+        assert "SYNTHETIC-SSN" not in cached.payload_json
+
+
+def test_foundry_content_preview_refreshes_table_gate_before_source_extraction(
+    monkeypatch,
+) -> None:
+    locator = FoundryDatasetFilesLocator(
+        dataset_rid="ri.foundry.main.dataset.example",
+        branch="master",
+        file_paths=["source.parquet"],
+    )
+
+    class Inspector:
+        def inspect_sensitivity_metadata(self, credentials, selected_locator):
+            return ("pii",), {}
+
+    monkeypatch.setattr(
+        catalogs,
+        "source_reader_for",
+        lambda _provider: pytest.fail("A table-marked source must not be opened for scanning"),
+    )
+    access = catalogs.UserCatalog(
+        Mock(),
+        cast(Settings, SimpleNamespace(pipeline_batch_rows=10)),
+        cast(User, SimpleNamespace(id="catalog-owner")),
+        schema_resolver=lambda _provider: cast(Any, Inspector()),
+        credential_resolver=lambda **_kwargs: {"endpoint": "https://foundry.invalid"},
+    )
+
+    with pytest.raises(ConnectorError) as error:
+        access.scan_sensitive_content("mss", locator)
+
+    assert error.value.code == TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED

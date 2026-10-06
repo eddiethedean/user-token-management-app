@@ -82,6 +82,10 @@ class FoundrySimulator:
         self.last_download_branch = ""
         self.last_upload_branch = ""
         self.last_upload_publication = ""
+        self.schema_payload: dict[str, Any] = {"schema": {"fieldSchemaList": []}}
+        self.marking_pages: dict[str, dict[str, Any]] = {"": {"data": [], "nextPageToken": ""}}
+        self.marking_requests: list[str] = []
+        self.marking_details: dict[str, dict[str, Any]] = {}
         self.api = build_foundry_api(token)
         self.app = self._with_binary_routes(self.api.as_fastapi())
         self.base_url = ""
@@ -106,6 +110,21 @@ class FoundrySimulator:
             }
             self.created_datasets.append(created)
             return created
+
+        @app.get("/api/v2/datasets/{dataset_rid}/getSchema")
+        async def get_schema(dataset_rid: str, branchName: str = "master"):
+            del dataset_rid, branchName
+            return self.schema_payload
+
+        @app.get("/api/v2/filesystem/resources/{resource_rid}/markings")
+        async def list_markings(resource_rid: str, pageToken: str = ""):
+            del resource_rid
+            self.marking_requests.append(pageToken)
+            return self.marking_pages.get(pageToken, {"data": [], "nextPageToken": ""})
+
+        @app.get("/api/v2/admin/markings/{marking_id}")
+        async def get_marking(marking_id: str):
+            return self.marking_details.get(marking_id, {"name": marking_id})
 
         @app.get("/api/v2/datasets/{dataset_rid}/files/{file_path}/content")
         async def download_content(dataset_rid: str, file_path: str, branchName: str = "master"):

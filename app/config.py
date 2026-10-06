@@ -92,9 +92,7 @@ class ConfigDefaults:
     pipeline_connection_max_age_seconds: int = 900
     pipeline_run_retention_days: int = 90
     pipeline_event_retention_days: int = 30
-    pipeline_sensitive_metadata_markers: str = (
-        "sensitive,pii,phi,ssn,cui,confidential,restricted"
-    )
+    pipeline_sensitive_metadata_markers: str = "sensitive,pii,phi,ssn,cui,confidential,restricted"
     pipeline_enable_postgres_writer: bool = True
     pipeline_enable_mss_writer: bool = True
     pipeline_enable_mcscop_writer: bool = True

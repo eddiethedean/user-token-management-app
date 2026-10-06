@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from fastapi import Request
 from sqlalchemy import delete, select
@@ -52,6 +52,9 @@ from app.models import FoundryDataset, PipelineCatalogCache, PipelineUpload, Use
 
 CREATE_TABLE_VALUE = "__new__"
 NEW_TABLE_VALUE_PREFIX = f"{CREATE_TABLE_VALUE}:"
+SensitivityMetadataInspector = Callable[
+    [dict[str, str], Locator], tuple[tuple[str, ...], dict[str, tuple[str, ...]]]
+]
 
 
 @dataclass(frozen=True)
@@ -192,9 +195,7 @@ class UserCatalog:
                             **{
                                 **item,
                                 "example": "",
-                                "sensitivity_markers": tuple(
-                                    item.get("sensitivity_markers") or ()
-                                ),
+                                "sensitivity_markers": tuple(item.get("sensitivity_markers") or ()),
                             }
                         )
                         for item in cached["columns"]
@@ -205,11 +206,14 @@ class UserCatalog:
                         sensitivity_markers=tuple(cached.get("sensitivity_markers") or ()),
                         column_sensitivity_markers=tuple(
                             (str(name), tuple(markers or ()))
-                            for name, markers in (cached.get("column_sensitivity_markers") or {}).items()
+                            for name, markers in (
+                                cached.get("column_sensitivity_markers") or {}
+                            ).items()
                         ),
                     )
-                    refresh_sensitivity = getattr(
-                        inspector, "inspect_sensitivity_metadata", None
+                    refresh_sensitivity = cast(
+                        SensitivityMetadataInspector | None,
+                        getattr(inspector, "inspect_sensitivity_metadata", None),
                     )
                     if callable(refresh_sensitivity):
                         table_markers, column_markers = refresh_sensitivity(
@@ -226,17 +230,13 @@ class UserCatalog:
                                         data_type=column.data_type,
                                         nullable=column.nullable,
                                         example="",
-                                        sensitivity_markers=column_markers.get(
-                                            column.name, ()
-                                        ),
+                                        sensitivity_markers=column_markers.get(column.name, ()),
                                     )
                                     for column in cached_schema.columns
                                 )
                             ),
                             sensitivity_markers=tuple(table_markers),
-                            column_sensitivity_markers=tuple(
-                                sorted(column_markers.items())
-                            ),
+                            column_sensitivity_markers=tuple(sorted(column_markers.items())),
                         )
                     # Scrub examples from schema cache rows written by earlier
                     # versions before they can be reused by a later request.
@@ -251,6 +251,7 @@ class UserCatalog:
                                 for name, markers in cached_schema.column_sensitivity_markers
                             },
                         },
+                        preserve_expiry=True,
                     )
                     return cached_schema
                 except (TypeError, ValueError):
@@ -261,10 +262,7 @@ class UserCatalog:
                 provider,
                 cache_namespace,
                 {
-                    "columns": [
-                        {**vars(column), "example": ""}
-                        for column in inspected.columns
-                    ],
+                    "columns": [{**vars(column), "example": ""} for column in inspected.columns],
                     "sensitivity_markers": list(inspected.sensitivity_markers),
                     "column_sensitivity_markers": {
                         name: list(markers)
@@ -331,13 +329,12 @@ class UserCatalog:
             credentials = self._credentials_for(provider_id)
             if provider_id in {"mss", "mcscop"}:
                 inspector = self.schema_resolver(provider_id)
-                inspect_sensitivity = getattr(
-                    inspector, "inspect_sensitivity_metadata", None
+                inspect_sensitivity = cast(
+                    SensitivityMetadataInspector | None,
+                    getattr(inspector, "inspect_sensitivity_metadata", None),
                 )
                 if callable(inspect_sensitivity):
-                    table_markers, column_markers = inspect_sensitivity(
-                        credentials, locator
-                    )
+                    table_markers, column_markers = inspect_sensitivity(credentials, locator)
                     if table_markers:
                         raise ConnectorError(
                             TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED,
@@ -373,7 +370,7 @@ class UserCatalog:
                     )
                 for name, count in scan_ssn_frame(
                     batch.frame,
-                    ignored_columns=ignored_sensitive_columns,
+                    ignored_columns=tuple(sorted(ignored_sensitive_columns)),
                 ).items():
                     counts[name] = counts.get(name, 0) + count
         finally:
@@ -532,20 +529,42 @@ class UserCatalog:
             return None
         return payload if isinstance(payload, dict) else None
 
-    def _write_cache(self, provider: str, namespace: str, payload: dict[str, Any]) -> None:
+    def _write_cache(
+        self,
+        provider: str,
+        namespace: str,
+        payload: dict[str, Any],
+        *,
+        preserve_expiry: bool = False,
+    ) -> None:
         if self.cache is not None:
             self.cache.put(provider, namespace, payload)
             return
         provider_id = provider.casefold()
         now = utcnow()
+        cached_row = None
+        if preserve_expiry:
+            cached_row = self.db.scalar(
+                select(PipelineCatalogCache).where(
+                    PipelineCatalogCache.user_id == self.user.id,
+                    PipelineCatalogCache.provider == provider_id,
+                    PipelineCatalogCache.namespace == namespace,
+                )
+            )
+        fetched_at = cached_row.fetched_at if cached_row is not None else now
+        expires_at = (
+            cached_row.expires_at
+            if cached_row is not None
+            else now + timedelta(seconds=self.settings.pipeline_catalog_ttl_seconds)
+        )
         values = {
             "id": new_id(),
             "user_id": self.user.id,
             "provider": provider_id,
             "namespace": namespace,
             "payload_json": json.dumps(payload, separators=(",", ":")),
-            "fetched_at": now,
-            "expires_at": now + timedelta(seconds=self.settings.pipeline_catalog_ttl_seconds),
+            "fetched_at": fetched_at,
+            "expires_at": expires_at,
         }
         if not isinstance(self.db.get_bind().dialect.name, str):
             # Lightweight test doubles have no SQL dialect and cannot build a native upsert.

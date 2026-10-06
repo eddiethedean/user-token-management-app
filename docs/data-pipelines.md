@@ -182,18 +182,21 @@ flowchart TD
     Q --> L[In-process runtime claims and renews lease]
     L --> K[Parse snapshot and decrypt required credentials]
     K --> V[Validate connections and inspect source]
-    V --> X[Read source in bounded batches]
-    X --> G[Scan and encrypt source batches before destination staging]
-    G --> H{Findings resolved?}
-    H -->|no| B[Block before destination writes]
-    H -->|yes| D[Prepare destination]
-    D --> T[Transform each batch before writing]
-    D --> M[(Persist counters and events)]
+    V --> G{Foundry metadata verified and table clear?}
+    G -->|no or unavailable| B[Block or fail before source extraction]
+    G -->|yes| X[Read source in bounded batches]
+    X --> H[Scan and encrypt source batches]
+    H --> I{Findings resolved?}
+    I -->|no| B
+    I -->|yes| D[Prepare destination]
+    D --> T[Transform each batch]
+    T --> W[Write transformed batch]
+    W --> M[(Persist counters and events)]
     M --> F[Finalize destination]
     F --> C[Capture destination count and schema when available]
     C --> P[(Persist manifests, verification facts, and success)]
     X -->|cancel, limit, or schema drift| E[Failed or cancelled]
-    D -->|uncertain write or lost lease| N[Failed: reconciliation needed]
+    W -->|uncertain write or lost lease| N[Failed: reconciliation needed]
 ```
 
 The persisted run snapshot isolates a run from later edits to the reusable definition. Run events,
@@ -206,7 +209,7 @@ so worker and cancellation transactions cannot publish the same sequence.
 | Status | What Data Mover currently does |
 |---|---|
 | `queued` | Persist the snapshot and wait for the app runtime to claim a lease. |
-| `validating` | Parse the snapshot, resolve the owner's credentials, test both connections, inspect the source schema, and collect best-effort destination metadata. |
+| `validating` | Parse the snapshot, resolve the owner's credentials, test both connections, inspect the source schema, verify configured Foundry sensitivity metadata, and collect best-effort destination metadata. An unavailable or malformed sensitivity response fails closed. |
 | `extracting` | Read and scan the complete source in bounded Polars batches before destination staging. The worker records SSN-match counts only and encrypts a temporary batch spool. It blocks table-level markings, unresolved findings, missing marked columns, or a required key selected for removal. A single oversized row or a spool over its configured limit fails before writes. |
 | `loading` | Prepare the destination, transform every reviewed batch with the saved Hash or Remove decisions before handing it to the writer, and persist acknowledged counters. |
 | `verifying` | Finalize the destination and capture provider-appropriate manifests, counts, checksums, remote IDs, and schema metadata when available. |
@@ -252,18 +255,26 @@ capabilities determine what can be observed.
 Sensitive-data findings are the exception to the otherwise future-facing transformation roadmap.
 For Foundry, Data Mover reads dataset schema metadata and resource markings. Operators configure
 marker names with `PIPELINE_SENSITIVE_METADATA_MARKERS`; matching is case-insensitive and ignores
-punctuation. Table-level markings block the run. Column-level metadata findings require a saved
+punctuation. The connector reads every resource-marking page and treats unavailable or malformed
+metadata as a failure instead of a clean result. Table-level markings block the run before source
+extraction. Column-level metadata findings require a saved
 Hash or Remove choice. The content scan checks untagged columns for SSN patterns; each match
 requires a saved Hash or Remove choice. Hashing uses deterministic
 HMAC-SHA256 with a key derived from the active connection-encryption key and scoped to the user and
-pipeline. Hashes preserve nulls and are emitted as strings; Remove drops the column. Removing a
+pipeline. Hashes preserve nulls and are emitted as strings; Remove drops the column. For an existing
+PostgreSQL target, Remove transactionally drops that column and its prior values from the target
+table; the run account must own the table. The pre-run destination check and planned schema use saved
+guardrail actions, so validation checks the schema that will actually be written. Removing a
 required PostgreSQL upsert or configured primary key blocks the run. When multiple findings target
 one column, Remove takes precedence over Hash.
 
 The worker scans and encrypts source batches before preparing the destination, so it writes the same
 rows it reviewed. Temporary spool records use an ephemeral encryption key and are deleted when the
 run ends. Run history, audit details, and logs store only detector, column, count, action, and outcome
-fields; matched source values and schema examples are excluded.
+fields; matched source values and schema examples are excluded. A run records a selected action as
+pending until the destination transfer completes, then marks it applied. The source manifest keeps
+the inspected source schema, including removed columns and original types, while the destination
+manifest records the post-guardrail schema.
 Migration `0021` also removes previously persisted schema examples from run manifests and cached
 Foundry schemas.
 
