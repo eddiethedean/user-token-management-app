@@ -861,9 +861,7 @@ def fail_run(
     )
     _record_guardrail_terminal_outcome(
         run,
-        outcome=(
-            "reconciliation_required" if effective_needs_reconciliation else "failed"
-        ),
+        outcome=("reconciliation_required" if effective_needs_reconciliation else "failed"),
         destination_outcome=(
             "reconciliation_required"
             if effective_needs_reconciliation
