@@ -45,8 +45,8 @@ from app.dependencies import AuthContext
 from app.models import AuditEvent, RefreshSession
 from app.services.catalogs import require_catalog_provider
 from app.services.secrets import CredentialField, SecretProvider
-from app.ui.design_system import DATA_MOVER_DESIGN, stacked_surface, surface_card
 from app.ui.design_system import DataMoverPageHeader as PageHeader
+from app.ui.design_system import apply_design_recipe, stacked_surface, surface_card
 from app.ui.forms import compact_password_input, csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.presenters.feedback import connection_outcome
@@ -238,7 +238,7 @@ def secret_slot(
             gap="sm",
         )
 
-    return DATA_MOVER_DESIGN.apply(
+    return apply_design_recipe(
         "data-mover-inset",
         stacked_surface(
             ActionGroup(

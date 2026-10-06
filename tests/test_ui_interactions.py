@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from types import SimpleNamespace
+from typing import cast
 
+from fastapi.testclient import TestClient
 from hedron.testing import (
     AppScenario,
     assert_budget,
@@ -313,8 +315,8 @@ def test_password_htmx_success_redirect_remains_local_when_workbench_is_active(
 
 def test_session_revoke_with_second_session(access_app, make_user) -> None:
     user = make_user("revoke.pair@example.gov")
-    primary = fragment_client(access_app)
-    secondary = fragment_client(access_app)
+    primary = cast(TestClient, fragment_client(access_app))
+    secondary = cast(TestClient, fragment_client(access_app))
     htmx_login(primary, user.email, USER_PASSWORD)
     htmx_login(secondary, user.email, USER_PASSWORD)
 

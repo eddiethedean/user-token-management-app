@@ -113,7 +113,18 @@ def apply_action_recipe(button: _ComponentT, *, variant: str) -> _ComponentT:
         "secondary": "data-mover-secondary-action",
         "danger": "data-mover-danger-action",
     }.get(variant, "data-mover-primary-action")
-    return DATA_MOVER_DESIGN.apply(recipe, button)
+    return apply_design_recipe(recipe, button)
+
+
+def apply_design_recipe(recipe: str, component: Any) -> Any:
+    """Apply a native recipe to a runtime-selected Hedron component.
+
+    Hedron components use invariant generic prop types. The design recipe is
+    selected dynamically for heterogeneous route surfaces, so keep that
+    runtime boundary typed as Any while preserving component types elsewhere.
+    """
+
+    return DATA_MOVER_DESIGN.apply(recipe, component)
 
 
 def surface_card(
@@ -124,7 +135,7 @@ def surface_card(
 ) -> Card:
     """Build a Card using supported Hedron surface props."""
 
-    return DATA_MOVER_DESIGN.apply(recipe, Card(*nodes, class_=class_, **kwargs))
+    return apply_design_recipe(recipe, Card(*nodes, class_=class_, **kwargs))
 
 
 def stacked_surface(*nodes: Any, gap: str = "md", **kwargs: Any) -> Surface:
@@ -140,11 +151,12 @@ def apply_data_recipe(
 ) -> _ComponentT:
     """Apply a native data density to tables and other data views."""
 
-    return DATA_MOVER_DESIGN.apply(recipe, component)
+    return apply_design_recipe(recipe, component)
 
 
 __all__ = [
     "DATA_MOVER_DESIGN",
+    "apply_design_recipe",
     "DataMoverPageHeader",
     "DATA_MOVER_THEME",
     "DATA_MOVER_THEME_SPEC",

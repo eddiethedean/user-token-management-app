@@ -108,13 +108,13 @@ from app.services.pipeline_runs import (
 )
 from app.services.pipelines import list_pipelines, locators_overlap
 from app.services.secrets import list_user_secrets
+from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.design_system import (
-    DATA_MOVER_DESIGN,
     apply_data_recipe,
+    apply_design_recipe,
     stacked_surface,
     surface_card,
 )
-from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
 from app.ui.interactions import ok_fragment
@@ -1436,7 +1436,7 @@ def _capability_surface(
             elevation="sm",
         )
 
-    return DATA_MOVER_DESIGN.apply(
+    return apply_design_recipe(
         "data-mover-inset",
         stacked_surface(
             PageHeader(
@@ -2651,7 +2651,7 @@ def _pipeline_schema_preview_panel(
         }
         if not has_existing_destination:
             destination = planned_destination
-    return DATA_MOVER_DESIGN.apply(
+    return apply_design_recipe(
         "data-mover-inset",
         stacked_surface(
             PageHeader(
@@ -3903,7 +3903,7 @@ def _pipeline_body(
                                         gap="md",
                                     ),
                                     Grid(
-                                        DATA_MOVER_DESIGN.apply(
+                                        apply_design_recipe(
                                             "data-mover-inset",
                                             stacked_surface(
                                                 PageHeader(
@@ -4041,7 +4041,7 @@ def _pipeline_body(
                                                 ),
                                             ),
                                         ),
-                                        DATA_MOVER_DESIGN.apply(
+                                        apply_design_recipe(
                                             "data-mover-inset",
                                             stacked_surface(
                                                 PageHeader(
@@ -4720,7 +4720,7 @@ def _run_schema_results(run):
     )
     source_rows = source_manifest.get("rows", run.source_rows)
     differences = schema_diff(source_manifest, destination_manifest)
-    return DATA_MOVER_DESIGN.apply(
+    return apply_design_recipe(
         "data-mover-inset",
         stacked_surface(
             PageHeader(
@@ -4988,7 +4988,7 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
         )
     outcome = run_outcome(run)
     impact = outcome.data_impact if outcome is not None else DataImpact.UNCERTAIN
-    return DATA_MOVER_DESIGN.apply(
+    return apply_design_recipe(
         "data-mover-inset",
         Surface(
             PageHeader(
@@ -5198,7 +5198,7 @@ def _run_status_fragment(
     )
     status_bar = AsyncRegion(
         ActionGroup(
-            DATA_MOVER_DESIGN.apply(
+            apply_design_recipe(
                 "data-mover-operational-status",
                 Status(
                     run_badge_text,

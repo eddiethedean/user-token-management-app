@@ -30,8 +30,8 @@ from hedron import (
 from hedron_core import HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
-from app.ui.design_system import DATA_MOVER_DESIGN, surface_card
 from app.ui.design_system import DataMoverPageHeader as PageHeader
+from app.ui.design_system import apply_design_recipe, surface_card
 from app.ui.forms import csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, account_summary, alert_box
 from app.ui.urls import form_action, hx_attrs, page_href
@@ -133,7 +133,7 @@ def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) 
         user.last_login_at.strftime("%b %d, %Y %H:%M") if user.last_login_at else "First session"
     )
     return html.aside(
-        DATA_MOVER_DESIGN.apply(
+        apply_design_recipe(
             "data-mover-inset",
             Surface(
                 Stack(
