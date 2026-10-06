@@ -178,6 +178,14 @@ class UserCatalog:
                 summary="The selected provider does not support schema inspection.",
                 retryable=False,
             )
+        refresh_sensitivity: SensitivityMetadataInspector | None = None
+        if provider.casefold() in {"mss", "mcscop"}:
+            refresh_sensitivity = cast(
+                SensitivityMetadataInspector | None,
+                getattr(inspector, "inspect_sensitivity_metadata", None),
+            )
+            if not callable(refresh_sensitivity):
+                raise self._missing_foundry_metadata_refresh()
         cache_namespace = ""
         if (
             provider.casefold() in {"mss", "mcscop"}
@@ -211,12 +219,7 @@ class UserCatalog:
                             ).items()
                         ),
                     )
-                    refresh_sensitivity = cast(
-                        SensitivityMetadataInspector | None,
-                        getattr(inspector, "inspect_sensitivity_metadata", None),
-                    )
-                    if not callable(refresh_sensitivity):
-                        raise self._missing_foundry_metadata_refresh()
+                    assert refresh_sensitivity is not None
                     table_markers, column_markers = refresh_sensitivity(
                         self._credentials_for(provider), locator
                     )
