@@ -323,7 +323,7 @@ def test_foundry_schema_metadata_errors_fail_closed(foundry_sim, tmp_path, schem
     [
         ConnectorError(TransferErrorCode.SOURCE_NOT_FOUND, "not found"),
         ValueError("invalid json"),
-        {},
+        {"data": None},
         {"data": ["marking"], "nextPageToken": "repeat"},
     ],
 )
@@ -439,7 +439,9 @@ def test_foundry_sensitivity_metadata_follows_every_marking_page(foundry_sim, tm
     client.close()
 
 
-def test_foundry_sensitivity_metadata_accepts_omitted_resource_markings(foundry_sim, tmp_path) -> None:
+def test_foundry_sensitivity_metadata_accepts_omitted_resource_markings(
+    foundry_sim, tmp_path
+) -> None:
     foundry_sim.marking_pages = {"": {"nextPageToken": ""}}
     client = FoundryClient({"endpoint": foundry_sim.base_url, "token": TOKEN}, _settings(tmp_path))
 
