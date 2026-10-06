@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.domain.column_types import COLUMN_TYPE_OVERRIDE_DATA_TYPES
+from app.domain.pipelines.guardrails import GuardrailAction
 
 DATASET_RID_PATTERN = re.compile(
     r"^ri\.[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+\.dataset\.[A-Za-z0-9._-]+$"
@@ -236,7 +237,7 @@ WritePolicy = Annotated[
 
 
 class DefinitionSnapshot(BaseModel):
-    version: int = 2
+    version: int = 4
     name: str
     source_provider: str
     destination_provider: str
@@ -244,6 +245,7 @@ class DefinitionSnapshot(BaseModel):
     destination: Locator
     write_policy: WritePolicy
     source_upload_id: str | None = None
+    guardrail_actions: list[GuardrailAction] = Field(default_factory=list)
 
 
 def postgres_table(schema: str, table: str) -> PostgresTableLocator:

@@ -15,6 +15,7 @@ _RUN_PROGRESS = {
     "extracting": 42,
     "loading": 72,
     "verifying": 92,
+    "blocked": 42,
     "succeeded": 100,
 }
 
@@ -28,6 +29,7 @@ _RUN_STAGE_INDEX = {
     "transfer": 2,
     "verifying": 3,
     "verify": 3,
+    "guardrails": 1,
 }
 
 _RUN_STAGE_COPY = {
@@ -43,6 +45,10 @@ _RUN_STAGE_COPY = {
         "Needs review",
         "The worker stopped; reconcile the destination before retrying.",
     ),
+    "blocked": (
+        "Blocked",
+        "Sensitive-data findings need an action before any destination writes can begin.",
+    ),
 }
 
 EVENT_STAGE_LABELS = {
@@ -54,6 +60,7 @@ EVENT_STAGE_LABELS = {
     "cancelled": "Cancelled",
     "failed": "Failed",
     "reconcile": "Reconcile",
+    "guardrails": "Guardrails",
 }
 
 
@@ -65,6 +72,8 @@ def run_status_toasts(run: Any) -> tuple[str | None, ToastTone]:
     if outcome is not None and run.status == "succeeded":
         return outcome.title, "success"
     if outcome is not None and run.status == "cancelled":
+        return outcome.title, "warning"
+    if outcome is not None and run.status == "blocked":
         return outcome.title, "warning"
     if outcome is not None and run.status in {"failed", "failed_needs_reconciliation"}:
         return outcome.title, "danger"
@@ -79,6 +88,8 @@ def run_action_phase(status: str) -> str:
     if status == "cancelled":
         return "cancelled"
     if status == "failed_needs_reconciliation":
+        return "conflict"
+    if status == "blocked":
         return "conflict"
     if status == "failed":
         return "error"
@@ -157,11 +168,11 @@ def run_flow_statuses(run_status: str, last_safe_stage: str = "") -> tuple[str, 
         return ("complete", "complete", "complete", "complete")
     current = _RUN_STAGE_INDEX.get(
         last_safe_stage
-        if run_status in {"failed", "failed_needs_reconciliation", "cancelled"}
+        if run_status in {"failed", "failed_needs_reconciliation", "cancelled", "blocked"}
         else run_status,
         0,
     )
-    failed = run_status in {"failed", "failed_needs_reconciliation", "cancelled"}
+    failed = run_status in {"failed", "failed_needs_reconciliation", "cancelled", "blocked"}
     return tuple(
         "complete"
         if index < current

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, cast
@@ -12,11 +13,25 @@ from hedron_core import NodeLike
 from starlette.responses import Response
 
 from app.application.catalogs import CatalogAccess
+from app.connectors.errors import ConnectorError
+from app.connectors.locators import (
+    CsvUploadLocator,
+    FoundryDatasetFilesLocator,
+    normalize_foundry_source_paths,
+    postgres_table,
+)
 from app.connectors.registry import route_allowed, writer_enabled
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep
 from app.domain.column_types import (
     COLUMN_TYPE_OVERRIDE_DATA_TYPES,
     parse_column_type_override_values,
+)
+from app.domain.pipelines.guardrails import (
+    GuardrailAction,
+    guardrail_scan_matches_source,
+    guardrail_source_key,
+    parse_guardrail_action_values,
+    parse_guardrail_scan_result,
 )
 from app.models import PipelineUpload
 from app.services.catalogs import (
@@ -33,10 +48,14 @@ from app.ui.params import (
     PipelineAutoIncrementPrimaryKeyForm,
     PipelineColumnTypeOverridesForm,
     PipelineConflictColumnsForm,
+    PipelineGuardrailActionsForm,
+    PipelineGuardrailScanCompleteForm,
+    PipelineGuardrailScanForm,
     PipelineIdForm,
     PipelineOptionalProviderForm,
     PipelineOptionalTableForm,
     PipelinePrimaryKeyColumnsForm,
+    PipelineScanSensitiveDataForm,
     PipelineSourceProviderForm,
     PipelineSwapForm,
     PipelineWriteModeForm,
@@ -158,10 +177,14 @@ class PipelineSchemaPreviewPanel(Protocol):
         destination_object: str,
         destination_create: bool,
         csv_inspection: CsvInspection | None,
+        source_upload_id: str = "",
         write_mode: str = "",
         column_type_overrides: dict[str, str] | None = None,
         primary_key_columns: str = "",
         auto_increment_primary_key: str = "",
+        guardrail_actions: list[GuardrailAction] | None = None,
+        guardrail_scan_result: str = "",
+        guardrail_scan_complete: bool = False,
         include_id: bool = True,
     ) -> NodeLike: ...
 
@@ -275,6 +298,10 @@ def register_pipeline_preview_routes(
         manual_cast_type: PipelineOptionalTableForm = "",
         primary_key_columns: PipelinePrimaryKeyColumnsForm = "",
         auto_increment_primary_key: PipelineAutoIncrementPrimaryKeyForm = "",
+        guardrail_actions: PipelineGuardrailActionsForm = None,
+        guardrail_scan_result: PipelineGuardrailScanForm = "",
+        guardrail_scan_complete: PipelineGuardrailScanCompleteForm = False,
+        scan_sensitive_data: PipelineScanSensitiveDataForm = False,
         swap_direction: PipelineSwapForm = False,
     ) -> Response:
         try:
@@ -285,6 +312,41 @@ def register_pipeline_preview_routes(
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
             ) from exc
+        source_selection_changed = request.headers.get("HX-Trigger") in {
+            "pipeline-source-select",
+            "pipeline-source-schema-select",
+            "pipeline-source-table-select",
+        }
+        expected_guardrail_source_key = guardrail_source_key(
+            source_provider,
+            source_schema,
+            source_table,
+            source_upload_id,
+        )
+        try:
+            parsed_guardrail_actions = parse_guardrail_action_values(
+                guardrail_actions or (),
+                expected_source_key=expected_guardrail_source_key,
+            )
+            parsed_guardrail_scan = parse_guardrail_scan_result(
+                guardrail_scan_result,
+                expected_source_key=expected_guardrail_source_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+        if guardrail_scan_result and not guardrail_scan_matches_source(
+            guardrail_scan_result, expected_guardrail_source_key
+        ):
+            parsed_guardrail_scan = []
+            guardrail_scan_result = ""
+            guardrail_scan_complete = False
+        if source_selection_changed or swap_direction:
+            parsed_guardrail_actions = []
+            parsed_guardrail_scan = []
+            guardrail_scan_result = ""
+            guardrail_scan_complete = False
         if add_column_cast:
             if (
                 not manual_cast_column.strip()
@@ -423,6 +485,70 @@ def register_pipeline_preview_routes(
                     destination=True,
                 ),
             )
+        if scan_sensitive_data:
+            if source_provider == "csv":
+                if csv_upload is None or csv_inspection is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail="Upload and inspect the CSV source before scanning it.",
+                    )
+                source_locator = CsvUploadLocator(
+                    upload_id=csv_upload.id,
+                    checksum_sha256=csv_upload.checksum_sha256,
+                )
+            elif source_provider == "postgres":
+                if not source_schema or not source_table:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail="Choose a source table before scanning it.",
+                    )
+                source_locator = postgres_table(source_schema, source_table)
+            else:
+                if not source_schema or not source_table:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail="Choose Foundry source files before scanning them.",
+                    )
+                source_locator = FoundryDatasetFilesLocator(
+                    dataset_rid=source_schema,
+                    branch=await run_owned_sync(
+                        request,
+                        with_user_catalog,
+                        settings,
+                        auth.user.id,
+                        request,
+                        lambda catalog: catalog.branch_for_namespace(
+                            source_provider, source_schema
+                        ),
+                    ),
+                    file_paths=normalize_foundry_source_paths(source_table),
+                )
+            try:
+                parsed_guardrail_scan = await run_owned_sync(
+                    request,
+                    with_user_catalog,
+                    settings,
+                    auth.user.id,
+                    request,
+                    lambda catalog: catalog.scan_sensitive_content(
+                        source_provider,
+                        source_locator,
+                        source_upload_id=source_upload_id,
+                    ),
+                )
+                guardrail_scan_result = json.dumps(
+                    {
+                        "source_key": expected_guardrail_source_key,
+                        "findings": parsed_guardrail_scan,
+                    },
+                    separators=(",", ":"),
+                )
+                guardrail_scan_complete = True
+            except ConnectorError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=exc.summary,
+                ) from exc
         preview_fragment = await run_owned_sync(
             request,
             with_user_catalog,
@@ -472,9 +598,13 @@ def register_pipeline_preview_routes(
                 destination_create=destination_table == CREATE_TABLE_VALUE,
                 write_mode=write_mode,
                 csv_inspection=csv_inspection if csv_upload is not None else None,
+                source_upload_id=source_upload_id,
                 column_type_overrides=parsed_column_type_overrides,
                 primary_key_columns=primary_key_columns,
                 auto_increment_primary_key=auto_increment_primary_key,
+                guardrail_actions=parsed_guardrail_actions,
+                guardrail_scan_result=guardrail_scan_result,
+                guardrail_scan_complete=guardrail_scan_complete,
                 include_id=False,
             ),
         )

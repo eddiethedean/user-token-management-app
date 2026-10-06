@@ -424,6 +424,20 @@ class PostgresConnector:
                     isinstance(write_policy, PostgresReplacePolicy)
                     and write_policy.schema_policy == "recreate"
                 )
+                removed_destination_columns = set(source_schema.removed_columns)
+                if removed_destination_columns and not recreates_schema and not owns_table:
+                    cursor.execute(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = %s AND table_name = %s",
+                        (locator.schema_name, locator.table),
+                    )
+                    existing_names = {str(row[0]) for row in cursor.fetchall()}
+                    if removed_destination_columns.intersection(existing_names):
+                        raise ConnectorError(
+                            TransferErrorCode.PERMISSION_DENIED,
+                            "The destination table must be owned by the run account to remove selected sensitive columns.",
+                            retryable=False,
+                        )
                 if not can_insert and not recreates_schema:
                     raise ConnectorError(
                         TransferErrorCode.PERMISSION_DENIED,
@@ -500,6 +514,24 @@ class PostgresConnector:
                 unique_columns: dict[str, list[str]] = {}
                 for constraint_name, column_name in cursor.fetchall():
                     unique_columns.setdefault(str(constraint_name), []).append(str(column_name))
+                removed_destination_keys = set(source_schema.removed_columns).intersection(
+                    {
+                        *primary_key,
+                        *(name for names in unique_columns.values() for name in names),
+                    }
+                )
+                if removed_destination_keys:
+                    removed_key = sorted(removed_destination_keys)[0]
+                    raise ConnectorError(
+                        TransferErrorCode.SCHEMA_DRIFT,
+                        "A selected Remove action targets a required destination key.",
+                        retryable=False,
+                        field_errors={
+                            f"Destination column {removed_key}": (
+                                "A column that belongs to a primary or unique key cannot be removed."
+                            )
+                        },
+                    )
 
             destination_columns = tuple(
                 ColumnSchema(
@@ -539,6 +571,7 @@ class PostgresConnector:
                 if (
                     source_names
                     and name not in source_names
+                    and name not in source_schema.removed_columns
                     and nullable == "NO"
                     and not default
                     and generated_kind != "ALWAYS"
@@ -792,6 +825,9 @@ class PostgresConnector:
                             )
                         destination_exists = bool(destination_row[0])
                         if destination_exists:
+                            _reject_removed_destination_keys(
+                                cursor, locator, schema.removed_columns
+                            )
                             transferable_schema = ObjectSchema(
                                 locator=schema.locator,
                                 columns=tuple(
@@ -834,6 +870,19 @@ class PostgresConnector:
                     for column_name in generated_columns:
                         cursor.execute(
                             sql.SQL("ALTER TABLE {} DROP COLUMN {}").format(
+                                sql.Identifier(locator.schema_name, staging),
+                                sql.Identifier(column_name),
+                            )
+                        )
+                    for column_name in schema.removed_columns:
+                        cursor.execute(
+                            sql.SQL("ALTER TABLE {} DROP COLUMN IF EXISTS {}").format(
+                                sql.Identifier(locator.schema_name, locator.table),
+                                sql.Identifier(column_name),
+                            )
+                        )
+                        cursor.execute(
+                            sql.SQL("ALTER TABLE {} DROP COLUMN IF EXISTS {}").format(
                                 sql.Identifier(locator.schema_name, staging),
                                 sql.Identifier(column_name),
                             )
@@ -1497,6 +1546,40 @@ def _validate_destination_column_casts(
         raise _postgres_connector_error(
             exc, operation="destination schema compatibility check"
         ) from exc
+
+
+def _reject_removed_destination_keys(
+    cursor, locator: PostgresTableLocator, removed_columns: tuple[str, ...]
+) -> None:
+    """Refuse to remove columns that keep an existing destination key unique."""
+
+    if not removed_columns:
+        return
+    cursor.execute(
+        """
+        SELECT DISTINCT a.attname
+        FROM pg_index i
+        JOIN pg_class c ON c.oid = i.indrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+        WHERE n.nspname = %s AND c.relname = %s AND i.indisunique
+        """,
+        (locator.schema_name, locator.table),
+    )
+    protected_columns = {str(row[0]) for row in cursor.fetchall()}
+    blocked_columns = sorted(protected_columns.intersection(removed_columns))
+    if blocked_columns:
+        blocked = blocked_columns[0]
+        raise ConnectorError(
+            TransferErrorCode.SCHEMA_DRIFT,
+            "A selected Remove action targets a required destination key.",
+            retryable=False,
+            field_errors={
+                f"Destination column {blocked}": (
+                    "A column that belongs to a primary or unique key cannot be removed."
+                )
+            },
+        )
 
 
 def _postgres_connector_error(exc: psycopg.Error, *, operation: str) -> ConnectorError:

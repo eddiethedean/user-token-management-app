@@ -20,6 +20,7 @@ contracts; the prose may be edited without changing the code.
 | Connection | timeout / unavailable | Provider did not complete the check | Test again later | Yes | Not applicable | Connection test |
 | Connection | `connection_test_succeeded` | The configured health check passed | Continue to preview or run | No | Not applicable | Connection test |
 | Pipeline | credentials / source / destination / schema / policy | The route needs correction before it can be safely run | Review route or connection | Depends on code | Unchanged unless run facts say otherwise | Run |
+| Pipeline | `sensitive_data_guardrail_blocked` | Sensitive findings need an action, or the source table is marked sensitive | Review the findings and choose Hash or Remove, or select an allowed source | No | Unchanged | Run |
 | Pipeline | timeout / unavailable / rate limit | Provider did not complete the run | Retry when safe | Code and durable facts | Stage-derived | Run |
 | Pipeline | verification failure | Completion was not verified | Inspect destination and run facts | No | Changed or uncertain | Run |
 | Pipeline | partial write / publish uncertain / worker lost | Destination may contain effects that are not fully known | Reconcile before retry | No | Uncertain | Run |
@@ -39,6 +40,7 @@ parameter, or unrestricted exception object is serialized.
 | `connection.test.completed` | Connection check | `reference_id`, `provider`, `operation`, `duration_ms` |
 | `connection.test.failed` | Connection check | `error_code`, `reference_id`, `provider`, `retryable`, provider status fields |
 | `pipeline.run.queued` | Enqueue | `reference_id`, `run_id`, `pipeline_id`, `attempt` |
+| `pipeline.run.blocked` | Sensitive-data guardrail | `error_code`, `reference_id`, `run_id`, `user_id`, `attempt`, `stage`, `data_impact`, `run_status`, `finding_count` |
 | `pipeline.run.completed` | Success | `reference_id`, `run_id`, `stage`, `data_impact` |
 | `pipeline.run.failed` | Failure | `error_code`, `reference_id`, `run_id`, `stage`, `retryable`, `data_impact` |
 | `pipeline.run.cancelled` | Cancellation | `reference_id`, `run_id`, `stage`, `data_impact` |

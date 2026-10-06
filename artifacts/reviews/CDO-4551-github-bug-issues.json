@@ -1,0 +1,112 @@
+{
+  "repository": "eddiethedean/user-token-management-app",
+  "epic": "CDO-4551",
+  "review_date": "2026-10-06",
+  "base_commit": "834481f61a811e192ed914d9beaddd9d77e2df76",
+  "bugs": [
+    {
+      "finding": "F1",
+      "priority": "P1",
+      "title": "[BUG][CDO-4551 F1][P1] Blocked guardrail runs fail internally and lose their findings",
+      "labels": [
+        "bug",
+        "feature: sensitive-data-guardrails",
+        "priority: high"
+      ],
+      "number": 132,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/132"
+    },
+    {
+      "finding": "F2",
+      "priority": "P1",
+      "title": "[BUG][CDO-4551 F2][P1] Unavailable Foundry sensitivity metadata is treated as a clean source",
+      "labels": [
+        "bug",
+        "feature: sensitive-data-guardrails",
+        "priority: high"
+      ],
+      "number": 133,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/133"
+    },
+    {
+      "finding": "F3",
+      "priority": "P1",
+      "title": "[BUG][CDO-4551 F3][P1] Misplaced metadata refresh lets preview scans read marked Foundry tables",
+      "labels": [
+        "bug",
+        "feature: sensitive-data-guardrails",
+        "priority: high"
+      ],
+      "number": 134,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/134"
+    },
+    {
+      "finding": "F4",
+      "priority": "P1",
+      "title": "[BUG][CDO-4551 F4][P1] Foundry table sensitivity checks ignore resource-marking pages after the first",
+      "labels": [
+        "bug",
+        "feature: sensitive-data-guardrails",
+        "priority: high"
+      ],
+      "number": 135,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/135"
+    },
+    {
+      "finding": "F5",
+      "priority": "P1",
+      "title": "[BUG][CDO-4551 F5][P1] Run submission rejects valid Remove routes by validating the original schema",
+      "labels": [
+        "bug",
+        "feature: sensitive-data-guardrails",
+        "priority: high"
+      ],
+      "number": 136,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/136"
+    },
+    {
+      "finding": "F6",
+      "priority": "P2",
+      "title": "[BUG][CDO-4551 F6][P2] Remove leaves selected columns in existing PostgreSQL destination schemas",
+      "labels": [
+        "bug",
+        "feature: sensitive-data-guardrails",
+        "priority: medium"
+      ],
+      "number": 137,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/137"
+    },
+    {
+      "finding": "F7",
+      "priority": "P2",
+      "title": "[BUG][CDO-4551 F7][P2] Run records mark guardrail actions applied before execution starts",
+      "labels": [
+        "bug",
+        "feature: sensitive-data-guardrails",
+        "priority: medium"
+      ],
+      "number": 138,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/138"
+    },
+    {
+      "finding": "F8",
+      "priority": "P2",
+      "title": "[BUG][CDO-4551 F8][P2] Source manifests lose original columns and types after guardrail projection",
+      "labels": [
+        "bug",
+        "feature: sensitive-data-guardrails",
+        "priority: medium"
+      ],
+      "number": 139,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/139"
+    }
+  ],
+  "report": {
+    "id": 6020068416,
+    "html_url": "https://github.com/eddiethedean/user-token-management-app/issues/104#issuecomment-6020068416"
+  },
+  "reproducer": {
+    "id": 6020068702,
+    "html_url": "https://github.com/eddiethedean/user-token-management-app/issues/104#issuecomment-6020068702"
+  }
+}

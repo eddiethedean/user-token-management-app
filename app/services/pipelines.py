@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 
@@ -26,6 +27,7 @@ from app.connectors.locators import (
 )
 from app.connectors.registry import capabilities_for, route_allowed, writer_enabled
 from app.domain.pipelines import PipelineDraft, PipelinePolicy, PipelinePolicyError
+from app.domain.pipelines.guardrails import GuardrailAction
 from app.models import PipelineDefinition, PipelineUpload, User, new_id
 from app.services.audit import record_event
 from app.services.catalogs import (
@@ -71,6 +73,7 @@ def save_pipeline(
     source_upload_id: str = "",
     conflict_columns: str = "",
     column_type_overrides: dict[str, str] | None = None,
+    guardrail_actions: list[GuardrailAction] | None = None,
     primary_key_columns: str = "",
     auto_increment_primary_key: str = "",
     upsert_action: str = "ignore",
@@ -259,10 +262,16 @@ def save_pipeline(
     pipeline.destination_table = final_destination_table
     pipeline.destination_create = destination_create
     pipeline.write_mode = write_mode
-    pipeline.definition_version = 3
+    pipeline.definition_version = 4
     pipeline.source_locator_json = source_locator.model_dump_json(by_alias=True)
     pipeline.destination_locator_json = destination_locator.model_dump_json(by_alias=True)
     pipeline.write_policy_json = write_policy.model_dump_json()
+    actions = guardrail_actions or []
+    if len({(item.detector, item.column) for item in actions}) != len(actions):
+        raise ValueError("Each detector and column can have only one sensitive-data action.")
+    pipeline.guardrail_actions_json = json.dumps(
+        [item.model_dump(mode="json") for item in actions], separators=(",", ":")
+    )
     pipeline.legacy_unsupported = False
     record_event(
         db,

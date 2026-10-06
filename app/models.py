@@ -337,6 +337,7 @@ class PipelineDefinition(Base):
     source_locator_json: Mapped[str] = mapped_column(Text, default="")
     destination_locator_json: Mapped[str] = mapped_column(Text, default="")
     write_policy_json: Mapped[str] = mapped_column(Text, default="")
+    guardrail_actions_json: Mapped[str] = mapped_column(Text, default="[]", server_default="[]")
     source_schema_snapshot_json: Mapped[str] = mapped_column(Text, default="")
     destination_schema_snapshot_json: Mapped[str] = mapped_column(Text, default="")
     legacy_unsupported: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -354,6 +355,7 @@ class PipelineRunStatus(StrEnum):
     EXTRACTING = "extracting"
     LOADING = "loading"
     VERIFYING = "verifying"
+    BLOCKED = "blocked"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -398,6 +400,7 @@ class PipelineRun(Base):
     source_manifest_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     destination_manifest_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     verification_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    guardrail_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_safe_stage: Mapped[str | None] = mapped_column(String(40), nullable=True)
     data_impact: Mapped[str | None] = mapped_column(String(32), nullable=True)
     reconciliation_required: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -80,6 +80,13 @@ from app.connectors.registry import (
 from app.dependencies import Auth, DbSession, SettingsDep
 from app.domain.column_types import COLUMN_TYPE_CHOICES, COLUMN_TYPE_OVERRIDE_DATA_TYPES
 from app.domain.feedback import DataImpact
+from app.domain.pipelines.guardrails import (
+    GuardrailAction,
+    action_lookup,
+    contains_supported_ssn,
+    guardrail_source_key,
+    parse_guardrail_scan_result,
+)
 from app.models import PipelineDefinition, PipelineUpload
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
@@ -101,13 +108,13 @@ from app.services.pipeline_runs import (
 )
 from app.services.pipelines import list_pipelines, locators_overlap
 from app.services.secrets import list_user_secrets
+from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.design_system import (
-    DATA_MOVER_DESIGN,
     apply_data_recipe,
+    apply_design_recipe,
     stacked_surface,
     surface_card,
 )
-from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
 from app.ui.interactions import ok_fragment
@@ -139,7 +146,7 @@ from app.ui.routes.pipeline_context import (
     with_user_session,
 )
 from app.ui.tabs import NavigationTabs
-from app.ui.urls import form_action, hx_attrs, redirect_path
+from app.ui.urls import form_action, hx_attrs, mounted_path, redirect_path
 
 
 @dataclass(frozen=True)
@@ -1429,7 +1436,7 @@ def _capability_surface(
             elevation="sm",
         )
 
-    return DATA_MOVER_DESIGN.apply(
+    return apply_design_recipe(
         "data-mover-inset",
         stacked_surface(
             PageHeader(
@@ -1647,41 +1654,59 @@ def _foundry_source_preview(
         requested_count = len(paths)
         requested = set(paths)
         selected = [item for item in page.items if item.name in requested]
-    if not selected and paths == "all_supported":
-        return None
     complete_catalog_match = paths == "all_supported" or len(selected) == requested_count
     sizes = [item.size_bytes for item in selected]
     rows = [item.estimated_rows for item in selected]
     known_sizes = [value for value in sizes if isinstance(value, int)]
     known_rows = [value for value in rows if isinstance(value, int)]
     columns: list[dict[str, object]] = []
+    table_sensitivity_markers: list[str] = []
+    column_sensitivity_markers: dict[str, list[str]] = {}
     schema_provenance = "unavailable"
     status_text = f"Catalog preview · {requested_count} file(s) selected"
     if requested_count > 1:
         status_text = f"{requested_count} file(s) selected · schema checked during run"
-    if complete_catalog_match and len(selected) == 1:
-        source_file = selected[0]
-        if (
-            source_file.size_bytes is None
-            or source_file.size_bytes <= MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES
+    source_locator = FoundryDatasetFilesLocator(
+        dataset_rid=namespace,
+        branch=catalog_access.branch_for_namespace(provider, namespace),
+        file_paths=paths,
+    )
+    inspected = None
+    try:
+        inspected = catalog_access.inspect_object(provider, source_locator)
+    except ConnectorError:
+        status_text = "Foundry metadata preview could not be read"
+    if inspected is not None:
+        table_sensitivity_markers = list(inspected.sensitivity_markers)
+        column_sensitivity_markers = {
+            name: list(markers) for name, markers in inspected.column_sensitivity_markers
+        }
+        column_sensitivity_markers.update(
+            {
+                column.name: list(column.sensitivity_markers)
+                for column in inspected.columns
+                if column.sensitivity_markers
+            }
+        )
+        single_known_file = paths != "all_supported" and len(paths) == 1
+        selected_size = selected[0].size_bytes if len(selected) == 1 else None
+        if single_known_file and (
+            selected_size is None or selected_size <= MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES
         ):
-            try:
-                inspected = catalog_access.inspect_object(provider, source_file.locator)
-                columns = [
-                    {
-                        "name": column.name,
-                        "data_type": column.data_type,
-                        "nullable": column.nullable,
-                        "example": column.example,
-                    }
-                    for column in inspected.columns
-                ]
-            except ConnectorError:
-                status_text = "The file preview could not be read"
+            columns = [
+                {
+                    "name": column.name,
+                    "data_type": column.data_type,
+                    "nullable": column.nullable,
+                    "example": column.example,
+                    "sensitivity_markers": list(column.sensitivity_markers),
+                }
+                for column in inspected.columns
+            ]
             if columns:
                 schema_provenance = "file_preview"
                 status_text = "Source file inspected"
-        else:
+        elif selected_size is not None and selected_size > MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES:
             status_text = "File exceeds the 2 MB schema preview limit"
     return {
         "rows": sum(known_rows)
@@ -1691,6 +1716,8 @@ def _foundry_source_preview(
         if complete_catalog_match and len(known_sizes) == len(sizes)
         else None,
         "columns": columns,
+        "table_sensitivity_markers": table_sensitivity_markers,
+        "column_sensitivity_markers": column_sensitivity_markers,
         "primary_key": [],
         "status": status_text,
         "schema_provenance": schema_provenance,
@@ -1739,6 +1766,8 @@ def _route_schema_preview(
             "schema_provenance": "catalog",
             "row_provenance": "exact",
             "size_provenance": "catalog",
+            "table_sensitivity_markers": [],
+            "column_sensitivity_markers": {},
             "capabilities": {
                 "schema_inspection": True,
                 "exact_row_counts": True,
@@ -1776,6 +1805,7 @@ def _route_schema_preview(
         "provider_unavailable" if not capabilities.schema_inspection else "unavailable"
     )
     row_provenance = "estimated" if estimated_rows is not None else "unavailable"
+    inspected = None
     try:
         inspected = catalog_access.inspect_object(provider, remote.locator)
         estimated_rows = inspected.estimated_rows or estimated_rows
@@ -1786,6 +1816,7 @@ def _route_schema_preview(
                 "data_type": column.data_type,
                 "nullable": column.nullable,
                 "example": column.example,
+                "sensitivity_markers": list(column.sensitivity_markers),
             }
             for column in inspected.columns
         ]
@@ -1807,6 +1838,14 @@ def _route_schema_preview(
         "rows": estimated_rows,
         "size_bytes": remote.size_bytes,
         "columns": columns,
+        "table_sensitivity_markers": list(inspected.sensitivity_markers)
+        if inspected is not None
+        else [],
+        "column_sensitivity_markers": {
+            name: list(markers) for name, markers in inspected.column_sensitivity_markers
+        }
+        if inspected is not None
+        else {},
         "primary_key": primary_key,
         "status": "Catalog preview",
         "schema_provenance": schema_provenance,
@@ -1868,6 +1907,13 @@ def _column_type_selector(
             trigger="change",
         ),
     )
+
+
+def _safe_schema_example(value: object, *, sensitivity_markers: object = ()) -> str:
+    rendered = str(value or "")
+    if sensitivity_markers or contains_supported_ssn(rendered):
+        return "Redacted sensitive example"
+    return rendered or "—"
 
 
 def _manual_column_cast_controls(request: Request | None, *, open: bool = False) -> NodeLike:
@@ -1995,7 +2041,12 @@ def _schema_columns_table(
             html.strong(column_name),
             Badge(detected_type, tone="info", size="sm"),
             "Nullable" if column.get("nullable") else "Required",
-            html.code(str(column.get("example") or "—")),
+            html.code(
+                _safe_schema_example(
+                    column.get("example"),
+                    sensitivity_markers=column.get("sensitivity_markers"),
+                )
+            ),
         ]
         if allow_cast and request is not None:
             row.append(
@@ -2181,6 +2232,218 @@ def _schema_preview_surface(
     )
 
 
+def _guardrail_action_control(
+    detector: str,
+    column: str,
+    selected_action: str,
+    *,
+    source_key: str,
+    request: Request | None,
+    control_id: str,
+):
+    def encoded(action: str) -> str:
+        return json.dumps([detector, column, action, source_key], separators=(",", ":"))
+
+    if request is None:
+        return html.input(
+            type="hidden",
+            name="guardrail_actions",
+            value=encoded(selected_action),
+        )
+    return html.select(
+        _option(encoded(""), "Choose an action", selected=not selected_action),
+        _option(encoded("hash"), "Hash", selected=selected_action == "hash"),
+        _option(encoded("remove"), "Remove", selected=selected_action == "remove"),
+        id=control_id,
+        name="guardrail_actions",
+        **{"aria-label": f"Action for {detector} finding in {column}"},
+        **hx_attrs(
+            request,
+            path="/pipeline/preview",
+            method="post",
+            target="#pipeline-preview-region",
+            swap="none",
+            include="#pipeline-form",
+            trigger="change",
+        ),
+    )
+
+
+def _guardrail_review_surface(
+    *,
+    request: Request,
+    source_preview: dict[str, Any] | None,
+    source_provider: str,
+    source_schema: str,
+    source_object: str,
+    source_upload_id: str,
+    scan_result: str,
+    scan_complete: bool,
+    guardrail_actions: list[GuardrailAction],
+):
+    findings: list[dict[str, Any]] = []
+    preview = source_preview or {}
+    source_key = guardrail_source_key(
+        source_provider,
+        source_schema,
+        source_object,
+        source_upload_id,
+    )
+    if preview.get("table_sensitivity_markers"):
+        findings.append(
+            {
+                "detector": "foundry_metadata",
+                "source": "Foundry metadata",
+                "column": "Table-level sensitivity",
+                "count": None,
+                "table_level": True,
+                "table": source_object or source_schema or "Selected source table",
+            }
+        )
+    column_markers: dict[str, set[str]] = {}
+    marker_map = preview.get("column_sensitivity_markers")
+    if isinstance(marker_map, dict):
+        for name, markers in marker_map.items():
+            if markers:
+                column_markers.setdefault(str(name), set()).update(str(item) for item in markers)
+    for item in preview.get("columns") or []:
+        if isinstance(item, dict) and item.get("sensitivity_markers"):
+            column_markers.setdefault(str(item.get("name") or ""), set()).update(
+                str(marker) for marker in item["sensitivity_markers"]
+            )
+    findings.extend(
+        {
+            "detector": "foundry_metadata",
+            "source": "Foundry metadata",
+            "column": column,
+            "count": None,
+        }
+        for column in sorted(column_markers)
+        if column
+    )
+    content_findings = parse_guardrail_scan_result(scan_result, expected_source_key=source_key)
+    findings.extend(content_findings)
+    action_map = action_lookup(guardrail_actions)
+    existing = {(str(item["detector"]), str(item["column"])) for item in findings}
+    for action in guardrail_actions:
+        key = (action.detector, action.column)
+        if key not in existing:
+            findings.append(
+                {
+                    "detector": action.detector,
+                    "source": "Saved decision",
+                    "column": action.column,
+                    "count": None,
+                }
+            )
+            existing.add(key)
+    rows = []
+    for index, finding in enumerate(findings):
+        detector = str(finding.get("detector") or "")
+        column = str(finding.get("column") or "")
+        table_level = bool(finding.get("table_level"))
+        count = finding.get("count")
+        rows.append(
+            [
+                str(finding.get("source") or detector),
+                html.strong(
+                    f"{column} · {finding['table']}"
+                    if table_level and finding.get("table")
+                    else column
+                ),
+                f"{count:,} rows" if isinstance(count, int) else "Flagged",
+                (
+                    "Blocked before destination writes"
+                    if table_level
+                    else _guardrail_action_control(
+                        detector,
+                        column,
+                        action_map.get((detector, column), ""),
+                        source_key=source_key,
+                        request=request,
+                        control_id=f"pipeline-guardrail-action-{index}",
+                    )
+                ),
+            ]
+        )
+    content = (
+        Table(
+            rows=rows,
+            columns=[
+                TableColumn(header="Detection source"),
+                TableColumn(header="Affected column or table"),
+                TableColumn(header="Finding"),
+                TableColumn(header="Action", size="wide"),
+            ],
+            density="compact",
+            sticky_header=True,
+            zebra=True,
+        )
+        if rows
+        else StateView(
+            "No sensitive columns have been flagged",
+            kind="empty",
+            description=(
+                "The complete source scan found no SSN patterns."
+                if scan_complete
+                else "Foundry metadata and any completed content scan will appear here."
+            ),
+        )
+    )
+    scan_button = Button(
+        "Scan source for SSNs",
+        type="button",
+        variant="secondary",
+        size="sm",
+        disabled=(
+            not (
+                (source_provider == "csv" and source_upload_id)
+                or (source_provider and source_schema and source_object)
+            )
+            or bool(preview.get("table_sensitivity_markers"))
+        ),
+        attrs={
+            **hx_attrs(
+                request,
+                path="/pipeline/preview",
+                method="post",
+                target="#pipeline-preview-region",
+                swap="none",
+                include="#pipeline-form",
+            ),
+            "hx-vals": '{"scan_sensitive_data":true}',
+        },
+    )
+    return Surface(
+        PageHeader(
+            "Sensitive-data guardrails",
+            eyebrow="Pre-run review",
+            description=(
+                "A table-level Foundry marking blocks this source before extraction."
+                if preview.get("table_sensitivity_markers")
+                else "Review metadata and content findings, then choose Hash or Remove for each affected column."
+            ),
+            level=3,
+            density="compact",
+            meta=Badge(
+                "SSN scan complete" if scan_complete else "SSN scan not run",
+                tone="success" if scan_complete else "neutral",
+            ),
+        ),
+        html.input(type="hidden", name="guardrail_scan_result", value=scan_result or ""),
+        html.input(
+            type="hidden",
+            name="guardrail_scan_complete",
+            value="true" if scan_complete else "false",
+        ),
+        content,
+        ActionGroup(scan_button, gap="sm", collapse="never"),
+        appearance="plain",
+        padding="sm",
+        elevation="none",
+    )
+
+
 def _pipeline_schema_preview_panel(
     *,
     request: Request,
@@ -2193,10 +2456,14 @@ def _pipeline_schema_preview_panel(
     destination_object: str,
     destination_create: bool,
     csv_inspection: CsvInspection | None,
+    source_upload_id: str = "",
     write_mode: str = "",
     column_type_overrides: dict[str, str] | None = None,
     primary_key_columns: str = "",
     auto_increment_primary_key: str = "",
+    guardrail_actions: list[GuardrailAction] | None = None,
+    guardrail_scan_result: str = "",
+    guardrail_scan_complete: bool = False,
     include_id: bool = True,
 ):
     source = _route_schema_preview(
@@ -2272,21 +2539,62 @@ def _pipeline_schema_preview_panel(
         destination=True,
         creating=destination_create,
     )
+    current_destination = destination
+    has_existing_destination = bool(
+        destination is not None
+        and destination.get("schema_provenance") == "catalog"
+        and destination.get("status") not in {"Created by run", "Planned for first run"}
+    )
     planning_new_schema = destination_create and (
         live_destination is None or write_mode == "replace"
     )
     planned_destination = None
-    if planning_new_schema and source is not None and destination is not None:
+    planned_guardrail_actions: dict[str, str] = {}
+    for action in guardrail_actions or []:
+        if action.action == "remove" or planned_guardrail_actions.get(action.column) != "remove":
+            planned_guardrail_actions[action.column] = action.action
+    removed_columns = {
+        name for name, action in planned_guardrail_actions.items() if action == "remove"
+    }
+    has_guardrail_projection = bool(planned_guardrail_actions)
+    if (
+        (planning_new_schema or has_guardrail_projection)
+        and source is not None
+        and destination is not None
+    ):
         source_columns = list(source.get("columns") or [])
-        planned_columns = [
+        projected_source_columns = [
             {
                 **column,
-                "data_type": _planned_column_type(
-                    destination_provider, column, column_type_overrides or {}
+                "data_type": (
+                    "String"
+                    if planned_guardrail_actions.get(str(column.get("name") or "")) == "hash"
+                    else _planned_column_type(
+                        destination_provider, column, column_type_overrides or {}
+                    )
                 ),
             }
             for column in source_columns
+            if str(column.get("name") or "") not in removed_columns
         ]
+        if has_existing_destination and write_mode != "replace" and has_guardrail_projection:
+            source_by_name = {
+                str(column.get("name") or ""): column for column in projected_source_columns
+            }
+            planned_columns = [
+                {
+                    **column,
+                    **(
+                        {"data_type": source_by_name[str(column.get("name") or "")]["data_type"]}
+                        if str(column.get("name") or "") in source_by_name
+                        else {}
+                    ),
+                }
+                for column in (current_destination or {}).get("columns", [])
+                if str(column.get("name") or "") not in removed_columns
+            ]
+        else:
+            planned_columns = projected_source_columns
         planned_key = [item.strip() for item in primary_key_columns.split(",") if item.strip()]
         source_names = {str(column.get("name") or "") for column in source_columns}
         plan_warning = (
@@ -2312,6 +2620,9 @@ def _pipeline_schema_preview_panel(
                     )
             elif not planned_key:
                 planned_key = list(source.get("primary_key") or [])
+            if removed_columns.intersection(planned_key) and not plan_warning:
+                plan_warning = "A selected Remove action targets a required destination key."
+            planned_key = [name for name in planned_key if name not in removed_columns]
             if (
                 planned_key
                 and source_names
@@ -2329,16 +2640,18 @@ def _pipeline_schema_preview_panel(
             "size_bytes": None,
             "columns": planned_columns,
             "primary_key": planned_key if destination_provider == "postgres" else [],
-            "status": "Planned for next run" if live_destination else "Planned for first run",
+            "status": "Planned for next run"
+            if has_existing_destination
+            else "Planned for first run",
             "schema_provenance": "planned" if source_columns else "unavailable",
             "schema_complete": bool(source_columns),
             "row_provenance": "unavailable",
             "size_provenance": "unavailable",
             "plan_warning": plan_warning,
         }
-        if live_destination is None:
+        if not has_existing_destination:
             destination = planned_destination
-    return DATA_MOVER_DESIGN.apply(
+    return apply_design_recipe(
         "data-mover-inset",
         stacked_surface(
             PageHeader(
@@ -2362,17 +2675,32 @@ def _pipeline_schema_preview_panel(
                 *(
                     [
                         _schema_preview_surface(
-                            "Next run: replacement table",
+                            (
+                                "Next run: replacement table"
+                                if write_mode == "replace"
+                                else "Next run: guardrail projection"
+                            ),
                             planned_destination,
                             destination=True,
                             request=request,
                         )
                     ]
-                    if live_destination is not None and planned_destination is not None
+                    if has_existing_destination and planned_destination is not None
                     else []
                 ),
                 columns={"base": 1, "xl": 2},
                 gap="sm",
+            ),
+            _guardrail_review_surface(
+                request=request,
+                source_preview=source,
+                source_provider=source_provider,
+                source_schema=source_schema,
+                source_object=source_object,
+                source_upload_id=source_upload_id,
+                scan_result=guardrail_scan_result,
+                scan_complete=guardrail_scan_complete,
+                guardrail_actions=guardrail_actions or [],
             ),
             id="pipeline-schema-preview" if include_id else None,
             appearance="plain",
@@ -2424,7 +2752,7 @@ def _csv_inspection(
                                     if inspection.row_count
                                     else "—"
                                 ),
-                                html.code(column.example or "—"),
+                                html.code(_safe_schema_example(column.example)),
                             ]
                             for column in inspection.columns
                         ],
@@ -2664,7 +2992,7 @@ def _saved_pipeline_cards(
             state_tone = "success"
         elif state_key in {"failed", "failed_needs_reconciliation"}:
             state_tone = "danger"
-        elif state_key == "cancelled":
+        elif state_key in {"cancelled", "blocked"}:
             state_tone = "warning"
         cards.append(
             ResourceRow(
@@ -3269,6 +3597,7 @@ def _pipeline_body(
     )
     saved_conflict_columns = ""
     saved_column_type_overrides: dict[str, str] = {}
+    saved_guardrail_actions: list[GuardrailAction] = []
     saved_primary_key_columns = ""
     saved_auto_increment_primary_key = ""
     if loaded_pipeline is not None:
@@ -3280,6 +3609,16 @@ def _pipeline_body(
             saved_conflict_columns = ",".join(loaded_policy.conflict_columns)
         if loaded_policy is not None:
             saved_column_type_overrides = dict(loaded_policy.column_type_overrides)
+        try:
+            stored_guardrail_actions = json.loads(
+                getattr(loaded_pipeline, "guardrail_actions_json", "[]") or "[]"
+            )
+            if isinstance(stored_guardrail_actions, list):
+                saved_guardrail_actions = [
+                    GuardrailAction.model_validate(item) for item in stored_guardrail_actions
+                ]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            saved_guardrail_actions = []
         if isinstance(loaded_policy, (PostgresAppendPolicy, PostgresReplacePolicy)):
             saved_primary_key_columns = ", ".join(loaded_policy.primary_key_columns)
             saved_auto_increment_primary_key = loaded_policy.auto_increment_primary_key
@@ -3362,7 +3701,12 @@ def _pipeline_body(
     )
     has_visible_run = run_monitor is not None
     run_finished = run_status == "succeeded"
-    run_needs_review = run_status in {"failed", "failed_needs_reconciliation", "cancelled"}
+    run_needs_review = run_status in {
+        "failed",
+        "failed_needs_reconciliation",
+        "cancelled",
+        "blocked",
+    }
     setup_flow = ProcessFlow(
         FlowStep(
             "Connect",
@@ -3559,7 +3903,7 @@ def _pipeline_body(
                                         gap="md",
                                     ),
                                     Grid(
-                                        DATA_MOVER_DESIGN.apply(
+                                        apply_design_recipe(
                                             "data-mover-inset",
                                             stacked_surface(
                                                 PageHeader(
@@ -3697,7 +4041,7 @@ def _pipeline_body(
                                                 ),
                                             ),
                                         ),
-                                        DATA_MOVER_DESIGN.apply(
+                                        apply_design_recipe(
                                             "data-mover-inset",
                                             stacked_surface(
                                                 PageHeader(
@@ -3967,9 +4311,15 @@ def _pipeline_body(
                                             if source_provider == "csv"
                                             else None
                                         ),
+                                        source_upload_id=(
+                                            loaded_source_upload.id
+                                            if loaded_source_upload is not None
+                                            else ""
+                                        ),
                                         column_type_overrides=saved_column_type_overrides,
                                         primary_key_columns=saved_primary_key_columns,
                                         auto_increment_primary_key=saved_auto_increment_primary_key,
+                                        guardrail_actions=saved_guardrail_actions,
                                     ),
                                     gap="md",
                                 ),
@@ -4370,7 +4720,7 @@ def _run_schema_results(run):
     )
     source_rows = source_manifest.get("rows", run.source_rows)
     differences = schema_diff(source_manifest, destination_manifest)
-    return DATA_MOVER_DESIGN.apply(
+    return apply_design_recipe(
         "data-mover-inset",
         stacked_surface(
             PageHeader(
@@ -4380,6 +4730,7 @@ def _run_schema_results(run):
                 level=3,
                 density="compact",
             ),
+            _run_guardrail_surface(run),
             Expander(
                 "Source and destination manifests",
                 Grid(
@@ -4397,6 +4748,110 @@ def _run_schema_results(run):
             padding="sm",
             elevation="none",
         ),
+    )
+
+
+def _run_guardrail_surface(run):
+    review = _run_manifest(getattr(run, "guardrail_json", None))
+    if not review:
+        return None
+    findings_value = review.get("findings")
+    findings = findings_value if isinstance(findings_value, list) else []
+    rows = []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        count = finding.get("count")
+        selected_action = str(finding.get("action") or "No action")
+        effective_action = str(finding.get("effective_action") or "")
+        action_label = (
+            f"{selected_action.title()} → {effective_action.title()}"
+            if effective_action and effective_action != selected_action
+            else selected_action.title()
+        )
+        rows.append(
+            [
+                str(finding.get("source") or finding.get("detector") or "—"),
+                html.strong(
+                    f"Table-level sensitivity · {finding['table']}"
+                    if finding.get("table_level") and finding.get("table")
+                    else str(finding.get("column") or "—")
+                ),
+                f"{count:,} matching row(s)" if isinstance(count, int) else "Flagged",
+                action_label,
+                str(finding.get("outcome") or "Recorded"),
+            ]
+        )
+    scan_complete = bool(review.get("scan_complete"))
+    review_outcome = str(review.get("outcome") or "recorded")
+    table = (
+        Table(
+            rows=rows,
+            columns=[
+                TableColumn(header="Detection source"),
+                TableColumn(header="Affected column or table"),
+                TableColumn(header="Finding"),
+                TableColumn(header="Action"),
+                TableColumn(header="Outcome"),
+            ],
+            density="compact",
+            sticky_header=True,
+            zebra=True,
+        )
+        if rows
+        else StateView(
+            "No sensitive-data findings were recorded",
+            kind="empty",
+            description="The pre-write scan completed without matching configured metadata or SSN patterns."
+            if scan_complete
+            else "The run stopped on a table-level sensitivity marking before scanning source rows.",
+        )
+    )
+    return Surface(
+        PageHeader(
+            "Sensitive-data guardrails",
+            eyebrow="Run review",
+            description=(
+                "The run records finding names, counts, and actions. Matched cell values are never included."
+            ),
+            level=3,
+            density="compact",
+            meta=Badge(
+                "Blocked before writes"
+                if review_outcome == "blocked"
+                else "Actions applied"
+                if review_outcome == "applied"
+                else "No sensitive findings"
+                if review_outcome == "clear"
+                else "Action selected; transfer incomplete"
+                if review_outcome == "pending"
+                else "Review complete"
+                if scan_complete
+                else "Scan not run",
+                tone="warning"
+                if review_outcome == "blocked"
+                else "success"
+                if review_outcome == "applied"
+                else "success"
+                if review_outcome == "clear"
+                else "info"
+                if review_outcome == "pending"
+                else "success"
+                if scan_complete
+                else "info",
+            ),
+        ),
+        Grid(
+            Metric("Rows scanned", f"{int(review.get('scanned_rows') or 0):,}"),
+            Metric("Source size", _format_file_size(int(review.get("scanned_bytes") or 0))),
+            Metric("Findings", f"{len(findings):,}"),
+            columns=3,
+            gap="sm",
+        ),
+        table,
+        appearance="plain",
+        padding="sm",
+        elevation="none",
     )
 
 
@@ -4476,7 +4931,7 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
     reconciliation_required = bool(
         getattr(run, "reconciliation_required", False) or facts.get("reconciliation_required")
     )
-    if run_status not in {"failed", "failed_needs_reconciliation", "cancelled"}:
+    if run_status not in {"failed", "failed_needs_reconciliation", "cancelled", "blocked"}:
         return None
     review_recorded = bool(
         getattr(run, "reconciliation_reviewed_at", None) or facts.get("reconciliation_reviewed_at")
@@ -4533,14 +4988,16 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
         )
     outcome = run_outcome(run)
     impact = outcome.data_impact if outcome is not None else DataImpact.UNCERTAIN
-    return DATA_MOVER_DESIGN.apply(
+    return apply_design_recipe(
         "data-mover-inset",
         Surface(
             PageHeader(
                 "Recovery guidance",
                 eyebrow="Operator action required",
                 description=(
-                    "Review recorded. Start a deliberate retry only after confirming the destination state."
+                    "No destination writes occurred. Review the flagged source columns, choose Hash or Remove, and save the route before starting a new run."
+                    if run_status == "blocked"
+                    else "Review recorded. Start a deliberate retry only after confirming the destination state."
                     if can_retry and reconciliation_required
                     else "The transfer failed and is eligible for retry."
                     if can_retry
@@ -4553,7 +5010,15 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
                 level=3,
                 density="compact",
             ),
-            feedback_panel(outcome, label="Pipeline recovery feedback"),
+            feedback_panel(
+                outcome,
+                label="Pipeline recovery feedback",
+                action_href=(
+                    mounted_path(request, f"/pipeline?pipeline_id={run.pipeline_definition_id}")
+                    if run_status == "blocked" and run.pipeline_definition_id
+                    else None
+                ),
+            ),
             ActionGroup(retry_form, review_form, gap="sm", collapse="never")
             if retry_form or review_form
             else None,
@@ -4575,6 +5040,7 @@ def _run_status_fragment(
     next_sequence = lines[-1].sequence if lines else None
     monitor_active = run.status not in {
         "succeeded",
+        "blocked",
         "failed",
         "cancelled",
         "failed_needs_reconciliation",
@@ -4591,6 +5057,9 @@ def _run_status_fragment(
     run_badge_tone = "info"
     if run_status == "succeeded":
         run_badge_text = "Succeeded"
+    elif run_status == "blocked":
+        run_badge_text = "Blocked"
+        run_badge_tone = "warning"
     elif run_status in {
         "queued",
         "running",
@@ -4629,9 +5098,10 @@ def _run_status_fragment(
             source_detail = source_upload.filename
     target_label = _provider_label(snapshot.destination_provider)
     failed = run_status in {"failed", "failed_needs_reconciliation"}
+    blocked = run_status == "blocked"
     source_state = (
         "failed"
-        if failed
+        if failed or blocked
         else "succeeded"
         if run_status in {"loading", "verifying", "succeeded"}
         else "running"
@@ -4690,11 +5160,14 @@ def _run_status_fragment(
             method="post",
             id=f"pipeline-run-again-form-{run.id}",
         )
-        if run.pipeline_definition_id
-        and (
-            run_status not in {"failed", "failed_needs_reconciliation"}
-            or run.retryable
-            or (reconciliation_required and reconciliation_reviewed)
+        if (
+            run.pipeline_definition_id
+            and run_status != "blocked"
+            and (
+                run_status not in {"failed", "failed_needs_reconciliation"}
+                or run.retryable
+                or (reconciliation_required and reconciliation_reviewed)
+            )
         )
         else None
     )
@@ -4725,7 +5198,7 @@ def _run_status_fragment(
     )
     status_bar = AsyncRegion(
         ActionGroup(
-            DATA_MOVER_DESIGN.apply(
+            apply_design_recipe(
                 "data-mover-operational-status",
                 Status(
                     run_badge_text,
@@ -4809,7 +5282,15 @@ def _run_status_fragment(
         Alert(
             stage_description,
             title=f"{stage_label} stage",
-            tone="danger" if failed else "success" if run_status == "succeeded" else "info",
+            tone=(
+                "danger"
+                if failed
+                else "warning"
+                if blocked
+                else "success"
+                if run_status == "succeeded"
+                else "info"
+            ),
         ),
         _run_recovery_surface(request, run, csrf_token=csrf_token),
         Grid(
@@ -4835,7 +5316,8 @@ def _run_status_fragment(
             gap="sm",
         ),
         _run_schema_results(run)
-        if run_status in {"succeeded", "failed", "cancelled", "failed_needs_reconciliation"}
+        if run_status
+        in {"succeeded", "failed", "cancelled", "failed_needs_reconciliation", "blocked"}
         else None,
         Text(
             verification_summary(run),

@@ -1,0 +1,64 @@
+CDO-4551 review checks — 2026-10-06
+
+FULL DEFAULT TEST SUITE
+592 passed, 6 failed, 31 deselected in 83.28 seconds
+Failures:
+- tests/test_feedback.py::test_diagnostic_event_registry_matches_application_and_documentation
+  New pipeline.run.blocked event is unregistered.
+- tests/test_pipelines.py::test_pipeline_can_be_saved_with_postgres_destination
+  Test expects definition version 3; implementation saves version 4.
+- tests/test_transfer_engine.py::test_failure_after_destination_commit_requires_reconciliation
+- tests/test_transfer_engine.py::test_uncertain_destination_cleanup_promotes_original_failure_to_reconciliation
+- tests/test_transfer_engine.py::test_write_only_destination_completes_without_optional_inspection
+- tests/test_transfer_engine.py::test_empty_source_schema_is_marked_unavailable
+  Four fixtures omit pipeline_max_spool_bytes and other newly required execution dependencies.
+
+STATIC CHECKS
+Lint: passed for guardrails.py, foundry.py, catalogs.py, transfer_engine.py,
+pipeline_runs.py, pipeline.py, pipeline_preview.py, pipeline_save.py, migration 0021.
+git diff --check: passed.
+Core type check: seven errors in foundry.py, guardrails.py, catalogs.py, transfer_engine.py.
+- foundry.py:480: HTTP client object is not callable.
+- guardrails.py:159: str is incompatible with detector Literal.
+- guardrails.py:267: object has no get_column attribute.
+- catalogs.py:215 and :338: inferred object is not iterable.
+- catalogs.py:376 and transfer_engine.py:805: set[str] passed as Sequence[str].
+
+ISOLATED NEGATIVE REPRODUCTIONS
+All source values were synthetic; no live Foundry calls or production data were used.
+- Table sensitivity block: failed/internal_error, guardrail_json absent, zero writes.
+- Unresolved SSN: failed/internal_error, guardrail_json absent, zero writes.
+- Destination preparation failure: failed/schema_drift, guardrail outcome applied, zero writes.
+- Schema 404: empty table/column sensitivity results returned.
+- Malformed schema JSON: empty table/column sensitivity results returned.
+- Resource markings on page two: no table marker returned; second page never requested.
+- Fresh connector table marker pii: cached catalog inspection returned no marker.
+- Manual preview scan: extracted from the table despite its live table-level marker.
+- PostgreSQL Remove route: original numeric source schema rejected as destination_schema_incompatible;
+  transformed remaining-column schema accepted by the same target.
+- Existing PostgreSQL append target: after removing the source column from the incoming frame,
+  the destination continued to contain both id and ssn columns.
+
+ISOLATED POSITIVE REPRODUCTION
+Worker transfer succeeded: two source batches, three rows, Hash on ssn and Remove on alt_ssn.
+Output columns: id, ssn. Every non-null hashed value was 64-character hexadecimal.
+Null remained null. Repeated source value produced the same digest across batches.
+Matched synthetic values were absent from guardrail_json.
+Original source columns were id, ssn, alt_ssn, but the stored source manifest listed id, ssn.
+
+ACTION PERSISTENCE
+Version 4 definition stored both metadata Hash and content Remove choices.
+Run snapshot contained the same actions.
+Source-mismatched form action values were discarded.
+
+POPULATED MIGRATION
+SQLite 0020 -> 0021: passed.
+Removed example fields from source schema, destination schema, destination schema_before,
+and schema cache; guardrail columns added; old run guardrail_json remained null.
+0021 -> 0020 downgrade: passed; new run field removed.
+
+DOCUMENTATION CHECKS
+28 distinct issue keys, CDO-4551 through CDO-4578, with correct supplied-format Jira URLs.
+Eight pages: one epic and seven stories. Seven screenshot assets inspected visually.
+No broken local links in the issue descriptions or the epic/story pages.
+Live Jira records, live Foundry permissions/API behavior, and opt-in deployment tests were not checked.

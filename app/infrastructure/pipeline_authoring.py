@@ -225,6 +225,7 @@ class SqlAlchemyPipelineAuthoringOperation(PipelineAuthoringOperation):
                         write_mode=write_mode,
                         conflict_columns=selected_conflict_columns,
                         column_type_overrides=command.column_type_overrides,
+                        guardrail_actions=command.guardrail_actions,
                         primary_key_columns=command.primary_key_columns,
                         auto_increment_primary_key=command.auto_increment_primary_key,
                         available_providers=available_providers,

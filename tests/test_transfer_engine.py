@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import Mock
 
 import polars as pl
@@ -37,11 +37,14 @@ from app.connectors.locators import (
     WritePolicy,
     postgres_table,
 )
+from app.domain.pipelines.guardrails import GuardrailAction
 from app.models import PipelineRun
 from app.services import transfer_engine
+from app.ui.routes.pipeline_runs import _project_guardrail_schema
 
 
 def _settings(**values: object) -> Settings:
+    values.setdefault("pipeline_spool_root", None)
     return cast(Settings, SimpleNamespace(**values))
 
 
@@ -62,6 +65,30 @@ def _snapshot_with_policy(write_policy: WritePolicy) -> DefinitionSnapshot:
         destination=postgres_table("public", "events"),
         write_policy=write_policy,
     )
+
+
+def test_run_readiness_projects_saved_hash_and_remove_actions() -> None:
+    schema = ObjectSchema(
+        locator=postgres_table("ops", "events"),
+        columns=(
+            ColumnSchema(name="id", data_type="Int64"),
+            ColumnSchema(name="ssn", data_type="Int64"),
+            ColumnSchema(name="email", data_type="Int64"),
+        ),
+    )
+    projected = _project_guardrail_schema(
+        schema,
+        [
+            GuardrailAction(detector="ssn", column="ssn", action="remove"),
+            GuardrailAction(detector="foundry_metadata", column="email", action="hash"),
+        ],
+    )
+
+    assert [(column.name, column.data_type) for column in projected.columns] == [
+        ("id", "Int64"),
+        ("email", "String"),
+    ]
+    assert projected.removed_columns == ("ssn",)
 
 
 class _Source:
@@ -364,6 +391,9 @@ def test_failure_after_destination_commit_requires_reconciliation(monkeypatch) -
     monkeypatch.setattr(transfer_engine.pipeline_runs, "transition", lambda *args, **kwargs: None)
     monkeypatch.setattr(transfer_engine.pipeline_runs, "add_counters", lambda *args, **kwargs: None)
     monkeypatch.setattr(transfer_engine.pipeline_runs, "append_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs, "record_guardrail_review", lambda *args, **kwargs: None
+    )
 
     def fail_persistence(*args, **kwargs):
         raise RuntimeError("application database unavailable")
@@ -389,6 +419,7 @@ def test_failure_after_destination_commit_requires_reconciliation(monkeypatch) -
         pipeline_batch_target_bytes=1_048_576,
         pipeline_max_run_seconds=60,
         pipeline_max_source_bytes=1_048_576,
+        pipeline_max_spool_bytes=1_048_576,
     )
 
     with pytest.raises(ConnectorError) as excinfo:
@@ -416,6 +447,13 @@ def test_uncertain_destination_cleanup_promotes_original_failure_to_reconciliati
     source = _Source()
 
     class UncertainDestination(_Destination):
+        def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "Synthetic staging failure.",
+                retryable=False,
+            )
+
         def abort(self, load_session: LoadSession) -> AbortResult:
             self.aborted = True
             return AbortResult.UNCERTAIN
@@ -427,6 +465,9 @@ def test_uncertain_destination_cleanup_promotes_original_failure_to_reconciliati
     monkeypatch.setattr(transfer_engine.pipeline_runs, "transition", lambda *args, **kwargs: None)
     monkeypatch.setattr(transfer_engine.pipeline_runs, "add_counters", lambda *args, **kwargs: None)
     monkeypatch.setattr(transfer_engine.pipeline_runs, "append_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs, "record_guardrail_review", lambda *args, **kwargs: None
+    )
 
     snapshot = DefinitionSnapshot(
         name="uncertain cleanup",
@@ -447,7 +488,8 @@ def test_uncertain_destination_cleanup_promotes_original_failure_to_reconciliati
         pipeline_batch_rows=1_000,
         pipeline_batch_target_bytes=1_048_576,
         pipeline_max_run_seconds=60,
-        pipeline_max_source_bytes=1,
+        pipeline_max_source_bytes=1_048_576,
+        pipeline_max_spool_bytes=1_048_576,
     )
 
     with pytest.raises(ConnectorError) as excinfo:
@@ -604,6 +646,7 @@ def test_execution_honors_injected_writer_policy_in_demo_mode(monkeypatch) -> No
         pipeline_batch_target_bytes=1_048_576,
         pipeline_max_run_seconds=60,
         pipeline_max_source_bytes=1_048_576,
+        pipeline_max_spool_bytes=1_048_576,
     )
 
     with pytest.raises(ConnectorError, match="not enabled") as excinfo:
@@ -732,6 +775,9 @@ def test_write_only_destination_completes_without_optional_inspection(monkeypatc
     monkeypatch.setattr(transfer_engine.pipeline_runs, "transition", lambda *args, **kwargs: None)
     monkeypatch.setattr(transfer_engine.pipeline_runs, "add_counters", lambda *args, **kwargs: None)
     monkeypatch.setattr(transfer_engine.pipeline_runs, "append_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs, "record_guardrail_review", lambda *args, **kwargs: None
+    )
     completed: dict = {}
     monkeypatch.setattr(
         transfer_engine.pipeline_runs,
@@ -766,6 +812,7 @@ def test_write_only_destination_completes_without_optional_inspection(monkeypatc
             pipeline_batch_target_bytes=1_048_576,
             pipeline_max_run_seconds=60,
             pipeline_max_source_bytes=1_048_576,
+            pipeline_max_spool_bytes=1_048_576,
         ),
         cancel_requested=lambda: False,
         source_resolver=lambda provider: source,
@@ -786,6 +833,9 @@ def test_empty_source_schema_is_marked_unavailable(monkeypatch) -> None:
     monkeypatch.setattr(transfer_engine.pipeline_runs, "transition", lambda *args, **kwargs: None)
     monkeypatch.setattr(transfer_engine.pipeline_runs, "add_counters", lambda *args, **kwargs: None)
     monkeypatch.setattr(transfer_engine.pipeline_runs, "append_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs, "record_guardrail_review", lambda *args, **kwargs: None
+    )
     completed: dict = {}
     monkeypatch.setattr(
         transfer_engine.pipeline_runs,
@@ -812,6 +862,7 @@ def test_empty_source_schema_is_marked_unavailable(monkeypatch) -> None:
         pipeline_batch_target_bytes=1_048_576,
         pipeline_max_run_seconds=60,
         pipeline_max_source_bytes=1_048_576,
+        pipeline_max_spool_bytes=1_048_576,
     )
 
     transfer_engine.execute_transfer(
@@ -829,6 +880,272 @@ def test_empty_source_schema_is_marked_unavailable(monkeypatch) -> None:
 
     source_metadata = completed["source_manifest"]["metadata"]
     assert source_metadata["schema"] == {"available": False, "provenance": "unavailable"}
+
+
+def test_guardrail_outcome_stays_pending_when_destination_preparation_fails(monkeypatch) -> None:
+    class SensitiveSource(_Source):
+        def inspect_object(self, credentials: Credentials, locator: Locator) -> ObjectSchema:
+            return ObjectSchema(
+                locator=locator,
+                columns=(
+                    ColumnSchema(name="id", data_type="Int64"),
+                    ColumnSchema(name="ssn", data_type="String", sensitivity_markers=("pii",)),
+                ),
+            )
+
+        def extract(
+            self,
+            credentials: Credentials,
+            locator: Locator,
+            *,
+            batch_rows: int,
+            batch_bytes: int,
+        ) -> Iterator[TransferBatch]:
+            frame = pl.DataFrame({"id": [1], "ssn": ["123-45-6789"]})
+            yield TransferBatch(frame, 1, int(frame.estimated_size()), 1)
+
+    class FailingDestination(_Destination):
+        def prepare_destination(
+            self,
+            credentials: Credentials,
+            locator: Locator,
+            schema: ObjectSchema,
+            write_policy: WritePolicy,
+            *,
+            run_id: str,
+        ) -> LoadSession:
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "Synthetic destination preparation failure.",
+                retryable=False,
+            )
+
+    monkeypatch.setattr(transfer_engine, "route_allowed", lambda *_args: True)
+    monkeypatch.setattr(transfer_engine, "writer_enabled", lambda provider, **kwargs: True)
+    for name in ("heartbeat", "transition", "add_counters", "append_event"):
+        monkeypatch.setattr(transfer_engine.pipeline_runs, name, lambda *args, **kwargs: None)
+    review: dict[str, Any] = {}
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs,
+        "record_guardrail_review",
+        lambda *args, **kwargs: review.update(kwargs["guardrail"]),
+    )
+    snapshot = DefinitionSnapshot(
+        name="pending guardrail decision",
+        source_provider="mss",
+        destination_provider="postgres",
+        source=FoundryDatasetFilesLocator(
+            dataset_rid="ri.foundry.main.dataset.example",
+            branch="master",
+            file_paths=["source.parquet"],
+        ),
+        destination=postgres_table("public", "events"),
+        write_policy=PostgresAppendPolicy(),
+        guardrail_actions=[
+            GuardrailAction(detector="foundry_metadata", column="ssn", action="remove")
+        ],
+    )
+    settings = _settings(
+        is_demo_mode=True,
+        app_env="test",
+        pipeline_lease_seconds=120,
+        pipeline_batch_rows=100,
+        pipeline_batch_target_bytes=1_048_576,
+        pipeline_max_run_seconds=60,
+        pipeline_max_source_bytes=1_048_576,
+        pipeline_max_spool_bytes=1_048_576,
+    )
+
+    with pytest.raises(ConnectorError):
+        transfer_engine.execute_transfer(
+            Mock(),
+            run=_run("pending-guardrail-run"),
+            lease_token="lease",
+            snapshot=snapshot,
+            source_credentials={},
+            destination_credentials={},
+            settings=settings,
+            cancel_requested=lambda: False,
+            source_resolver=lambda _provider: SensitiveSource(),
+            destination_resolver=lambda _provider: FailingDestination(),
+        )
+
+    assert review["outcome"] == "pending"
+    finding = review["findings"][0]
+    assert finding["action"] == "remove"
+    assert finding["outcome"] == "selected"
+
+
+def test_successful_guardrail_run_records_original_source_schema_and_applied_action(
+    monkeypatch,
+) -> None:
+    class SensitiveSource(_Source):
+        def inspect_object(self, credentials: Credentials, locator: Locator) -> ObjectSchema:
+            return ObjectSchema(
+                locator=locator,
+                columns=(
+                    ColumnSchema(name="id", data_type="Int64"),
+                    ColumnSchema(name="ssn", data_type="String", sensitivity_markers=("pii",)),
+                ),
+            )
+
+        def extract(
+            self,
+            credentials: Credentials,
+            locator: Locator,
+            *,
+            batch_rows: int,
+            batch_bytes: int,
+        ) -> Iterator[TransferBatch]:
+            frame = pl.DataFrame({"id": [1], "ssn": ["123-45-6789"]})
+            yield TransferBatch(frame, 1, int(frame.estimated_size()), 1)
+
+    class CapturingDestination(_Destination):
+        def __init__(self) -> None:
+            super().__init__()
+            self.output_columns: tuple[str, ...] = ()
+
+        def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
+            self.output_columns = tuple(batch.frame.columns)
+            return super().write_batch(load_session, batch)
+
+    monkeypatch.setattr(transfer_engine, "route_allowed", lambda *_args: True)
+    monkeypatch.setattr(transfer_engine, "writer_enabled", lambda provider, **kwargs: True)
+    for name in ("heartbeat", "transition", "add_counters", "append_event"):
+        monkeypatch.setattr(transfer_engine.pipeline_runs, name, lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs, "record_guardrail_review", lambda *args, **kwargs: None
+    )
+    completed: dict[str, Any] = {}
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs,
+        "complete_run",
+        lambda *args, **kwargs: completed.update(kwargs),
+    )
+    snapshot = DefinitionSnapshot(
+        name="successful guardrail run",
+        source_provider="mss",
+        destination_provider="postgres",
+        source=FoundryDatasetFilesLocator(
+            dataset_rid="ri.foundry.main.dataset.example",
+            branch="master",
+            file_paths=["source.parquet"],
+        ),
+        destination=postgres_table("public", "events"),
+        write_policy=PostgresAppendPolicy(),
+        guardrail_actions=[
+            GuardrailAction(detector="foundry_metadata", column="ssn", action="remove")
+        ],
+    )
+    destination = CapturingDestination()
+    transfer_engine.execute_transfer(
+        Mock(),
+        run=_run("successful-guardrail-run"),
+        lease_token="lease",
+        snapshot=snapshot,
+        source_credentials={},
+        destination_credentials={},
+        settings=_settings(
+            is_demo_mode=True,
+            app_env="test",
+            pipeline_lease_seconds=120,
+            pipeline_batch_rows=100,
+            pipeline_batch_target_bytes=1_048_576,
+            pipeline_max_run_seconds=60,
+            pipeline_max_source_bytes=1_048_576,
+            pipeline_max_spool_bytes=1_048_576,
+        ),
+        cancel_requested=lambda: False,
+        source_resolver=lambda _provider: SensitiveSource(),
+        destination_resolver=lambda _provider: destination,
+    )
+
+    source_columns = completed["source_manifest"]["schema"]["columns"]
+    assert [column["name"] for column in source_columns] == ["id", "ssn"]
+    assert destination.output_columns == ("id",)
+    assert completed["guardrail"]["outcome"] == "applied"
+    assert completed["guardrail"]["findings"][0]["outcome"] == "applied"
+
+
+def test_saved_guardrail_action_stays_applied_when_current_scan_has_no_match(monkeypatch) -> None:
+    class CapturingDestination(_Destination):
+        def __init__(self) -> None:
+            super().__init__()
+            self.output_columns: tuple[str, ...] = ()
+
+        def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
+            self.output_columns = tuple(batch.frame.columns)
+            return super().write_batch(load_session, batch)
+
+    monkeypatch.setattr(transfer_engine, "route_allowed", lambda *_args: True)
+    monkeypatch.setattr(transfer_engine, "writer_enabled", lambda provider, **kwargs: True)
+    for name in ("heartbeat", "transition", "add_counters", "append_event"):
+        monkeypatch.setattr(transfer_engine.pipeline_runs, name, lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs, "record_guardrail_review", lambda *args, **kwargs: None
+    )
+    completed: dict[str, Any] = {}
+    monkeypatch.setattr(
+        transfer_engine.pipeline_runs,
+        "complete_run",
+        lambda *args, **kwargs: completed.update(kwargs),
+    )
+    destination = CapturingDestination()
+    snapshot = _snapshot_with_policy(PostgresAppendPolicy()).model_copy(
+        update={
+            "guardrail_actions": [GuardrailAction(detector="ssn", column="ssn", action="remove")]
+        }
+    )
+
+    class SourceWithoutCurrentFinding(_Source):
+        def inspect_object(self, credentials: Credentials, locator: Locator) -> ObjectSchema:
+            return ObjectSchema(
+                locator=locator,
+                columns=(
+                    ColumnSchema(name="id", data_type="Int64"),
+                    ColumnSchema(name="ssn", data_type="Int64"),
+                ),
+            )
+
+        def extract(
+            self,
+            credentials: Credentials,
+            locator: Locator,
+            *,
+            batch_rows: int,
+            batch_bytes: int,
+        ) -> Iterator[TransferBatch]:
+            frame = pl.DataFrame({"id": [1], "ssn": [7]})
+            yield TransferBatch(frame, 1, int(frame.estimated_size()), 1)
+
+    transfer_engine.execute_transfer(
+        Mock(),
+        run=_run("saved-guardrail-run"),
+        lease_token="lease",
+        snapshot=snapshot,
+        source_credentials={},
+        destination_credentials={},
+        settings=_settings(
+            is_demo_mode=True,
+            app_env="test",
+            pipeline_lease_seconds=120,
+            pipeline_batch_rows=100,
+            pipeline_batch_target_bytes=1_048_576,
+            pipeline_max_run_seconds=60,
+            pipeline_max_source_bytes=1_048_576,
+            pipeline_max_spool_bytes=1_048_576,
+        ),
+        cancel_requested=lambda: False,
+        source_resolver=lambda _provider: SourceWithoutCurrentFinding(),
+        destination_resolver=lambda _provider: destination,
+    )
+
+    assert destination.output_columns == ("id",)
+    assert completed["guardrail"]["outcome"] == "applied"
+    finding = completed["guardrail"]["findings"][0]
+    assert finding["source"] == "Saved decision"
+    assert finding["action"] == "remove"
+    assert finding["outcome"] == "applied"
 
 
 def test_upsert_policy_requires_a_current_destination_key_and_source_columns() -> None:

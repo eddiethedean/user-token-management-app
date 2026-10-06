@@ -1,0 +1,140 @@
+"date","type","issue_id","summary","linked_to","description","acceptance_criteria","hrs"
+"2026-10-01","Epic","CDO-4551","Data Mover: Sensitive Data Guardrails","","As a Data Mover user, I want Data Mover to identify and protect sensitive data before it reaches a destination, so transfers follow our data-handling policies. Add Foundry metadata-based detection and content-based detection of untagged sensitive data. Let users hash or remove sensitive columns, and block a table marked sensitive at the table level.
+
+Jira issue: [CDO-4551](https://idstjira.socom.mil/jira/browse/CDO-4551)
+Epic guide: [Data Mover: Sensitive Data Guardrails](../../docs/stories/CDO-4551-sensitive-data-guardrails-epic.md)","- Foundry table and column sensitivity markers are detected.
+- A sensitive column can be hashed or removed before transfer.
+- A table-level sensitive marker blocks the transfer.
+- Content detectors identify untagged sensitive columns, including SSNs, and let users hash or remove those columns.
+- Guardrail actions are enforced before destination writes, and findings do not expose sensitive cell values.",""
+"2026-10-01","Story","CDO-4552","Data Mover: Identify sensitive Foundry metadata","CDO-4551","As a pipeline owner, I want Data Mover to identify sensitivity tags in Foundry metadata so I can review sensitive tables and columns before transfer.
+
+Jira issue: [CDO-4552](https://idstjira.socom.mil/jira/browse/CDO-4552)
+Story guide: [Story CDO-4552 — Identify sensitive Foundry metadata](../../docs/stories/CDO-4552-identify-sensitive-foundry-metadata.md)
+Epic guide: [Sensitive Data Guardrails](../../docs/stories/CDO-4551-sensitive-data-guardrails-epic.md)","- Data Mover checks Foundry metadata for configured sensitivity markers.
+- Findings identify whether a marker applies to a table or a column.
+- The review shows the affected table or column and that metadata triggered the finding.
+- Findings do not expose sensitive cell values.",""
+"2026-10-01","Task","CDO-4553","Data Mover: Map Foundry sensitivity metadata","CDO-4552","Define how configured Foundry table and column markers map to Data Mover sensitivity findings.
+
+Jira issue: [CDO-4553](https://idstjira.socom.mil/jira/browse/CDO-4553)","- Agreed Foundry markers map to table-level or column-level findings.
+- The mapping is documented for the metadata reader and pipeline review.","6"
+"2026-10-01","Task","CDO-4554","Data Mover: Read sensitivity markers from Foundry","CDO-4552","Extend Foundry source metadata handling to return table-level and column-level sensitivity markers.
+
+Jira issue: [CDO-4554](https://idstjira.socom.mil/jira/browse/CDO-4554)","- Foundry metadata responses expose the configured table and column markers to Data Mover.
+- Metadata handling does not include source cell values.","12"
+"2026-10-01","Task","CDO-4555","Data Mover: Show Foundry metadata findings in pipeline review","CDO-4552","Display the affected tables and columns, and identify metadata as the source of each finding.
+
+Jira issue: [CDO-4555](https://idstjira.socom.mil/jira/browse/CDO-4555)","- Pipeline review lists each affected table or column.
+- Each finding is labeled as metadata-based and appears before transfer.","8"
+"2026-10-01","Story","CDO-4556","Data Mover: Block tables marked sensitive","CDO-4551","As a pipeline owner, I want Data Mover to block a table marked sensitive in Foundry metadata so that the table cannot be transferred.
+
+Jira issue: [CDO-4556](https://idstjira.socom.mil/jira/browse/CDO-4556)
+Story guide: [Story CDO-4556 — Block tables marked sensitive](../../docs/stories/CDO-4556-block-tables-marked-sensitive.md)
+Epic guide: [Sensitive Data Guardrails](../../docs/stories/CDO-4551-sensitive-data-guardrails-epic.md)","- A table-level sensitive marker blocks the run before extraction or destination writes begin.
+- The run explains that the table-level marker caused the block.
+- The block applies even if the table has no individually marked columns.",""
+"2026-10-01","Task","CDO-4557","Data Mover: Enforce table-level sensitivity blocks","CDO-4556","Prevent extraction and destination writes when a source table has a table-level sensitive marker.
+
+Jira issue: [CDO-4557](https://idstjira.socom.mil/jira/browse/CDO-4557)","- A table-level sensitive marker prevents the run from extracting or writing the table.
+- The run is recorded as blocked.","8"
+"2026-10-01","Task","CDO-4558","Data Mover: Explain table-level sensitivity blocks","CDO-4556","Report the block reason and affected table in the run status.
+
+Jira issue: [CDO-4558](https://idstjira.socom.mil/jira/browse/CDO-4558)","- Run status identifies the affected table and table-level sensitivity as the reason.
+- The explanation contains no source cell values.","4"
+"2026-10-01","Story","CDO-4559","Data Mover: Choose actions for metadata-tagged columns","CDO-4551","As a pipeline owner, I want to choose how Data Mover handles columns tagged as sensitive so I can hash or remove them before transfer.
+
+Jira issue: [CDO-4559](https://idstjira.socom.mil/jira/browse/CDO-4559)
+Story guide: [Story CDO-4559 — Choose actions for metadata-tagged columns](../../docs/stories/CDO-4559-choose-actions-for-metadata-tagged-columns.md)
+Epic guide: [Sensitive Data Guardrails](../../docs/stories/CDO-4551-sensitive-data-guardrails-epic.md)","- For each metadata-tagged column, the user can choose Hash or Remove.
+- A run cannot proceed while a tagged column has no selected action.
+- The selected action is saved with the pipeline configuration and run.",""
+"2026-10-01","Task","CDO-4560","Data Mover: Add actions for metadata-tagged columns","CDO-4559","Provide Hash and Remove choices for each sensitive column found through metadata.
+
+Jira issue: [CDO-4560](https://idstjira.socom.mil/jira/browse/CDO-4560)","- Each metadata-tagged column offers Hash and Remove choices.
+- The selected choice is visibly associated with its column.","8"
+"2026-10-01","Task","CDO-4561","Data Mover: Save metadata guardrail actions","CDO-4559","Persist each selected column action with the pipeline configuration and run snapshot.
+
+Jira issue: [CDO-4561](https://idstjira.socom.mil/jira/browse/CDO-4561)","- The selected action is saved with the pipeline.
+- The run snapshot captures the action used for that run.","8"
+"2026-10-01","Task","CDO-4562","Data Mover: Validate metadata guardrail actions","CDO-4559","Prevent a run from proceeding when a metadata-tagged column has no selected action.
+
+Jira issue: [CDO-4562](https://idstjira.socom.mil/jira/browse/CDO-4562)","- A metadata-tagged column without an action blocks the run before destination writes.
+- The validation identifies the column requiring an action.","4"
+"2026-10-01","Story","CDO-4563","Data Mover: Detect untagged SSNs in source data","CDO-4551","As a pipeline owner, I want Data Mover to detect SSNs in columns that lack sensitivity metadata so untagged sensitive data is still identified.
+
+Jira issue: [CDO-4563](https://idstjira.socom.mil/jira/browse/CDO-4563)
+Story guide: [Story CDO-4563 — Detect untagged SSNs in source data](../../docs/stories/CDO-4563-detect-untagged-ssns-in-source-data.md)
+Epic guide: [Sensitive Data Guardrails](../../docs/stories/CDO-4551-sensitive-data-guardrails-epic.md)","- Data Mover runs an SSN detector against source values before writing to the destination.
+- Findings identify the affected column and detector, without displaying matched values.
+- The detector can be extended to support additional sensitive-data patterns.",""
+"2026-10-01","Task","CDO-4564","Data Mover: Implement SSN content detection","CDO-4563","Add a detector for supported SSN formats in source column values.
+
+Jira issue: [CDO-4564](https://idstjira.socom.mil/jira/browse/CDO-4564)","- Supported SSN formats are detected and reported at column level.
+- Findings identify the SSN detector without returning matched values.","12"
+"2026-10-01","Task","CDO-4565","Data Mover: Scan source data before destination writes","CDO-4563","Run content detection before loading data into the destination.
+
+Jira issue: [CDO-4565](https://idstjira.socom.mil/jira/browse/CDO-4565)","- Content detection scans source data in bounded batches before destination writes begin.
+- No destination writes begin until the required scan completes.","16"
+"2026-10-01","Task","CDO-4566","Data Mover: Return safe content detection findings","CDO-4563","Report affected columns and detector names without returning matched values.
+
+Jira issue: [CDO-4566](https://idstjira.socom.mil/jira/browse/CDO-4566)","- Each finding identifies the column and detector.
+- Matched values are excluded from the finding response.","6"
+"2026-10-01","Story","CDO-4567","Data Mover: Choose actions for algorithm-detected columns","CDO-4551","As a pipeline owner, I want to choose how Data Mover handles columns flagged by content detectors so I can hash or remove them before transfer.
+
+Jira issue: [CDO-4567](https://idstjira.socom.mil/jira/browse/CDO-4567)
+Story guide: [Story CDO-4567 — Choose actions for algorithm-detected columns](../../docs/stories/CDO-4567-choose-actions-for-algorithm-detected-columns.md)
+Epic guide: [Sensitive Data Guardrails](../../docs/stories/CDO-4551-sensitive-data-guardrails-epic.md)","- For each column flagged by a content detector, the user can choose Hash or Remove.
+- A run cannot proceed with an unresolved finding.
+- Findings show which detector identified the column, without exposing matched values.",""
+"2026-10-01","Task","CDO-4568","Data Mover: Add actions for content-detected columns","CDO-4567","Provide Hash and Remove choices for columns flagged by content detectors.
+
+Jira issue: [CDO-4568](https://idstjira.socom.mil/jira/browse/CDO-4568)","- Each content-detected column offers Hash and Remove choices.
+- The choice is associated with the finding and affected column.","6"
+"2026-10-01","Task","CDO-4569","Data Mover: Save content guardrail actions","CDO-4567","Persist selected actions alongside the corresponding detector and column.
+
+Jira issue: [CDO-4569](https://idstjira.socom.mil/jira/browse/CDO-4569)","- The saved action is associated with the detector and affected column.
+- The run snapshot captures the action used for the run.","6"
+"2026-10-01","Task","CDO-4570","Data Mover: Require resolution for content findings","CDO-4567","Prevent a run from proceeding when a detected column has no selected action.
+
+Jira issue: [CDO-4570](https://idstjira.socom.mil/jira/browse/CDO-4570)","- An unresolved content finding blocks destination writes.
+- The blocked run identifies the column and required decision without showing matched values.","4"
+"2026-10-01","Story","CDO-4571","Data Mover: Apply guardrail actions before destination writes","CDO-4551","As a pipeline owner, I want Data Mover to enforce my selected actions consistently so sensitive columns are handled before transferred data reaches its destination.
+
+Jira issue: [CDO-4571](https://idstjira.socom.mil/jira/browse/CDO-4571)
+Story guide: [Story CDO-4571 — Apply guardrail actions before destination writes](../../docs/stories/CDO-4571-apply-guardrail-actions-before-destination-writes.md)
+Epic guide: [Sensitive Data Guardrails](../../docs/stories/CDO-4551-sensitive-data-guardrails-epic.md)","- Hash and remove actions apply consistently across all transferred rows and batches.
+- Removed columns are absent from the destination output.
+- Hashed columns contain transformed values rather than source values.
+- If a run finds a column with no configured action, it stops before destination writes begin and reports that the guardrail needs review.",""
+"2026-10-01","Task","CDO-4572","Data Mover: Implement the approved hash transform","CDO-4571","Apply the agreed one-way hash approach to selected columns before destination writes.
+
+Jira issue: [CDO-4572](https://idstjira.socom.mil/jira/browse/CDO-4572)","- Selected values are transformed using the approved one-way hash approach.
+- Raw values and hash-key material are not written to logs.","12"
+"2026-10-01","Task","CDO-4573","Data Mover: Remove selected columns from transfer data","CDO-4571","Exclude selected columns consistently from transferred batches and destination output.
+
+Jira issue: [CDO-4573](https://idstjira.socom.mil/jira/browse/CDO-4573)","- Removed columns are absent from every transferred batch and the destination schema.
+- Remaining columns preserve their values and order according to the transfer contract.","8"
+"2026-10-01","Task","CDO-4574","Data Mover: Enforce guardrail actions across transfer batches","CDO-4571","Apply each configured action consistently throughout the run and stop before destination writes if an action is unresolved.
+
+Jira issue: [CDO-4574](https://idstjira.socom.mil/jira/browse/CDO-4574)","- The same action applies to the affected column in every batch.
+- Unresolved findings prevent destination writes from beginning.","12"
+"2026-10-01","Story","CDO-4575","Data Mover: Record guardrail findings and decisions","CDO-4551","As a pipeline owner, I want to review which guardrails ran and what actions were applied so I can understand and audit each transfer.
+
+Jira issue: [CDO-4575](https://idstjira.socom.mil/jira/browse/CDO-4575)
+Story guide: [Story CDO-4575 — Record guardrail findings and decisions](../../docs/stories/CDO-4575-record-guardrail-findings-and-decisions.md)
+Epic guide: [Sensitive Data Guardrails](../../docs/stories/CDO-4551-sensitive-data-guardrails-epic.md)","- The run record shows metadata and content-based findings, selected actions, and whether the run was blocked.
+- Logs and audit records do not contain matched sensitive values.
+- The run record identifies the applicable pipeline and guardrail configuration.",""
+"2026-10-01","Task","CDO-4576","Data Mover: Store guardrail findings and actions in run records","CDO-4575","Record detection sources, affected columns, selected actions, and block outcomes.
+
+Jira issue: [CDO-4576](https://idstjira.socom.mil/jira/browse/CDO-4576)","- Run records capture detector or metadata source, affected column, action, and outcome.
+- Run records exclude sensitive cell values.","8"
+"2026-10-01","Task","CDO-4577","Data Mover: Show guardrail outcomes in run details","CDO-4575","Display findings and actions in the run review without showing sensitive values.
+
+Jira issue: [CDO-4577](https://idstjira.socom.mil/jira/browse/CDO-4577)","- Run details show guardrail findings, selected actions, and block status.
+- The view does not display matched source values.","6"
+"2026-10-01","Task","CDO-4578","Data Mover: Keep sensitive values out of guardrail logs","CDO-4575","Ensure guardrail logging and audit records do not contain matched source values.
+
+Jira issue: [CDO-4578](https://idstjira.socom.mil/jira/browse/CDO-4578)","- Guardrail events and audit records contain no matched source values.
+- Errors report safe identifiers and reasons without embedding sensitive values.","6"

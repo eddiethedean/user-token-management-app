@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import io
 import logging
+import os
+import struct
+import tempfile
 from collections.abc import Callable
-from itertools import chain
 from typing import Literal, TypeVar, cast
 
+import polars as pl
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy.orm import Session
 
 from app.application.ports import Clock, Sleeper, system_clock, system_sleep
@@ -38,6 +45,7 @@ from app.connectors.registry import (
     writer_enabled,
 )
 from app.domain.feedback import DataImpact
+from app.domain.pipelines.guardrails import GuardrailAction, action_lookup, scan_ssn_frame
 from app.models import PipelineRun
 from app.services import pipeline_runs
 from app.services.catalogs import invalidate_published_foundry_file_cache
@@ -202,13 +210,246 @@ def _schema_manifest(schema: ObjectSchema) -> dict:
                 "name": column.name,
                 "data_type": column.data_type,
                 "nullable": column.nullable,
-                "example": column.example,
             }
             for column in schema.columns
         ],
         "primary_key": list(schema.primary_key),
         "unique_constraints": [list(item) for item in schema.unique_constraints],
     }
+
+
+class _EncryptedBatchSpool:
+    """A bounded disk spool that keeps pre-scanned source batches encrypted."""
+
+    _HEADER = struct.Struct(">QQQQ")
+
+    def __init__(self, *, run_id: str, maximum_bytes: int, directory: str | None = None) -> None:
+        self._file = tempfile.TemporaryFile(mode="w+b", dir=directory or None)
+        self._cipher = AESGCM(AESGCM.generate_key(bit_length=256))
+        self._run_id = run_id.encode("utf-8")
+        self._maximum_bytes = maximum_bytes
+        self._stored_bytes = 0
+
+    def append(self, batch: TransferBatch) -> None:
+        payload = io.BytesIO()
+        batch.frame.write_ipc(payload, compression="zstd")
+        plaintext = payload.getvalue()
+        nonce = os.urandom(12)
+        associated_data = struct.pack(">QQQ", batch.sequence, batch.row_count, batch.byte_count)
+        ciphertext = self._cipher.encrypt(nonce, plaintext, self._run_id + associated_data)
+        record_size = self._HEADER.size + len(nonce) + len(ciphertext)
+        if self._stored_bytes + record_size > self._maximum_bytes:
+            raise ConnectorError(
+                TransferErrorCode.SPOOL_LIMIT_EXCEEDED,
+                "The encrypted pre-write scan spool exceeded its configured size limit.",
+                retryable=False,
+            )
+        self._file.write(
+            self._HEADER.pack(batch.sequence, batch.row_count, batch.byte_count, len(ciphertext))
+        )
+        self._file.write(nonce)
+        self._file.write(ciphertext)
+        self._stored_bytes += record_size
+
+    def batches(self):
+        self._file.flush()
+        self._file.seek(0)
+        while True:
+            header = self._file.read(self._HEADER.size)
+            if not header:
+                return
+            if len(header) != self._HEADER.size:
+                raise ConnectorError(
+                    TransferErrorCode.INTERNAL_ERROR,
+                    "The encrypted source scan spool could not be read.",
+                    retryable=False,
+                )
+            sequence, row_count, byte_count, ciphertext_size = self._HEADER.unpack(header)
+            nonce = self._file.read(12)
+            ciphertext = self._file.read(ciphertext_size)
+            if len(nonce) != 12 or len(ciphertext) != ciphertext_size:
+                raise ConnectorError(
+                    TransferErrorCode.INTERNAL_ERROR,
+                    "The encrypted source scan spool could not be read.",
+                    retryable=False,
+                )
+            associated_data = struct.pack(">QQQ", sequence, row_count, byte_count)
+            try:
+                plaintext = self._cipher.decrypt(nonce, ciphertext, self._run_id + associated_data)
+                frame = pl.read_ipc(io.BytesIO(plaintext))
+            except Exception as exc:
+                raise ConnectorError(
+                    TransferErrorCode.INTERNAL_ERROR,
+                    "The encrypted source scan spool could not be verified.",
+                    retryable=False,
+                ) from exc
+            yield TransferBatch(
+                frame=frame,
+                row_count=int(row_count),
+                byte_count=int(byte_count),
+                sequence=int(sequence),
+            )
+
+    def close(self) -> None:
+        self._file.close()
+
+
+def _metadata_guardrail_findings(schema: ObjectSchema) -> list[dict[str, object]]:
+    findings: dict[str, dict[str, object]] = {}
+    for name, markers in schema.column_sensitivity_markers:
+        if markers:
+            findings[name] = {
+                "detector": "foundry_metadata",
+                "source": "Foundry metadata",
+                "column": name,
+                "count": None,
+            }
+    for column in schema.columns:
+        if column.sensitivity_markers:
+            findings[column.name] = {
+                "detector": "foundry_metadata",
+                "source": "Foundry metadata",
+                "column": column.name,
+                "count": None,
+            }
+    return [findings[name] for name in sorted(findings)]
+
+
+def _guardrail_document(
+    findings: list[dict[str, object]],
+    *,
+    actions: list[GuardrailAction],
+    outcome: str,
+    scan_complete: bool,
+    scanned_rows: int = 0,
+    scanned_bytes: int = 0,
+    removed_columns: tuple[str, ...] = (),
+    hashed_columns: tuple[str, ...] = (),
+    blocked_reason: str = "",
+) -> dict[str, object]:
+    return {
+        "version": 1,
+        "outcome": outcome,
+        "scan_complete": scan_complete,
+        "scanned_rows": scanned_rows,
+        "scanned_bytes": scanned_bytes,
+        "findings": findings,
+        "actions": [action.model_dump(mode="json") for action in actions],
+        "removed_columns": list(removed_columns),
+        "hashed_columns": list(hashed_columns),
+        "blocked_reason": blocked_reason,
+    }
+
+
+def _effective_actions(
+    findings: list[dict[str, object]],
+    actions: list[GuardrailAction],
+) -> tuple[dict[str, str], list[dict[str, object]]]:
+    by_finding = action_lookup(actions)
+    effective: dict[str, set[str]] = {}
+    resolved_findings: list[dict[str, object]] = []
+    for finding in findings:
+        detector = str(finding.get("detector") or "")
+        column = str(finding.get("column") or "")
+        selected = by_finding.get((detector, column))
+        resolved = dict(finding)
+        resolved["action"] = selected
+        resolved["outcome"] = "applied" if selected else "review_required"
+        resolved_findings.append(resolved)
+        if selected:
+            effective.setdefault(column, set()).add(selected)
+    resolved_actions = {
+        column: "remove" if "remove" in values else "hash" for column, values in effective.items()
+    }
+    for finding in resolved_findings:
+        column = str(finding.get("column") or "")
+        if finding.get("action"):
+            finding["effective_action"] = resolved_actions.get(column)
+    return resolved_actions, resolved_findings
+
+
+def _transform_schema_for_guardrails(schema: ObjectSchema, actions: dict[str, str]) -> ObjectSchema:
+    removed = {name for name, action in actions.items() if action == "remove"}
+    transformed_columns = tuple(
+        ColumnSchema(
+            name=column.name,
+            data_type="String" if actions.get(column.name) == "hash" else column.data_type,
+            nullable=column.nullable,
+            sensitivity_markers=column.sensitivity_markers,
+        )
+        for column in schema.columns
+        if column.name not in removed
+    )
+    if schema.columns and not transformed_columns:
+        raise ConnectorError(
+            TransferErrorCode.SCHEMA_DRIFT,
+            "Sensitive-data actions would remove every source column.",
+            retryable=False,
+        )
+    return ObjectSchema(
+        locator=schema.locator,
+        columns=transformed_columns,
+        primary_key=tuple(name for name in schema.primary_key if name not in removed),
+        unique_constraints=tuple(
+            constraint
+            for constraint in schema.unique_constraints
+            if not removed.intersection(constraint)
+        ),
+        estimated_rows=schema.estimated_rows,
+        removed_columns=tuple(sorted(set(schema.removed_columns) | removed)),
+    )
+
+
+def _guardrail_hmac_key(settings: Settings, run: PipelineRun) -> bytes:
+    key = settings.api_token_key_ring[settings.api_token_active_key_id]
+    context = (
+        b"data-mover-sensitive-guardrail-v1\x00"
+        + str(run.user_id).encode("utf-8")
+        + b"\x00"
+        + str(run.pipeline_definition_id or "").encode("utf-8")
+    )
+    return hmac.new(key, context, hashlib.sha256).digest()
+
+
+def _transform_batch_for_guardrails(
+    batch: TransferBatch,
+    actions: dict[str, str],
+    *,
+    hmac_key: bytes,
+) -> TransferBatch:
+    removed = [name for name, action in actions.items() if action == "remove"]
+    hashed = [name for name, action in actions.items() if action == "hash"]
+    frame = batch.frame
+    for name in hashed:
+        if name not in frame.columns:
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "A guarded source column changed during the pre-write scan.",
+                retryable=False,
+            )
+        values: list[str | None] = []
+        for value in frame.get_column(name).to_list():
+            if value is None:
+                values.append(None)
+                continue
+            encoded = (
+                value if isinstance(value, bytes) else str(value).encode("utf-8", errors="replace")
+            )
+            digest = hmac.new(
+                hmac_key,
+                name.encode("utf-8") + b"\x00" + encoded,
+                hashlib.sha256,
+            ).hexdigest()
+            values.append(digest)
+        frame = frame.with_columns(pl.Series(name=name, values=values, dtype=pl.String))
+    if removed:
+        frame = frame.drop(removed)
+    return TransferBatch(
+        frame=frame,
+        row_count=batch.row_count,
+        byte_count=int(frame.estimated_size()),
+        sequence=batch.sequence,
+    )
 
 
 def _destination_schema_projection(
@@ -424,6 +665,43 @@ def execute_transfer(
         destination, destination_credentials, snapshot.destination
     )
     source_schema = source.inspect_object(source_credentials, snapshot.source)
+    if lease_lost():
+        raise RunConflictError("This worker no longer holds the run lease.")
+    if cancel_requested():
+        pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
+        return
+    if source_schema.sensitivity_markers:
+        table_identity = getattr(snapshot.source, "dataset_rid", "")
+        table_finding = {
+            "detector": "foundry_metadata",
+            "source": "Foundry metadata",
+            "column": "Table-level sensitivity",
+            "count": None,
+            "action": None,
+            "outcome": "blocked",
+            "table_level": True,
+            "table": table_identity or "Selected source table",
+        }
+        guardrail = _guardrail_document(
+            [table_finding],
+            actions=[],
+            outcome="blocked",
+            scan_complete=False,
+            scanned_rows=0,
+            scanned_bytes=0,
+            blocked_reason="Table-level sensitivity requires a different approved source.",
+        )
+        pipeline_runs.block_run(
+            db,
+            run,
+            lease_token=lease_token,
+            summary=(
+                "Sensitive-data guardrails blocked the run before destination writes because "
+                f"source table {table_finding['table']} has a table-level sensitivity marking."
+            ),
+            guardrail=guardrail,
+        )
+        return
     pipeline_runs.transition(
         db,
         run,
@@ -433,47 +711,253 @@ def execute_transfer(
     )
     _demo_stage_pause(settings, sleeper=sleeper)
 
-    extracted_rows = 0
-    extracted_bytes = 0
     started = clock()
-    source_iterator = iter(
-        source.extract(
-            source_credentials,
-            snapshot.source,
-            batch_rows=settings.pipeline_batch_rows,
-            batch_bytes=settings.pipeline_batch_target_bytes,
-        )
-    )
     schema = source_schema
+    source_schema_columns: tuple[str, ...] = ()
+    scanned_rows = 0
+    scanned_bytes = 0
+    ssn_counts: dict[str, int] = {}
+    metadata_findings = _metadata_guardrail_findings(source_schema)
+    metadata_sensitive_columns = {
+        str(finding["column"]) for finding in metadata_findings if finding.get("column")
+    }
+    spool = _EncryptedBatchSpool(
+        run_id=run.id,
+        maximum_bytes=settings.pipeline_max_spool_bytes,
+        directory=settings.pipeline_spool_root,
+    )
+    source_iterator = None
     session = None
     destination_committed = False
     try:
-        # Fetch only the first batch before preparing the destination so a
-        # source without portable schema metadata can still define its table.
-        # The remaining batches stay in the iterator and are loaded as they
-        # arrive; retaining the complete source in memory made large runs
-        # exceed the application's bounded-batch contract.
-        first_batch = next(source_iterator, None)
-        if first_batch is not None:
+        pipeline_runs.append_event(
+            db,
+            run,
+            "Scanning the complete source before destination staging.",
+            stage="guardrails",
+        )
+        db.commit()
+        source_iterator = iter(
+            source.extract(
+                source_credentials,
+                snapshot.source,
+                batch_rows=settings.pipeline_batch_rows,
+                batch_bytes=settings.pipeline_batch_target_bytes,
+            )
+        )
+        last_heartbeat = started
+        for extracted_batch in source_iterator:
             if lease_lost():
                 raise RunConflictError("This worker no longer holds the run lease.")
             if cancel_requested():
                 pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
                 return
-            frame = first_batch.frame
-            if not source_schema.columns:
+            if (clock() - started).total_seconds() > settings.pipeline_max_run_seconds:
+                raise ConnectorError(
+                    TransferErrorCode.RUN_TIMEOUT, "The run exceeded its time limit."
+                )
+            scanned_rows += int(extracted_batch.row_count)
+            scanned_bytes += int(extracted_batch.byte_count)
+            if scanned_bytes > settings.pipeline_max_source_bytes:
+                raise ConnectorError(
+                    TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
+                    "The source exceeded the configured size limit.",
+                )
+            if not schema.columns:
                 schema = ObjectSchema(
                     locator=snapshot.source,
                     columns=tuple(
-                        ColumnSchema(name=name, data_type=str(dtype), nullable=True)
-                        for name, dtype in frame.schema.items()
+                        ColumnSchema(name=str(name), data_type=str(dtype), nullable=True)
+                        for name, dtype in extracted_batch.frame.schema.items()
                     ),
                     primary_key=source_schema.primary_key,
                     unique_constraints=source_schema.unique_constraints,
+                    estimated_rows=source_schema.estimated_rows,
+                    sensitivity_markers=source_schema.sensitivity_markers,
+                    column_sensitivity_markers=source_schema.column_sensitivity_markers,
                 )
+            expected = tuple(column.name for column in schema.columns)
+            actual = tuple(str(name) for name in extracted_batch.frame.columns)
+            if set(actual) != set(expected):
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "The source schema changed during extraction.",
+                    retryable=False,
+                )
+            if actual != expected:
+                extracted_batch = TransferBatch(
+                    frame=extracted_batch.frame.select(list(expected)),
+                    row_count=extracted_batch.row_count,
+                    byte_count=extracted_batch.byte_count,
+                    sequence=extracted_batch.sequence,
+                )
+            source_schema_columns = expected
+            for column, count in scan_ssn_frame(
+                extracted_batch.frame,
+                ignored_columns=tuple(sorted(metadata_sensitive_columns)),
+            ).items():
+                ssn_counts[column] = ssn_counts.get(column, 0) + count
+            spool.append(extracted_batch)
+            if (clock() - last_heartbeat).total_seconds() >= min(
+                10, settings.pipeline_lease_seconds / 3
+            ):
+                pipeline_runs.heartbeat(
+                    db,
+                    run,
+                    lease_token=lease_token,
+                    lease_seconds=settings.pipeline_lease_seconds,
+                )
+                last_heartbeat = clock()
 
-        column_type_overrides = snapshot.write_policy.column_type_overrides
-        schema = apply_column_type_overrides_to_schema(schema, column_type_overrides)
+        close_source = getattr(source_iterator, "close", None)
+        if close_source is not None:
+            close_source()
+        source_iterator = None
+        if lease_lost():
+            raise RunConflictError("This worker no longer holds the run lease.")
+        if cancel_requested():
+            pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
+            return
+
+        findings = [*metadata_findings]
+        findings.extend(
+            {
+                "detector": "ssn",
+                "source": "Content scan",
+                "column": column,
+                "count": count,
+            }
+            for column, count in sorted(ssn_counts.items())
+        )
+        finding_keys = {
+            (str(finding.get("detector") or ""), str(finding.get("column") or ""))
+            for finding in findings
+        }
+        available_source_columns = {column.name for column in schema.columns}
+        for action in snapshot.guardrail_actions:
+            key = (action.detector, action.column)
+            if action.column in available_source_columns and key not in finding_keys:
+                findings.append(
+                    {
+                        "detector": action.detector,
+                        "source": "Saved decision",
+                        "column": action.column,
+                        "count": None,
+                    }
+                )
+                finding_keys.add(key)
+        effective_actions, resolved_findings = _effective_actions(
+            findings, snapshot.guardrail_actions
+        )
+        unresolved = any(finding.get("action") is None for finding in resolved_findings)
+        policy = snapshot.write_policy
+        if isinstance(policy, PostgresUpsertPolicy):
+            protected_keys = set(policy.conflict_columns)
+        elif isinstance(policy, (PostgresAppendPolicy, PostgresReplacePolicy)):
+            protected_keys = set(policy.primary_key_columns)
+        else:
+            protected_keys = set()
+        if destination_schema_before is not None:
+            protected_keys.update(destination_schema_before.primary_key)
+            protected_keys.update(
+                name
+                for constraint in destination_schema_before.unique_constraints
+                for name in constraint
+            )
+        removed_columns = tuple(
+            sorted(name for name, action in effective_actions.items() if action == "remove")
+        )
+        hashed_columns = tuple(
+            sorted(name for name, action in effective_actions.items() if action == "hash")
+        )
+        blocked_reason = ""
+        missing_guarded_columns = set(effective_actions).difference(
+            column.name for column in schema.columns
+        )
+        if missing_guarded_columns:
+            blocked_reason = "A marked source column is missing from the extracted schema."
+            for finding in resolved_findings:
+                if finding.get("column") in missing_guarded_columns:
+                    finding["outcome"] = "blocked"
+        elif removed_columns and protected_keys.intersection(removed_columns):
+            blocked_reason = "A required destination key cannot be removed."
+            for finding in resolved_findings:
+                if finding.get("column") in protected_keys.intersection(removed_columns):
+                    finding["outcome"] = "blocked"
+        elif schema.columns and len(removed_columns) >= len(schema.columns):
+            blocked_reason = "Sensitive-data actions would remove every source column."
+            for finding in resolved_findings:
+                if finding.get("column") in removed_columns:
+                    finding["outcome"] = "blocked"
+        if unresolved and not blocked_reason:
+            blocked_reason = "One or more findings still need an action."
+        applied_actions = [
+            action
+            for action in snapshot.guardrail_actions
+            if (action.detector, action.column)
+            in {
+                (str(finding.get("detector") or ""), str(finding.get("column") or ""))
+                for finding in findings
+            }
+        ]
+        # Persist the selected decision as pending until destination commit.
+        # A later preparation, cast, cancellation, or publication failure must
+        # not claim that a transform was applied to a completed transfer.
+        for finding in resolved_findings:
+            if finding.get("action") and finding.get("outcome") != "blocked":
+                finding["outcome"] = "selected"
+        guardrail = _guardrail_document(
+            resolved_findings,
+            actions=applied_actions,
+            outcome=("blocked" if blocked_reason else "pending" if applied_actions else "clear"),
+            scan_complete=True,
+            scanned_rows=scanned_rows,
+            scanned_bytes=scanned_bytes,
+            removed_columns=removed_columns,
+            hashed_columns=hashed_columns,
+            blocked_reason=blocked_reason,
+        )
+        if blocked_reason:
+            if unresolved and blocked_reason == "One or more findings still need an action.":
+                summary = (
+                    "Sensitive-data guardrails blocked the run before destination writes. "
+                    "Review the flagged source columns and choose Hash or Remove."
+                )
+            elif "destination key" in blocked_reason:
+                summary = (
+                    "Sensitive-data guardrails blocked the run before destination writes because "
+                    "a required destination key cannot be removed."
+                )
+            elif "missing from the extracted schema" in blocked_reason:
+                summary = (
+                    "Sensitive-data guardrails blocked the run before destination writes because "
+                    "a flagged source column was not present in the extracted schema."
+                )
+            else:
+                summary = (
+                    "Sensitive-data guardrails blocked the run before destination writes because "
+                    "the selected actions would remove every source column."
+                )
+            pipeline_runs.block_run(
+                db,
+                run,
+                lease_token=lease_token,
+                summary=summary,
+                guardrail=guardrail,
+            )
+            return
+
+        source_manifest_schema = schema
+        original_schema = apply_column_type_overrides_to_schema(
+            schema, snapshot.write_policy.column_type_overrides
+        )
+        schema = _transform_schema_for_guardrails(original_schema, effective_actions)
+        pipeline_runs.record_guardrail_review(
+            db,
+            run,
+            lease_token=lease_token,
+            guardrail=guardrail,
+        )
 
         destination_schema_before = _validate_upsert_policy(
             destination,
@@ -482,6 +966,12 @@ def execute_transfer(
             schema,
             destination_schema_before,
         )
+
+        if lease_lost():
+            raise RunConflictError("This worker no longer holds the run lease.")
+        if cancel_requested():
+            pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
+            return
 
         pipeline_runs.transition(
             db,
@@ -499,7 +989,10 @@ def execute_transfer(
             run_id=run.id,
         )
         loaded_bytes = 0
-        for batch in chain((first_batch,) if first_batch is not None else (), source_iterator):
+        extracted_rows = 0
+        extracted_bytes = 0
+        hmac_key = _guardrail_hmac_key(settings, run) if hashed_columns else b""
+        for batch in spool.batches():
             if lease_lost():
                 raise RunConflictError("This worker no longer holds the run lease.")
             if cancel_requested():
@@ -513,12 +1006,7 @@ def execute_transfer(
                 )
             extracted_rows += batch.row_count
             extracted_bytes += batch.byte_count
-            if extracted_bytes > settings.pipeline_max_source_bytes:
-                raise ConnectorError(
-                    TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
-                    "The source exceeded the configured size limit.",
-                )
-            expected_columns = tuple(column.name for column in schema.columns)
+            expected_columns = source_schema_columns
             actual_columns = tuple(str(name) for name in batch.frame.columns)
             if set(actual_columns) != set(expected_columns):
                 raise ConnectorError(
@@ -534,7 +1022,12 @@ def execute_transfer(
                     sequence=batch.sequence,
                 )
             source_batch_bytes = batch.byte_count
-            batch = cast_batch_columns(batch, column_type_overrides)
+            batch = cast_batch_columns(batch, snapshot.write_policy.column_type_overrides)
+            batch = _transform_batch_for_guardrails(
+                batch,
+                effective_actions,
+                hmac_key=hmac_key,
+            )
             pipeline_runs.add_counters(
                 db,
                 run,
@@ -637,12 +1130,14 @@ def execute_transfer(
             source_manifest={
                 "rows": extracted_rows,
                 "bytes": extracted_bytes,
-                "schema": _schema_manifest(schema),
+                "schema": _schema_manifest(source_manifest_schema),
                 "metadata": manifest_metadata(
                     rows=extracted_rows,
-                    schema_available=bool(schema.columns),
+                    schema_available=bool(source_manifest_schema.columns),
                     row_provenance="exact",
-                    schema_provenance=("captured" if schema.columns else "unavailable"),
+                    schema_provenance=(
+                        "captured" if source_manifest_schema.columns else "unavailable"
+                    ),
                 ),
             },
             destination_manifest={
@@ -667,6 +1162,17 @@ def execute_transfer(
                 ),
             },
             verification=verification,
+            guardrail={
+                **guardrail,
+                "outcome": "applied" if applied_actions else "clear",
+                "findings": [
+                    {
+                        **finding,
+                        "outcome": ("applied" if finding.get("action") else finding.get("outcome")),
+                    }
+                    for finding in resolved_findings
+                ],
+            },
         )
         _refresh_published_foundry_cache(db, run, snapshot)
     except Exception as exc:
@@ -700,3 +1206,4 @@ def execute_transfer(
         close = getattr(source_iterator, "close", None)
         if close is not None:
             close()
+        spool.close()

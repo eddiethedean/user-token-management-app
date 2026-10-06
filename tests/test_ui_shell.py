@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
+from fastapi.testclient import TestClient
 from hedron.testing import (
     AdapterResponse,
     assert_fragment_body,
@@ -29,6 +30,7 @@ from app.ui.design_system import (
     DATA_MOVER_PRESENTATION,
     DATA_MOVER_THEME_EXPORT,
     DataMoverPageHeader,
+    apply_design_recipe,
     stacked_surface,
 )
 from app.ui.forms import submit_button
@@ -388,7 +390,7 @@ def test_hedron_066_typography_and_context_contract(access_app) -> None:
 def test_hedron_064_theme_export_is_conformant() -> None:
     exported = DATA_MOVER_THEME_EXPORT.to_dict()
     assert exported["design_tokens"]
-    assert exported["conformance"]["ok"] is True
+    assert cast(dict[str, object], exported["conformance"])["ok"] is True
 
 
 def test_folio_visual_pass_uses_native_display_and_surface_composition(access_app) -> None:
@@ -400,9 +402,7 @@ def test_folio_visual_pass_uses_native_display_and_surface_composition(access_ap
     assert 'data-hedron-ambient-pattern="grid"' not in login.body
     assert 'data-hedron-ambient-placement="fixed-canvas"' in login.body
 
-    inset = render_html(
-        DATA_MOVER_DESIGN.apply("data-mover-inset", stacked_surface("Heading", "Body"))
-    )
+    inset = render_html(apply_design_recipe("data-mover-inset", stacked_surface("Heading", "Body")))
     assert 'data-hedron-appearance="raised"' in inset
     assert 'data-hedron-elevation="none"' in inset
     assert 'class="hedron-stack" data-hedron-gap="md"' in inset
@@ -516,7 +516,7 @@ def test_login_then_profile_via_fastapi_fixture(access_app) -> None:
 
 
 def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app) -> None:
-    client = fragment_client(access_app)
+    client = cast(TestClient, fragment_client(access_app))
     login_page = client.get("/login")
     signed_in = client.post(
         "/login",
@@ -581,7 +581,7 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
     )
     assert logged_out.status_code == 303
 
-    fresh_browser = fragment_client(access_app)
+    fresh_browser = cast(TestClient, fragment_client(access_app))
     fresh_login = fresh_browser.get("/login")
     restored = fresh_browser.post(
         "/login",
@@ -599,7 +599,7 @@ def test_color_mode_toggle_switches_mode_and_returns_to_current_page(access_app)
 
 
 def test_htmx_profile_update_returns_fragment(access_app) -> None:
-    client = fragment_client(access_app)
+    client = cast(TestClient, fragment_client(access_app))
     login_page = client.get("/login")
     token = _preauth_token(login_page.text)
     signed_in = client.post(
@@ -634,7 +634,7 @@ def test_htmx_profile_update_returns_fragment(access_app) -> None:
 
 
 def test_htmx_admin_users_requires_auth(access_app) -> None:
-    client = fragment_client(access_app)
+    client = cast(TestClient, fragment_client(access_app))
     response = client.get(
         "/admin/users",
         headers={"HX-Target": "#user-directory", "Accept": "text/html"},
@@ -963,7 +963,7 @@ def test_every_unsafe_ui_route_declares_an_application_csrf_boundary(access_app)
 
 
 def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:
-    client = fragment_client(access_app)
+    client = cast(TestClient, fragment_client(access_app))
     login_page = client.get("/login")
     token = _preauth_token(login_page.text)
     signed_in = client.post(
@@ -997,7 +997,7 @@ def test_htmx_nav_swaps_main_panel_without_shell_chrome(access_app) -> None:
 
 
 def test_htmx_profile_update_emits_toast_oob(access_app) -> None:
-    client = fragment_client(access_app)
+    client = cast(TestClient, fragment_client(access_app))
     login_page = client.get("/login")
     token = _preauth_token(login_page.text)
     signed_in = client.post(

@@ -29,11 +29,17 @@ placeholder values.
 | `connection.save_test.failed` | ERROR | `event`, `outcome`, `error_code`, `reference_id`, `provider`, `operation`, `exception_type` | `user_id` | No |
 | `pipeline.preflight.rejected` | ERROR | `event`, `outcome`, `error_code`, `reference_id`, `operation`, `reason_code` | None | No |
 | `pipeline.run.queued` | INFO | `event`, `outcome`, `reference_id`, `run_id`, `pipeline_id`, `user_id`, `attempt`, `operation`, `stage` | `provider` | No |
+| `pipeline.run.blocked` | WARNING | `event`, `outcome`, `error_code`, `reference_id`, `run_id`, `user_id`, `attempt`, `operation`, `stage`, `data_impact`, `run_status`, `source_provider`, `destination_provider`, `finding_count` | `pipeline_id` | No |
 | `pipeline.run.completed` | INFO | `event`, `outcome`, `reference_id`, `run_id`, `user_id`, `attempt`, `operation`, `stage`, `data_impact` | `pipeline_id`, `provider`, `duration_ms`, `run_status`, timestamps, source and destination providers, row and byte counts, verification details, reconciliation state | No |
 | `pipeline.run.failed` | ERROR or WARNING when uncertain | `event`, `outcome`, `error_code`, `reference_id`, `run_id`, `user_id`, `attempt`, `operation`, `stage`, `retryable`, `data_impact` | `pipeline_id`, `provider`, `duration_ms`, `cause`, `run_status`, timestamps, source and destination providers, row and byte counts, verification details, reconciliation state, `provider_correlation_id`, `http_status`, `sqlstate`, `exception_type` | No |
 | `pipeline.run.cancelled` | INFO or WARNING when uncertain | `event`, `outcome`, `reference_id`, `run_id`, `attempt`, `operation`, `stage`, `data_impact` | `pipeline_id`, `user_id`, `provider`, `duration_ms`, `cause` | No |
 | `pipeline.lease.heartbeat_failed` | ERROR | `event`, `outcome`, `error_code`, `reference_id`, `run_id`, `operation`, `exception_type`, `traceback` | `user_id` | Yes, redacted |
 | `feedback.mapping.unknown` | ERROR | `event`, `outcome`, `error_code`, `reference_id`, `operation` | `run_id` | No |
+
+`pipeline.run.blocked` has the outcome `blocked`. Its payload records a safe finding count and
+run/provider identifiers; it never includes matched source values. The event is emitted inside the
+blocked-run transaction, which commits the blocked status, findings, and audit entry after the
+structured event passes validation.
 
 ## Support searches
 

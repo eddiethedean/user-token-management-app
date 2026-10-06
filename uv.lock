@@ -647,7 +647,7 @@ wheels = [
 
 [[package]]
 name = "hedron"
-version = "1.1.1"
+version = "1.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi" },
@@ -658,28 +658,28 @@ dependencies = [
     { name = "python-multipart" },
     { name = "starlette" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/41/57/ea2d7a0504078d5e2457ab2ee5e1ecd23e46eb6563563edf6c317673fa25/hedron-1.1.1.tar.gz", hash = "sha256:b6b5b33887fd04bdafd0e09575f4922969734cef9449d2b6f6424af2f79e7aea", size = 337757, upload-time = "2026-09-19T01:56:24.207Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/18/0bede3f9a1b9b80ef86e6d9ffddc90b74168122ba154407f3b28358e2af6/hedron-1.1.3.tar.gz", hash = "sha256:fb167d1f6c035789fc93f23834e8f0ef5d24088ad230033dd6e64432151e95f0", size = 343442, upload-time = "2026-09-28T18:45:32.17Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/40/27/53f2788b4cd3f92e1c54d36de869ce2dd3b966aff70a35fd73d7c0d1c2b7/hedron-1.1.1-py3-none-any.whl", hash = "sha256:0804df17aa6add91b51259d15a1502959eb6e74b0bb1e057154283e570f1b2d7", size = 407357, upload-time = "2026-09-19T01:56:22.499Z" },
+    { url = "https://files.pythonhosted.org/packages/b7/e2/30ded0c734c0869996a821f59cafa4c53243bd71901d31f6b03a31960196/hedron-1.1.3-py3-none-any.whl", hash = "sha256:2484f6957d7201d92649c87d76e793a11b4a9e225b26be4cee82118fbec6b20d", size = 414461, upload-time = "2026-09-28T18:45:30.605Z" },
 ]
 
 [[package]]
 name = "hedron-core"
-version = "1.1.0"
+version = "1.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1e/e7/c276530903c12f962b70f8ef2cb9e9ff59483220e122df8f07ecb47a2632/hedron_core-1.1.0.tar.gz", hash = "sha256:59fbd07bc17178831ffdddf10be5891d0f29d7bf0baf5765ce77e922c8d2e3a1", size = 588569, upload-time = "2026-09-18T18:08:23.519Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/00/9c/6390934759dea117581c78ef89abab7267dfd682c6ad19f56052958a1d81/hedron_core-1.1.3.tar.gz", hash = "sha256:8cc45aa02a4c3823a502f022154b2c0cb7cdc8b964804ab67b08301d6286439e", size = 595303, upload-time = "2026-09-28T18:45:29.491Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5b/22/f05847a1310fd81777e0d1098c196221ee2897b3f58c7f86c9ba4175b004/hedron_core-1.1.0-py3-none-any.whl", hash = "sha256:57acd29329de3a6fcf607eb94d9f15262f4b078988556e54fcb919f6be4382a3", size = 706949, upload-time = "2026-09-18T18:08:21.981Z" },
+    { url = "https://files.pythonhosted.org/packages/da/d9/d7352a434a45a4cd9ecba72354c9483eafc0bbb7b6814aa7629d3c126b19/hedron_core-1.1.3-py3-none-any.whl", hash = "sha256:05b3f86afa45a8a6c3fecbd281e35ce9ec4373ad5a13b68aea9e1df3864d005e", size = 715158, upload-time = "2026-09-28T18:45:28.154Z" },
 ]
 
 [[package]]
 name = "hedron-posit"
-version = "1.0.10"
+version = "1.0.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi-workbench" },
@@ -687,9 +687,9 @@ dependencies = [
     { name = "starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b0/b6/268e504829cf18ede6407596feab2bfe4f3905084264455c7ba396ca0b91/hedron_posit-1.0.10.tar.gz", hash = "sha256:33640fd72d8e579f1e1f12f95c7feeba77ad0a74b80e141fec41f4cefe066e40", size = 32181, upload-time = "2026-09-18T18:08:43.842Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/9c/bb9af11980b8b74c3f487b1925ebcfafcac6cf61e80481e9ac13882b1b4f/hedron_posit-1.0.11.tar.gz", hash = "sha256:78eaa8c2dbe6755237f877c57a2a31a61c1a2d73abe95fffd17e0c1f50c5b557", size = 32718, upload-time = "2026-09-25T20:23:35.462Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/af/1a/0b6fba610a289558f5bd9a9d95ab81c5db96a22c000451f999b20715d9cd/hedron_posit-1.0.10-py3-none-any.whl", hash = "sha256:224a19c9da8fd4d020a98be7e4b76e4f9e4abd3eba0f1f5833dbe570cbaf1ae9", size = 36716, upload-time = "2026-09-18T18:08:42.953Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/e7/f657c1d45629868e15744b48cd9f7e68319c67488b40415bb59151383156/hedron_posit-1.0.11-py3-none-any.whl", hash = "sha256:c3bb461743f7d2146b8ea363f5ca9552be8500b4c77040084572c7822a083534", size = 37288, upload-time = "2026-09-25T20:23:34.42Z" },
 ]
 
 [[package]]

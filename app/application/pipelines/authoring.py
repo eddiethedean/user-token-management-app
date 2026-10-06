@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from app.application.dto import ActorContext, PipelineSummary
+from app.domain.pipelines.guardrails import GuardrailAction
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class SavePipelineAuthoringCommand:
     auto_increment_primary_key: str = ""
     source_upload_id: str = ""
     pipeline_id: str = ""
+    guardrail_actions: list[GuardrailAction] = field(default_factory=list)
 
 
 class PipelineAuthoringOperation(Protocol):

@@ -45,6 +45,7 @@ def apply_column_type_overrides_to_schema(
             data_type=COLUMN_TYPE_OVERRIDE_DATA_TYPES[overrides[column.name]],
             nullable=column.nullable,
             example=column.example,
+            sensitivity_markers=column.sensitivity_markers,
         )
         if column.name in overrides
         else column
@@ -56,6 +57,8 @@ def apply_column_type_overrides_to_schema(
         primary_key=schema.primary_key,
         unique_constraints=schema.unique_constraints,
         estimated_rows=schema.estimated_rows,
+        sensitivity_markers=schema.sensitivity_markers,
+        column_sensitivity_markers=schema.column_sensitivity_markers,
     )
 
 

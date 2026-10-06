@@ -1,0 +1,15 @@
+PR #140 follow-up verification — October 6, 2026
+
+Command: make check PYTHON=./.venv/bin/python
+
+Results:
+- Ruff lint: passed.
+- Ruff format check: passed (211 files already formatted).
+- BasedPyright: passed (0 errors, 0 warnings, 0 notes).
+- Hedron check: passed; informational notices only.
+- Posit compatibility matrix: passed (all five mount cases).
+- Application tests: 629 passed; coverage 80.40% (required 80%).
+- Demo-app tests: 25 passed.
+- Git diff whitespace validation: passed.
+
+Targeted guardrail checks: 4 passed, including PostgreSQL integration coverage for existing-column removal and refusal to remove a primary key. The default suite excludes opt-in PostgreSQL tests.
