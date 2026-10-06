@@ -22,11 +22,27 @@ from app.domain.pipelines.guardrails import (
 )
 
 
-def test_guardrail_actions_normalize_columns_and_reject_control_only_names() -> None:
-    action = GuardrailAction(detector="ssn", column="  ssn\nname ", action="hash")
-    assert action.column == "ssnname"
-    with pytest.raises(ValueError):
-        GuardrailAction(detector="ssn", column="\n\t", action="hash")
+def test_guardrail_actions_preserve_identifiers_and_reject_blank_or_control_names() -> None:
+    action = GuardrailAction(detector="ssn", column=" ssn ", action="hash")
+    assert action.column == " ssn "
+    for invalid_name in (" ", "\n\t", "ssn\nname", "ssn\x7f"):
+        with pytest.raises(ValueError):
+            GuardrailAction(detector="ssn", column=invalid_name, action="hash")
+
+
+def test_review_parsing_keeps_distinct_column_identifiers() -> None:
+    values = [json.dumps(["ssn", "ssn", "hash"]), json.dumps(["ssn", " ssn ", "remove"])]
+    parsed = parse_guardrail_action_values(values)
+    assert action_lookup(parsed) == {("ssn", "ssn"): "hash", ("ssn", " ssn "): "remove"}
+    findings = parse_guardrail_scan_result(
+        json.dumps(
+            [
+                {"detector": "ssn", "column": "ssn", "count": 1},
+                {"detector": "ssn", "column": " ssn ", "count": 2},
+            ]
+        )
+    )
+    assert [finding["column"] for finding in findings] == ["ssn", " ssn "]
 
 
 def test_source_keys_and_action_values_are_bound_to_current_source() -> None:

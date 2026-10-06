@@ -543,11 +543,27 @@ def register_pipeline_preview_routes(
                     },
                     separators=(",", ":"),
                 )
+                # Validate generated findings before the review surface parses
+                # them. Older uploads and provider schemas may contain names
+                # that cannot be represented by a saved guardrail action.
+                parsed_guardrail_scan = parse_guardrail_scan_result(
+                    guardrail_scan_result,
+                    expected_source_key=expected_guardrail_source_key,
+                )
                 guardrail_scan_complete = True
             except ConnectorError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail=exc.summary,
+                ) from exc
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=(
+                        "The source scan returned unsupported findings. "
+                        "Check that column names contain no control characters and are at most "
+                        "256 characters, then rename unsupported columns and scan again."
+                    ),
                 ) from exc
         preview_fragment = await run_owned_sync(
             request,

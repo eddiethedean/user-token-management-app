@@ -241,6 +241,7 @@ Limits and validation rules:
 - at most 200 columns;
 - one non-empty, case-insensitively unique header per column;
 - header names no longer than 128 characters;
+- no control characters, such as line breaks or tabs, inside header names;
 - consistent column counts on every non-empty row; and
 - cells no larger than 128 KB.
 
@@ -249,6 +250,8 @@ Data Mover recognizes comma, semicolon, tab, and pipe delimiters. Inferred types
 Time-zone-aware timestamps retain their offset when sent to a destination. Type detection is
 conservative: mixed values fall back to `text`, while integers mixed with decimals become `decimal`.
 The run uses the scanned types, so the preview and transfer agree on dates, times, and numbers.
+If a header contains unsupported characters, rename the column and upload the file again. An older
+upload with an unsupported name returns validation feedback when scanned for sensitive data.
 
 ## Save and reuse pipelines
 

@@ -2,13 +2,15 @@
 
 [Jira CDO-4575](https://idstjira.socom.mil/jira/browse/CDO-4575) · [Epic CDO-4551: Sensitive Data Guardrails](CDO-4551-sensitive-data-guardrails-epic.md) · [Issue export](../../artifacts/jira/data-mover-sensitive-data-guardrails-issues.csv)
 
+Reviewed against the current implementation on October 6, 2026.
+
 ## User story
 
 As a pipeline owner, I want to review which guardrails ran and what actions were applied so I can understand and audit each transfer.
 
 ## What the story delivers
 
-Each run can show whether its guardrail scan completed or was blocked, how many rows and bytes were scanned, which detectors flagged which columns or table, the count, the selected and effective actions, and the outcome. The record omits matched source values.
+Once the worker persists a guardrail review, the run can show whether its scan completed or was blocked, how many rows and bytes were scanned, which detectors flagged which columns or table, the count, the selected and effective actions, and the outcome. A run that fails before reaching guardrail review may have no guardrail document. The record omits matched source values.
 
 The pipeline definition retains the owner’s action choices. The run record captures what the worker actually found and applied for that particular source snapshot. The audit activity list separately records the run event and links it to its pipeline and run identifiers.
 
@@ -24,7 +26,8 @@ The run review surface displays the persisted findings and outcome. The security
 
 | Detection source | Column | Finding | Action | Outcome |
 | --- | --- | --- | --- | --- |
-| Content scan | unit_name | 1 matching row | Hash | Applied |
+| Content scan | alternate | 1 matching row | Remove | Applied |
+| Content scan | ssn | 2 matching rows | Hash | Applied |
 
 If destination preparation fails after an owner selected Hash, the run retains the finding with action Hash and outcome `selected`; the terminal review reports `failed`, `not_started`, and `unchanged`. If a later write is cancelled or fails, the review records the observed execution and destination outcomes, including rollback or reconciliation when applicable. The action becomes `applied` only when the destination run completes successfully.
 
@@ -32,11 +35,31 @@ A blocked run instead records outcome: blocked and a safe explanation, such as a
 
 ## Screenshots
 
-![After-run guardrail review with scan totals, finding, selected action, and outcome](../screenshots/stories/CDO-4571-transformed-run.jpg)
+**Successful run review.** Open **Live transfer → Run schema & row counts → Sensitive-data guardrails**.
 
-![Audit activity entry showing a completed run and its recorded transfer summary](../screenshots/stories/CDO-4575-run-audit.jpg)
+![Persisted successful guardrail review with 1002 scanned rows and applied Hash and Remove outcomes](../screenshots/stories/CDO-4571-transformed-run.jpg)
 
-Both images come from the isolated demo workspace. The first shows the detailed value-free guardrail review; the second shows the separate completed-run audit event.
+1. The description records **Execution: completed; destination: committed**.
+2. **Rows scanned: 1,002** and **Findings: 2** are scan totals, not displayed source values.
+3. The **Outcome** column says `applied` for both the **Remove** and **Hash** decisions.
+
+**Failed preparation.** The same synthetic source and choices were submitted to a destination configured in the capture fixture to fail during preparation.
+
+![Failed preparation review showing selected Hash and Remove decisions, execution not started, and destination unchanged](../screenshots/stories/CDO-4575-failed-run.jpg)
+
+1. The yellow badge says **Action selected; transfer failed**.
+2. The description says **Execution: not started; destination: unchanged**. The complete scan had finished, but batch transformation had not begun.
+3. The **Outcome** cells remain `selected`, demonstrating why saved choices must not be reported as applied on a failed transfer.
+
+**Separate security audit event.** Open **Audit log**, set **Event type** to `pipeline.run.completed` and **Outcome** to `success`, then choose **Apply filters**.
+
+![Focused audit event summary with completed-run and success filters, a pipeline.run.completed event, success badge, and View details control](../screenshots/stories/CDO-4575-run-audit.jpg)
+
+1. The two filter fields at the top identify the event and outcome being shown.
+2. The **Event** cell says `pipeline.run.completed`; the green **Outcome** badge says `success`.
+3. **View details**, on the right, opens transfer metadata, including `pipeline_id`, `run_id`, `run_status`, and `loaded_rows`. Long payloads scroll horizontally in this UI; the capture shows the collapsed summary so no payload is clipped. The complete synthetic payload is available as [audit-example.json](../screenshots/stories/audit-example.json).
+
+The audit event is separate from the detailed guardrail review in the first two images. All captures use a fresh synthetic workspace; see [capture provenance](../screenshots/stories/README.md) and the [acceptance audit](../plans/open-guardrail-issue-acceptance.md).
 
 ## Acceptance criteria and implementation
 

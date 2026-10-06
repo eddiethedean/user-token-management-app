@@ -25,10 +25,13 @@ class GuardrailAction(BaseModel):
     @field_validator("column")
     @classmethod
     def validate_column(cls, value: str) -> str:
-        normalized = "".join(character for character in value.strip() if ord(character) >= 32)
-        if not normalized or len(normalized) > 256:
+        # Column names are identifiers, not free-form labels. Trimming one can
+        # bind a decision to a different column ("ssn" versus " ssn ").
+        if not value.strip() or len(value) > 256:
             raise ValueError("Guardrail column names must be between 1 and 256 characters.")
-        return normalized
+        if any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise ValueError("Guardrail column names must not contain control characters.")
+        return value
 
 
 @dataclass(frozen=True)

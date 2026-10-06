@@ -2,6 +2,8 @@
 
 [Jira CDO-4552](https://idstjira.socom.mil/jira/browse/CDO-4552) · [Epic CDO-4551: Sensitive Data Guardrails](CDO-4551-sensitive-data-guardrails-epic.md) · [Issue export](../../artifacts/jira/data-mover-sensitive-data-guardrails-issues.csv)
 
+Reviewed against the current implementation on October 6, 2026.
+
 ## User story
 
 As a pipeline owner, I want Data Mover to identify sensitivity tags in Foundry metadata so I can review sensitive tables and columns before transfer.
@@ -24,19 +26,26 @@ The review labels each finding “Foundry metadata” and shows the affected tab
 
 ## Example
 
-For a synthetic Foundry dataset with a configured pii marker on unit_name, the review shows:
+For the synthetic `mission_orders.parquet` source, the emulator supplies a configured `pii` marker on `unit_name` and a `sensitive` marker on `score`. The review shows:
 
 | Detection source | Affected column | Finding |
 | --- | --- | --- |
+| Foundry metadata | score | Flagged |
 | Foundry metadata | unit_name | Flagged |
 
 The row does not include the value held in unit_name. A marker on the dataset itself instead appears as a table-level finding and blocks the source.
 
 ## Screenshot
 
-![Synthetic Foundry metadata finding for the unit_name column](../screenshots/stories/CDO-4552-metadata-findings.jpg)
+Open **Route setup → Target schema & creator → Sensitive-data guardrails**. This is the panel before any transfer or action selection.
 
-The demo uses an injected synthetic pii marker to show the review behavior; it is not connected to a live Foundry environment.
+![Focused metadata review showing score and unit_name flagged, with unresolved action selectors](../screenshots/stories/CDO-4552-metadata-findings.jpg)
+
+1. The left **Detection source** cells identify **Foundry metadata**.
+2. The middle cells name `score` and `unit_name` and show **Flagged**; no cell values appear.
+3. The right **Choose an action** selectors lead to the [metadata action story](CDO-4559-choose-actions-for-metadata-tagged-columns.md). **SSN scan not run** refers to the optional content scan, not the metadata inspection.
+
+The local emulator supplies markers through schema inspection and live marking refresh, so cached schema reuse does not erase the example. This image demonstrates the UI; the live Foundry HTTP reader, pagination, and fail-closed behavior are covered by the [acceptance audit](../plans/open-guardrail-issue-acceptance.md#evidence-references). See [capture provenance](../screenshots/stories/README.md).
 
 ## Acceptance criteria and implementation
 

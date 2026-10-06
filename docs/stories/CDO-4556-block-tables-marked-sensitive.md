@@ -2,6 +2,8 @@
 
 [Jira CDO-4556](https://idstjira.socom.mil/jira/browse/CDO-4556) · [Epic CDO-4551: Sensitive Data Guardrails](CDO-4551-sensitive-data-guardrails-epic.md) · [Issue export](../../artifacts/jira/data-mover-sensitive-data-guardrails-issues.csv)
 
+Reviewed against the current implementation on October 6, 2026.
+
 ## User story
 
 As a pipeline owner, I want Data Mover to block a table marked sensitive in Foundry metadata so that the table cannot be transferred.
@@ -28,11 +30,25 @@ A selected table has a restricted resource marking and no column-level markers:
 
 No per-column action can override the table-level block. The owner must select an approved source or have its Foundry metadata reviewed through the applicable governance process.
 
-## Screenshot
+## Screenshots
 
-![Synthetic table-level Foundry marker blocks the source before destination writes](../screenshots/stories/CDO-4556-table-block.jpg)
+**Pre-run warning.** Open **Route setup → Target schema & creator → Sensitive-data guardrails** for `readiness_rollup.parquet`.
 
-The screenshot uses a synthetic table marker in the isolated demo workspace. The preview shows no source columns, consistent with the table-level block path.
+![Focused pre-run panel with a table-level Foundry finding, blocked action text, and disabled SSN scan](../screenshots/stories/CDO-4556-table-block.jpg)
+
+1. The description at the top says the marking blocks the source **before extraction**.
+2. The table row names **Table-level sensitivity · readiness_rollup.parquet**; its **Action** cell says **Blocked before destination writes** and has no Hash/Remove selector.
+3. **Scan source for SSNs**, at the bottom, is disabled. A content scan cannot clear the table marking.
+
+**Persisted worker result.** Open **Live transfer → Run schema & row counts** after submitting the blocked route.
+
+![Persisted table block showing zero rows scanned, blocked outcome, execution not started, and destination unchanged](../screenshots/stories/CDO-4556-blocked-run.jpg)
+
+1. The **Blocked before writes** badge and **Rows scanned: 0 / Source size: 0 B** distinguish a table block from a content finding discovered during extraction.
+2. The description records **Execution: not started; destination: unchanged**.
+3. The finding's **Outcome** is `blocked`; the affected object is the dataset RID. The preview above names the selected file within that dataset.
+
+Both images use a synthetic `restricted` resource marking from the local emulator. They show the pre-run warning and an actual persisted blocked run, respectively. See [capture provenance](../screenshots/stories/README.md) and the [acceptance audit](../plans/open-guardrail-issue-acceptance.md).
 
 ## Acceptance criteria and implementation
 
