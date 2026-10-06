@@ -662,23 +662,28 @@ def _record_guardrail_terminal_outcome(
         document = json.loads(run.guardrail_json or "{}")
     except (TypeError, ValueError):
         return
-    if not isinstance(document, dict) or document.get("outcome") != "pending":
+    if not isinstance(document, dict):
         return
     findings = document.get("findings")
-    scanned_rows = document.get("scanned_rows")
-    if not isinstance(findings, list) or not any(
-        isinstance(finding, dict) and finding.get("action") for finding in findings
-    ):
+    review_outcome = document.get("outcome")
+    if review_outcome not in {"pending", "clear"}:
         return
+    scanned_rows = document.get("scanned_rows")
+    has_selected_action = isinstance(findings, list) and any(
+        isinstance(finding, dict) and finding.get("action") for finding in findings
+    )
     transformed_rows = max(0, int(run.source_rows or 0))
     scanned_rows = max(0, scanned_rows) if isinstance(scanned_rows, int) else 0
-    if transformed_rows == 0:
+    if not has_selected_action:
+        execution_outcome = "not_applicable"
+    elif transformed_rows == 0:
         execution_outcome = "not_started"
     elif scanned_rows and transformed_rows >= scanned_rows:
         execution_outcome = "completed"
     else:
         execution_outcome = "partial"
-    document["outcome"] = outcome
+    if review_outcome == "pending":
+        document["outcome"] = outcome
     document["execution_outcome"] = execution_outcome
     document["destination_outcome"] = destination_outcome
     run.guardrail_json = json.dumps(redact_mapping(document), separators=(",", ":"))
