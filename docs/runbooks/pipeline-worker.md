@@ -89,6 +89,20 @@ A `pipeline.run.blocked` event is a pre-write sensitive-data safety stop. Review
 findings and saved decisions, resolve the required actions or select an allowed source, then enqueue
 a new run. Retrying the unchanged blocked run cannot resolve the finding.
 
+Enqueue preflight does not repeat the content scan. The worker scans the complete extracted source
+and resolves saved Hash/Remove choices before destination staging, including findings in later
+batches. A selected action in a failed or cancelled review does not prove that the destination
+committed it; inspect the separate execution and destination outcomes. Uncertain publication still
+requires reconciliation through the procedure above.
+
+Before resolving a block with Remove, confirm approval to drop that column from an existing
+PostgreSQL destination: append/upsert also remove its prior values transactionally. Before rotating
+the active credential-encryption key, coordinate downstream uses of hashed identifiers because new
+guardrail digests change. Protect raw source temporary files and stored CSV uploads as well as the
+encrypted scan spool. See [SD-27](../../SECURITY.md#sd-27--enforce-sensitive-data-decisions-before-destination-staging)
+and the [production security gate](../../SECURITY.md#production-security-gate)
+for detector scope, marker configuration, key scope, and deployment controls.
+
 The in-process janitor drops expired events, terminal runs, catalog cache rows, and old spool files.
 Restart the app after correcting a runtime failure so the lifecycle supervisor can resume recovery
 and cleanup. See the [diagnostic event dictionary](../diagnostics-event-dictionary.md) for the

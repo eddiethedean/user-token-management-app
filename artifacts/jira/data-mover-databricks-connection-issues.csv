@@ -1,0 +1,435 @@
+"date","type","issue_id","summary","linked_to","description","acceptance_criteria","hrs"
+"2026-10-09","Epic","DBX-EPIC","Data Mover: Databricks connections and sensitive-data guardrails","","A pipeline owner can save a Databricks workspace connection, select compute, check its readiness,
+start an eligible stopped cluster, and move reviewed data to or from Unity Catalog Delta tables.
+Sensitive metadata, unresolved column actions, incomplete scans, and unsupported routes block the
+transfer before destination staging. Completed runs explain what was scanned, transformed, and
+committed without displaying sensitive values.
+
+First-release scope:
+- Authentication: OAuth M2M service principal; encrypted owner-scoped bundle; refresh and rotation. Deferred: PAT fallback, interactive user OAuth.
+- Compute: Existing SQL warehouse or Unity Catalog-compatible all-purpose classic cluster. Deferred: Jobs compute, notebook/job submission, compute creation, resizing, automatic shutdown.
+- Objects: Unity Catalog base Delta tables; fully qualified catalog/schema/table identity. Deferred: Legacy Hive metastore, views, materialized/streaming tables, foreign tables, arbitrary SQL.
+- Sources: One consistent query result, bounded batches, full worker scan and encrypted spool. Deferred: Unbounded extracts, incremental/CDC transfers.
+- Destinations: Managed Delta table creation, append, full replace; modes enabled only after publication evidence. Deferred: Upsert/MERGE, direct batch-by-batch writes to the live target, external storage credentials.
+- Guardrails: Unity Catalog markers, existing SSN scan, Hash/Remove, value-free run review. Deferred: New content detectors, tag editing, physical erasure/retention management.
+
+Planning reference: DBX-EPIC; tracker key not assigned.
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
+Task backlog: [Databricks implementation tasks](../../docs/stories/databricks-connection-tasks.md)","- OAuth M2M credentials are encrypted, owner-scoped, replaceable/deletable and absent from definitions, URLs, diagnostics and logs.
+- Management-only validation reports compute state without submitting SQL or initiating startup; SQL readiness is a distinct result.
+- Explicit and opted-in startup obey owner/provider permissions, compute binding and persisted readiness deadlines; driver-triggered startup races cannot bypass authorization.
+- Only supported Unity Catalog base Delta tables, compute combinations, scalar types and create/append/full-replace modes are available; unsupported objects and modes are rejected.
+- Catalog, schema, table and column metadata coverage is verified or fails closed; exact configured markers and every class.* column classification produce safe findings without reading classification samples.
+- Sensitive source parent/table markers block before extraction; sensitive destination parent/table markers or unavailable target metadata block before staging.
+- The worker scans one consistent complete source result in bounded encrypted batches and publishes those exact reviewed batches without re-reading the source.
+- All flagged columns require Hash/Remove actions bound to source/target identity and mapping; missing columns, all-column removal, policy drift and unsupported removal cases block writes.
+- Hash transforms incoming values with the existing scoped HMAC; Remove omits current output values/schema while preserving target governance and disclosing Delta history/physical-retention limits.
+- Delta publication uses private transformed staging and proven atomic operations; conflicts, uncertain commits and cleanup failures have truthful outcomes without blind uncertain-append replay.
+- Run review and compute audits retain safe identities, counts, actions, scan coverage and outcomes without source values, raw tags, secrets, tokens or fetch links.
+- Default-off connector and independent writer gates remain closed until documented automated, isolated live, operational and annotated-screenshot acceptance evidence is complete.",""
+"2026-10-09","Story","DBX-01","Data Mover: Databricks - Validate the provider contract","DBX-EPIC","As an operator, I need a verified support matrix before the connector is advertised.
+
+Prerequisites: None
+Required evidence: Reviewed decision record plus provider probe results. Blocks release support claims.
+Story and epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
+Task guide: [DBX-01 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-01-tasks)","- Record an architecture decision covering supported clouds/workspace endpoints, private-network and CA requirements, connector/SDK versions, cluster runtime/access mode, scalar types, metadata completeness checks, and the manual/opt-in startup contract.
+- Demonstrate source consistency and append/replace publication, governance preservation, and reconciliation in an isolated workspace using synthetic fixtures.
+- Resolve unsupported combinations by excluding them explicitly; do not leave publication, metadata visibility, or no-autostart guarantees as implementation assumptions.",""
+"2026-10-09","Task","DBX-01-T01","Data Mover: Databricks - Select supported deployments","DBX-01","Decide supported Databricks clouds and workspace endpoint patterns, private-network routes, TLS/CA requirements, and excluded deployments.
+
+Owner role: Product / Platform
+Depends on: None
+Task guide: [DBX-01 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-01-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- The support matrix names allowed deployments and network prerequisites; unsupported endpoints and redirect handling have a documented policy.",""
+"2026-10-09","Task","DBX-01-T02","Data Mover: Databricks - Choose the SQL and compute compatibility matrix","DBX-01","Evaluate connector/SDK versions, SQL protocol, cluster runtime/access mode, warehouse compatibility, metadata relations, and scalar type mappings.
+
+Owner role: Engineering
+Depends on: DBX-01-T01
+Task guide: [DBX-01 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-01-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- A pinned dependency/protocol proposal and runtime/type matrix distinguish verified support from exclusions.",""
+"2026-10-09","Task","DBX-01-T03","Data Mover: Databricks - Prove metadata visibility checks","DBX-01","Probe catalog, schema, table, and column visibility under least-privilege principals, including verified-empty, filtered, incomplete, and denied tag results.
+
+Owner role: Engineering / Platform
+Depends on: DBX-01-T02
+Task guide: [DBX-01 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-01-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Synthetic probe evidence defines when coverage is verifiable and when extraction/writes must block; the permission checklist covers every metadata scope.",""
+"2026-10-09","Task","DBX-01-T04","Data Mover: Databricks - Prove startup authorization behavior","DBX-01","Test management-only validation, explicit cluster/warehouse startup, driver-triggered startup, and compute stopping between state check and query submission.
+
+Owner role: Engineering / Platform
+Depends on: DBX-01-T02
+Task guide: [DBX-01 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-01-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- The decision record specifies enforceable manual and opt-in modes for each compute type, required permissions, and excluded unsafe combinations.",""
+"2026-10-09","Task","DBX-01-T05","Data Mover: Databricks - Prove a consistent source result","DBX-01","Probe one-query extraction, batch boundaries, provider masks/filters, schema changes, and source changes during a read.
+
+Owner role: Engineering
+Depends on: DBX-01-T02
+Task guide: [DBX-01 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-01-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- The source contract shows how batches belong to one query result, preserves provider controls, and defines safe source/query identity recording.",""
+"2026-10-09","Task","DBX-01-T06","Data Mover: Databricks - Prove Delta publication and reconciliation","DBX-01","Probe atomic create/append/replace, governance preservation, outside writer conflicts, interrupted commits, and operation identity/evidence.
+
+Owner role: Engineering / Platform
+Depends on: DBX-01-T02
+Task guide: [DBX-01 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-01-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Each proposed mode has a demonstrated publication and recovery contract; unverifiable modes are excluded rather than assumed safe.",""
+"2026-10-09","Task","DBX-01-T07","Data Mover: Databricks - Publish the provider decision record","DBX-01","Consolidate the support, permissions, startup, source, destination, staging, and recovery decisions into one architecture decision and release matrix.
+
+Owner role: Product / Engineering / Platform
+Depends on: DBX-01-T01, DBX-01-T02, DBX-01-T03, DBX-01-T04, DBX-01-T05, DBX-01-T06
+Task guide: [DBX-01 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-01-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- The reviewed record resolves all provider-contract assumptions and links synthetic live evidence; any remaining external gate has an owner role and explicit release effect.",""
+"2026-10-09","Story","DBX-02","Data Mover: Databricks - Save and validate a workspace connection","DBX-EPIC","As a pipeline owner, I can manage my own Databricks credentials and see what validation proves.
+
+Prerequisites: DBX-01.
+Required evidence: Ownership, secret rotation, token refresh and migration tests.
+Story and epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
+Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)","- Save workspace URL, OAuth client ID/secret, compute type/ID, and startup policy with existing encrypted replace/delete behavior. Derive or verify the SQL HTTP path against that compute. Validate allowed HTTPS endpoints, TLS, and redirect behavior before sending credentials.
+- Refresh access tokens through the supported SDK; reject expired/revoked credentials safely. Secrets are absent from pipeline definitions, URLs, logs, and diagnostics.
+- Add provider capabilities, typed locators/write policies, serialization and UI support. Extend the guardrail detector model for `databricks_metadata`; keep existing Foundry/SSN records valid. Revalidation/review invalidation follows principal or connection changes.",""
+"2026-10-09","Task","DBX-02-T01","Data Mover: Databricks - Add Databricks domain and provider contracts","DBX-02","Define credential fields, typed locators/write policies, stable identities, provider capabilities, serialization, and the databricks_metadata detector without permissive provider-ID fallbacks.
+
+Owner role: Engineering
+Depends on: DBX-01-T07
+Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Existing definitions and Foundry/SSN actions remain valid; new values round-trip without credentials and expose only supported modes.",""
+"2026-10-09","Task","DBX-02-T02","Data Mover: Databricks - Persist encrypted owner-scoped credentials","DBX-02","Integrate OAuth client ID/secret bundles into existing encrypted save/replace/delete flows; version principal/connection changes and invalidate related reviews and caches.
+
+Owner role: Engineering
+Depends on: DBX-02-T01
+Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Only the owner can use or modify the bundle; replacement/deletion revokes app access and stale startup/review authorization without revealing saved secrets.",""
+"2026-10-09","Task","DBX-02-T03","Data Mover: Databricks - Enforce workspace transport and compute binding","DBX-02","Apply the approved HTTPS endpoint, TLS/CA, redirect and network policy; derive or verify SQL HTTP paths against the configured workspace and compute ID.
+
+Owner role: Engineering
+Depends on: DBX-02-T01, DBX-01-T07
+Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Invalid hosts, mismatched compute paths and credential-forwarding redirects fail before secret-bearing requests.",""
+"2026-10-09","Task","DBX-02-T04","Data Mover: Databricks - Integrate OAuth refresh and safe failures","DBX-02","Use the supported SDK credentials provider for acquisition/refresh, secret rotation, revoked credentials, and bounded authentication errors.
+
+Owner role: Engineering
+Depends on: DBX-02-T02, DBX-02-T03
+Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Refresh succeeds without persisting access tokens in definitions; failure paths retain safe diagnostics and never expose client secrets or tokens.",""
+"2026-10-09","Task","DBX-02-T05","Data Mover: Databricks - Implement management-only connection validation","DBX-02","Check authentication and selected compute visibility/state through management requests; separate authenticated, visible, stopped, stale, and SQL-ready information.
+
+Owner role: Engineering
+Depends on: DBX-02-T03, DBX-02-T04
+Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Connection validation opens no SQL session and initiates no startup; status names the evidence and time checked rather than claiming transfer readiness.",""
+"2026-10-09","Task","DBX-02-T06","Data Mover: Databricks - Add connection forms and policy controls","DBX-02","Provide Databricks credential, compute, and startup-policy forms with owner authorization, CSRF protection, safe replace/delete actions, and revalidation.
+
+Owner role: Engineering
+Depends on: DBX-02-T02, DBX-02-T05
+Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- The UI never reveals saved secrets and clears startup consent when workspace, principal, or compute changes; unsupported selections have actionable feedback.",""
+"2026-10-09","Task","DBX-02-T07","Data Mover: Databricks - Verify credential and compatibility boundaries","DBX-02","Add contract, persistence/migration, UI ownership, transport, secret rotation, OAuth refresh, revoked-authentication and serialization tests.
+
+Owner role: Engineering / Quality
+Depends on: DBX-02-T01, DBX-02-T02, DBX-02-T03, DBX-02-T04, DBX-02-T05, DBX-02-T06
+Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Named tests prove cross-owner isolation, legacy compatibility, no secrets in definitions/logs, and management-only validation without startup.",""
+"2026-10-09","Story","DBX-03","Data Mover: Databricks - Check compute and start eligible clusters","DBX-EPIC","As a pipeline owner, I can tell whether compute is ready and authorize its startup.
+
+Prerequisites: DBX-01, DBX-02.
+Required evidence: All states and auto-start races in simulator tests; isolated live startup/permission verification for each supported compute type.
+Story and epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
+Task guide: [DBX-03 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-03-tasks)","- Implement the state table, management-only validation, explicit Start and opted-in startup, with least-privilege enforcement and charge/lifecycle disclosure.
+- Persist bounded startup attempts; deduplicate requests across refresh/retry/concurrent owners; handle rate limits, lost responses, timeouts, deleted compute, and readiness failures.
+- A stopped cluster in manual mode blocks a run without an indefinite worker wait. Cancellation stops observation, not shared compute. Warehouse actions use the correct provider API.",""
+"2026-10-09","Task","DBX-03-T01","Data Mover: Databricks - Implement compute state and start adapters","DBX-03","Map every cluster state and the supported warehouse states; provide authorized state/start operations for the configured compute type.
+
+Owner role: Engineering
+Depends on: DBX-02-T07
+Task guide: [DBX-03 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-03-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Adapters use the correct management API and never create, resize, restart, terminate, or change compute settings.",""
+"2026-10-09","Task","DBX-03-T02","Data Mover: Databricks - Enforce startup authorization","DBX-03","Implement explicit Start and opt-in authorization checks using current owner, principal generation, workspace/compute binding, provider permissions, and CSRF.
+
+Owner role: Engineering
+Depends on: DBX-03-T01
+Task guide: [DBX-03 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-03-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- A forged compute ID, stale consent, non-owner request, or missing provider permission cannot initiate startup; broader administration rights are not requested.",""
+"2026-10-09","Task","DBX-03-T03","Data Mover: Databricks - Persist and deduplicate startup attempts","DBX-03","Store attempt identity, selected compute, initiator, deadlines and outcomes; coordinate simultaneous requests and re-check ambiguous start responses.
+
+Owner role: Engineering
+Depends on: DBX-03-T02
+Task guide: [DBX-03 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-03-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Refresh, retry, concurrent owners and worker restart do not duplicate an in-flight start or reset its deadline; observing shared compute does not expose another owner's private record.",""
+"2026-10-09","Task","DBX-03-T04","Data Mover: Databricks - Implement bounded readiness observation","DBX-03","Add background polling, backoff/jitter, rate-limit handling, readiness checks, lease-safe recovery, timeout, and observation cancellation.
+
+Owner role: Engineering
+Depends on: DBX-03-T03
+Task guide: [DBX-03 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-03-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Polling obeys the original deadline and stops safely on terminal outcomes; cancellation/timeout never stops provider compute or waits indefinitely for user input.",""
+"2026-10-09","Task","DBX-03-T05","Data Mover: Databricks - Gate SQL on the approved startup policy","DBX-03","Apply the DBX-01 manual/opt-in contract to SQL sessions for discovery, scans, runs and reconciliation, including the stop-after-check race.
+
+Owner role: Engineering
+Depends on: DBX-03-T02, DBX-03-T04
+Task guide: [DBX-03 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-03-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Every SQL entry point either satisfies the proven no-autostart contract or has current explicit startup authorization; blocked combinations do not submit SQL.",""
+"2026-10-09","Task","DBX-03-T06","Data Mover: Databricks - Build compute state and startup feedback","DBX-03","Show current state and checked time, selected workspace/compute, startup charge disclosure, Start, progress, safe failure/remediation, and cancel-observation behavior.
+
+Owner role: Engineering
+Depends on: DBX-03-T04, DBX-03-T05
+Task guide: [DBX-03 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-03-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Users can distinguish provider state from SQL readiness, understand warehouse startup side effects, and see that cancelling observation does not terminate compute.",""
+"2026-10-09","Task","DBX-03-T07","Data Mover: Databricks - Integrate readiness with pipeline lifecycle","DBX-03","Check source and destination readiness using the existing background runtime; make manual stopped-compute runs terminally blocked and opted-in runs bounded.
+
+Owner role: Engineering
+Depends on: DBX-03-T04, DBX-03-T05
+Task guide: [DBX-03 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-03-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- No worker waits indefinitely for an owner; a later retry re-checks state, retains guardrail enforcement, and never shuts down shared compute.",""
+"2026-10-09","Task","DBX-03-T08","Data Mover: Databricks - Verify states, races and least privilege","DBX-03","Extend simulator fixtures for all states, duplicate/lost starts, permissions, warehouse routing, rate limits, cancellation and startup races; verify supported behavior in an isolated workspace.
+
+Owner role: Engineering / Quality / Platform
+Depends on: DBX-03-T01, DBX-03-T02, DBX-03-T03, DBX-03-T04, DBX-03-T05, DBX-03-T06, DBX-03-T07
+Task guide: [DBX-03 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-03-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Named tests and synthetic live evidence prove readiness outcomes and absence of unauthorized lifecycle calls for each supported compute type.",""
+"2026-10-09","Story","DBX-04","Data Mover: Databricks - Discover and identify supported tables","DBX-EPIC","As a pipeline owner, I can select an authorized table without confusing it with another source.
+
+Prerequisites: DBX-02, DBX-03.
+Required evidence: Cross-owner/workspace isolation, pagination, unsupported views/types, verified-empty and denied-metadata cases.
+Story and epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
+Task guide: [DBX-04 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-04-tasks)","- Browse catalog/schema/base Delta tables with bounded pagination and explicit unsupported-object feedback. Preserve exact column names and object identity; reject unsafe/unsupported identifiers.
+- Verify schema and metadata coverage under the saved principal. Denied, incomplete, malformed, or stale results block rather than appear as empty catalogs/unmarked tables.
+- Bind caches and review controls to the complete source identity and invalidate on changes.",""
+"2026-10-09","Task","DBX-04-T01","Data Mover: Databricks - Implement bounded Unity Catalog discovery","DBX-04","Browse accessible catalogs, schemas and supported base Delta tables with bounded pagination; identify unsupported object types without exposing source row examples.
+
+Owner role: Engineering
+Depends on: DBX-03-T08
+Task guide: [DBX-04 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-04-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Every supported discovery page is consumed safely; views, legacy metastore, foreign/streaming objects and arbitrary SQL routes cannot be selected as supported sources.",""
+"2026-10-09","Task","DBX-04-T02","Data Mover: Databricks - Bind selections to stable object identity","DBX-04","Resolve fully qualified table identity under the saved connection; preserve exact column names and use provider-aware identifier validation/quoting.
+
+Owner role: Engineering
+Depends on: DBX-04-T01
+Task guide: [DBX-04 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-04-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Cross-workspace same-name tables and replaced/aliased objects cannot inherit the wrong selection or review; unsupported names are rejected with remediation.",""
+"2026-10-09","Task","DBX-04-T03","Data Mover: Databricks - Verify schema and metadata coverage","DBX-04","Implement DBX-01 permission/visibility checks for the object, complete columns, parent scopes, supported runtime and tag paths; reject unsupported types early.
+
+Owner role: Engineering
+Depends on: DBX-04-T02, DBX-01-T03
+Task guide: [DBX-04 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-04-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Verified-empty results are distinguishable from denied, partial, malformed, unsupported or ambiguous coverage, all of which block extraction/writes.",""
+"2026-10-09","Task","DBX-04-T04","Data Mover: Databricks - Scope and invalidate catalog caches","DBX-04","Key caches by owner, connection/workspace, principal generation and stable object identity; invalidate on credential/source/schema changes and limit lifetime.
+
+Owner role: Engineering
+Depends on: DBX-04-T02, DBX-04-T03
+Task guide: [DBX-04 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-04-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Cached metadata does not cross owners/workspaces, preserve stale authorization, or turn partial/failed reads into verified-empty results.",""
+"2026-10-09","Task","DBX-04-T05","Data Mover: Databricks - Build catalog selection and blocked-state UI","DBX-04","Show authorized namespaces/tables, safe schema, explicit unsupported-object feedback and precise empty/permission/coverage messages.
+
+Owner role: Engineering
+Depends on: DBX-04-T03, DBX-04-T04
+Task guide: [DBX-04 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-04-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Unavailable selections cannot enqueue a route; UI descriptions reflect coverage evidence without displaying source values.",""
+"2026-10-09","Task","DBX-04-T06","Data Mover: Databricks - Verify discovery, identity and visibility","DBX-04","Test pagination boundaries, same-name tables across workspaces/owners, object replacement, caches, permission-filtered results and unsupported objects/types.
+
+Owner role: Engineering / Quality
+Depends on: DBX-04-T01, DBX-04-T02, DBX-04-T03, DBX-04-T04, DBX-04-T05
+Task guide: [DBX-04 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-04-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Named tests prove complete supported discovery, correct review isolation, and fail-closed handling without row reads for blocked metadata.",""
+"2026-10-09","Story","DBX-05","Data Mover: Databricks - Map Databricks sensitivity metadata","DBX-EPIC","As a pipeline owner, I see safe findings and cannot bypass source or target sensitivity policy.
+
+Prerequisites: DBX-02, DBX-04.
+Required evidence: Parent/table/column markers, case-distinct keys, unknown classifications, source/target permission failures, and changed-marker tests.
+Story and epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
+Task guide: [DBX-05 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-05-tasks)","- Map exact configured key/key-value policies and all `class.*` column tags to fixed marker IDs. Sensitive source parents/tables block before extraction; sensitive targets block before staging.
+- Refresh and compare schema, markers, and mapping version at the defined inspection boundaries. Labels identify Databricks metadata rather than displaying “Foundry metadata.”
+- No raw tag text or classification samples enter persisted findings, UI, diagnostics, or logs.",""
+"2026-10-09","Task","DBX-05-T01","Data Mover: Databricks - Define versioned sensitive-marker policy","DBX-05","Add exact-key and exact-key/value configuration mapped to fixed safe marker IDs; preserve provider key case and flag every class.* column tag.
+
+Owner role: Product / Engineering
+Depends on: DBX-04-T06
+Task guide: [DBX-05 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-05-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Policy validation rejects ambiguous rules; newly encountered classifications create findings; matching does not collapse case-distinct provider keys.",""
+"2026-10-09","Task","DBX-05-T02","Data Mover: Databricks - Read all required tag scopes safely","DBX-05","Read catalog/schema/table/column tag scopes using the approved visibility contract, transient matching and bounded result handling.
+
+Owner role: Engineering
+Depends on: DBX-05-T01, DBX-04-T03
+Task guide: [DBX-05 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-05-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- The reader never queries classification sample results or changes tags; raw keys/values are absent from returned findings, stored metadata and diagnostics.",""
+"2026-10-09","Task","DBX-05-T03","Data Mover: Databricks - Enforce source and destination metadata blocks","DBX-05","Block sensitive source parents/tables before extraction and sensitive destination parents/tables before staging; map destination column findings to incoming columns.
+
+Owner role: Engineering
+Depends on: DBX-05-T02
+Task guide: [DBX-05 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-05-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Denied target metadata blocks writes; new-target parent checks and concurrent creation conflicts cannot bypass sensitivity controls.",""
+"2026-10-09","Task","DBX-05-T04","Data Mover: Databricks - Normalize findings and fingerprints","DBX-05","Emit databricks_metadata findings with safe marker IDs and exact affected identities; serialize value-free schema/sensitivity/policy fingerprints.
+
+Owner role: Engineering
+Depends on: DBX-05-T02, DBX-02-T01
+Task guide: [DBX-05 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-05-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Findings round-trip with truthful Databricks labels and contain no arbitrary tag text, sample values or provider responses.",""
+"2026-10-09","Task","DBX-05-T05","Data Mover: Databricks - Refresh policy at inspection boundaries","DBX-05","Re-check metadata at preflight and after extraction, then target/parent policy before publication; compare identity, schema, sensitivity and policy revision.
+
+Owner role: Engineering
+Depends on: DBX-05-T03, DBX-05-T04
+Task guide: [DBX-05 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-05-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Changes require renewed review and prevent staging/publication; cached previews cannot override current metadata or claim continuous provider monitoring.",""
+"2026-10-09","Task","DBX-05-T06","Data Mover: Databricks - Add metadata review and action controls","DBX-05","Present safe source/target column findings, table blocks, verified coverage and Hash/Remove controls bound to exact identities and column mapping.
+
+Owner role: Engineering
+Depends on: DBX-05-T03, DBX-05-T04, DBX-05-T05
+Task guide: [DBX-05 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-05-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Saved choices from another source/target/mapping are rejected; labels say No configured markers found only with verified coverage and do not imply complete PII detection.",""
+"2026-10-09","Task","DBX-05-T07","Data Mover: Databricks - Verify metadata enforcement and redaction","DBX-05","Test all tag scopes, exact key/value matches, case-distinct keys, unknown class tags, filtered metadata, target findings and changing fingerprints.
+
+Owner role: Engineering / Quality
+Depends on: DBX-05-T01, DBX-05-T02, DBX-05-T03, DBX-05-T04, DBX-05-T05, DBX-05-T06
+Task guide: [DBX-05 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-05-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Named tests prove no blocked-source row reads, no blocked-target staging, no classification sample query, and no raw tag persistence or logging.",""
+"2026-10-09","Story","DBX-06","Data Mover: Databricks - Scan and apply Hash/Remove","DBX-EPIC","As a pipeline owner, I can review and transform flagged columns before data reaches a target.
+
+Prerequisites: DBX-04, DBX-05.
+Required evidence: Tagged/untagged synthetic SSNs, saved/stale actions, multi-batch scans, schema drift, spool limits, numeric/decimal/timestamp/null fidelity and failures; representative CSV/PostgreSQL/Foundry-to-Databricks, reverse routes, and distinct-table Databricks copies according to the supported capability matrix.
+Story and epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
+Task guide: [DBX-06 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-06-tasks)","- Run the existing complete-source SSN scan and bounded encrypted spool, then publish those exact reviewed batches. Enforce source consistency, limits, supported type mapping, and cancellation.
+- Preserve source-bound saved decisions, resolve new findings, and apply Hash/Remove before publication. Removed columns never enter destination staging; unresolved actions create none.
+- Enforce append/replace removal limits, hash output types, and governance/history disclosures on Databricks-source and Databricks-destination routes.",""
+"2026-10-09","Task","DBX-06-T01","Data Mover: Databricks - Implement consistent bounded extraction","DBX-06","Stream one supported source query result with row/byte limits and scalar fidelity; retain safe query/source identity, close cursors and cancel reads on failure.
+
+Owner role: Engineering
+Depends on: DBX-05-T07, DBX-01-T05
+Task guide: [DBX-06 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-06-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- All batches belong to the approved source result; masks/filters are honored and schema/type drift, limits or interruption do not trigger unreviewed re-reads.",""
+"2026-10-09","Task","DBX-06-T02","Data Mover: Databricks - Integrate complete scan and encrypted spool","DBX-06","Use the existing full-source SSN scanner and bounded encrypted spool; maintain runtime leases, cancellation and recoverable spool cleanup.
+
+Owner role: Engineering
+Depends on: DBX-06-T01
+Task guide: [DBX-06 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-06-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Incomplete scans, exceeded limits or cancelled work create no destination staging, and raw source batches are encrypted and removed according to cleanup policy.",""
+"2026-10-09","Task","DBX-06-T03","Data Mover: Databricks - Resolve source-bound saved actions","DBX-06","Preserve applicable saved policies, require decisions for new findings, reject missing guarded columns/invalid mappings and all-column removal; apply Remove precedence and existing HMAC scope.
+
+Owner role: Engineering
+Depends on: DBX-06-T02, DBX-05-T06
+Task guide: [DBX-06 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-06-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- The effective policy is deterministic, rejects stale cross-source choices, and defines supported hash output types before writes.",""
+"2026-10-09","Task","DBX-06-T04","Data Mover: Databricks - Enforce destination Hash/Remove limits","DBX-06","Validate transformed schema against append/full-replace targets and governance; block retained removed columns, required tag/policy removal and incompatible output types.
+
+Owner role: Engineering
+Depends on: DBX-06-T03, DBX-05-T03
+Task guide: [DBX-06 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-06-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Append cannot leave a removed column in the target; replace omits its current data without editing governance; review states incoming-only hash and history limits.",""
+"2026-10-09","Task","DBX-06-T05","Data Mover: Databricks - Replay only transformed reviewed batches","DBX-06","Integrate policy projection, casting and transformation with the worker; publish batches from the scanned spool without fetching the source again.
+
+Owner role: Engineering
+Depends on: DBX-06-T03, DBX-06-T04
+Task guide: [DBX-06 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-06-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Removed values never enter destination staging; hash output is not replaced by raw casts; original and transformed schemas remain distinct and actions stay pending until confirmed commit.",""
+"2026-10-09","Task","DBX-06-T06","Data Mover: Databricks - Build scan/action feedback and policy save","DBX-06","Expose preview versus full-scan scope, unresolved decisions, saved policies, projected output schema and guardrail limitations in authoring/run feedback.
+
+Owner role: Engineering
+Depends on: DBX-06-T03, DBX-06-T04, DBX-06-T05
+Task guide: [DBX-06 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-06-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Owners understand which decisions are selected, which scans are complete and what output is promised; preview/saved forms enforce identity and permissions.",""
+"2026-10-09","Task","DBX-06-T07","Data Mover: Databricks - Verify guardrail output across supported routes","DBX-06","Test multi-batch tagged/untagged SSNs, type/null fidelity, stale actions, drift, limits, cancellation and transforms on CSV/PostgreSQL/Foundry-to-Databricks and supported reverse/Databricks-copy routes.
+
+Owner role: Engineering / Quality
+Depends on: DBX-06-T01, DBX-06-T02, DBX-06-T03, DBX-06-T04, DBX-06-T05, DBX-06-T06
+Task guide: [DBX-06 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-06-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Named tests prove exact transformed schema/rows, no staging before resolved scans, source-bound actions, and correct failure/retention disclosures; source-only providers are never advertised as reverse destinations.",""
+"2026-10-09","Story","DBX-07","Data Mover: Databricks - Publish Delta destinations safely","DBX-EPIC","As a pipeline owner, I can distinguish committed output from unchanged or uncertain output.
+
+Prerequisites: DBX-01, DBX-06.
+Required evidence: Append/create/replace output and schema checks, concurrent writers, denied governance changes, cancellation at commit, dropped responses, worker restart, duplicate prevention, and cleanup failure.
+Story and epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
+Task guide: [DBX-07 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-07-tasks)","- Implement only the modes proven in DBX-01 through private transformed staging and atomic publication. Register truthful capability and row-count verification levels.
+- Preserve target governance; block incompatible schema, exact self-copy, conflicts, and unauthorized operations. Pre-publication failure leaves the live target unchanged.
+- Reconcile ambiguous commits and recover staging cleanup. Never blindly replay uncertain append or report Hash/Remove applied without commit evidence.",""
+"2026-10-09","Task","DBX-07-T01","Data Mover: Databricks - Create private run-scoped staging","DBX-07","Validate an operator-approved private staging schema, run-scoped object names/ACLs, native parameter binding, identifier quoting and durable safe staging references.
+
+Owner role: Engineering / Platform
+Depends on: DBX-06-T07, DBX-01-T06
+Task guide: [DBX-07 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-07-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Only approved principals access transformed staging; unrelated users cannot read it; no source values enter SQL text/debug logs and cleanup can identify the run's objects.",""
+"2026-10-09","Task","DBX-07-T02","Data Mover: Databricks - Implement atomic new-table publication","DBX-07","Publish a transformed staged result to an absent managed Delta target using the proven create operation, with parent-policy and absence re-checks.
+
+Owner role: Engineering
+Depends on: DBX-07-T01
+Task guide: [DBX-07 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-07-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Schema and row output match the reviewed manifest; concurrent target creation causes a conflict rather than overwrite or a false successful no-op.",""
+"2026-10-09","Task","DBX-07-T03","Data Mover: Databricks - Implement atomic append publication","DBX-07","Validate compatible transformed columns and publish staging through the proven single atomic append operation; report truthful row-count evidence.
+
+Owner role: Engineering
+Depends on: DBX-07-T01
+Task guide: [DBX-07 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-07-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Pre-publication failures leave the live table unchanged; a confirmed append writes the reviewed rows once and an uncertain append is not automatically replayed.",""
+"2026-10-09","Task","DBX-07-T04","Data Mover: Databricks - Implement atomic full-replace publication","DBX-07","Use the proven replace operation with transformed schema, target-policy checks and preservation of grants/tags/masks/filters; prohibit drop-and-create fallback.
+
+Owner role: Engineering
+Depends on: DBX-07-T01
+Task guide: [DBX-07 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-07-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Current target output matches the reviewed rows/schema; unsupported governance changes or unproven preservation block safely without claiming physical erasure.",""
+"2026-10-09","Task","DBX-07-T05","Data Mover: Databricks - Coordinate target identity and concurrent writers","DBX-07","Reject exact self-copy by stable identity; serialize Data Mover target writers across instances and apply the verified outside-writer/schema conflict policy.
+
+Owner role: Engineering
+Depends on: DBX-07-T02, DBX-07-T03, DBX-07-T04
+Task guide: [DBX-07 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-07-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Copies between distinct tables remain allowed; worker/lease loss and concurrent target changes cannot silently overwrite a different approved target/version.",""
+"2026-10-09","Task","DBX-07-T06","Data Mover: Databricks - Reconcile submitted and uncertain commits","DBX-07","Persist publication intent and safe operation identity before submission; reconcile lost responses/worker death using provider evidence and startup-policy-safe queries.
+
+Owner role: Engineering
+Depends on: DBX-07-T05, DBX-03-T05
+Task guide: [DBX-07 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-07-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Run outcomes distinguish committed, unchanged and uncertain; actions are applied only for confirmed commits and uncertain append never receives a blind retry.",""
+"2026-10-09","Task","DBX-07-T07","Data Mover: Databricks - Recover staging and post-commit cleanup","DBX-07","Close sessions and clean only run-owned staging/spools; persist failed cleanup and resume it safely after interruption without deleting live targets or stopping compute.
+
+Owner role: Engineering
+Depends on: DBX-07-T06
+Task guide: [DBX-07 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-07-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Cleanup recovery is idempotent, respects owner/workspace identity and preserves evidence needed by uncertain runs; cleanup failure never turns a confirmed commit into rolled_back.",""
+"2026-10-09","Task","DBX-07-T08","Data Mover: Databricks - Verify publication and recovery failure windows","DBX-07","Test/probe create/append/replace output, governance denial, outside writers, commit-time cancellation, dropped responses, worker restart and cleanup failure.
+
+Owner role: Engineering / Quality / Platform
+Depends on: DBX-07-T02, DBX-07-T03, DBX-07-T04, DBX-07-T05, DBX-07-T06, DBX-07-T07
+Task guide: [DBX-07 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-07-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Automated failure tests plus isolated synthetic provider evidence establish each enabled mode's outcomes, duplicate prevention and truthful capability/verification levels.",""
+"2026-10-09","Story","DBX-08","Data Mover: Databricks - Explain outcomes and deliver the release evidence","DBX-EPIC","As an owner or operator, I can understand startup, blocking, and publication outcomes safely.
+
+Prerequisites: DBX-02 through DBX-07.
+Required evidence: Redaction tests, UI checks, captioned screenshots, operator setup walkthrough and release acceptance record.
+Story and epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
+Task guide: [DBX-08 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-08-tasks)","- Run review records detector, safe object/column identity, count, action, scan coverage, execution/destination outcome, and blocked reason; compute audit records who authorized startup, selected compute, attempt time and outcome. No matched values, secrets, or fetch links persist.
+- Update connection/user/operator guides, FAQ, supported route matrix, and troubleshooting. Capture synthetic, annotated screenshots for stopped compute, startup progress/failure, guardrail decisions, and committed/blocked/uncertain outcomes. Captions identify relevant controls.
+- Protect all connector entry points with an operator enablement flag; a separate writer switch controls destination capability. Disabled routes fail safely. Complete the release checklist.",""
+"2026-10-09","Task","DBX-08-T01","Data Mover: Databricks - Persist and present value-free run review","DBX-08","Record detector, safe object/column identity, counts, actions, scan coverage, original/transformed schemas and execution/destination/blocked outcomes.
+
+Owner role: Engineering
+Depends on: DBX-06-T07, DBX-07-T08
+Task guide: [DBX-08 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-08-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Run review shows selected versus applied actions accurately and never stores source values, arbitrary tags, tokens or fetch links.",""
+"2026-10-09","Task","DBX-08-T02","Data Mover: Databricks - Audit compute authorization and attempts","DBX-08","Record owner authorization, configured compute, attempt time/deadline, state transitions, cancellation/timeout and final outcome in owner-scoped audit views.
+
+Owner role: Engineering
+Depends on: DBX-03-T08
+Task guide: [DBX-08 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-08-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- An operator can explain why startup occurred; concurrent owners cannot read another owner's private attempt details and audits contain no secret/provider payloads.",""
+"2026-10-09","Task","DBX-08-T03","Data Mover: Databricks - Implement operator and writer rollout gates","DBX-08","Add default-off connector enablement and independent writer gating to registration, UI, save/enqueue and direct use-case entry points.
+
+Owner role: Engineering
+Depends on: DBX-02-T07, DBX-07-T08
+Task guide: [DBX-08 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-08-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Disabled connections/routes fail safely, source-only enablement exposes no writer path, and capability matrices advertise only proven modes.",""
+"2026-10-09","Task","DBX-08-T04","Data Mover: Databricks - Verify diagnostics and log redaction end to end","DBX-08","Exercise safe user feedback, existing diagnostic events and SDK/connector error logging for authentication, metadata, startup, scans and publication.
+
+Owner role: Engineering / Quality
+Depends on: DBX-08-T01, DBX-08-T02, DBX-08-T03
+Task guide: [DBX-08 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-08-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Secret, matched-value, raw-tag and fetch-link sentinels are absent from persistent records, UI and captured logs, including partial failures and debug-path checks.",""
+"2026-10-09","Task","DBX-08-T05","Data Mover: Databricks - Update user and operator documentation","DBX-08","Update connection setup, permission profiles, supported routes, startup policy, private staging/networking, recovery, feature flags, FAQ and retention guidance.
+
+Owner role: Product / Engineering / Platform
+Depends on: DBX-08-T01, DBX-08-T02, DBX-08-T03
+Task guide: [DBX-08 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-08-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Guides match implemented support and include a reproducible operator walkthrough with synthetic values; no document claims physical purge or unsupported routes.",""
+"2026-10-09","Task","DBX-08-T06","Data Mover: Databricks - Capture accurate annotated screenshots","DBX-08","Capture synthetic fixtures for stopped compute, progress/failure, unresolved guardrail choices and committed/blocked/uncertain outcomes; label the relevant controls and record provenance.
+
+Owner role: Engineering / Quality
+Depends on: DBX-08-T01, DBX-08-T02, DBX-08-T05
+Task guide: [DBX-08 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-08-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Captions explain the exact shown state and numbered callouts identify the discussed controls; screenshots are verified against implemented UI without real credentials/data.",""
+"2026-10-09","Task","DBX-08-T07","Data Mover: Databricks - Complete release acceptance and regression record","DBX-08","Run required local/CI regression checks; assemble named story/task evidence, isolated live acceptance, support matrix, operator setup, docs/screenshots and rollout checklist.
+
+Owner role: Engineering / Quality / Platform
+Depends on: DBX-01-T07, DBX-02-T07, DBX-03-T08, DBX-04-T06, DBX-05-T07, DBX-06-T07, DBX-07-T08, DBX-08-T04, DBX-08-T05, DBX-08-T06
+Task guide: [DBX-08 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-08-tasks)
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- The acceptance record links passing checks and provider evidence for every enabled combination; missing external evidence keeps the affected support/flag gate closed and no task is marked complete without evidence.",""

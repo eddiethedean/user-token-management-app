@@ -6,7 +6,8 @@ support design review and preparation of an organization-specific system securit
 
 It is **not** an authorization to operate, a claim of FedRAMP or DoD compliance, or a substitute for
 the system owner's risk assessment. Repository implementation facts and deployment instructions were
-last reviewed on 2026-09-11; the linked standards and guidance remain reference material and must be
+last reviewed on 2026-10-13 against release `071026.0` at `849a583` on `main`;
+the linked standards and guidance remain reference material and must be
 rechecked when a release or authorization baseline changes. Standards use their own normative terms
 (`SHALL`, `SHOULD`, and so on); an application decision citing a standard does not by itself establish
 conformance with the whole standard.
@@ -19,13 +20,18 @@ boundary.
 **Operator surface:** Data Mover is a **browser HTMX UI** with cookie sessions — not a public
 REST/OpenAPI resource API. MSS, MCS-COP, and PostgreSQL credential bundles are stored
 encrypted for authorized users; they are not how the application authenticates HTTP callers.
-Demo mode uses fake connectors. In real mode, owner-authorized catalog browsing and an explicit
-**Test connection** action decrypt only the current user's selected bundle in the web process, while
+Demo mode uses fake connectors. In real mode, owner-authorized catalog browsing and connection tests
+(both automatic after saving changed credentials and explicit **Test connection** actions)
+decrypt only the current user's selected bundle in the web process, while
 transfer execution decrypts only the bundles required by a claimed in-process pipeline run. Foundry
 outbound hosts are allowlisted, source and staging data are bounded, and persisted run facts are
 redaction-filtered while catalog-cache payloads exclude credential fields. CSV uploads and saved
 pipeline definitions are real owner-scoped database content. Day-to-day setup lives in the
 [README](README.md) and [docs/](docs/); use this file for the decision register and production gate.
+Sensitive-data guardrails refresh configured Foundry metadata, block table-level sensitivity,
+scan the complete extracted source for supported SSN patterns, and enforce saved Hash/Remove
+decisions before destination staging (SD-27). Databricks/Advana and MongoDB remain outside the
+implemented connector surface; proposed or archived integrations do not extend this boundary.
 
 ## Reporting a vulnerability
 
@@ -59,7 +65,7 @@ authorization evidence.
       exact URL/response contract, CA trust, bearer-secret handling, fail-open/fail-closed policy,
       DNS behavior, and network egress allowlist are approved and monitored. It is not represented as
       authentication, CAC validation, identity proofing, clearance, or authorization.
-- [ ] High-entropy, enclave-unique JWT and session secrets are injected from an approved store;
+- [ ] High-entropy, enclave-unique JWT, session, and pre-authentication CSRF secrets are injected from an approved store;
       access, audit, incident, and rotation procedures are recorded.
 - [ ] High-entropy connection-credential encryption keys (`API_TOKEN_ENCRYPTION_KEYS` retains its
       legacy configuration name) are injected separately from JWT/session secrets; old
@@ -111,8 +117,20 @@ authorization evidence.
       allowlists, CA verification, source/spool quotas, staging cleanup, and PostgreSQL TLS mode are
       tested with production-equivalent configuration. The production allowlist must not include a
       loopback host, because loopback HTTP is reserved for local development.
+- [ ] `PIPELINE_SENSITIVE_METADATA_MARKERS` matches the organization's approved Foundry marker
+      vocabulary. Fresh metadata retrieval, all marking pages, table blocks, late-batch SSN
+      findings, unresolved choices, and Hash/Remove enforcement are tested with provider permissions
+      and production-equivalent schemas. An empty marker setting disables metadata detection.
+- [ ] Hash use is approved as pseudonymization with the documented user/pipeline/column scope;
+      active-key rotation is coordinated with downstream identifiers. PostgreSQL Remove is approved
+      as a transactional column deletion that also removes existing values, including on append/upsert.
+- [ ] Raw CSV uploads, downloaded Foundry source files, process memory, and spool storage have
+      approved access, encryption, retention, and cleanup controls. The encrypted pre-write batch
+      spool does not encrypt every source artifact or establish classification/release authority.
 - [ ] The app's background email delivery is monitored; SMTP transport is approved; retry backlog
-      and dead letters are monitored; the operator requeue procedure is tested.
+      and dead letters are monitored; the operator requeue procedure is tested. The current SMTP
+      client does not negotiate STARTTLS or implicit TLS; its network path and any relay credentials
+      require explicit approval and protection outside the application (SD-19).
 - [ ] Sent outbox bodies are redacted; pending/dead-letter retention is approved; proxy,
       application, SMTP, and SIEM logs redact registration/invitation/reset query tokens.
 - [ ] PostgreSQL security, Alembic migration/adoption rehearsal, backup encryption, restore testing,
@@ -139,6 +157,7 @@ authorization evidence.
 - [Assurance boundary](#assurance-boundary)
 - [Threat model and trust boundaries](#threat-model-and-trust-boundaries)
 - [Decision register](#decision-register)
+- [Sensitive-data guardrails](#sd-27--enforce-sensitive-data-decisions-before-destination-staging)
 - [Reference index](#reference-index)
 
 ## Status vocabulary
@@ -170,6 +189,15 @@ asserted beyond Data Mover's local input-shape validation because no provider sp
 or relied upon. The application treats stored values as opaque high-value credentials. This review
 is an engineering evidence check, not a penetration test,
 cryptographic-module validation, SSP assessment, or authorization to operate.
+
+The 2026-10-13 review checked the `071026.0` / `849a583` implementation baseline, including
+guardrail enforcement and disclosure boundaries, current migrations, password/reset invalidation,
+production configuration, and SMTP transport. The focused verification run passed **233 tests**
+across documentation/deployment guidance, guardrail domain and HTTP acceptance, transfer/run
+state, Foundry HTTP contracts, user catalogs, PostgreSQL destinations, authentication security,
+mailer/email configuration, and schema defaults. This was an isolated local test run, not a new
+full release gate or live Foundry/Posit deployment assessment. Earlier external references retain
+their original review scope unless a later recheck is explicitly recorded below.
 
 ## Assurance boundary
 
@@ -630,6 +658,11 @@ the user. `GET` validates and displays the form but does not consume the token, 
 cannot complete the action. Only `POST` accepts or consumes it. Password reset does not log the user
 in, revokes all sessions, increments the security version, and sends a change notification.
 Forgot-password and registration-submission responses are generic.
+An authenticated password change also consumes all outstanding reset links. Password changes and
+reset completion serialize on the user row, and reset state is reloaded after taking that lock, so a
+previously loaded reset capability cannot survive a concurrent password change. Implementation and
+regression evidence are in `app/services/accounts.py`, `app/services/password_reset.py`, and
+`tests/test_auth_security.py`.
 
 **Rationale:** High-entropy, bounded, single-use tokens resist guessing and replay. Preview-only GET
 also preserves HTTP safe-method semantics and makes automated link inspection less destructive.
@@ -757,7 +790,11 @@ allowlists, weak placeholder application secrets, retained delivered email bodie
 application rate limits, or `DIRECTORY_LOOKUP_REQUIRED` without
 a configured HTTPS directory URL. PostgreSQL must use the installed `psycopg` driver. Invalid ports,
 unsafe header-bearing configuration values, malformed routing paths, and missing configured CA
-bundle files also fail validation. Interactive API documentation is disabled in production. TLS is
+bundle files also fail validation. Production additionally requires `DATA_MOVER_MODE=real`, rejects
+legacy SMTP port-25 fallback, and requires either explicit password-only risk acceptance or an
+allowlisted trusted-header proxy. An optional unavailable deployment password blocklist is cleared;
+built-in common-password and email-context checks remain active. Interactive API documentation is
+disabled in production. TLS is
 expected to terminate at the approved Posit/reverse-proxy boundary; HSTS and Secure cookies are
 applied by the application.
 
@@ -811,7 +848,9 @@ to successful email-producing responses. The task claims due rows atomically wit
 `FOR UPDATE SKIP LOCKED`, sends outside the claim transaction, applies bounded exponential backoff,
 and marks exhausted messages as dead letters. Operators can explicitly requeue all or one approved
 dead letter. The SMTP backend connects to the configured approved relay, plus optional relay
-authentication. The application sends
+authentication, using `smtplib.SMTP`; it does not call STARTTLS or use implicit TLS. Production
+rejects `SMTP_ALLOW_LEGACY_PORT25_FALLBACK`, but selecting a port does not enable encryption.
+The application sends
 registration/invitation/reset URLs and account-status or password-change notifications (including
 authenticated password changes from the security page), never passwords.
 
@@ -825,7 +864,10 @@ approval. Pending and dead-lettered bodies still contain
 capability URLs and require strict access and retention controls.
 
 **Deployment control:** require an approved enclave-local relay and protected route, verify TLS and
-certificate behavior, prohibit console email in production, restrict outbox and backup readers,
+certificate behavior wherever protection is supplied by the deployment, and record approval for
+the application's plain SMTP hop. If that hop must negotiate TLS itself, application work is
+required before deployment. Do not send relay passwords over an unprotected path. Prohibit console
+email in production, restrict outbox and backup readers,
 monitor delivery failures and dead letters, and define the shortest workable retention/purge
 period for pending and failed bodies. Mail administrators must define equivalent retention and
 access controls downstream.
@@ -884,10 +926,13 @@ eavesdropping, injection, and replay.
 
 **Status:** Versioned schema control implemented; production operation is a deployment control.
 
-**Decision:** Twelve ordered Alembic revisions create the baseline, self-registration, shared
-rate-limit, user credential, atomic-token/email-worker, encryption-key-usage, saved-pipeline,
-catalog/connection-health, CSV-source, real-transfer-run, user-color-mode, and dark-mode-default
-schemas. Application startup verifies the current revision and refuses to serve a stale or unversioned schema;
+**Decision:** Twenty-one ordered Alembic revisions, through `0021_sensitive_data_guardrails`,
+create the account/session/credential baseline and the current catalog, connection-readiness,
+pipeline, reconciliation, metric-provenance, and sensitive-data review schemas. Migration 0021
+adds saved guardrail actions and run findings and strips legacy cell examples from recognized
+persisted run-schema manifests and schema-cache payloads. This scrub does not sanitize historical
+backups, raw CSV uploads, or external logs; their retention and disposal remain deployment controls.
+Application startup verifies the current revision and refuses to serve a stale or unversioned schema;
 `python -m app migrate` is an explicit release action. Legacy `create_all()` databases require the
 explicit `--adopt-existing` path, which verifies known table/column shapes before stamping and
 upgrading. Administrator bootstrap is a separate `create-admin` command and is never migration
@@ -1083,7 +1128,7 @@ operators must configure a fresh active key after upgrade.
 | Envelope encryption and a versioned key ring separate from the database and auth keys | [NIST SP 800-57 Part 1 Rev. 5](https://doi.org/10.6028/NIST.SP.800-57pt1r5) covers protection, lifecycle, cryptoperiods, backup, and recovery of keying material. [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-management) recommends storing keys separately from encrypted data and designing for rotation. The active key protects new data while retained key identifiers permit controlled migration and recovery. | The key ring is available to the FastAPI process. Database-only theft does not disclose plaintext, but application-host or key-ring compromise can. Loss of an old referenced key permanently loses the associated tokens. |
 | No plaintext read endpoint or UI reveal | GitHub's [Actions secrets REST API](https://docs.github.com/en/rest/actions/secrets) lists secret metadata without returning encrypted values. Following that pattern reduces routine exposure in browsers, support workflows, and admin tooling. | This is product-level non-disclosure, not end-to-end encryption. Privileged host operators and trusted application code remain in the security boundary. |
 | Metadata-only audit events and no-store responses | [OWASP Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#23-logging) says secrets must not be logged and recommends auditing who requested or used them. GitHub warns that [automatic redaction is not guaranteed](https://docs.github.com/en/actions/reference/security/secure-use#using-secrets), so correctness cannot depend on a masking heuristic. | Application, proxy, runner, artifact, exception, and crash-dump paths all require deployment testing. `no-store` controls caching; it cannot prevent a compromised browser or endpoint from reading a token while it is entered. |
-| Explicit delivery only at an authorized action or run boundary | OWASP describes controlled [secret consumption](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#25-secret-consumption) and warns that environment variables may leak through logs or dumps. The web process decrypts only for the user's selected catalog browse or explicit connection test; the in-process runtime decrypts only after it claims the corresponding run lease. Posit documents that local content processes [inherit Connect server environment variables by default](https://docs.posit.co/connect/admin/appendix/configuration/#inherit-system-env-vars). | The Hedron process is a trusted application-code boundary and receives the master-key ring. `Applications.InheritSystemEnvVars=false` does not sanitize subprocesses created by the application. If arbitrary code is ever granted a bearer value, it can copy or transmit it; an explicit child environment and process/filesystem/network isolation must then be added. |
+| Explicit delivery only at an authorized action or run boundary | OWASP describes controlled [secret consumption](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#25-secret-consumption) and warns that environment variables may leak through logs or dumps. The web process decrypts for the user's selected catalog action or connection test, including the automatic test after saving changed credentials; the in-process runtime decrypts only after it claims the corresponding run lease. Posit documents that local content processes [inherit Connect server environment variables by default](https://docs.posit.co/connect/admin/appendix/configuration/#inherit-system-env-vars). | The Hedron process is a trusted application-code boundary and receives the master-key ring. `Applications.InheritSystemEnvVars=false` does not sanitize subprocesses created by the application. If arbitrary code is ever granted a bearer value, it can copy or transmit it; an explicit child environment and process/filesystem/network isolation must then be added. |
 | Prefer short-lived credentials when providers support them | OWASP recommends limiting secret lifetime and automating rotation. GitHub's [OIDC guidance](https://docs.github.com/en/actions/concepts/security/openid-connect) uses short-lived, job-specific credentials instead of stored long-lived secrets; Posit similarly documents [process-lifetime API keys](https://docs.posit.co/connect/admin/content-management/api-keys/#automatic-provisioning). | Data Mover currently accepts static user-supplied connection bundles. Provider-side OAuth, federation, scope, expiration, and revocation remain future integration work. |
 
 **Limitations and deployment controls:** The FastAPI process receives the master-key ring and can
@@ -1212,6 +1257,97 @@ or Connect session is required to prove platform behavior that the local matrix 
 application, interaction, asset, and Posit surfaces. `app/ui/security_policy.py`, `app/main.py`,
 `app/server.py`, `app/security/cookies.py`, `scripts/run-workbench.sh`, and the Hedron/Posit tests
 are the implementation evidence for this decision.
+
+### SD-27 — Enforce sensitive-data decisions before destination staging
+
+**Status:** Implemented for configured Foundry metadata and supported SSN patterns; broader
+classification, release approval, and production-provider verification remain deployment controls.
+
+**Decision:** MSS/MCS-COP source inspection reads Foundry schema custom metadata and paginated
+resource markings using `PIPELINE_SENSITIVE_METADATA_MARKERS`. Matching ignores case and punctuation;
+the default vocabulary is `sensitive,pii,phi,ssn,cui,confidential,restricted`. Only configured marker
+names cross the connector boundary. Catalog inspection refreshes sensitivity metadata even for
+cached schemas; worker inspection reads it independently. Unavailable refresh support, malformed or
+incomplete required metadata, unresolved marking IDs, repeated cursors, or exceeded marking/page
+limits fail closed. An omitted resource-marking `data` field is accepted as an empty page, consistent
+with the supported response contract; it does not excuse a failed request or malformed schema.
+An empty marker configuration disables this metadata detector and needs explicit policy review.
+
+A table-level match blocks extraction and destination staging; per-column choices cannot override
+it. Column-level matches require a saved **Hash** or **Remove** decision. The separate content
+detector checks untagged columns for supported SSN-shaped digit, hyphen, space, and numeric forms
+and returns column-level matching-cell counts without returning matched values. It does not identify
+all PII or prove that a detected number is an assigned SSN.
+
+The owner's optional preview scan binds findings and controls to the selected source. Submitted
+preview findings are review data, not execution authority. Enqueue repeats live source/destination
+preflight and projects saved actions into the destination schema; it does not repeat the content
+scan. The worker independently scans every extracted batch before preparing any destination write
+session. It stores those batches in a temporary AES-256-GCM encrypted spool with a random in-memory
+run key, fresh nonces, and authenticated run/batch metadata. Source/spool limits, schema checks,
+lease renewal, cancellation, and run deadlines apply. A late-batch unresolved finding prevents all
+destination staging. Connection tests and destination metadata reads may precede the safety stop.
+
+Saved decisions are part of the owner-scoped pipeline and immutable run snapshot, keyed by detector
+and exact column identifier. Whitespace in an identifier is preserved; blank/control-character
+names and duplicate detector/column decisions are rejected. Saved policies still apply to columns
+that remain present when their current marker or pattern match disappears. Remove wins when both
+actions apply to the same column. Missing marked columns, removing all source columns, or removing
+a required destination primary/unique key blocks the run before staging.
+
+| Action | Implemented behavior | Security and operational boundary |
+| --- | --- | --- |
+| Hash | Every non-null value in the selected column becomes a 64-character HMAC-SHA-256 hexadecimal digest; nulls stay null and the output type becomes String. A domain-separated HMAC derives the transform key from the active credential-encryption key, user ID, and pipeline ID; each digest additionally binds the exact column name. | Equal values produce equal digests only under the same column/user/pipeline/key and value encoding. Active-key rotation changes future hashes; no stored digest key version or automatic downstream rehash is provided. This is pseudonymization, with equality leakage, rather than a classification downgrade or proof of anonymization. |
+| Remove | The column is absent from every transformed batch and the projected destination schema; other columns and row order remain. An existing PostgreSQL target also drops that column transactionally on append/upsert/replace paths, removing prior values. | PostgreSQL table ownership/DDL permission is required. Protected keys cannot be removed; dependency or preparation failures roll back the transaction. Removing the transfer column does not purge original uploads, source systems, historical backups, or copies elsewhere. |
+
+Run reviews persist detector/source, column, counts, selected/effective actions, scan totals, block
+reason, and separate execution/destination outcomes. Decisions stay selected/pending until a
+successful destination commit; failed, cancelled, partial, or uncertain publication paths must not
+claim that the destination received a completed transformation. Run schema manifests preserve the
+original source schema separately from the transformed destination schema and omit cell examples.
+Guardrail findings, events, audit details, and logs omit matched values and transform key material.
+Column names, locators, and counts still require approved access and retention.
+
+**Rationale:** Independent execution-time inspection and a complete scan prevent stale or forged
+preview state and clean early batches from bypassing unresolved findings. Replaying the reviewed
+encrypted batches makes the transform apply to the same extracted data that was scanned. Value-free
+findings reduce unnecessary disclosure through monitoring and review surfaces.
+
+**Limitations and deployment controls:** This is a bounded detector and transform policy, not a DLP
+service, a cross-domain guard, or authorization to release classified or controlled information.
+Approve the marker vocabulary, supported source/destination permissions, false-positive/negative
+handling, downstream use of hashes, key rotation, and PostgreSQL column deletion. Test these
+contracts against the actual Foundry metadata/marking responses and database topology. The spool
+key and plaintext batches exist in trusted application memory; no secure memory wiping is promised.
+The encrypted batch spool does not encrypt downloaded Foundry CSV/Parquet files or persisted raw
+CSV uploads. Protect the spool/source temporary storage, application host, dumps, database, and
+backups with approved encryption, access, cleanup, and retention controls.
+
+**Implementation and automated evidence:**
+
+- `app/domain/pipelines/guardrails.py`, `app/connectors/foundry.py`, and `app/services/catalogs.py`
+  implement marker normalization, fresh metadata checks, source-bound review, and value-free scans;
+  `tests/test_pipeline_guardrails_domain.py`, `tests/test_foundry_http.py`, and
+  `tests/test_user_catalog.py` cover the supported contracts and failure paths.
+- `app/services/transfer_engine.py`, `app/services/guardrail_schema.py`, and
+  `app/ui/routes/pipeline_runs.py` implement full-source scanning, spool encryption, schema projection,
+  Hash/Remove, and pre-write blocks. `tests/test_sensitive_guardrail_acceptance.py` and
+  `tests/test_transfer_engine.py` cover real routes, persistence, late-batch findings, transforms,
+  original-schema provenance, saved decisions, and value-free output with isolated fixtures.
+- `app/connectors/postgres.py` and `tests/test_postgres_connector.py` cover existing-table Remove,
+  protected keys, transaction rollback, and safe errors. `app/services/pipeline_runs.py` and
+  `tests/test_pipeline_runs.py` cover durable reviews and terminal outcomes. Migration
+  `0021_sensitive_data_guardrails` and `tests/test_schema_defaults.py` cover legacy-example removal.
+- The [acceptance audit](docs/plans/open-guardrail-issue-acceptance.md) indexes the implementation
+  and evidence for issues #104–#131. Its October 6 validation and synthetic screenshots are historical
+  repository evidence, not proof of live-provider or production readiness. Operational handling is
+  in the [pipeline runtime runbook](docs/runbooks/pipeline-worker.md).
+- [OWASP Logging, Data to Exclude](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html#data-to-exclude)
+  supports excluding sensitive personal data and keys from logs.
+  [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#architectural-design)
+  supports choosing protection layers from the threat model and minimizing sensitive storage.
+  These two sources were rechecked on 2026-10-13; they support the engineering rationale, not a
+  compliance or anonymization claim.
 
 ## Reference index
 

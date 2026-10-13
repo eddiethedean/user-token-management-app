@@ -48,8 +48,11 @@ network request occurred. Demo status never proves that a hostname is reachable 
 valid. Foundry without a default dataset RID remains **Untested**.
 
 **Are Advana, Databricks, or MongoDB supported?**
-Advana/Databricks and MongoDB are outside the current product scope. References to them in
-archived transfer notes describe legacy integrations and do not indicate available connectors.
+No. Advana/Databricks and MongoDB are not current product connections. A proposed Databricks
+connector epic is documented in the [Databricks connection plan](stories/databricks-connection-epic.md);
+it includes explicit cluster readiness/startup and Unity Catalog sensitive-data guardrails, but does
+not indicate an available connector. References in archived transfer notes describe legacy
+integrations.
 
 **Is there a public REST or OpenAPI API?**  
 No. The product surface is an HTMX UI over FastAPI cookie sessions. Do not expect bearer-token

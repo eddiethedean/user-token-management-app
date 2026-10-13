@@ -57,6 +57,7 @@ record the released code-to-copy-to-log and operator lookup contracts.
 | SOLID drain-failure review | [Drain failures, cancellation origin, and failed startup plan](solid-runtime-drain-failure-remediation.md) | Implemented; D1–D3 acceptance closed |
 | Feedback and diagnostics | [User feedback and troubleshooting upgrade plan](user-feedback-observability-upgrade.md) | Implemented locally; deployment/provider gates remain external |
 | Sensitive-data guardrails | [Open GitHub issue acceptance audit](open-guardrail-issue-acceptance.md) | All 28 open acceptance records implemented; automated evidence indexed |
+| Proposed Databricks connector | [Databricks connections and sensitive-data guardrails epic](../stories/databricks-connection-epic.md) and [57 implementation tasks](../stories/databricks-connection-tasks.md) | Proposed scope and task backlog; no first-class connector implemented |
 
 ## Review convention
 
