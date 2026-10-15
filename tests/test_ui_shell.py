@@ -940,7 +940,7 @@ def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
     ]
     assert Counter(route.kind for route in routes) == {
         "page": 12,
-        "action": 27,
+        "action": 30,
         "view": 4,
     }
     assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)

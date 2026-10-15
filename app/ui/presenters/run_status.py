@@ -53,6 +53,7 @@ _RUN_STAGE_COPY = {
 
 EVENT_STAGE_LABELS = {
     "queued": "Queue",
+    "compute_startup": "Compute startup",
     "authenticate": "Validate",
     "inspect": "Extract",
     "transfer": "Load",
@@ -96,7 +97,12 @@ def run_action_phase(status: str) -> str:
     return "idle"
 
 
-def run_stage_copy(status: str) -> tuple[str, str]:
+def run_stage_copy(status: str, *, stage: str = "") -> tuple[str, str]:
+    if status == "queued" and stage == "waiting_for_compute":
+        return (
+            "Waiting for compute",
+            "Authorized Databricks startup is being observed; the run will resume when SQL is ready.",
+        )
     return _RUN_STAGE_COPY.get(status, (status.replace("_", " ").title(), ""))
 
 
@@ -133,7 +139,7 @@ def run_action_state(
         if phase in {"error", "conflict"} and outcome is not None
         else getattr(run, "error_summary", None)
         if phase in {"error", "conflict"}
-        else run_stage_copy(status)[0]
+        else run_stage_copy(status, stage=str(getattr(run, "stage", "")))[0]
     )
     return ActionState(
         phase=ActionPhase(phase),

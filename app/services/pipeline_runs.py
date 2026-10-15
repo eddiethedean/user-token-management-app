@@ -14,6 +14,7 @@ from fastapi import Request
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
+from app.config import Settings
 from app.connectors.errors import TransferErrorCode
 from app.connectors.locators import DefinitionSnapshot
 from app.connectors.redaction import redact_mapping, redact_text
@@ -22,6 +23,7 @@ from app.db_compat import insert_for, scalar_returning
 from app.domain.feedback import DataImpact
 from app.logging_config import log_event
 from app.models import (
+    DatabricksComputeAttempt,
     PipelineDefinition,
     PipelineRun,
     PipelineRunEvent,
@@ -56,6 +58,8 @@ __all__ = [
     "request_cancel",
     "record_guardrail_review",
     "block_run",
+    "block_compute_readiness",
+    "defer_run_for_databricks_compute",
     "record_reconciliation_review",
     "snapshot_from_definition",
 ]
@@ -491,7 +495,13 @@ def claim_run(
     now = utcnow()
     conditions = [
         or_(
-            PipelineRun.status == PipelineRunStatus.QUEUED.value,
+            and_(
+                PipelineRun.status == PipelineRunStatus.QUEUED.value,
+                or_(
+                    PipelineRun.next_attempt_at.is_(None),
+                    PipelineRun.next_attempt_at <= now,
+                ),
+            ),
             and_(
                 PipelineRun.status.in_(WORKER_OWNED_STATUSES),
                 PipelineRun.lease_expires_at.is_not(None),
@@ -549,6 +559,7 @@ def claim_run(
     run.lease_token = lease_token
     run.lease_expires_at = now + timedelta(seconds=lease_seconds)
     run.heartbeat_at = now
+    run.next_attempt_at = None
     if run.started_at is None:
         run.started_at = now
     _transition(run, PipelineRunStatus.VALIDATING.value, lease_token=lease_token)
@@ -556,6 +567,90 @@ def claim_run(
     db.commit()
     db.refresh(run)
     return run, lease_token
+
+
+def defer_run_for_databricks_compute(
+    db: Session,
+    run: PipelineRun,
+    *,
+    lease_token: str,
+    settings: Settings,
+) -> bool:
+    """Requeue a pre-write opted-in run until its durable compute attempt resolves."""
+
+    _refresh_and_require_lease(db, run, lease_token)
+    now = utcnow()
+    deadline = run.databricks_compute_start_deadline_at
+    if run.cancel_requested_at is not None:
+        _cancel_before_destination_work(
+            db,
+            run,
+            last_safe_stage=run.stage,
+            message="Run cancelled while waiting for Databricks compute readiness.",
+        )
+        db.commit()
+        return True
+    if run.stage != "authenticate" or deadline is None or now >= deadline:
+        return False
+    if run.databricks_compute_attempt_id:
+        attempt = db.get(DatabricksComputeAttempt, run.databricks_compute_attempt_id)
+        if attempt is None or attempt.status not in {"starting", "ready"}:
+            return False
+        deadline = min(deadline, attempt.deadline_at)
+        run.databricks_compute_start_deadline_at = deadline
+        if now >= deadline:
+            return False
+
+    run.status = PipelineRunStatus.QUEUED.value
+    run.stage = "waiting_for_compute"
+    run.worker_id = None
+    run.lease_token = None
+    run.lease_expires_at = None
+    run.heartbeat_at = None
+    run.next_attempt_at = min(
+        now + timedelta(seconds=settings.pipeline_databricks_startup_poll_seconds), deadline
+    )
+    append_event(
+        db,
+        run,
+        "Waiting for the authorized Databricks compute startup to become SQL ready.",
+        stage="compute_startup",
+    )
+    db.commit()
+    return True
+
+
+def block_compute_readiness(
+    db: Session,
+    run: PipelineRun,
+    *,
+    lease_token: str,
+    summary: str,
+) -> None:
+    """Block a run before extraction when selected Databricks compute is unavailable."""
+
+    _refresh_and_require_lease(db, run, lease_token)
+    last_safe_stage = run.stage
+    run.error_code = TransferErrorCode.COMPUTE_NOT_READY.value
+    run.error_summary = redact_text(summary)[:500]
+    run.retryable = False
+    run.last_safe_stage = last_safe_stage
+    run.data_impact = DataImpact.UNCHANGED.value
+    run.reconciliation_required = False
+    run.reconciliation_reviewed_at = None
+    _set_status(run, PipelineRunStatus.BLOCKED.value, lease_token=lease_token)
+    run.verification_json = json.dumps(
+        _failure_facts(
+            run,
+            TransferErrorCode.COMPUTE_NOT_READY.value,
+            DataImpact.UNCHANGED,
+            reconciliation_required=False,
+            last_safe_stage=last_safe_stage,
+        ),
+        separators=(",", ":"),
+    )
+    append_event(db, run, run.error_summary or summary, stage="compute_startup", level="warning")
+    db.commit()
 
 
 def heartbeat(db: Session, run: PipelineRun, *, lease_token: str, lease_seconds: int) -> None:

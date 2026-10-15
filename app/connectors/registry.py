@@ -475,6 +475,10 @@ def writer_enabled(destination_provider: str, *, settings: Settings | None = Non
         settings = _ACTIVE_SETTINGS.get() or get_settings()
     if settings.is_demo_mode:
         return capabilities.writer_enabled
+    if destination_provider.casefold() == "databricks" and not getattr(
+        settings, "pipeline_databricks_writer_live_acceptance_verified", False
+    ):
+        return False
     setting_name = current_registry().specification_for(destination_provider).writer_setting
     if setting_name is None:
         return capabilities.writer_enabled
@@ -489,6 +493,13 @@ def load_builtin_connectors(
     target = registry or current_registry()
     if target._sealed:
         raise RuntimeError("A published connector generation is immutable.")
+    if settings is None:
+        if target._settings is not None:
+            settings = target._settings
+        else:
+            from app.config import get_settings
+
+            settings = get_settings()
     if settings is not None:
         if target._owned and target._settings is not settings:
             raise ValueError("An owned connector registry cannot be rebound to other settings.")
@@ -510,6 +521,10 @@ def load_builtin_connectors(
         mss.register()
         mcscop.register()
         csv_source.register()
+        if settings is not None and settings.pipeline_enable_databricks:
+            from app.connectors import databricks
+
+            databricks.register()
         if settings is not None:
             target.validate_writer_settings(settings)
     return target

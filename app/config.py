@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -96,6 +97,17 @@ class ConfigDefaults:
     pipeline_enable_postgres_writer: bool = True
     pipeline_enable_mss_writer: bool = True
     pipeline_enable_mcscop_writer: bool = True
+    pipeline_enable_databricks: bool = False
+    pipeline_enable_databricks_writer: bool = False
+    pipeline_databricks_staging_schema: str = ""
+    pipeline_databricks_metadata_visibility_verified: bool = False
+    pipeline_databricks_startup_contract_verified: bool = False
+    pipeline_databricks_writer_live_acceptance_verified: bool = False
+    pipeline_databricks_sensitive_tag_rules: str = "[]"
+    pipeline_databricks_metadata_policy_version: str = "1"
+    pipeline_databricks_startup_timeout_seconds: int = 900
+    pipeline_databricks_startup_poll_seconds: int = 5
+    pipeline_databricks_startup_max_poll_seconds: int = 30
     pipeline_apply_internal_ca_fix: bool = False
 
 
@@ -282,6 +294,27 @@ class Settings(BaseSettings):
     pipeline_enable_postgres_writer: bool = CONFIG_DEFAULTS.pipeline_enable_postgres_writer
     pipeline_enable_mss_writer: bool = CONFIG_DEFAULTS.pipeline_enable_mss_writer
     pipeline_enable_mcscop_writer: bool = CONFIG_DEFAULTS.pipeline_enable_mcscop_writer
+    pipeline_enable_databricks: bool = CONFIG_DEFAULTS.pipeline_enable_databricks
+    pipeline_enable_databricks_writer: bool = CONFIG_DEFAULTS.pipeline_enable_databricks_writer
+    pipeline_databricks_staging_schema: str = Field(
+        default=CONFIG_DEFAULTS.pipeline_databricks_staging_schema, max_length=520
+    )
+    pipeline_databricks_metadata_visibility_verified: bool = False
+    pipeline_databricks_startup_contract_verified: bool = False
+    pipeline_databricks_writer_live_acceptance_verified: bool = False
+    pipeline_databricks_sensitive_tag_rules: str = Field(default="[]", max_length=20_000)
+    pipeline_databricks_metadata_policy_version: str = Field(
+        default="1", min_length=1, max_length=64
+    )
+    pipeline_databricks_startup_timeout_seconds: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_databricks_startup_timeout_seconds, ge=60, le=3_600
+    )
+    pipeline_databricks_startup_poll_seconds: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_databricks_startup_poll_seconds, ge=1, le=60
+    )
+    pipeline_databricks_startup_max_poll_seconds: int = Field(
+        default=CONFIG_DEFAULTS.pipeline_databricks_startup_max_poll_seconds, ge=1, le=300
+    )
     pipeline_apply_internal_ca_fix: bool = CONFIG_DEFAULTS.pipeline_apply_internal_ca_fix
 
     @property
@@ -335,6 +368,67 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> Settings:
+        if self.pipeline_enable_databricks_writer and not self.pipeline_enable_databricks:
+            raise ValueError(
+                "PIPELINE_ENABLE_DATABRICKS_WRITER requires PIPELINE_ENABLE_DATABRICKS"
+            )
+        if (
+            self.pipeline_enable_databricks_writer
+            and not self.pipeline_databricks_writer_live_acceptance_verified
+        ):
+            raise ValueError(
+                "Databricks writes require PIPELINE_DATABRICKS_WRITER_LIVE_ACCEPTANCE_VERIFIED"
+            )
+        if (
+            self.pipeline_enable_databricks_writer
+            and not self.pipeline_databricks_metadata_visibility_verified
+        ):
+            raise ValueError("Databricks writes require verified Unity Catalog metadata visibility")
+        if (
+            self.pipeline_enable_databricks_writer
+            and not self.pipeline_databricks_startup_contract_verified
+        ):
+            raise ValueError("Databricks writes require a verified compute startup contract")
+        if (
+            self.pipeline_databricks_startup_max_poll_seconds
+            < self.pipeline_databricks_startup_poll_seconds
+        ):
+            raise ValueError(
+                "PIPELINE_DATABRICKS_STARTUP_MAX_POLL_SECONDS must be at least the startup poll interval"
+            )
+        if self.pipeline_databricks_staging_schema:
+            parts = self.pipeline_databricks_staging_schema.split(".")
+            if len(parts) != 2 or any(
+                not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", part) for part in parts
+            ):
+                raise ValueError(
+                    "PIPELINE_DATABRICKS_STAGING_SCHEMA must be a catalog.schema pair of simple identifiers"
+                )
+        try:
+            tag_rules = json.loads(self.pipeline_databricks_sensitive_tag_rules)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "PIPELINE_DATABRICKS_SENSITIVE_TAG_RULES must be a JSON array"
+            ) from exc
+        if not isinstance(tag_rules, list) or len(tag_rules) > 500:
+            raise ValueError("PIPELINE_DATABRICKS_SENSITIVE_TAG_RULES must be a JSON array")
+        for rule in tag_rules:
+            if (
+                not isinstance(rule, dict)
+                or set(rule) - {"key", "value", "marker"}
+                or not isinstance(rule.get("key"), str)
+                or not rule["key"]
+                or not isinstance(rule.get("marker"), str)
+                or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", rule["marker"])
+                or ("value" in rule and not isinstance(rule["value"], str))
+            ):
+                raise ValueError(
+                    "Each Databricks tag rule must contain an exact key, optional exact value, and safe marker ID"
+                )
+        if not re.fullmatch(
+            r"[A-Za-z0-9._-]{1,64}", self.pipeline_databricks_metadata_policy_version
+        ):
+            raise ValueError("PIPELINE_DATABRICKS_METADATA_POLICY_VERSION is invalid")
         for name in (
             "app_name",
             "directory_lookup_bearer_token",

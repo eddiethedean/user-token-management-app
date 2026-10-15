@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-GuardrailDetector = Literal["foundry_metadata", "ssn"]
+GuardrailDetector = Literal["foundry_metadata", "databricks_metadata", "ssn"]
 GuardrailActionName = Literal["hash", "remove"]
 
 
@@ -21,6 +21,7 @@ class GuardrailAction(BaseModel):
     detector: GuardrailDetector
     column: str = Field(min_length=1, max_length=256)
     action: GuardrailActionName
+    source_key: str = Field(default="", max_length=64)
 
     @field_validator("column")
     @classmethod
@@ -31,6 +32,13 @@ class GuardrailAction(BaseModel):
             raise ValueError("Guardrail column names must be between 1 and 256 characters.")
         if any(ord(character) < 32 or ord(character) == 127 for character in value):
             raise ValueError("Guardrail column names must not contain control characters.")
+        return value
+
+    @field_validator("source_key")
+    @classmethod
+    def validate_source_key(cls, value: str) -> str:
+        if value and not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise ValueError("Guardrail source identity is invalid.")
         return value
 
 
@@ -65,21 +73,77 @@ def guardrail_source_key(
     namespace: str = "",
     object_name: str = "",
     upload_id: str = "",
+    *,
+    review_context: Mapping[str, object] | None = None,
 ) -> str:
     """Bind review controls to the source selection that produced them."""
 
     provider_id = provider.casefold().strip()
-    identity = (
+    identity: list[object] = (
         [provider_id, upload_id.strip()]
         if provider_id == "csv"
         else [provider_id, namespace.strip(), object_name.strip()]
     )
+    if review_context is not None:
+        identity.append(dict(review_context))
     canonical = json.dumps(identity, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def databricks_review_context(locator: object) -> dict[str, object]:
+    """Return non-secret identity facts that bind a Databricks review to its selection."""
+
+    if isinstance(locator, BaseModel):
+        try:
+            values = locator.model_dump(mode="python", by_alias=False)
+        except TypeError:
+            values = locator.model_dump()
+    elif isinstance(locator, Mapping):
+        values = dict(locator)
+    else:
+        return {}
+    if not isinstance(values, Mapping) or values.get("kind") != "databricks_table":
+        return {}
+    keys = (
+        "workspace_id",
+        "catalog",
+        "schema_name",
+        "table",
+        "object_id",
+        "connection_generation",
+        "schema_fingerprint",
+        "sensitivity_fingerprint",
+    )
+    return {key: str(values.get(key) or "") for key in keys}
+
+
+def databricks_guardrail_source_key(locator: object, *, owner_id: str = "") -> str:
+    """Hash a qualified Databricks identity plus its inspected review context."""
+
+    context = databricks_review_context(locator)
+    context["owner_id"] = owner_id
+    namespace = json.dumps(
+        [
+            context.get("workspace_id", ""),
+            context.get("catalog", ""),
+            context.get("schema_name", ""),
+        ],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return guardrail_source_key(
+        "databricks",
+        namespace,
+        str(context.get("table", "")),
+        review_context=context,
+    )
+
+
 def parse_guardrail_action_values(
-    values: Sequence[str], *, expected_source_key: str | None = None
+    values: Sequence[str],
+    *,
+    expected_source_key: str | None = None,
+    bind_source_key: bool = False,
 ) -> list[GuardrailAction]:
     """Decode repeated form values and discard choices from another source."""
 
@@ -103,7 +167,12 @@ def parse_guardrail_action_values(
         if expected_source_key is not None and submitted_source_key != expected_source_key:
             continue
         try:
-            parsed = GuardrailAction(detector=detector, column=column, action=action)
+            parsed = GuardrailAction(
+                detector=detector,
+                column=column,
+                action=action,
+                source_key=(submitted_source_key if bind_source_key else ""),
+            )
         except ValueError as exc:
             raise ValueError("Choose Hash or Remove for each sensitive-data finding.") from exc
         key = (parsed.detector, parsed.column)
@@ -282,6 +351,8 @@ __all__ = [
     "action_lookup",
     "configured_marker_values",
     "contains_supported_ssn",
+    "databricks_guardrail_source_key",
+    "databricks_review_context",
     "guardrail_scan_matches_source",
     "guardrail_source_key",
     "matching_metadata_markers",

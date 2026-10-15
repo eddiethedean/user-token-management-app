@@ -59,6 +59,9 @@ def apply_column_type_overrides_to_schema(
         estimated_rows=schema.estimated_rows,
         sensitivity_markers=schema.sensitivity_markers,
         column_sensitivity_markers=schema.column_sensitivity_markers,
+        metadata_coverage=schema.metadata_coverage,
+        schema_fingerprint=schema.schema_fingerprint,
+        sensitivity_fingerprint=schema.sensitivity_fingerprint,
     )
 
 

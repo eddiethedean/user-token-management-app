@@ -28,6 +28,7 @@ from app.domain.column_types import (
 )
 from app.domain.pipelines.guardrails import (
     GuardrailAction,
+    databricks_guardrail_source_key,
     guardrail_scan_matches_source,
     guardrail_source_key,
     parse_guardrail_action_values,
@@ -317,36 +318,6 @@ def register_pipeline_preview_routes(
             "pipeline-source-schema-select",
             "pipeline-source-table-select",
         }
-        expected_guardrail_source_key = guardrail_source_key(
-            source_provider,
-            source_schema,
-            source_table,
-            source_upload_id,
-        )
-        try:
-            parsed_guardrail_actions = parse_guardrail_action_values(
-                guardrail_actions or (),
-                expected_source_key=expected_guardrail_source_key,
-            )
-            parsed_guardrail_scan = parse_guardrail_scan_result(
-                guardrail_scan_result,
-                expected_source_key=expected_guardrail_source_key,
-            )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
-            ) from exc
-        if guardrail_scan_result and not guardrail_scan_matches_source(
-            guardrail_scan_result, expected_guardrail_source_key
-        ):
-            parsed_guardrail_scan = []
-            guardrail_scan_result = ""
-            guardrail_scan_complete = False
-        if source_selection_changed or swap_direction:
-            parsed_guardrail_actions = []
-            parsed_guardrail_scan = []
-            guardrail_scan_result = ""
-            guardrail_scan_complete = False
         if add_column_cast:
             if (
                 not manual_cast_column.strip()
@@ -378,7 +349,7 @@ def register_pipeline_preview_routes(
                 "validation": secret.validation_status if secret is not None else "unconfigured",
                 "runtime": secret.runtime_status if secret is not None else "",
             }
-            for provider, secret in list_user_secrets(db, auth.user)
+            for provider, secret in list_user_secrets(db, auth.user, settings)
         }
         if swap_direction:
             swap_eligibility = await run_owned_sync(
@@ -485,6 +456,52 @@ def register_pipeline_preview_routes(
                     destination=True,
                 ),
             )
+        if source_provider == "databricks" and source_schema and source_table:
+            review_locator = await run_owned_sync(
+                request,
+                with_user_catalog,
+                settings,
+                auth.user.id,
+                request,
+                lambda catalog: catalog.databricks_locator(
+                    source_schema, source_table, inspect=True
+                ),
+            )
+            expected_guardrail_source_key = databricks_guardrail_source_key(
+                review_locator, owner_id=auth.user.id
+            )
+        else:
+            expected_guardrail_source_key = guardrail_source_key(
+                source_provider,
+                source_schema,
+                source_table,
+                source_upload_id,
+            )
+        try:
+            parsed_guardrail_actions = parse_guardrail_action_values(
+                guardrail_actions or (),
+                expected_source_key=expected_guardrail_source_key,
+                bind_source_key=source_provider == "databricks",
+            )
+            parsed_guardrail_scan = parse_guardrail_scan_result(
+                guardrail_scan_result,
+                expected_source_key=expected_guardrail_source_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+        if guardrail_scan_result and not guardrail_scan_matches_source(
+            guardrail_scan_result, expected_guardrail_source_key
+        ):
+            parsed_guardrail_scan = []
+            guardrail_scan_result = ""
+            guardrail_scan_complete = False
+        if source_selection_changed or swap_direction:
+            parsed_guardrail_actions = []
+            parsed_guardrail_scan = []
+            guardrail_scan_result = ""
+            guardrail_scan_complete = False
         if scan_sensitive_data:
             if source_provider == "csv":
                 if csv_upload is None or csv_inspection is None:
@@ -503,6 +520,22 @@ def register_pipeline_preview_routes(
                         detail="Choose a source table before scanning it.",
                     )
                 source_locator = postgres_table(source_schema, source_table)
+            elif source_provider == "databricks":
+                if not source_schema or not source_table:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail="Choose a Databricks source table before scanning it.",
+                    )
+                source_locator = await run_owned_sync(
+                    request,
+                    with_user_catalog,
+                    settings,
+                    auth.user.id,
+                    request,
+                    lambda catalog: catalog.databricks_locator(
+                        source_schema, source_table, inspect=True
+                    ),
+                )
             else:
                 if not source_schema or not source_table:
                     raise HTTPException(

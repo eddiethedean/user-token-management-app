@@ -13,9 +13,14 @@ from sqlalchemy.orm import Session, selectinload
 from app.application.ports import RequestMetadata
 from app.connectors.locators import (
     CsvUploadLocator,
+    DatabricksAppendPolicy,
+    DatabricksCreatePolicy,
+    DatabricksReplacePolicy,
+    DatabricksTableLocator,
     FoundryDatasetFilesLocator,
     FoundryReplaceFilePolicy,
     FoundryUploadLocator,
+    Locator,
     PostgresAppendPolicy,
     PostgresReplacePolicy,
     PostgresTableLocator,
@@ -78,6 +83,8 @@ def save_pipeline(
     auto_increment_primary_key: str = "",
     upsert_action: str = "ignore",
     pipeline_id: str = "",
+    source_locator: Locator | None = None,
+    destination_locator: Locator | None = None,
     request: Request | RequestMetadata | None = None,
     # legacy aliases used by existing forms
     source_schema: str = "",
@@ -139,6 +146,21 @@ def save_pipeline(
         source_locator = postgres_table(source_namespace, source_object)
         final_source_schema = source_locator.schema_name
         final_source_table = source_locator.table
+    elif source_provider == "databricks":
+        source_locator = _require_databricks_locator(
+            source_namespace, source_object, source_locator
+        )
+        if not all(
+            (
+                source_locator.connection_generation,
+                source_locator.object_id,
+                source_locator.schema_fingerprint,
+                source_locator.sensitivity_fingerprint,
+            )
+        ):
+            raise ValueError("Inspect the Databricks source again before saving this pipeline.")
+        final_source_schema = f"{source_locator.catalog}.{source_locator.schema_name}"
+        final_source_table = source_locator.table
     else:
         paths = normalize_foundry_source_paths(source_object)
         source_locator = FoundryDatasetFilesLocator(
@@ -148,6 +170,9 @@ def save_pipeline(
         )
         final_source_schema = source_locator.dataset_rid
         final_source_table = ", ".join(paths) if isinstance(paths, list) else "all_supported"
+
+    if source_locator is None:
+        raise ValueError("Choose a valid pipeline source.")
 
     dest_caps = capabilities_for(destination_provider)
     if write_mode not in dest_caps.write_modes:
@@ -209,6 +234,43 @@ def save_pipeline(
                 primary_key_columns=create_primary_key_columns,
                 auto_increment_primary_key=create_auto_increment_primary_key,
             )
+    elif destination_provider == "databricks":
+        destination_locator = _require_databricks_locator(
+            destination_namespace, destination_object, destination_locator
+        )
+        if not destination_locator.connection_generation or (
+            not destination_create
+            and not all(
+                (
+                    destination_locator.object_id,
+                    destination_locator.schema_fingerprint,
+                    destination_locator.sensitivity_fingerprint,
+                )
+            )
+        ):
+            raise ValueError(
+                "Inspect the Databricks destination again before saving this pipeline."
+            )
+        final_destination_schema = (
+            f"{destination_locator.catalog}.{destination_locator.schema_name}"
+        )
+        final_destination_table = destination_locator.table
+        if destination_create:
+            if write_mode not in {"create", "replace"}:
+                raise ValueError("Choose Create for a new Databricks Delta table.")
+            write_policy = DatabricksCreatePolicy(
+                column_type_overrides=create_column_type_overrides
+            )
+        elif write_mode == "append":
+            write_policy = DatabricksAppendPolicy(
+                column_type_overrides=create_column_type_overrides
+            )
+        elif write_mode == "replace":
+            write_policy = DatabricksReplacePolicy(
+                column_type_overrides=create_column_type_overrides
+            )
+        else:
+            raise ValueError("Create applies only to a new Databricks table.")
     else:
         if write_mode != "replace":
             raise ValueError("Foundry destinations support replace of a named file.")
@@ -223,6 +285,9 @@ def save_pipeline(
         write_policy = FoundryReplaceFilePolicy(column_type_overrides=create_column_type_overrides)
         final_destination_schema = destination_locator.dataset_rid
         final_destination_table = destination_locator.file_name
+
+    if destination_locator is None:
+        raise ValueError("Choose a valid pipeline destination.")
 
     if locators_overlap(
         source_provider,
@@ -262,7 +327,7 @@ def save_pipeline(
     pipeline.destination_table = final_destination_table
     pipeline.destination_create = destination_create
     pipeline.write_mode = write_mode
-    pipeline.definition_version = 4
+    pipeline.definition_version = 5
     pipeline.source_locator_json = source_locator.model_dump_json(by_alias=True)
     pipeline.destination_locator_json = destination_locator.model_dump_json(by_alias=True)
     pipeline.write_policy_json = write_policy.model_dump_json()
@@ -297,6 +362,32 @@ def _require_rid(value: str, label: str) -> str:
     return value
 
 
+def _require_databricks_locator(
+    namespace: str, table: str, locator: object
+) -> DatabricksTableLocator:
+    try:
+        parts = json.loads(namespace)
+    except (TypeError, ValueError):
+        parts = []
+    if (
+        not isinstance(parts, list)
+        or len(parts) != 3
+        or not all(isinstance(item, str) and item for item in parts)
+        or not table
+        or not isinstance(locator, DatabricksTableLocator)
+    ):
+        raise ValueError("Choose a Databricks catalog, schema, and table.")
+    workspace_id, catalog, schema = parts
+    if (
+        locator.workspace_id != workspace_id
+        or locator.catalog != catalog
+        or locator.schema_name != schema
+        or locator.table != table
+    ):
+        raise ValueError("The selected Databricks table identity is stale. Select it again.")
+    return locator
+
+
 def locators_overlap(
     source_provider: str,
     source_locator: object,
@@ -313,6 +404,20 @@ def locators_overlap(
         return (
             source_locator.schema_name == destination_locator.schema_name
             and source_locator.table == destination_locator.table
+        )
+    if isinstance(source_locator, DatabricksTableLocator) and isinstance(
+        destination_locator, DatabricksTableLocator
+    ):
+        return (
+            source_locator.workspace_id == destination_locator.workspace_id
+            and source_locator.catalog == destination_locator.catalog
+            and source_locator.schema_name == destination_locator.schema_name
+            and source_locator.table == destination_locator.table
+            and (
+                not source_locator.object_id
+                or not destination_locator.object_id
+                or source_locator.object_id == destination_locator.object_id
+            )
         )
     if isinstance(source_locator, FoundryDatasetFilesLocator) and isinstance(
         destination_locator, FoundryUploadLocator

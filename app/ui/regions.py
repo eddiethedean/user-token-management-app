@@ -84,6 +84,11 @@ SECRET_SLOT_POSTGRES = FragmentRegion(
     selector="#secret-slot-postgres",
     description="PostgreSQL connection credential slot",
 )
+SECRET_SLOT_DATABRICKS = FragmentRegion(
+    id="secret-slot-databricks",
+    selector="#secret-slot-databricks",
+    description="Databricks workspace connection credential slot",
+)
 CONNECTION_STATUS_LIST = FragmentRegion(
     id="connection-status-list",
     selector="#connection-status-list",

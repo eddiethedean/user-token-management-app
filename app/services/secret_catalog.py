@@ -119,6 +119,65 @@ SECRET_PROVIDERS = (
             "database administrator."
         ),
     ),
+    SecretProvider(
+        "databricks",
+        "Databricks",
+        "DBX",
+        "DATABRICKS_CLIENT_SECRET",
+        (
+            CredentialField(
+                "workspace_url",
+                "Workspace URL",
+                "https://dbc-12345678.cloud.databricks.com",
+                input_type="url",
+                required=True,
+            ),
+            CredentialField(
+                "client_id",
+                "OAuth service principal client ID",
+                "Service principal application ID",
+                required=True,
+            ),
+            CredentialField(
+                "client_secret",
+                "OAuth service principal secret",
+                "Paste OAuth client secret",
+                input_type="password",
+                autocomplete="new-password",
+                required=True,
+            ),
+            CredentialField(
+                "compute_kind",
+                "Compute type",
+                "Choose compute type",
+                required=True,
+                options=("warehouse", "classic_cluster"),
+            ),
+            CredentialField(
+                "compute_id",
+                "Compute ID",
+                "Existing warehouse or classic cluster ID",
+                required=True,
+            ),
+            CredentialField(
+                "http_path", "SQL HTTP path", "Connection details HTTP path", required=True
+            ),
+            CredentialField(
+                "startup_policy",
+                "Startup policy",
+                "Manual startup",
+                required=True,
+                default="manual",
+                options=("manual", "allow_start"),
+            ),
+        ),
+        setup_hint=(
+            "Use an OAuth M2M service principal and an existing SQL warehouse or compatible "
+            "all-purpose classic cluster. Confirm access, network and startup permissions with "
+            "your platform administrator. Changing workspace, principal or compute resets startup consent."
+        ),
+        enabled_setting="pipeline_enable_databricks",
+    ),
 )
 
 SECRET_CATALOG = SecretCatalog(SECRET_PROVIDERS)

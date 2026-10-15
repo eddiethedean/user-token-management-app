@@ -59,6 +59,7 @@ from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.foundry import MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES
 from app.connectors.locators import (
     DATASET_RID_PATTERN,
+    DatabricksTableLocator,
     FoundryDatasetFilesLocator,
     FoundryUploadLocator,
     PostgresAppendPolicy,
@@ -84,10 +85,11 @@ from app.domain.pipelines.guardrails import (
     GuardrailAction,
     action_lookup,
     contains_supported_ssn,
+    databricks_review_context,
     guardrail_source_key,
     parse_guardrail_scan_result,
 )
-from app.models import PipelineDefinition, PipelineUpload
+from app.models import DatabricksPublication, PipelineDefinition, PipelineUpload
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
     CSV_SOURCE_CATALOG,
@@ -161,6 +163,10 @@ WriterPolicy = Callable[[str], bool]
 def _provider_label(provider: str) -> str:
     if provider == "csv":
         return CSV_SOURCE_CATALOG.label
+    if provider == "databricks":
+        # Historical run review must remain readable while the gated connector
+        # is disabled and therefore absent from the live provider registry.
+        return "Databricks"
     return require_catalog_provider(provider).label
 
 
@@ -186,16 +192,22 @@ _WRITE_MODE_LABELS = {
     "upsert": "Upsert on primary key",
     "append": "Append only",
     "replace": "Replace destination",
+    "create": "Create new table",
 }
 
 
 def _resolved_write_mode(
-    catalog: ProviderCatalog | None, selected: str, *, upsert_available: bool = True
+    catalog: ProviderCatalog | None,
+    selected: str,
+    *,
+    upsert_available: bool = True,
+    destination_object: str = "",
 ) -> str:
     supported = tuple(
         mode
         for mode in (catalog.write_modes if catalog is not None else ())
         if mode != "upsert" or upsert_available
+        if (mode == "create") == (destination_object == CREATE_TABLE_VALUE)
     )
     if selected in supported:
         return selected
@@ -208,13 +220,20 @@ def _write_mode_select(
     *,
     selected: str,
     upsert_available: bool = True,
+    destination_object: str = "",
     oob: bool = False,
 ) -> NodeLike:
-    resolved = _resolved_write_mode(catalog, selected, upsert_available=upsert_available)
+    resolved = _resolved_write_mode(
+        catalog,
+        selected,
+        upsert_available=upsert_available,
+        destination_object=destination_object,
+    )
     supported = tuple(
         mode
         for mode in (catalog.write_modes if catalog is not None else ())
         if mode != "upsert" or upsert_available
+        if (mode == "create") == (destination_object == CREATE_TABLE_VALUE)
     )
     options = [
         _option(mode, _WRITE_MODE_LABELS[mode], selected=mode == resolved) for mode in supported
@@ -419,7 +438,10 @@ def _connection_configured(details: dict[str, str | bool]) -> bool:
 
 
 def _connection_runnable(details: dict[str, str | bool]) -> bool:
-    return _connection_configured(details)
+    if not _connection_configured(details):
+        return False
+    runtime = str(details.get("runtime") or "").upper()
+    return not runtime or runtime in {"RUNNING", "RESIZING"}
 
 
 def _connection_provisionable(details: dict[str, str | bool], catalog: ProviderCatalog) -> bool:
@@ -1016,6 +1038,16 @@ def _selection_overlaps(
         if source_provider == "postgres":
             source_locator = postgres_table(source_schema, source_table)
             destination_locator = postgres_table(destination_schema, destination_table)
+        elif source_provider == "databricks":
+            source_locator = _databricks_form_locator(source_schema, source_table)
+            destination_name = (
+                _committed_new_table_name(destination_table_new)
+                or destination_table_new.strip()
+                or "new_table"
+                if destination_table == CREATE_TABLE_VALUE
+                else _committed_new_table_name(destination_table)
+            )
+            destination_locator = _databricks_form_locator(destination_schema, destination_name)
         elif source_provider in {"mss", "mcscop"}:
             source_locator = FoundryDatasetFilesLocator(
                 dataset_rid=source_schema,
@@ -1335,6 +1367,9 @@ def _pipeline_form_locations(pipeline: PipelineDefinition) -> tuple[str, str, st
     if isinstance(source, PostgresTableLocator):
         source_namespace = source.schema_name
         source_object = source.table
+    elif isinstance(source, DatabricksTableLocator):
+        source_namespace = _databricks_namespace(source)
+        source_object = source.table
     elif isinstance(source, FoundryDatasetFilesLocator):
         source_namespace = source.dataset_rid
         if source.file_paths == "all_supported":
@@ -1349,11 +1384,37 @@ def _pipeline_form_locations(pipeline: PipelineDefinition) -> tuple[str, str, st
     if isinstance(destination, PostgresTableLocator):
         destination_namespace = destination.schema_name
         destination_object = destination.table
+    elif isinstance(destination, DatabricksTableLocator):
+        destination_namespace = _databricks_namespace(destination)
+        destination_object = destination.table
     elif isinstance(destination, FoundryUploadLocator):
         destination_namespace = destination.dataset_rid
         destination_object = destination.file_name
 
     return source_namespace, source_object, destination_namespace, destination_object
+
+
+def _databricks_namespace(locator: DatabricksTableLocator) -> str:
+    return json.dumps(
+        [locator.workspace_id, locator.catalog, locator.schema_name],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _databricks_form_locator(namespace: str, table: str) -> DatabricksTableLocator:
+    try:
+        identity = json.loads(namespace)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Select a current Databricks schema.") from exc
+    if not isinstance(identity, list) or len(identity) != 3:
+        raise ValueError("Select a current Databricks schema.")
+    return DatabricksTableLocator(
+        workspace_id=identity[0],
+        catalog=identity[1],
+        schema=identity[2],
+        table=table,
+    )
 
 
 def _capability_surface(
@@ -1543,6 +1604,8 @@ def _format_file_size(size_bytes: int) -> str:
 def _run_locator_label(locator: object) -> str:
     if isinstance(locator, PostgresTableLocator):
         return f"{locator.schema_name}.{locator.table}"
+    if isinstance(locator, DatabricksTableLocator):
+        return f"{locator.catalog}.{locator.schema_name}.{locator.table}"
     if isinstance(locator, FoundryDatasetFilesLocator):
         if isinstance(locator.file_paths, list) and locator.file_paths:
             first = locator.file_paths[0]
@@ -1806,8 +1869,10 @@ def _route_schema_preview(
     )
     row_provenance = "estimated" if estimated_rows is not None else "unavailable"
     inspected = None
+    metadata_coverage = "unavailable"
     try:
         inspected = catalog_access.inspect_object(provider, remote.locator)
+        metadata_coverage = inspected.metadata_coverage
         estimated_rows = inspected.estimated_rows or estimated_rows
         primary_key = list(inspected.primary_key)
         columns = [
@@ -1825,7 +1890,7 @@ def _route_schema_preview(
         if inspected.estimated_rows is not None:
             row_provenance = "estimated"
     except Exception:
-        pass
+        metadata_coverage = "incomplete" if provider == "databricks" else "unavailable"
     if destination and capabilities.exact_row_counts:
         try:
             counted = catalog_access.count_rows(provider, remote.locator)
@@ -1838,6 +1903,12 @@ def _route_schema_preview(
         "rows": estimated_rows,
         "size_bytes": remote.size_bytes,
         "columns": columns,
+        "metadata_coverage": metadata_coverage,
+        "review_context": (
+            databricks_review_context(inspected.locator)
+            if provider == "databricks" and inspected is not None
+            else {}
+        ),
         "table_sensitivity_markers": list(inspected.sensitivity_markers)
         if inspected is not None
         else [],
@@ -1847,7 +1918,11 @@ def _route_schema_preview(
         if inspected is not None
         else {},
         "primary_key": primary_key,
-        "status": "Catalog preview",
+        "status": (
+            "Databricks metadata coverage incomplete"
+            if provider == "databricks" and metadata_coverage == "incomplete"
+            else "Catalog preview"
+        ),
         "schema_provenance": schema_provenance,
         "row_provenance": row_provenance,
         "size_provenance": "catalog" if remote.size_bytes is not None else "unavailable",
@@ -2288,13 +2363,35 @@ def _guardrail_review_surface(
         source_schema,
         source_object,
         source_upload_id,
+        review_context=(
+            preview.get("review_context")
+            if source_provider == "databricks" and isinstance(preview.get("review_context"), dict)
+            else None
+        ),
+    )
+    metadata_detector = (
+        "databricks_metadata" if source_provider == "databricks" else "foundry_metadata"
+    )
+    metadata_source = (
+        "Databricks metadata" if source_provider == "databricks" else "Foundry metadata"
     )
     if preview.get("table_sensitivity_markers"):
         findings.append(
             {
-                "detector": "foundry_metadata",
-                "source": "Foundry metadata",
+                "detector": metadata_detector,
+                "source": metadata_source,
                 "column": "Table-level sensitivity",
+                "count": None,
+                "table_level": True,
+                "table": source_object or source_schema or "Selected source table",
+            }
+        )
+    if source_provider == "databricks" and preview.get("metadata_coverage") == "incomplete":
+        findings.append(
+            {
+                "detector": "databricks_metadata",
+                "source": "Databricks metadata",
+                "column": "Metadata coverage",
                 "count": None,
                 "table_level": True,
                 "table": source_object or source_schema or "Selected source table",
@@ -2313,8 +2410,8 @@ def _guardrail_review_surface(
             )
     findings.extend(
         {
-            "detector": "foundry_metadata",
-            "source": "Foundry metadata",
+            "detector": metadata_detector,
+            "source": metadata_source,
             "column": column,
             "count": None,
         }
@@ -2323,9 +2420,14 @@ def _guardrail_review_surface(
     )
     content_findings = parse_guardrail_scan_result(scan_result, expected_source_key=source_key)
     findings.extend(content_findings)
-    action_map = action_lookup(guardrail_actions)
+    visible_actions = (
+        [action for action in guardrail_actions if action.source_key == source_key]
+        if source_provider == "databricks"
+        else guardrail_actions
+    )
+    action_map = action_lookup(visible_actions)
     existing = {(str(item["detector"]), str(item["column"])) for item in findings}
-    for action in guardrail_actions:
+    for action in visible_actions:
         key = (action.detector, action.column)
         if key not in existing:
             findings.append(
@@ -2448,6 +2550,7 @@ def _pipeline_schema_preview_panel(
     *,
     request: Request,
     catalog_access: CatalogAccess,
+    owner_id: str = "",
     source_provider: str,
     source_schema: str,
     source_object: str,
@@ -2473,6 +2576,12 @@ def _pipeline_schema_preview_panel(
         source_object,
         csv_inspection=csv_inspection,
     )
+    if (
+        source_provider == "databricks"
+        and source is not None
+        and isinstance(source.get("review_context"), dict)
+    ):
+        source["review_context"]["owner_id"] = owner_id
     live_destination = None
     if destination_create and destination_provider == "postgres" and destination_object:
         try:
@@ -3362,6 +3471,7 @@ def _pipeline_preview_fragment(
             target_catalog,
             selected=write_mode,
             upsert_available=bool(upsert_keys),
+            destination_object=target_table,
             oob=True,
         ),
         _upsert_key_select(upsert_keys, selected=conflict_columns, oob=True),
@@ -3448,6 +3558,7 @@ def _pipeline_body(
     run_monitor: NodeLike = None,
     run_status: str = "",
     demo_mode: bool = True,
+    owner_id: str = "",
     writer_policy: WriterPolicy,
 ):
     source_catalogs = _configured_catalogs(connections, role="source", writer_policy=writer_policy)
@@ -3623,7 +3734,10 @@ def _pipeline_body(
             saved_primary_key_columns = ", ".join(loaded_policy.primary_key_columns)
             saved_auto_increment_primary_key = loaded_policy.auto_increment_primary_key
     write_mode = _resolved_write_mode(
-        target_catalog, requested_write_mode, upsert_available=bool(upsert_keys)
+        target_catalog,
+        requested_write_mode,
+        upsert_available=bool(upsert_keys),
+        destination_object=target_table_name,
     )
     csv_source_ready = source_provider == "csv" and loaded_source_upload is not None
     source_runtime_ready = (
@@ -3888,6 +4002,7 @@ def _pipeline_body(
                                                 target_catalog,
                                                 selected=write_mode,
                                                 upsert_available=bool(upsert_keys),
+                                                destination_object=target_table_name,
                                             ),
                                         ),
                                         FormField(
@@ -4298,6 +4413,7 @@ def _pipeline_body(
                                     _pipeline_schema_preview_panel(
                                         request=request,
                                         catalog_access=catalog_access,
+                                        owner_id=owner_id,
                                         source_provider=source_provider,
                                         source_schema=source_schema_name,
                                         source_object=source_object_name,
@@ -4426,7 +4542,7 @@ def register_pipeline_routes(
                 "validation": secret.validation_status if secret is not None else "unconfigured",
                 "runtime": secret.runtime_status if secret is not None else "",
             }
-            for provider, secret in list_user_secrets(db, auth.user)
+            for provider, secret in list_user_secrets(db, auth.user, settings)
         }
         pipelines = list_pipelines(db, auth.user)
         latest_runs = latest_run_map(
@@ -4521,7 +4637,7 @@ def register_pipeline_routes(
                 "validation": secret.validation_status if secret is not None else "unconfigured",
                 "runtime": secret.runtime_status if secret is not None else "",
             }
-            for provider, secret in list_user_secrets(db, auth.user)
+            for provider, secret in list_user_secrets(db, auth.user, settings)
         }
         pipelines = list_pipelines(db, auth.user)
         latest_runs = latest_run_map(
@@ -4637,6 +4753,7 @@ def _pipeline_body_in_thread(
             run_status=run_status,
             demo_mode=demo_mode,
             writer_policy=lambda provider: writer_enabled(provider, settings=settings),
+            owner_id=user_id,
         ),
     )
 
@@ -4748,6 +4865,74 @@ def _run_schema_results(run):
             padding="sm",
             elevation="none",
         ),
+    )
+
+
+def _databricks_publication_surface(db, run, snapshot) -> NodeLike | None:
+    """Show owner-scoped durable publication state without provider payloads."""
+
+    if snapshot.destination_provider != "databricks":
+        return None
+    record = db.get(DatabricksPublication, run.id)
+    if record is None or record.user_id != run.user_id:
+        return None
+
+    if record.state == "uncertain":
+        title = "Outcome uncertain"
+        message = (
+            "Databricks accepted a publication request, but Data Mover could not confirm whether "
+            "the destination changed. Do not retry or edit this target until recovery checks the "
+            "Delta commit history."
+        )
+        tone = "danger"
+    elif record.state == "cleanup_pending" and record.confirmed_at is None:
+        title = "Staging cleanup pending"
+        message = (
+            "Data Mover has not confirmed a destination commit. The private staging table is "
+            "retained while cleanup is retried; do not start a conflicting write to this target."
+        )
+        tone = "warning"
+    elif record.state == "cleanup_pending":
+        title = "Destination committed; cleanup pending"
+        message = (
+            "The destination commit is confirmed. Data Mover is still removing its private "
+            "staging table; the target remains protected until cleanup finishes."
+        )
+        tone = "warning"
+    elif record.state in {"committed", "complete"}:
+        title = "Destination committed"
+        message = (
+            "The Databricks Delta commit is confirmed."
+            if record.state == "complete"
+            else "The Databricks Delta commit is confirmed; staging cleanup is still being recorded."
+        )
+        tone = "success"
+    elif record.state == "unchanged":
+        title = "Destination unchanged"
+        message = "Data Mover confirmed that publication did not change the destination."
+        tone = "info"
+    elif record.state == "publishing":
+        title = "Publication submitted"
+        message = (
+            "Databricks received the publication request. Data Mover is waiting for commit "
+            "confirmation; do not edit the destination while it is being checked."
+        )
+        tone = "warning"
+    else:
+        title = "Preparing destination"
+        message = (
+            "The destination write has not been submitted. Data Mover is preparing private staging."
+        )
+        tone = "info"
+
+    return Stack(
+        Alert(message, title=f"Databricks publication · {title}", tone=tone),
+        Inline(
+            Badge(f"{record.staged_rows:,} staged rows", tone="neutral"),
+            Text(_run_locator_label(snapshot.destination), role="caption", overflow="wrap"),
+            gap="sm",
+        ),
+        gap="xs",
     )
 
 
@@ -5083,7 +5268,7 @@ def _run_status_fragment(
         "loading",
         "verifying",
     }:
-        run_badge_text = run_stage_copy(run_status)[0]
+        run_badge_text = run_stage_copy(run_status, stage=run.stage)[0]
         run_badge_tone = "info"
     elif run_status == "cancelled":
         run_badge_text = "Cancelled"
@@ -5097,7 +5282,7 @@ def _run_status_fragment(
         progress=progress_value if not monitor_active else None,
         revision=next_sequence,
     )
-    stage_label, stage_description = run_stage_copy(run_status)
+    stage_label, stage_description = run_stage_copy(run_status, stage=run.stage)
     if not stage_description:
         stage_description = "Worker state persisted to the run log."
     flow_statuses = run_flow_statuses(
@@ -5307,6 +5492,7 @@ def _run_status_fragment(
             ),
         ),
         _run_recovery_surface(request, run, csrf_token=csrf_token),
+        _databricks_publication_surface(db, run, snapshot),
         Grid(
             Metric(
                 "Extracted",

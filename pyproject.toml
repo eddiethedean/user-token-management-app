@@ -53,6 +53,8 @@ dependencies = [
   "standard-pkg-resources==1.0.0",
   "sqlalchemy>=2.0",
   "uvicorn[standard]>=0.32.0",
+  "databricks-sdk>=0.50",
+  "databricks-sql-connector>=3",
 ]
 
 [project.optional-dependencies]

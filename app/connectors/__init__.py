@@ -31,6 +31,10 @@ from app.connectors.base import (
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
     CsvUploadLocator,
+    DatabricksAppendPolicy,
+    DatabricksCreatePolicy,
+    DatabricksReplacePolicy,
+    DatabricksTableLocator,
     DefinitionSnapshot,
     FoundryDatasetFilesLocator,
     FoundryUploadLocator,
@@ -68,6 +72,10 @@ __all__ = [
     "connection_tester_for",
     "ConnectorError",
     "CsvUploadLocator",
+    "DatabricksAppendPolicy",
+    "DatabricksCreatePolicy",
+    "DatabricksReplacePolicy",
+    "DatabricksTableLocator",
     "DefinitionSnapshot",
     "DestinationManifest",
     "DestinationInspector",

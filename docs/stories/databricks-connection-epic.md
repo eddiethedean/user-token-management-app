@@ -1,7 +1,7 @@
 # Proposed Epic: Databricks connections and sensitive-data guardrails
 
-**Status:** Proposed; no Databricks product connector or external epic issue exists yet.
-**Reviewed:** October 9, 2026.
+**Status:** Local implementation underway; provider acceptance and release remain open. No external epic issue has been assigned.
+**Reviewed:** October 15, 2026.
 **Depends on:** [Sensitive-data guardrails](CDO-4551-sensitive-data-guardrails-epic.md).
 
 [Issue CSV export](../../artifacts/jira/data-mover-databricks-connection-issues.csv) contains the epic,
@@ -182,7 +182,9 @@ recoverable.
 
 DBX labels below are local planning references, not assigned tracker IDs. Each story includes its
 acceptance criteria, prerequisites, and linked implementation tasks. The [task backlog](databricks-connection-tasks.md)
-contains 57 proposed tasks with owner roles, dependencies, and completion evidence; none are implemented yet.
+contains 57 proposed tasks with owner roles, dependencies, and completion evidence. Local connector
+work is underway; see the [acceptance ledger](../plans/databricks-acceptance.md) for implementation
+evidence and the live acceptance gates that remain.
 
 ### DBX-01 — Validate the provider contract
 
@@ -330,11 +332,13 @@ operator setup walkthrough and release acceptance record.
 
 Product owns scope and guardrail policy decisions; engineering owns adapter/recovery evidence; the
 deployment operator owns workspace permissions, private staging, networking, and live validation.
-This checklist is proposed acceptance work, not a claim of completion.
+This checklist remains the acceptance authority; local code is present, but it is not evidence of
+provider acceptance or release completion.
 
 ## Repository integration points
 
-These existing contracts need extension; none currently constitutes Databricks support.
+These repository areas now contain local Databricks integration. Their presence does not constitute
+provider acceptance or released support.
 
 - [Connector protocols](../../app/connectors/base.py) and [registry](../../app/connectors/registry.py):
   truthful capabilities, compute health, source extraction and publication/abort outcomes.
@@ -346,6 +350,8 @@ These existing contracts need extension; none currently constitutes Databricks s
 - [Catalog service](../../app/services/catalogs.py) and
   [run service](../../app/services/pipeline_runs.py): permission-aware caches and durable, value-free
   findings/compute attempts with accurate publication outcomes.
+- [Acceptance ledger](../plans/databricks-acceptance.md): per-task evidence, local checks, and
+  unresolved live gates.
 
 ## Official references
 

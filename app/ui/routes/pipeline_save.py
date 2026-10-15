@@ -106,12 +106,17 @@ def register_pipeline_save_routes(
                     ),
                     guardrail_actions=parse_guardrail_action_values(
                         guardrail_actions or (),
-                        expected_source_key=guardrail_source_key(
-                            source_provider,
-                            source_schema,
-                            source_table,
-                            source_upload_id,
+                        expected_source_key=(
+                            None
+                            if source_provider == "databricks"
+                            else guardrail_source_key(
+                                source_provider,
+                                source_schema,
+                                source_table,
+                                source_upload_id,
+                            )
                         ),
+                        bind_source_key=source_provider == "databricks",
                     ),
                     primary_key_columns=primary_key_columns,
                     auto_increment_primary_key=auto_increment_primary_key,

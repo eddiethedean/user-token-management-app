@@ -68,6 +68,7 @@ class ConnectionHealth:
     message: str
     latency_ms: int
     server_identity: str = ""
+    runtime_status: str = ""
 
 
 @dataclass(frozen=True)

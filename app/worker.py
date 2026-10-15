@@ -8,21 +8,26 @@ import threading
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.connectors.errors import ConnectorError, TransferErrorCode
-from app.connectors.locators import parse_snapshot
-from app.connectors.registry import destination_writer_for, source_reader_for
+from app.connectors.locators import DatabricksTableLocator, parse_snapshot
+from app.connectors.registry import (
+    connection_tester_for,
+    destination_writer_for,
+    source_reader_for,
+)
 from app.logging_config import (
     bind_reference,
     clear_request_id,
     log_event,
     safe_exception_traceback,
 )
-from app.models import PipelineRun, User
+from app.models import PipelineRun, User, UserSecret
 from app.services import pipeline_runs
 from app.services.pipeline_state import RunConflictError
 from app.services.secrets import decrypt_user_credentials_for_run
@@ -159,6 +164,126 @@ def process_one(
             provider=snapshot.destination_provider,
             snapshot=snapshot,
         )
+        if (
+            snapshot.source_provider == "databricks"
+            or snapshot.destination_provider == "databricks"
+        ):
+
+            def require_current_databricks_generation(expected_generation: str) -> None:
+                if session_factory is None:
+                    from app.database import SessionLocal
+
+                    revision_factory = SessionLocal
+                else:
+                    revision_factory = session_factory
+                with revision_factory() as revision_db:
+                    revision = revision_db.scalar(
+                        select(UserSecret.updated_at).where(
+                            UserSecret.user_id == user.id,
+                            UserSecret.provider == "databricks",
+                        )
+                    )
+                active_generation = (
+                    revision.isoformat(timespec="microseconds") if revision is not None else ""
+                )
+                if not active_generation or active_generation != expected_generation:
+                    raise ConnectorError(
+                        TransferErrorCode.CREDENTIALS_STALE,
+                        "The Databricks connection changed during this transfer. Reconnect and review the route before retrying.",
+                        retryable=False,
+                    )
+
+            expected_generations = []
+            if snapshot.source_provider == "databricks":
+                expected_generations.append(
+                    (source_credentials, getattr(snapshot.source, "connection_generation", ""))
+                )
+            if snapshot.destination_provider == "databricks":
+                expected_generations.append(
+                    (
+                        destination_credentials,
+                        getattr(snapshot.destination, "connection_generation", ""),
+                    )
+                )
+            for credentials, expected_generation in expected_generations:
+                credentials["_authorization_check"] = lambda generation=expected_generation: (
+                    require_current_databricks_generation(generation)
+                )
+            for provider, credentials in (
+                (snapshot.source_provider, source_credentials),
+                (snapshot.destination_provider, destination_credentials),
+            ):
+                if provider == "databricks" and credentials.get("startup_policy") == "allow_start":
+
+                    def request_databricks_start(
+                        observed_state: str, *, bundle=credentials
+                    ) -> dict[str, str]:
+                        from app.services.databricks_compute import request_compute_start
+
+                        return request_compute_start(
+                            db,
+                            settings=settings,
+                            user=user,
+                            credentials=bundle,
+                            connector_resolver=connection_tester_for,
+                            observed_state=observed_state,
+                            pipeline_run=run,
+                            lease_token=lease_token,
+                            require_opt_in=True,
+                        )
+
+                    cast(dict[str, Any], credentials)["_startup_request"] = request_databricks_start
+            if snapshot.destination_provider == "databricks":
+                from app.services.databricks_publication import record_publication_event
+
+                target_locator = snapshot.destination
+                if not isinstance(target_locator, DatabricksTableLocator):
+                    raise ConnectorError(
+                        TransferErrorCode.SCHEMA_DRIFT,
+                        "The Databricks publication target is invalid.",
+                        retryable=False,
+                    )
+                target_generation = str(getattr(target_locator, "connection_generation", ""))
+
+                def persist_databricks_publication(event: str, **facts: object) -> None:
+                    if (
+                        str(facts.get("run_id", "")) != run.id
+                        or facts.get("target") != target_locator
+                    ):
+                        raise ConnectorError(
+                            TransferErrorCode.SCHEMA_DRIFT,
+                            "The Databricks publication target changed during this transfer.",
+                            retryable=False,
+                        )
+                    rows_value = facts.get("rows")
+                    bytes_value = facts.get("bytes_written")
+                    error_value = facts.get("error")
+                    record_publication_event(
+                        db,
+                        run_id=run.id,
+                        lease_token=lease_token,
+                        user_id=run.user_id,
+                        locator=target_locator,
+                        connection_generation=target_generation,
+                        write_mode=snapshot.write_policy.kind,
+                        event=event,
+                        staging_name=str(facts.get("staging_name", "")),
+                        rows=(
+                            rows_value
+                            if isinstance(rows_value, int) and not isinstance(rows_value, bool)
+                            else 0
+                        ),
+                        bytes_written=(
+                            bytes_value
+                            if isinstance(bytes_value, int) and not isinstance(bytes_value, bool)
+                            else 0
+                        ),
+                        error=error_value if isinstance(error_value, ConnectorError) else None,
+                    )
+
+                cast(dict[str, Any], destination_credentials)["_publication_event"] = (
+                    persist_databricks_publication
+                )
         execute_transfer(
             db,
             run=run,
@@ -180,6 +305,22 @@ def process_one(
         if failed is None:
             return True
         try:
+            if exc.code is TransferErrorCode.COMPUTE_NOT_READY:
+                if exc.retryable and pipeline_runs.defer_run_for_databricks_compute(
+                    db,
+                    failed,
+                    lease_token=lease_token,
+                    settings=settings,
+                ):
+                    return True
+                if not exc.retryable and failed.stage == "authenticate" and failed.loaded_rows == 0:
+                    pipeline_runs.block_compute_readiness(
+                        db,
+                        failed,
+                        lease_token=lease_token,
+                        summary=str(exc),
+                    )
+                    return True
             pipeline_runs.fail_run(
                 db,
                 failed,
@@ -285,7 +426,33 @@ def _credentials_for(db, settings, *, user, provider, snapshot) -> dict[str, str
                 ]
             ),
         }
-    return decrypt_user_credentials_for_run(db, settings, user=user, provider=provider)
+    credentials = decrypt_user_credentials_for_run(db, settings, user=user, provider=provider)
+    if provider == "databricks":
+        revision = db.scalar(
+            select(UserSecret.updated_at).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == provider,
+            )
+        )
+        active_generation = (
+            revision.isoformat(timespec="microseconds") if revision is not None else ""
+        )
+        locators = []
+        if snapshot.source_provider == provider:
+            locators.append(snapshot.source)
+        if snapshot.destination_provider == provider:
+            locators.append(snapshot.destination)
+        if not active_generation or any(
+            getattr(locator, "connection_generation", "") != active_generation
+            for locator in locators
+        ):
+            raise ConnectorError(
+                TransferErrorCode.CREDENTIALS_STALE,
+                "The Databricks connection changed after this pipeline was reviewed. Update the route and review its sensitive-data actions again.",
+                retryable=False,
+            )
+        credentials["connection_generation"] = active_generation
+    return credentials
 
 
 def _cancel_flag(db: Session, run_id: str) -> bool:
