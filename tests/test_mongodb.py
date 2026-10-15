@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import polars as pl
 import pytest
@@ -24,7 +25,12 @@ pytestmark = [
 
 def _fixture_docs() -> tuple[str, str, list[dict]]:
     payload = json.loads((FIXTURES / "mongodb_documents.json").read_text(encoding="utf-8"))
-    return payload["database"], payload["collection"], list(payload["documents"])
+    suffix = uuid4().hex
+    return (
+        f"{payload['database']}_{suffix}",
+        f"{payload['collection']}_{suffix}",
+        list(payload["documents"]),
+    )
 
 
 def test_mongodb_ping_and_lists_collections(mongodb: MongoClient) -> None:
