@@ -252,6 +252,7 @@ Schema must be current before `create-admin` or `serve` (startup checks).
 | `make posit-check` | Validate HedronPosit deployment and cookie-path matrix |
 | `make hedron-build` | Build the production Hedron asset manifest |
 | `make demo-check` | Run the dependency-isolated demo-app tests |
+| `make databricks-check` | Run Databricks regression tests and local MiniLake SDK management integration tests |
 | `make workbench-up` | Start licensed Posit Workbench + app Docker stack (needs `PWB_LICENSE`) |
 | `make workbench-test` | Opt-in Workbench Docker integration tests |
 | `make workbench-logs` | Show recent Workbench/app container logs |

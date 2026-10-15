@@ -127,6 +127,32 @@ Before retrying after any uncertain outcome, inspect the destination and use the
 commit; recovery must first confirm the exact Delta history marker. Cleanup completion is separate
 from whether the destination changed.
 
+## Local connection integration tests
+
+Install the development dependencies with `make install`, then run `make databricks-check`.
+The normal `make check` and CI suite include these tests too; no cloud credentials, Docker,
+or separately running emulator are needed. The development dependency pins
+[MiniLake](https://github.com/dmux/minilake) to 1.8.0.
+
+Each pytest worker that uses MiniLake starts its own loopback server with a reserved socket,
+temporary data directory, bounded startup wait, and process cleanup. Every test creates its own
+warehouse. Notebook execution, Spark prewarming, persistence, and extension downloads are disabled.
+The test-only management-client factory redirects an approved synthetic workspace URL to MiniLake
+using the real Databricks SDK; production HTTPS/host validation remains active.
+
+The suite checks SDK enum decoding, read-only health checks on stopped warehouses, explicit startup,
+missing-compute error sanitization, saved connection health, startup authorization, and durable
+worker readiness polling. It caught a real adapter bug where SDK enum values such as `RUNNING`
+were interpreted as `STATE.RUNNING`. Separate tests use generated classic-cluster SDK models
+to cover source, access-mode, kind, and state enums.
+
+MiniLake accepts dummy tokens and provides the REST Statement Execution API rather than the
+SQL connector's Thrift protocol. These tests do **not** validate OAuth, Thrift/TLS behavior, Unity
+Catalog sensitivity metadata, or Delta publication guarantees. MiniLake's cluster responses also
+omit metadata needed to establish Unity Catalog compatibility; that case must remain blocked.
+Existing SQL adapter tests and the live acceptance probes remain necessary. Passing emulator tests
+does not enable startup or writer rollout gates.
+
 ## Acceptance and release checklist
 
 1. Complete and review [DBX-01](../plans/databricks-epic-implementation.md#provider-decisions-that-must-precede-supported-implementation)

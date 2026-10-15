@@ -16,6 +16,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -953,9 +954,9 @@ class DatabricksConnector:
         compute_id = str(credentials["compute_id"])
         if compute_kind == "classic_cluster":
             details = workspace.clusters.get(cluster_id=compute_id)
-            source = str(getattr(details, "cluster_source", "") or "").upper()
-            kind = str(getattr(details, "kind", "") or "").upper()
-            access_mode = str(getattr(details, "data_security_mode", "") or "").upper()
+            source = _sdk_value(getattr(details, "cluster_source", None)).upper()
+            kind = _sdk_value(getattr(details, "kind", None)).upper()
+            access_mode = _sdk_value(getattr(details, "data_security_mode", None)).upper()
             runtime = str(getattr(details, "spark_version", "") or "")
             if source not in {"UI", "API"} or kind not in {"CLASSIC", "CLASSIC_PREVIEW", ""}:
                 raise ConnectorError(
@@ -973,10 +974,10 @@ class DatabricksConnector:
                     "Choose a Unity Catalog-compatible classic cluster using standard or single-user access mode and Databricks Runtime 13.3 LTS or later.",
                     retryable=False,
                 )
-            return str(getattr(details, "state", "UNKNOWN") or "UNKNOWN").upper(), compute_kind
+            return _sdk_value(getattr(details, "state", None), "UNKNOWN").upper(), compute_kind
         if compute_kind == "warehouse":
             details = workspace.warehouses.get(id=compute_id)
-            return str(getattr(details, "state", "UNKNOWN") or "UNKNOWN").upper(), compute_kind
+            return _sdk_value(getattr(details, "state", None), "UNKNOWN").upper(), compute_kind
         raise ConnectorError(
             TransferErrorCode.UNSUPPORTED_TYPE,
             "Choose an existing SQL warehouse or all-purpose classic cluster.",
@@ -1385,6 +1386,12 @@ def _sensitive_destination() -> ConnectorError:
         "Databricks destination sensitivity metadata blocks this write. Review the target policy and choose another destination.",
         retryable=False,
     )
+
+
+def _sdk_value(value: object, default: str = "") -> str:
+    """Normalize generated SDK enums while retaining plain-string test doubles."""
+
+    return str((value.value if isinstance(value, Enum) else value) or default)
 
 
 def _provider_error(

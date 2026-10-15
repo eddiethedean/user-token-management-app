@@ -69,6 +69,7 @@ dev = [
   "starlette @ git+https://github.com/Kludex/starlette.git@bbee894422c6cc1306327335ae385b901ccfec13",
   "testing.postgresql>=1.3.0",
   "pytest-mongo>=4.0.0",
+  "minilake==1.8.0",
 ]
 
 [project.urls]
@@ -99,6 +100,7 @@ markers = [
   "live_foundry: opt-in live MSS/MCS-COP smoke tests (DATA_MOVER_LIVE_FOUNDRY=1)",
   "postgres: ephemeral PostgreSQL via testing.postgresql (skipped if server binaries are missing)",
   "mongodb: ephemeral MongoDB via pytest-mongo (skipped if mongod is missing)",
+  "minilake: real Databricks SDK management calls against an isolated local MiniLake server",
 ]
 
 [tool.coverage.run]

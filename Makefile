@@ -3,7 +3,7 @@
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 POSIT_CLI ?= $(if $(wildcard $(dir $(PYTHON))hedron-posit),$(dir $(PYTHON))hedron-posit,hedron-posit)
 
-.PHONY: check demo demo-check hedron-check hedron-build hedron-security-check posit-check migrate install serve create-admin schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
+.PHONY: check demo demo-check databricks-check hedron-check hedron-build hedron-security-check posit-check migrate install serve create-admin schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -43,6 +43,9 @@ check:
 
 demo-check:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 $(PYTHON) -m pytest demo-app/tests
+
+databricks-check:
+	$(PYTHON) -m pytest -n auto tests/test_databricks_config.py tests/test_databricks_connector.py tests/test_databricks_coordination.py tests/test_databricks_minilake.py
 
 hedron-check:
 	$(PYTHON) -m hedron --app app.main:app check --severity warning

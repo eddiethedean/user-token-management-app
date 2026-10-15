@@ -88,6 +88,7 @@ Live acceptance is still open: there is no authorized Databricks workspace, synt
 
 - `uv run pytest -q` — full project regression passed after the local implementation updates.
 - Databricks connector, compute coordination, connection-consent, run deferral, owner-isolation, and publication-review tests passed.
+- [MiniLake management integration tests](../../tests/test_databricks_minilake.py) exercise the real Databricks SDK over loopback HTTP, persisted connection health, explicit/authorized startup, safe provider errors, and durable readiness polling. They reproduce and prevent SDK enum normalization errors. [Test setup and emulator limitations](../providers/databricks.md#local-connection-integration-tests) distinguish this evidence from OAuth, SQL Thrift, metadata, and live publication acceptance.
 - `uv run basedpyright` and `uv run ruff check app tests migrations` passed. Ruff formatting passed for changed Python files.
 - `python -m compileall -q app migrations`, `git diff --check`, `uv lock --check`, and `uv run alembic heads` passed; the current head is `0023_dbx_run_startup`.
 - Repository-wide `ruff format --check app tests migrations` still identifies pre-existing formatting in untouched migrations `0010_real_transfer_runs.py` and `0021_sensitive_data_guardrails.py`.

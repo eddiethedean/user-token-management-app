@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import polars as pl
 import pytest
+from databricks.sdk.service import compute
 
 from app.config import get_settings
 from app.connectors.base import AbortResult, TransferBatch
@@ -573,6 +574,37 @@ def test_classic_cluster_start_uses_cluster_api_and_rejects_incompatible_compute
     with pytest.raises(ConnectorError) as incompatible:
         connector.compute_status(credentials)
     assert incompatible.value.code is TransferErrorCode.UNSUPPORTED_TYPE
+
+
+@pytest.mark.parametrize("source", [compute.ClusterSource.API, compute.ClusterSource.UI])
+@pytest.mark.parametrize(
+    "access_mode", [compute.DataSecurityMode.SINGLE_USER, compute.DataSecurityMode.USER_ISOLATION]
+)
+def test_classic_cluster_compatibility_uses_generated_sdk_enums(source, access_mode) -> None:
+    details = compute.ClusterDetails(
+        cluster_id="cluster-1",
+        cluster_source=source,
+        kind=compute.Kind.CLASSIC_PREVIEW,
+        data_security_mode=access_mode,
+        spark_version="14.3.x-scala2.12",
+        state=compute.State.TERMINATED,
+    )
+    starts: list[str] = []
+    workspace = SimpleNamespace(
+        clusters=SimpleNamespace(
+            get=lambda **_kwargs: details,
+            start=lambda *, cluster_id: starts.append(cluster_id),
+        )
+    )
+    connector = DatabricksConnector(_settings(), workspace_client_factory=lambda **_: workspace)
+    credentials = {**_credentials(), "compute_kind": "classic_cluster", "compute_id": "cluster-1"}
+    assert connector.test_connection(credentials).runtime_status == "TERMINATED"
+    assert connector.start_compute(credentials)["outcome"] == "start_submitted"
+    assert starts == ["cluster-1"]
+    details.state = compute.State.RUNNING
+    assert connector.test_connection(credentials).runtime_status == "RUNNING"
+    assert connector.start_compute(credentials)["outcome"] == "already_running"
+    assert starts == ["cluster-1"]
 
 
 @pytest.mark.parametrize(
