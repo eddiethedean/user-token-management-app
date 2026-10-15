@@ -10,8 +10,8 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.error import URLError
-from urllib.request import urlopen
+
+import httpx2
 
 
 @contextmanager
@@ -59,10 +59,12 @@ def run_minilake(data_dir: Path) -> Iterator[str]:
             deadline = time.monotonic() + 30
             while process.poll() is None and time.monotonic() < deadline:
                 try:
-                    with urlopen(f"{endpoint}/_minilake/health", timeout=1) as response:
-                        if response.status == 200:
-                            break
-                except (URLError, TimeoutError):
+                    response = httpx2.get(
+                        f"{endpoint}/_minilake/health", timeout=1, trust_env=False
+                    )
+                    if response.status_code == 200:
+                        break
+                except httpx2.HTTPError:
                     time.sleep(0.05)
             else:
                 raise RuntimeError(

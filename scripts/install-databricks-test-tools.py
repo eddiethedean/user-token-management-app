@@ -6,7 +6,8 @@ import hashlib
 import platform
 import tempfile
 from pathlib import Path
-from urllib.request import urlopen
+
+import httpx2
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / ".cache" / "databricks-tools"
@@ -25,11 +26,12 @@ def fetch(url: str, destination: Path, checksum: str, *, executable: bool = Fals
         if executable:
             destination.chmod(0o755)
         return
-    with tempfile.NamedTemporaryFile(dir=TOOLS, delete=False) as download:
+    with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as download:
         temporary = Path(download.name)
         try:
-            with urlopen(url, timeout=60) as response:
-                while chunk := response.read(1024 * 1024):
+            with httpx2.stream("GET", url, timeout=60, follow_redirects=True) as response:
+                response.raise_for_status()
+                for chunk in response.iter_bytes(chunk_size=1024 * 1024):
                     download.write(chunk)
             download.close()
             if hashlib.sha256(temporary.read_bytes()).hexdigest() != checksum:

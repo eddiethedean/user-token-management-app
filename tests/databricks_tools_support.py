@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import socket
@@ -12,22 +11,18 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from urllib.error import URLError
-from urllib.request import Request, urlopen
 
+import httpx2
 import pytest
 
 TOOLS = Path(__file__).resolve().parents[1] / ".cache" / "databricks-tools"
 
 
 def request_json(endpoint: str, path: str, *, method: str = "GET", body: Any = None) -> Any:
-    data = json.dumps(body).encode() if body is not None else None
-    request = Request(
-        endpoint + path, data=data, method=method, headers={"Content-Type": "application/json"}
-    )
-    with urlopen(request, timeout=3) as response:
-        raw = response.read()
-        return json.loads(raw) if raw else None
+    with httpx2.Client(timeout=3, trust_env=False) as client:
+        response = client.request(method, endpoint + path, json=body)
+        response.raise_for_status()
+        return response.json() if response.content else None
 
 
 def _available_port() -> int:
@@ -55,7 +50,7 @@ def _server(command: list[str], endpoint: str, health: str, log_path: Path) -> I
                 try:
                     request_json(endpoint, health)
                     break
-                except (URLError, TimeoutError, OSError):
+                except (httpx2.HTTPError, OSError):
                     time.sleep(0.05)
             else:
                 raise RuntimeError(f"Test server failed to start:\n{log_path.read_text()}")

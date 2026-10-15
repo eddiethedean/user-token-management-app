@@ -170,6 +170,8 @@ setup automatically, verify the pinned SHA-256 checksums even for cached files, 
 the test tools and PostgreSQL rather than silently skipping these checks. The downloader supports
 macOS/Linux on ARM64 and AMD64. Set `DATABRICKS_TEST_JAVA` to select a Java executable.
 Prefill the cache with `make databricks-tools` before working offline; pytest never downloads tools.
+Tool control calls, health probes, and streamed downloads use the existing `httpx2` dependency.
+Provider requests continue to use the real Databricks SDK and its own transport.
 Direct pytest invocations skip external-tool cases when their binaries are absent unless
 `DATABRICKS_TEST_TOOLS_REQUIRED=1` is set.
 

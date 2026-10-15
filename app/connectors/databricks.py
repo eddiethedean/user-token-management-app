@@ -26,8 +26,6 @@ from databricks.sdk import WorkspaceClient
 from databricks.sdk.core import Config
 from databricks.sdk.credentials_provider import oauth_service_principal
 from databricks.sdk.errors import NotFound
-from requests.exceptions import ChunkedEncodingError
-from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from app.config import Settings
 from app.connectors.base import (
@@ -1434,8 +1432,7 @@ def _provider_error(
         else TransferErrorCode.CONNECTION_TIMEOUT
         if "timeout" in name
         else TransferErrorCode.PROVIDER_UNAVAILABLE
-        if (status and status >= 500)
-        or isinstance(exception, (RequestsConnectionError, ChunkedEncodingError))
+        if (status and status >= 500) or name in {"connectionerror", "chunkedencodingerror"}
         else TransferErrorCode.INTERNAL_ERROR
     )
     return ConnectorError(
