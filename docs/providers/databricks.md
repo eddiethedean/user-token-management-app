@@ -146,6 +146,14 @@ worker readiness polling. It caught a real adapter bug where SDK enum values suc
 were interpreted as `STATE.RUNNING`. Separate tests use generated classic-cluster SDK models
 to cover source, access-mode, kind, and state enums.
 
+The MiniLake race cases replace saved credentials during health checks, successful/failed start
+responses, and readiness polls, and cancel observation while a start response is in flight.
+Separate database sessions make these interleavings deterministic. SQL adapter tests verify
+named-column alignment, parameter binding and chunk boundaries, reject batch schema changes,
+and block publication if a staged target's identity, columns, sensitivity, or existence changes.
+Recovery tests exercise superseded poll leases, competing cleanup workers, stale cleanup replies,
+and retrying staging cleanup after the destination commit has already been confirmed.
+
 MiniLake accepts dummy tokens and provides the REST Statement Execution API rather than the
 SQL connector's Thrift protocol. These tests do **not** validate OAuth, Thrift/TLS behavior, Unity
 Catalog sensitivity metadata, or Delta publication guarantees. MiniLake's cluster responses also

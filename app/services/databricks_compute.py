@@ -237,6 +237,7 @@ def request_compute_start(
 
             result = cast(dict[str, str], start(credentials))
         except ConnectorError as exc:
+            _require_current_start_connection(db, attempt_id=attempt.id)
             if exc.code in {
                 TransferErrorCode.COMPUTE_NOT_READY,
                 TransferErrorCode.CONNECTION_TIMEOUT,
@@ -258,24 +259,32 @@ def request_compute_start(
         result=result,
         settings=settings,
     )
+    attempt = _require_current_start_connection(db, attempt_id=attempt.id)
     stored = db.scalar(
-        select(UserSecret).where(
+        select(UserSecret)
+        .where(
             UserSecret.user_id == user.id,
             UserSecret.provider == "databricks",
         )
+        .execution_options(populate_existing=True)
     )
-    if stored is not None:
-        db.execute(
+    if (
+        stored is not None
+        and stored.updated_at.isoformat(timespec="microseconds") == attempt.connection_generation
+    ):
+        updated = db.execute(
             update(UserSecret)
             .where(UserSecret.id == stored.id, UserSecret.updated_at == stored.updated_at)
             .values(
-                runtime_status="RUNNING"
-                if result.get("outcome") == "already_running"
-                else "STARTING",
+                runtime_status="RUNNING" if attempt.status == "ready" else "STARTING",
                 runtime_updated_at=utcnow(),
                 updated_at=stored.updated_at,
             )
         )
+        if int(getattr(updated, "rowcount", 0) or 0) != 1:
+            raise _start_connection_changed()
+    else:
+        raise _start_connection_changed()
     from app.services.audit import record_event
 
     record_event(
@@ -296,6 +305,43 @@ def request_compute_start(
     return result
 
 
+def _start_connection_changed() -> ConnectorError:
+    return ConnectorError(
+        TransferErrorCode.CREDENTIALS_STALE,
+        "The Databricks connection changed while compute was being started. Review the saved connection and try again.",
+        retryable=False,
+    )
+
+
+def _require_current_start_connection(db: Session, *, attempt_id: str) -> DatabricksComputeAttempt:
+    # A provider call can outlive credential rotation or observation cancellation.
+    # Reload persisted state before accepting its result.
+    attempt = db.get(DatabricksComputeAttempt, attempt_id, populate_existing=True)
+    if attempt is None:
+        raise _start_connection_changed()
+    revision = db.scalar(
+        select(UserSecret.updated_at).where(
+            UserSecret.user_id == attempt.user_id,
+            UserSecret.provider == "databricks",
+        )
+    )
+    if (
+        attempt.status == "stale"
+        or revision is None
+        or revision.isoformat(timespec="microseconds") != attempt.connection_generation
+    ):
+        error = _start_connection_changed()
+        record_start_failure(db, attempt_id=attempt.id, error=error)
+        raise error
+    if attempt.status not in {"starting", "ready"}:
+        raise ConnectorError(
+            TransferErrorCode.COMPUTE_NOT_READY,
+            "The Databricks startup attempt is no longer active. Check compute status before retrying.",
+            retryable=False,
+        )
+    return attempt
+
+
 def record_start_submission(
     db: Session,
     *,
@@ -303,7 +349,9 @@ def record_start_submission(
     result: dict[str, str],
     settings: Settings,
 ) -> DatabricksComputeAttempt | None:
-    attempt = db.get(DatabricksComputeAttempt, attempt_id)
+    attempt = db.get(
+        DatabricksComputeAttempt, attempt_id, populate_existing=True, with_for_update=True
+    )
     if attempt is None or attempt.status != "starting":
         return attempt
     now = utcnow()
@@ -327,7 +375,9 @@ def record_start_uncertain(
 ) -> None:
     """Keep an ambiguous provider start fenced until observation resolves it."""
 
-    attempt = db.get(DatabricksComputeAttempt, attempt_id)
+    attempt = db.get(
+        DatabricksComputeAttempt, attempt_id, populate_existing=True, with_for_update=True
+    )
     if attempt is None or attempt.status != "starting":
         return
     attempt.error_code = str(error.code)[:64]
@@ -342,7 +392,7 @@ def record_start_failure(
     attempt_id: str,
     error: ConnectorError,
 ) -> None:
-    attempt = db.get(DatabricksComputeAttempt, attempt_id)
+    attempt = db.get(DatabricksComputeAttempt, attempt_id, populate_existing=True)
     if attempt is None or attempt.status != "starting":
         return
     now = utcnow()
@@ -557,7 +607,12 @@ def observe_attempt(
 ) -> bool:
     """Persist one state observation if this poller still owns the lease."""
 
-    attempt = db.get(DatabricksComputeAttempt, attempt_id)
+    attempt = db.scalar(
+        select(DatabricksComputeAttempt)
+        .where(DatabricksComputeAttempt.id == attempt_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if attempt is None or attempt.status != "starting" or attempt.lease_token != lease_token:
         return False
     current = now or utcnow()

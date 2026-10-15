@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
 
 import pytest
@@ -1139,3 +1140,190 @@ def test_compute_worker_returns_false_when_no_poll_is_due(access_app) -> None:
         session_factory=lambda: SessionLocal(),
         connector_resolver=lambda _provider: pytest.fail("nothing is due"),
     )
+
+
+class _RecoveryProbe:
+    def __init__(self, on_cleanup: Callable[[str], None] | None = None) -> None:
+        self.on_cleanup = on_cleanup
+        self.reconciled: list[str] = []
+        self.cleaned: list[str] = []
+
+    def reconcile_publication(self, _credentials, _locator, *, submission_id: str) -> str:
+        self.reconciled.append(submission_id)
+        return "committed"
+
+    def cleanup_staging(self, _credentials, *, run_id: str) -> None:
+        self.cleaned.append(run_id)
+        if self.on_cleanup is not None:
+            self.on_cleanup(run_id)
+
+
+def _recover_publication(settings, connector) -> bool:
+    return process_pending_publication_recovery(
+        settings=settings,
+        session_factory=SessionLocal,
+        connector_resolver=lambda _provider: connector,
+    )
+
+
+@pytest.mark.parametrize("unexpected", [False, True], ids=["provider-error", "unexpected-error"])
+def test_confirmed_publication_cleanup_failure_is_deferred_and_retried(
+    access_app, make_user, unexpected: bool
+) -> None:
+    settings = _enabled_databricks_settings()
+    owner = make_user("dbx.post-commit-cleanup@example.gov")
+    with SessionLocal() as db:
+        credentials = _saved_databricks_credentials(db, settings, owner)
+        run_id = _create_recovery_candidate(
+            db, owner=owner, generation=credentials["connection_generation"], state="uncertain"
+        )
+
+    def fail_cleanup(_run_id: str) -> None:
+        if unexpected:
+            raise RuntimeError("private-provider-response")
+        raise ConnectorError(
+            TransferErrorCode.PROVIDER_UNAVAILABLE,
+            "Staging cleanup is unavailable.",
+            retryable=True,
+        )
+
+    connector = _RecoveryProbe(fail_cleanup)
+    assert _recover_publication(settings, connector)
+    with SessionLocal() as db:
+        saved = db.get(DatabricksPublication, run_id)
+        assert saved is not None and saved.state == "cleanup_pending"
+        assert saved.confirmed_at is not None
+        assert saved.active_target_key is None
+        assert saved.recovery_token is None
+        assert saved.recovery_expires_at is not None and saved.recovery_expires_at > utcnow()
+        assert saved.last_error_code == (
+            "recovery_unavailable" if unexpected else str(TransferErrorCode.PROVIDER_UNAVAILABLE)
+        )
+        assert "private-provider-response" not in saved.last_error_summary
+
+    assert not _recover_publication(settings, connector)
+    assert connector.cleaned == [run_id]
+    with SessionLocal() as db:
+        saved = db.get(DatabricksPublication, run_id)
+        assert saved is not None
+        saved.recovery_expires_at = utcnow() - timedelta(seconds=1)
+        db.commit()
+
+    retry = _RecoveryProbe()
+    assert _recover_publication(settings, retry)
+    assert retry.cleaned == [run_id]
+    assert retry.reconciled == []
+    with SessionLocal() as db:
+        saved = db.get(DatabricksPublication, run_id)
+        assert saved is not None and saved.state == "complete"
+        assert saved.confirmed_at is not None
+        assert saved.last_error_code is None
+
+
+def test_recovery_keeps_its_lease_until_post_commit_cleanup_finishes(access_app, make_user) -> None:
+    settings = _enabled_databricks_settings()
+    owner = make_user("dbx.recovery-lease@example.gov")
+    with SessionLocal() as db:
+        credentials = _saved_databricks_credentials(db, settings, owner)
+        run_id = _create_recovery_candidate(
+            db, owner=owner, generation=credentials["connection_generation"], state="uncertain"
+        )
+    competitor = _RecoveryProbe()
+    nested_claims: list[bool] = []
+    held_tokens: list[str | None] = []
+
+    def inspect_during_cleanup(cleanup_run_id: str) -> None:
+        with SessionLocal() as db:
+            saved = db.get(DatabricksPublication, cleanup_run_id)
+            assert saved is not None
+            held_tokens.append(saved.recovery_token)
+        nested_claims.append(_recover_publication(settings, competitor))
+
+    connector = _RecoveryProbe(inspect_during_cleanup)
+    assert _recover_publication(settings, connector)
+    assert held_tokens and held_tokens[0] is not None
+    assert nested_claims == [False]
+    assert connector.cleaned == [run_id]
+    assert competitor.cleaned == []
+
+
+def test_stale_cleanup_result_cannot_overwrite_another_recovery_owner(
+    access_app, make_user
+) -> None:
+    settings = _enabled_databricks_settings()
+    owner = make_user("dbx.stale-cleanup-result@example.gov")
+    with SessionLocal() as db:
+        credentials = _saved_databricks_credentials(db, settings, owner)
+        run_id = _create_recovery_candidate(
+            db,
+            owner=owner,
+            generation=credentials["connection_generation"],
+            state="cleanup_pending",
+        )
+
+    def replace_recovery_owner(cleanup_run_id: str) -> None:
+        with SessionLocal() as db:
+            saved = db.get(DatabricksPublication, cleanup_run_id)
+            assert saved is not None
+            saved.recovery_token = "replacement-recovery-owner"
+            saved.recovery_expires_at = utcnow() + timedelta(minutes=1)
+            saved.last_error_code = "newer-review-required"
+            db.commit()
+
+    assert _recover_publication(settings, _RecoveryProbe(replace_recovery_owner))
+    with SessionLocal() as db:
+        saved = db.get(DatabricksPublication, run_id)
+        assert saved is not None and saved.state == "cleanup_pending"
+        assert saved.active_target_key == saved.target_key
+        assert saved.recovery_token == "replacement-recovery-owner"
+        assert saved.last_error_code == "newer-review-required"
+
+
+@pytest.mark.parametrize("stale_state", ["RUNNING", "ERROR"])
+def test_reclaimed_poll_lease_rejects_results_from_a_cached_old_worker(
+    access_app, make_user, stale_state: str
+) -> None:
+    owner = make_user("dbx.reclaimed-poll@example.gov")
+    settings = get_settings()
+    now = utcnow()
+    with SessionLocal() as old_worker:
+        attempt, _ = create_compute_attempt(
+            old_worker, user=owner, credentials=_credentials(), settings=settings
+        )
+        attempt.next_poll_at = now
+        attempt.deadline_at = now + timedelta(minutes=5)
+        old_worker.commit()
+        first = claim_due_attempt(old_worker, now=now, lease_seconds=15)
+        assert first is not None
+        attempt_id, old_token = first
+
+        with SessionLocal() as new_worker:
+            second = claim_due_attempt(new_worker, now=now + timedelta(seconds=16))
+            assert second is not None and second[0] == attempt_id
+            new_token = second[1]
+        assert new_token != old_token
+        assert not observe_attempt(
+            old_worker,
+            attempt_id=attempt_id,
+            lease_token=old_token,
+            state=stale_state,
+            settings=settings,
+            now=now + timedelta(seconds=17),
+        )
+
+    with SessionLocal() as db:
+        saved = db.get(DatabricksComputeAttempt, attempt_id)
+        assert saved is not None and saved.status == "starting"
+        assert saved.poll_count == 0
+        assert saved.lease_token == new_token
+        assert observe_attempt(
+            db,
+            attempt_id=attempt_id,
+            lease_token=new_token,
+            state="RUNNING",
+            settings=settings,
+            now=now + timedelta(seconds=18),
+        )
+        db.refresh(saved)
+        assert saved.status == "ready"
+        assert saved.poll_count == 1

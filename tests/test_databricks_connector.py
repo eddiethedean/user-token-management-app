@@ -394,9 +394,10 @@ def test_staged_delta_publication_records_transformed_batches_and_cleans_up(
         policy,
         run_id="11111111-1111-4111-8111-111111111111",
     )
-    batch = TransferBatch(
-        frame=pl.DataFrame({"id": [4, 5]}), row_count=2, byte_count=16, sequence=1
-    )
+    frame = pl.DataFrame({"id": [4, 5], "ssn": ["synthetic-4", "synthetic-5"]})
+    if not exists:
+        frame = frame.select("id")
+    batch = TransferBatch(frame=frame, row_count=2, byte_count=16, sequence=1)
     assert connector.write_batch(session, batch).rows_acknowledged == 2
     manifest = connector.finalize(session)
 
@@ -830,3 +831,133 @@ def test_scalar_type_and_metadata_helpers_cover_invalid_values() -> None:
     with pytest.raises(ConnectorError) as invalid_name:
         _quote("unsafe\nidentifier")
     assert invalid_name.value.code is TransferErrorCode.UNSUPPORTED_TYPE
+
+
+def _prepare_two_column_load(monkeypatch, harness: _SQLHarness, policy=None):
+    connector, credentials = _sql_connector(harness, monkeypatch)
+    events: list[str] = []
+    credentials["_publication_event"] = lambda event, **_details: events.append(event)
+    locator = _table_locator()
+    if harness.exists:
+        locator = connector.inspect_object(credentials, locator).locator
+    schema = ObjectSchema(
+        locator=locator, columns=(ColumnSchema("id", "Int64"), ColumnSchema("ssn", "String"))
+    )
+    session = connector.prepare_destination(
+        credentials,
+        locator,
+        schema,
+        policy or DatabricksCreatePolicy(),
+        run_id="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    )
+    return connector, credentials, session, events
+
+
+@pytest.mark.parametrize("reordered", [False, True], ids=["schema-order", "reordered-frame"])
+def test_staging_batches_bind_values_by_column_name_and_split_large_payloads(
+    monkeypatch, reordered: bool
+) -> None:
+    harness = _SQLHarness()
+    connector, _credentials, session, events = _prepare_two_column_load(monkeypatch, harness)
+    values = [None, "雪", "'); DROP TABLE orders; --", *[f"row-{i}" for i in range(498)]]
+    frame = pl.DataFrame({"id": list(range(501)), "ssn": values})
+    if reordered:
+        frame = frame.select("ssn", "id")
+    boundary = len(harness.statements)
+
+    result = connector.write_batch(
+        session,
+        TransferBatch(
+            frame=frame, row_count=frame.height, byte_count=int(frame.estimated_size()), sequence=1
+        ),
+    )
+
+    inserts = harness.statements[boundary:]
+    assert len(inserts) == 2
+    assert [len(parameters) for _statement, parameters in inserts] == [500, 1]
+    assert [row for _statement, parameters in inserts for row in parameters] == list(
+        zip(range(501), values, strict=True)
+    )
+    assert all("(`id`, `ssn`) VALUES (?, ?)" in statement for statement, _ in inserts)
+    assert all("DROP TABLE orders" not in statement for statement, _ in inserts)
+    assert result.rows_acknowledged == 501
+    assert result.bytes_acknowledged == frame.estimated_size()
+    assert events.count("batch_written") == 1
+    assert connector.abort(session) is AbortResult.ROLLED_BACK
+
+
+@pytest.mark.parametrize("extra_column", [False, True], ids=["missing-column", "extra-column"])
+def test_staging_rejects_batch_schema_changes_before_sending_rows(
+    monkeypatch, extra_column: bool
+) -> None:
+    harness = _SQLHarness()
+    connector, _credentials, session, events = _prepare_two_column_load(monkeypatch, harness)
+    frame = (
+        pl.DataFrame({"id": [1], "ssn": ["canary"], "extra": ["unexpected"]})
+        if extra_column
+        else pl.DataFrame({"id": [1]})
+    )
+    boundary = len(harness.statements)
+    with pytest.raises(ConnectorError) as drift:
+        connector.write_batch(
+            session, TransferBatch(frame=frame, row_count=1, byte_count=8, sequence=1)
+        )
+    assert drift.value.code is TransferErrorCode.SCHEMA_DRIFT
+    assert harness.statements[boundary:] == []
+    assert "batch_written" not in events
+    assert connector.abort(session) is AbortResult.ROLLED_BACK
+
+
+@pytest.mark.parametrize("policy", [DatabricksAppendPolicy(), DatabricksReplacePolicy()])
+@pytest.mark.parametrize(
+    ("change", "expected"),
+    [
+        ("identity", TransferErrorCode.SCHEMA_DRIFT),
+        ("columns", TransferErrorCode.SCHEMA_DRIFT),
+        ("sensitivity", TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED),
+        ("deleted", TransferErrorCode.DESTINATION_NOT_FOUND),
+    ],
+)
+def test_destination_changes_after_staging_prevent_publication(
+    monkeypatch, policy, change: str, expected: TransferErrorCode
+) -> None:
+    harness = _SQLHarness(exists=True)
+    connector, _credentials, session, events = _prepare_two_column_load(
+        monkeypatch, harness, policy
+    )
+    connector.write_batch(
+        session,
+        TransferBatch(
+            frame=pl.DataFrame({"id": [1], "ssn": ["synthetic"]}),
+            row_count=1,
+            byte_count=16,
+            sequence=1,
+        ),
+    )
+    if change == "identity":
+        harness.object_id = "recreated-table"
+    elif change == "columns":
+        harness.columns = [*harness.columns, ("new_column", "string", "YES")]
+    elif change == "sensitivity":
+        harness.tags["table_tags"] = [("classification", "sensitive")]
+    else:
+        harness.exists = False
+
+    with pytest.raises(ConnectorError) as changed:
+        connector.finalize(session)
+    assert changed.value.code is expected
+    assert "publish_submitted" not in events
+    assert "committed" not in events
+    assert connector.abort(session) is AbortResult.ROLLED_BACK
+    assert events[-1] == "abort_confirmed"
+
+
+def test_create_target_appearing_after_staging_is_not_overwritten(monkeypatch) -> None:
+    harness = _SQLHarness()
+    connector, _credentials, session, events = _prepare_two_column_load(monkeypatch, harness)
+    harness.exists = True
+    with pytest.raises(ConnectorError) as appeared:
+        connector.finalize(session)
+    assert appeared.value.code is TransferErrorCode.DESTINATION_CONFLICT
+    assert "publish_submitted" not in events
+    assert connector.abort(session) is AbortResult.ROLLED_BACK

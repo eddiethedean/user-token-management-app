@@ -539,10 +539,16 @@ class DatabricksConnector:
 
     def write_batch(self, load_session: LoadSession, batch: TransferBatch) -> BatchWriteResult:
         state = self._load_state(load_session)
+        if set(batch.frame.columns) != set(state.columns):
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "The Databricks staging batch columns no longer match the reviewed output schema.",
+                retryable=False,
+            )
         columns = ", ".join(_quote(name) for name in state.columns)
         placeholders = ", ".join("?" for _ in state.columns)
         statement = f"INSERT INTO {state.staging_name} ({columns}) VALUES ({placeholders})"
-        rows = [tuple(row) for row in batch.frame.iter_rows()]
+        rows = list(batch.frame.select(list(state.columns)).iter_rows())
         try:
             with self._sql_cursor(state.credentials) as cursor:
                 for offset in range(0, len(rows), _BATCH_INSERT_ROWS):

@@ -25,8 +25,13 @@ from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import databricks_workspace_id
 from app.database import SessionLocal
 from app.domain.feedback import FeedbackCode
-from app.models import DatabricksComputeAttempt, UserSecret, utcnow
-from app.services.databricks_compute import process_due_compute_attempt, request_compute_start
+from app.models import DatabricksComputeAttempt, User, UserSecret, utcnow
+from app.services.databricks_compute import (
+    cancel_compute_observation,
+    create_compute_attempt,
+    process_due_compute_attempt,
+    request_compute_start,
+)
 from app.services.secrets import (
     decrypt_user_credentials_for_run,
     store_user_credentials,
@@ -345,4 +350,230 @@ def test_missing_saved_compute_persists_safe_connection_failure(
         assert failed.runtime_status == ""
         assert "missing-compute-canary" not in failed.validation_message
         assert "synthetic-client-secret" not in failed.validation_message
+    assert dbx.sql_calls == []
+
+
+def _replacement_credentials(dbx: MiniLakeConnection) -> dict[str, Any]:
+    warehouse = dbx.client.warehouses.create(
+        name=f"replacement-{uuid4().hex}", cluster_size="Small"
+    )
+    assert warehouse.id is not None
+    dbx.client.warehouses.stop(id=warehouse.id)
+    return {
+        **dbx.credentials,
+        "compute_id": warehouse.id,
+        "http_path": f"sql/1.0/warehouses/{warehouse.id}",
+        "client_secret": "rotated-secret-canary",
+        "startup_policy": "manual",
+    }
+
+
+def _rotate_saved_connection(
+    dbx: MiniLakeConnection, user_id: str, credentials: dict[str, Any]
+) -> str:
+    with SessionLocal() as db:
+        owner = db.get(User, user_id)
+        assert owner is not None
+        stored = store_user_credentials(
+            db, dbx.settings, user=owner, provider="databricks", credentials=credentials
+        )
+        return stored.updated_at.isoformat(timespec="microseconds")
+
+
+def test_connection_rotation_during_health_check_discards_old_provider_result(
+    access_app, make_user, minilake_connection: MiniLakeConnection
+) -> None:
+    dbx = minilake_connection
+    owner = make_user("minilake.rotate-health@example.gov")
+    replacement = _replacement_credentials(dbx)
+    rotated_generations: list[str] = []
+
+    class RotateDuringHealthCheck:
+        capabilities = dbx.connector.capabilities
+
+        def test_connection(self, credentials):
+            health = dbx.connector.test_connection(credentials)
+            rotated_generations.append(_rotate_saved_connection(dbx, owner.id, replacement))
+            return health
+
+    with SessionLocal() as db:
+        store_user_credentials(
+            db, dbx.settings, user=owner, provider="databricks", credentials=dbx.credentials
+        )
+        result = check_user_connection(
+            db,
+            settings=dbx.settings,
+            user=owner,
+            provider="databricks",
+            connector_resolver=lambda _provider: RotateDuringHealthCheck(),
+        )
+        assert result.validation_status == "untested"
+        assert result.runtime_status == ""
+        assert result.updated_at.isoformat(timespec="microseconds") == rotated_generations[0]
+    assert dbx.client.warehouses.get(id=replacement["compute_id"]).state is State.STOPPED
+    assert dbx.sql_calls == []
+
+
+@pytest.mark.parametrize("provider_response", ["success", "ambiguous", "denied"])
+def test_connection_rotation_during_start_discards_obsolete_response(
+    access_app, make_user, minilake_connection: MiniLakeConnection, provider_response: str
+) -> None:
+    dbx = minilake_connection
+    owner = make_user("minilake.rotate-start@example.gov")
+    old_warehouse = dbx.credentials["compute_id"]
+    dbx.client.warehouses.stop(id=old_warehouse)
+    replacement = _replacement_credentials(dbx)
+
+    class RotateDuringStart:
+        def start_compute(self, credentials):
+            result = dbx.connector.start_compute(credentials)
+            _rotate_saved_connection(dbx, owner.id, replacement)
+            if provider_response != "success":
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE
+                    if provider_response == "ambiguous"
+                    else TransferErrorCode.PERMISSION_DENIED,
+                    "obsolete-provider-response",
+                    retryable=provider_response == "ambiguous",
+                )
+            return result
+
+    with SessionLocal() as db:
+        store_user_credentials(
+            db, dbx.settings, user=owner, provider="databricks", credentials=dbx.credentials
+        )
+        credentials = decrypt_user_credentials_for_run(
+            db, dbx.settings, user=owner, provider="databricks"
+        )
+        with pytest.raises(ConnectorError) as stale:
+            request_compute_start(
+                db,
+                settings=dbx.settings,
+                user=owner,
+                credentials=credentials,
+                connector_resolver=lambda _provider: RotateDuringStart(),
+            )
+        assert stale.value.code is TransferErrorCode.CREDENTIALS_STALE
+        assert "rotated-secret-canary" not in stale.value.summary
+        assert "obsolete-provider-response" not in stale.value.summary
+
+    with SessionLocal() as db:
+        attempt = db.scalar(
+            select(DatabricksComputeAttempt).where(DatabricksComputeAttempt.user_id == owner.id)
+        )
+        stored = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == owner.id, UserSecret.provider == "databricks"
+            )
+        )
+        assert attempt is not None and attempt.status == "stale"
+        assert attempt.active_key is None
+        assert stored is not None and stored.runtime_status == ""
+        assert stored.validation_status == "untested"
+        assert (
+            stored.updated_at.isoformat(timespec="microseconds")
+            != credentials["connection_generation"]
+        )
+    assert dbx.client.warehouses.get(id=old_warehouse).state is State.RUNNING
+    assert dbx.client.warehouses.get(id=replacement["compute_id"]).state is State.STOPPED
+    assert dbx.sql_calls == []
+
+
+def test_connection_rotation_during_readiness_poll_keeps_new_connection_untested(
+    access_app, make_user, minilake_connection: MiniLakeConnection
+) -> None:
+    dbx = minilake_connection
+    owner = make_user("minilake.rotate-poll@example.gov")
+    replacement = _replacement_credentials(dbx)
+    with SessionLocal() as db:
+        store_user_credentials(
+            db, dbx.settings, user=owner, provider="databricks", credentials=dbx.credentials
+        )
+        credentials = decrypt_user_credentials_for_run(
+            db, dbx.settings, user=owner, provider="databricks"
+        )
+        attempt, _ = create_compute_attempt(
+            db, user=owner, credentials=credentials, settings=dbx.settings
+        )
+        attempt_id = attempt.id
+        attempt.next_poll_at = utcnow() - timedelta(seconds=1)
+        db.commit()
+
+    class RotateDuringPoll:
+        def compute_status(self, saved_credentials):
+            status = dbx.connector.compute_status(saved_credentials)
+            _rotate_saved_connection(dbx, owner.id, replacement)
+            return status
+
+    assert process_due_compute_attempt(
+        settings=dbx.settings,
+        session_factory=SessionLocal,
+        connector_resolver=lambda _provider: RotateDuringPoll(),
+    )
+    with SessionLocal() as db:
+        saved = db.get(DatabricksComputeAttempt, attempt_id)
+        stored = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == owner.id, UserSecret.provider == "databricks"
+            )
+        )
+        assert saved is not None and saved.status == "stale"
+        assert saved.poll_count == 0
+        assert stored is not None and stored.runtime_status == ""
+        assert stored.validation_status == "untested"
+    assert dbx.sql_calls == []
+
+
+def test_cancelled_observation_is_not_resumed_by_an_inflight_start_response(
+    access_app, make_user, minilake_connection: MiniLakeConnection
+) -> None:
+    dbx = minilake_connection
+    owner = make_user("minilake.cancel-inflight-start@example.gov")
+    dbx.client.warehouses.stop(id=dbx.credentials["compute_id"])
+
+    class CancelDuringStart:
+        def start_compute(self, credentials):
+            result = dbx.connector.start_compute(credentials)
+            with SessionLocal() as cancellation_db:
+                attempt = cancellation_db.scalar(
+                    select(DatabricksComputeAttempt).where(
+                        DatabricksComputeAttempt.user_id == owner.id
+                    )
+                )
+                assert attempt is not None
+                assert cancel_compute_observation(
+                    cancellation_db, user_id=owner.id, attempt_id=attempt.id
+                )
+            return result
+
+    with SessionLocal() as db:
+        store_user_credentials(
+            db, dbx.settings, user=owner, provider="databricks", credentials=dbx.credentials
+        )
+        credentials = decrypt_user_credentials_for_run(
+            db, dbx.settings, user=owner, provider="databricks"
+        )
+        with pytest.raises(ConnectorError) as cancelled:
+            request_compute_start(
+                db,
+                settings=dbx.settings,
+                user=owner,
+                credentials=credentials,
+                connector_resolver=lambda _provider: CancelDuringStart(),
+            )
+        assert cancelled.value.code is TransferErrorCode.COMPUTE_NOT_READY
+
+    with SessionLocal() as db:
+        saved = db.scalar(
+            select(DatabricksComputeAttempt).where(DatabricksComputeAttempt.user_id == owner.id)
+        )
+        secret = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == owner.id, UserSecret.provider == "databricks"
+            )
+        )
+        assert saved is not None and saved.status == "cancelled"
+        assert saved.active_key is not None
+        assert saved.next_poll_at is not None
+        assert secret is not None and secret.runtime_status == "OBSERVATION_CANCELLED"
     assert dbx.sql_calls == []

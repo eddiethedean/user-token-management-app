@@ -350,8 +350,8 @@ def process_pending_publication_recovery(
                 record.active_target_key = None
                 record.confirmed_at = utcnow()
                 record.submission_id = operation["submission_id"]
-                record.recovery_token = None
-                record.recovery_expires_at = None
+                # Keep the recovery lease through cleanup, including its error
+                # path. A confirmed commit does not finish the owned recovery.
                 db.commit()
             operation["state"] = "cleanup_pending"
 
@@ -360,7 +360,14 @@ def process_pending_publication_recovery(
             raise RuntimeError("The Databricks connector cannot clean run staging.")
         cleanup(credentials, run_id=operation["run_id"])
         with session_factory() as db:
-            record = db.get(DatabricksPublication, operation["run_id"])
+            record = db.scalar(
+                select(DatabricksPublication)
+                .where(
+                    DatabricksPublication.run_id == operation["run_id"],
+                    DatabricksPublication.recovery_token == token,
+                )
+                .with_for_update()
+            )
             if record is None:
                 return True
             record.state = "complete" if record.confirmed_at is not None else "unchanged"
