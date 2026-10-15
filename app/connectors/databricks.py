@@ -25,6 +25,9 @@ from databricks import sql
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.core import Config
 from databricks.sdk.credentials_provider import oauth_service_principal
+from databricks.sdk.errors import NotFound
+from requests.exceptions import ChunkedEncodingError
+from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from app.config import Settings
 from app.connectors.base import (
@@ -1405,23 +1408,34 @@ def _provider_error(
 ) -> ConnectorError:
     status = getattr(exception, "status_code", None) or getattr(exception, "http_status", None)
     name = type(exception).__name__.casefold()
+    # The SDK exposes some errors as subclasses (e.g. ResourceDoesNotExist)
+    # without carrying an HTTP status. OAuth token failures use ValueError
+    # with the protocol error code as a prefix; never expose its description.
+    missing = isinstance(exception, NotFound) or status == 404 or "notfound" in name
+    oauth_rejected = isinstance(exception, ValueError) and str(exception).partition(":")[0] in {
+        "invalid_client",
+        "invalid_grant",
+        "invalid_token",
+        "unauthorized_client",
+    }
     code = (
         TransferErrorCode.RATE_LIMITED
         if status == 429 or "toomanyrequests" in name or "ratelimit" in name
         else TransferErrorCode.AUTHENTICATION_FAILED
-        if status == 401 or "unauthenticated" in name
+        if status == 401 or "unauthenticated" in name or oauth_rejected
         else TransferErrorCode.PERMISSION_DENIED
         if status == 403 or "permissiondenied" in name
         else TransferErrorCode.DESTINATION_NOT_FOUND
-        if destination and (status == 404 or "notfound" in name)
+        if destination and missing
         else TransferErrorCode.SOURCE_NOT_FOUND
-        if status == 404 or "notfound" in name
+        if missing
         else TransferErrorCode.DESTINATION_CONFLICT
         if destination and (status == 409 or "alreadyexists" in name or "conflict" in name)
         else TransferErrorCode.CONNECTION_TIMEOUT
         if "timeout" in name
         else TransferErrorCode.PROVIDER_UNAVAILABLE
-        if status and status >= 500
+        if (status and status >= 500)
+        or isinstance(exception, (RequestsConnectionError, ChunkedEncodingError))
         else TransferErrorCode.INTERNAL_ERROR
     )
     return ConnectorError(

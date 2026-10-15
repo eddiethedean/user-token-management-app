@@ -3,7 +3,7 @@
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 POSIT_CLI ?= $(if $(wildcard $(dir $(PYTHON))hedron-posit),$(dir $(PYTHON))hedron-posit,hedron-posit)
 
-.PHONY: check demo demo-check databricks-check hedron-check hedron-build hedron-security-check posit-check migrate install serve create-admin schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
+.PHONY: check demo demo-check databricks-tools databricks-check hedron-check hedron-build hedron-security-check posit-check migrate install serve create-admin schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -32,20 +32,23 @@ create-admin:
 		$(PYTHON) -m app create-admin --email "$(ADMIN_EMAIL)"; \
 	fi
 
-check:
+check: databricks-tools
 	$(PYTHON) -m ruff check app tests demo-app
 	$(PYTHON) -m ruff format --check app tests demo-app
 	$(PYTHON) -m basedpyright
 	$(MAKE) hedron-check
 	$(MAKE) posit-check
-	$(PYTHON) -m pytest -n auto --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
+	DATABRICKS_TEST_TOOLS_REQUIRED=1 $(PYTHON) -m pytest -n auto --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
 	$(MAKE) demo-check
 
 demo-check:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 $(PYTHON) -m pytest demo-app/tests
 
-databricks-check:
-	$(PYTHON) -m pytest -n auto tests/test_databricks_config.py tests/test_databricks_connector.py tests/test_databricks_coordination.py tests/test_databricks_minilake.py
+databricks-tools:
+	$(PYTHON) scripts/install-databricks-test-tools.py
+
+databricks-check: databricks-tools
+	DATABRICKS_TEST_TOOLS_REQUIRED=1 $(PYTHON) -m pytest -n auto tests/test_databricks_*.py
 
 hedron-check:
 	$(PYTHON) -m hedron --app app.main:app check --severity warning

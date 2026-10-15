@@ -49,6 +49,7 @@ dependencies = [
   "polars>=1.21",
   "psycopg[binary]>=3.1.4",
   "python-multipart>=0.0.9",
+  "requests>=2.28.1",
   "setuptools>=75",
   "standard-pkg-resources==1.0.0",
   "sqlalchemy>=2.0",
@@ -101,6 +102,7 @@ markers = [
   "postgres: ephemeral PostgreSQL via testing.postgresql (skipped if server binaries are missing)",
   "mongodb: ephemeral MongoDB via pytest-mongo (skipped if mongod is missing)",
   "minilake: real Databricks SDK management calls against an isolated local MiniLake server",
+  "databricks_transport: real SDK HTTP/OAuth and network faults using pinned WireMock/Toxiproxy",
 ]
 
 [tool.coverage.run]

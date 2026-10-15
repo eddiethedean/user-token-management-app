@@ -131,7 +131,8 @@ from whether the destination changed.
 
 Install the development dependencies with `make install`, then run `make databricks-check`.
 The normal `make check` and CI suite include these tests too; no cloud credentials, Docker,
-or separately running emulator are needed. The development dependency pins
+or separately running emulator are needed. Install Java 11+ and PostgreSQL server binaries
+(`initdb` and `postgres`) locally; CI provisions both. The development dependency pins
 [MiniLake](https://github.com/dmux/minilake) to 1.8.0.
 
 Each pytest worker that uses MiniLake starts its own loopback server with a reserved socket,
@@ -160,6 +161,39 @@ Catalog sensitivity metadata, or Delta publication guarantees. MiniLake's cluste
 omit metadata needed to establish Unity Catalog compatibility; that case must remain blocked.
 Existing SQL adapter tests and the live acceptance probes remain necessary. Passing emulator tests
 does not enable startup or writer rollout gates.
+
+### HTTP, OAuth, network faults, and PostgreSQL concurrency
+
+`make databricks-tools` downloads WireMock 3.13.2 and Toxiproxy 2.12.0 into the ignored
+`.cache/databricks-tools/` directory. Both `make databricks-check` and `make check` run this
+setup automatically, verify the pinned SHA-256 checksums even for cached files, and require
+the test tools and PostgreSQL rather than silently skipping these checks. The downloader supports
+macOS/Linux on ARM64 and AMD64. Set `DATABRICKS_TEST_JAVA` to select a Java executable.
+Prefill the cache with `make databricks-tools` before working offline; pytest never downloads tools.
+Direct pytest invocations skip external-tool cases when their binaries are absent unless
+`DATABRICKS_TEST_TOOLS_REQUIRED=1` is set.
+
+The transport tests start bounded, loopback-only WireMock and Toxiproxy processes per pytest
+worker, use isolated journals and temporary directories, and terminate the processes on teardown.
+WireMock drives stopped/starting/running states, 429/503 retries, permission and missing-resource
+errors, and a start request whose response is lost after the simulated state changes. The latter
+checks that the application retains its durable attempt, deduplicates a second request, and
+resolves the uncertainty with a read-only worker poll. Scripted OAuth discovery and token endpoints
+exercise the real SDK's client-credentials request, expired-token renewal, Basic authentication,
+scope, bearer headers, and sanitized invalid-client failures. These are protocol tests against
+synthetic responses, not evidence that Databricks accepts the credentials.
+
+Toxiproxy forwards real SDK traffic to MiniLake while injecting TCP resets, truncated response
+bodies, and stalled reads. The tests require retryable safe errors and a usable connection after
+the fault is removed. Truncated responses reproduce a `requests` `ChunkedEncodingError` that the
+adapter must classify as provider unavailability rather than an internal application failure.
+
+Separate tests use the existing ephemeral PostgreSQL harness with real concurrent transactions:
+simultaneous compute reservations converge on one attempt; pollers skip locked rows; an expired
+lease holder cannot overwrite its successor; and concurrent publications fence one destination
+until the winning operation releases it. The tests bound database lock/statement waits and check
+that the losing publication transaction remains usable. SQL Thrift, TLS, Unity Catalog governance,
+and live Delta publication acceptance remain outside these tools' coverage.
 
 ## Acceptance and release checklist
 
