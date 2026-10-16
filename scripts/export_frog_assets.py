@@ -4,9 +4,11 @@
 The SVG-only path uses the Python standard library. Raster exports additionally
 require CairoSVG and Pillow in the export environment, not in the application.
 """
+
 from __future__ import annotations
 
 import argparse
+import importlib
 import io
 import json
 from pathlib import Path
@@ -20,7 +22,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "app" / "static" / "brand" / "frog"
 SIZES = (16, 24, 32, 48, 64, 96, 128, 180, 192, 256, 512, 1024)
 COLORS = {
-    "light": {"surface": "#F4F7FA", "edge": "#12304B", "circuit": "#B58105", "secondary": "#8299AE"},
+    "light": {
+        "surface": "#F4F7FA",
+        "edge": "#12304B",
+        "circuit": "#B58105",
+        "secondary": "#8299AE",
+    },
     "dark": {"surface": "#081F34", "edge": "#FFD12B", "circuit": "#FFD12B", "secondary": "#52758F"},
 }
 
@@ -54,18 +61,24 @@ def fixed_svg(source: Path, theme: Theme, size: int) -> bytes:
             element.attrib.pop("class", None)
     for element in tree.iter():
         if element.tag == f"{{{NS}}}desc":
-            element.text = f"Yellow-banded poison dart frog; fixed {theme} theme, {size}-pixel optical detail."
+            element.text = (
+                f"Yellow-banded poison dart frog; fixed {theme} theme, {size}-pixel optical detail."
+            )
     return ET.tostring(tree, encoding="utf-8", xml_declaration=True) + b"\n"
 
 
 def export(output: Path, *, raster: bool = False) -> list[Path]:
     """Write deterministic filenames beneath output; return the files written."""
+    cairosvg = None
+    image_module = None
     if raster:
         try:
-            import cairosvg
-            from PIL import Image
+            cairosvg = importlib.import_module("cairosvg")
+            image_module = importlib.import_module("PIL.Image")
         except ImportError as exc:
-            raise RuntimeError("PNG/ICO exports require CairoSVG and Pillow; SVG exports need neither.") from exc
+            raise RuntimeError(
+                "PNG/ICO exports require CairoSVG and Pillow; SVG exports need neither."
+            ) from exc
     written: list[Path] = []
     svg_dir = output / "svg"
     svg_dir.mkdir(parents=True, exist_ok=True)
@@ -78,32 +91,45 @@ def export(output: Path, *, raster: bool = False) -> list[Path]:
         path = svg_dir / f"favicon-{theme}.svg"
         path.write_bytes(fixed_svg(SOURCE / "favicon.svg", theme, 32))
         written.append(path)
-        if not raster:
+        if cairosvg is None or image_module is None:
             continue
         png_dir = output / "png"
         png_dir.mkdir(parents=True, exist_ok=True)
         for name in ("frog", "app-icon"):
             for size in SIZES:
                 path = png_dir / f"{name}-{theme}-{size}.png"
-                cairosvg.svg2png(bytestring=fixed_svg(SOURCE / f"{name}.svg", theme, size), write_to=str(path))
+                cairosvg.svg2png(
+                    bytestring=fixed_svg(SOURCE / f"{name}.svg", theme, size), write_to=str(path)
+                )
                 written.append(path)
         # ICO uses the micro glyph at every embedded size, not the full-body mark.
         frames = []
         for size in (16, 32, 48):
             rendered = cairosvg.svg2png(bytestring=fixed_svg(SOURCE / "favicon.svg", theme, size))
-            with Image.open(io.BytesIO(rendered)) as image:
+            with image_module.open(io.BytesIO(rendered)) as image:
                 frames.append(image.convert("RGBA"))
         path = output / f"favicon-{theme}.ico"
-        frames[-1].save(path, format="ICO", sizes=[(16, 16), (32, 32), (48, 48)], append_images=frames[:-1])
+        frames[-1].save(
+            path, format="ICO", sizes=[(16, 16), (32, 32), (48, 48)], append_images=frames[:-1]
+        )
         written.append(path)
     # These manifests are export artifacts, not enabled app configuration.
     if raster:
         for theme in ("light", "dark"):
             manifest = {
-                "name": "Data Mover", "short_name": "Data Mover",
+                "name": "Data Mover",
+                "short_name": "Data Mover",
                 "background_color": COLORS[theme]["surface"],
                 "theme_color": COLORS[theme]["surface"],
-                "icons": [{"src": f"png/app-icon-{theme}-{size}.png", "sizes": f"{size}x{size}", "type": "image/png", "purpose": "any"} for size in (192, 512)],
+                "icons": [
+                    {
+                        "src": f"png/app-icon-{theme}-{size}.png",
+                        "sizes": f"{size}x{size}",
+                        "type": "image/png",
+                        "purpose": "any",
+                    }
+                    for size in (192, 512)
+                ],
             }
             path = output / f"manifest-{theme}.webmanifest"
             path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -114,7 +140,9 @@ def export(output: Path, *, raster: bool = False) -> list[Path]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=SOURCE / "exports")
-    parser.add_argument("--png", action="store_true", help="Also export PNGs, ICOs, and example manifests")
+    parser.add_argument(
+        "--png", action="store_true", help="Also export PNGs, ICOs, and example manifests"
+    )
     args = parser.parse_args()
     try:
         files = export(args.output, raster=args.png)

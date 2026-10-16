@@ -11,6 +11,7 @@ from typing import LiteralString
 import polars as pl
 import psycopg
 import pytest
+from psycopg import sql
 
 from app.connectors.base import ColumnSchema, LoadSession, ObjectSchema, TransferBatch
 from app.connectors.csv_source import CsvSourceConnector
@@ -773,6 +774,395 @@ def test_postgres_remove_action_cannot_drop_existing_unique_keys(postgres_creden
         "AND constraint_name = 'guardrail_key_remove_pkey'",
     )
     assert primary_key == [("ssn",)]
+
+
+@pytest.mark.parametrize(
+    "index_definition",
+    [
+        "CREATE UNIQUE INDEX guardrail_dependency ON ops.guardrail_expression (lower(ssn))",
+        "CREATE UNIQUE INDEX guardrail_dependency ON ops.guardrail_expression (label) WHERE ssn IS NOT NULL",
+        "CREATE UNIQUE INDEX guardrail_dependency ON ops.guardrail_expression (ssn)",
+    ],
+    ids=["expression", "predicate", "column"],
+)
+def test_postgres_remove_protects_unique_index_dependencies(
+    postgres_credentials, index_definition
+) -> None:
+    locator = postgres_table("ops", "guardrail_expression")
+    _execute(postgres_credentials, "CREATE SCHEMA IF NOT EXISTS ops")
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE ops.guardrail_expression (id INTEGER PRIMARY KEY, ssn TEXT, label TEXT)",
+    )
+    _execute(postgres_credentials, index_definition)
+    _execute(
+        postgres_credentials,
+        "INSERT INTO ops.guardrail_expression VALUES (1, 'synthetic-private', 'prior row')",
+    )
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="id", data_type="Int32"),
+            ColumnSchema(name="label", data_type="String"),
+        ),
+        removed_columns=("ssn",),
+    )
+    connector = PostgresConnector(connector_settings())
+    with pytest.raises(ConnectorError, match="required destination key") as preflight:
+        connector.preflight_destination(
+            postgres_credentials, locator, schema, PostgresAppendPolicy()
+        )
+    assert "Destination column ssn" in preflight.value.field_errors
+
+    # Preparation must repeat the protection even when preflight was bypassed
+    # or the index was created after the route was submitted.
+    with pytest.raises(ConnectorError, match="required destination key"):
+        connector.prepare_destination(
+            postgres_credentials,
+            locator,
+            schema,
+            PostgresAppendPolicy(),
+            run_id="guardrail-expression-remove",
+        )
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT id, ssn, label FROM ops.guardrail_expression",
+    ) == [(1, "synthetic-private", "prior row")]
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT indexname FROM pg_indexes WHERE schemaname = 'ops' "
+        "AND tablename = 'guardrail_expression' AND indexname = 'guardrail_dependency'",
+    ) == [("guardrail_dependency",)]
+
+
+@pytest.mark.parametrize("topology", ["partition", "subpartition", "inheritance"])
+@pytest.mark.parametrize(
+    "index_definition",
+    [
+        "CREATE UNIQUE INDEX descendant_guardrail_key ON guardrail_children.guardrail_leaf (lower(ssn))",
+        "CREATE UNIQUE INDEX descendant_guardrail_key ON guardrail_children.guardrail_leaf (label) WHERE ssn IS NOT NULL",
+        "CREATE UNIQUE INDEX descendant_guardrail_key ON guardrail_children.guardrail_leaf (ssn)",
+    ],
+    ids=["expression", "predicate", "column"],
+)
+def test_postgres_remove_protects_descendant_unique_indexes(
+    postgres_credentials, topology, index_definition
+) -> None:
+    locator = postgres_table("public", "guardrail_parent")
+    _execute(postgres_credentials, "CREATE SCHEMA guardrail_children")
+    if topology == "inheritance":
+        _execute(
+            postgres_credentials,
+            "CREATE TABLE public.guardrail_parent (id INTEGER, ssn TEXT, label TEXT)",
+        )
+        # Inheritance permits different physical column positions. Protection
+        # must use each descendant's identifiers rather than the parent's offsets.
+        _execute(
+            postgres_credentials,
+            "CREATE TABLE guardrail_children.guardrail_leaf (ssn TEXT, label TEXT, id INTEGER)",
+        )
+        _execute(
+            postgres_credentials,
+            "ALTER TABLE guardrail_children.guardrail_leaf INHERIT public.guardrail_parent",
+        )
+    else:
+        _execute(
+            postgres_credentials,
+            "CREATE TABLE public.guardrail_parent (id INTEGER, ssn TEXT, label TEXT) "
+            "PARTITION BY RANGE (id)",
+        )
+        if topology == "subpartition":
+            _execute(
+                postgres_credentials,
+                "CREATE TABLE guardrail_children.guardrail_middle PARTITION OF "
+                "public.guardrail_parent FOR VALUES FROM (0) TO (100) PARTITION BY RANGE (id)",
+            )
+            _execute(
+                postgres_credentials,
+                "CREATE TABLE guardrail_children.guardrail_leaf PARTITION OF "
+                "guardrail_children.guardrail_middle FOR VALUES FROM (0) TO (100)",
+            )
+        else:
+            _execute(
+                postgres_credentials,
+                "CREATE TABLE guardrail_children.guardrail_leaf PARTITION OF "
+                "public.guardrail_parent FOR VALUES FROM (0) TO (100)",
+            )
+    _execute(postgres_credentials, index_definition)
+    _execute(
+        postgres_credentials,
+        "INSERT INTO guardrail_children.guardrail_leaf (id, ssn, label) "
+        "VALUES (1, 'synthetic-private', 'prior row')",
+    )
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="id", data_type="Int32"),
+            ColumnSchema(name="label", data_type="String"),
+        ),
+        removed_columns=("ssn",),
+    )
+    connector = PostgresConnector(connector_settings())
+    with pytest.raises(ConnectorError, match="required destination key") as preflight:
+        connector.preflight_destination(
+            postgres_credentials, locator, schema, PostgresAppendPolicy()
+        )
+    assert "Destination column ssn" in preflight.value.field_errors
+    with pytest.raises(ConnectorError, match="required destination key"):
+        connector.prepare_destination(
+            postgres_credentials,
+            locator,
+            schema,
+            PostgresAppendPolicy(),
+            run_id="descendant-guardrail-remove",
+        )
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT id, ssn, label FROM guardrail_children.guardrail_leaf",
+    ) == [(1, "synthetic-private", "prior row")]
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT indexname FROM pg_indexes WHERE schemaname = 'guardrail_children' "
+        "AND tablename = 'guardrail_leaf' AND indexname = 'descendant_guardrail_key'",
+    ) == [("descendant_guardrail_key",)]
+
+
+def test_postgres_remove_preserves_unrelated_partition_unique_index(postgres_credentials) -> None:
+    locator = postgres_table("public", "guardrail_parent")
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.guardrail_parent (id INTEGER, ssn TEXT, label TEXT) "
+        "PARTITION BY RANGE (id)",
+    )
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.guardrail_leaf PARTITION OF public.guardrail_parent "
+        "FOR VALUES FROM (0) TO (100)",
+    )
+    _execute(
+        postgres_credentials,
+        "CREATE UNIQUE INDEX unrelated_guardrail_key ON public.guardrail_leaf (lower(label))",
+    )
+    _execute(
+        postgres_credentials,
+        "INSERT INTO public.guardrail_parent VALUES (1, 'synthetic-private', 'prior row')",
+    )
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="id", data_type="Int32"),
+            ColumnSchema(name="label", data_type="String"),
+        ),
+        removed_columns=("ssn",),
+    )
+    PostgresConnector(connector_settings()).preflight_destination(
+        postgres_credentials, locator, schema, PostgresAppendPolicy()
+    )
+    _load(
+        postgres_credentials,
+        locator,
+        PostgresAppendPolicy(),
+        pl.DataFrame({"id": [2], "label": ["new row"]}),
+        "unrelated-partition-guardrail-remove",
+        schema=schema,
+    )
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT id, label FROM public.guardrail_parent ORDER BY id",
+    ) == [(1, "prior row"), (2, "new row")]
+    assert (
+        _fetchall(
+            postgres_credentials,
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'guardrail_leaf' AND column_name = 'ssn'",
+        )
+        == []
+    )
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' "
+        "AND tablename = 'guardrail_leaf' AND indexname = 'unrelated_guardrail_key'",
+    ) == [("unrelated_guardrail_key",)]
+
+
+@pytest.mark.parametrize("topology", ["table", "partition", "subpartition"])
+@pytest.mark.parametrize("finish", ["commit", "abort"])
+def test_postgres_remove_serializes_concurrent_index_creation(
+    postgres_credentials, monkeypatch, topology, finish
+) -> None:
+    import app.connectors.postgres as postgres
+
+    locator = postgres_table("public", "guardrail_lock_parent")
+    if topology == "table":
+        _execute(
+            postgres_credentials,
+            "CREATE TABLE public.guardrail_lock_parent (id INTEGER, ssn TEXT, label TEXT)",
+        )
+        index_target = "public.guardrail_lock_parent"
+    else:
+        _execute(
+            postgres_credentials,
+            "CREATE TABLE public.guardrail_lock_parent (id INTEGER, ssn TEXT, label TEXT) "
+            "PARTITION BY RANGE (id)",
+        )
+        if topology == "subpartition":
+            _execute(
+                postgres_credentials,
+                "CREATE TABLE public.guardrail_lock_middle PARTITION OF public.guardrail_lock_parent "
+                "FOR VALUES FROM (0) TO (100) PARTITION BY RANGE (id)",
+            )
+            _execute(
+                postgres_credentials,
+                "CREATE TABLE public.guardrail_lock_leaf PARTITION OF public.guardrail_lock_middle "
+                "FOR VALUES FROM (0) TO (100)",
+            )
+        else:
+            _execute(
+                postgres_credentials,
+                "CREATE TABLE public.guardrail_lock_leaf PARTITION OF public.guardrail_lock_parent "
+                "FOR VALUES FROM (0) TO (100)",
+            )
+        index_target = "public.guardrail_lock_leaf"
+    _execute(
+        postgres_credentials,
+        "INSERT INTO public.guardrail_lock_parent VALUES (1, 'synthetic-private', 'prior row')",
+    )
+    original_check = postgres._reject_removed_destination_keys
+    attempted = []
+
+    def check_with_concurrent_ddl(cursor, target, removed_columns):
+        original_check(cursor, target, removed_columns)
+        # A separate transaction tries to add the exact dependency just checked.
+        # The timeout avoids relying on thread scheduling or arbitrary sleeps.
+        with connect(postgres_credentials, connector_settings()) as concurrent:
+            concurrent.execute("SET lock_timeout = '200ms'")
+            with pytest.raises(psycopg.errors.LockNotAvailable):
+                concurrent.execute(
+                    f"CREATE UNIQUE INDEX racing_guardrail_key ON {index_target} (lower(ssn))"
+                )
+            concurrent.rollback()
+        attempted.append(True)
+
+    monkeypatch.setattr(postgres, "_reject_removed_destination_keys", check_with_concurrent_ddl)
+    connector = PostgresConnector(connector_settings())
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="id", data_type="Int32"),
+            ColumnSchema(name="label", data_type="String"),
+        ),
+        removed_columns=("ssn",),
+    )
+    session = connector.prepare_destination(
+        postgres_credentials, locator, schema, PostgresAppendPolicy(), run_id="guardrail-lock"
+    )
+    try:
+        assert attempted
+        frame = pl.DataFrame({"id": [2], "label": ["new row"]})
+        connector.write_batch(
+            session,
+            TransferBatch(
+                frame=frame, row_count=1, byte_count=int(frame.estimated_size()), sequence=1
+            ),
+        )
+        # Protection must survive preparation and every batch until completion.
+        with connect(postgres_credentials, connector_settings()) as concurrent:
+            concurrent.execute("SET lock_timeout = '200ms'")
+            with pytest.raises(psycopg.errors.LockNotAvailable):
+                concurrent.execute(
+                    f"CREATE UNIQUE INDEX pending_guardrail_key ON {index_target} (lower(label))"
+                )
+            concurrent.rollback()
+        if finish == "commit":
+            connector.finalize(session)
+        else:
+            connector.abort(session)
+    finally:
+        connector.abort(session)
+
+    # Both completion paths release the lock; rollback restores the source
+    # column and commit preserves only the intended transformed schema.
+    with connect(postgres_credentials, connector_settings()) as concurrent:
+        concurrent.execute("SET lock_timeout = '1s'")
+        concurrent.execute(
+            f"CREATE UNIQUE INDEX completed_guardrail_key ON {index_target} (lower(label))"
+        )
+    rows = _fetchall(
+        postgres_credentials,
+        "SELECT id, label FROM public.guardrail_lock_parent ORDER BY id",
+    )
+    assert rows == (
+        [(1, "prior row"), (2, "new row")] if finish == "commit" else [(1, "prior row")]
+    )
+    columns = _fetchall(
+        postgres_credentials,
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' "
+        "AND table_name = 'guardrail_lock_parent' AND column_name = 'ssn'",
+    )
+    assert columns == ([] if finish == "commit" else [("ssn",)])
+
+
+def test_postgres_remove_checks_target_created_during_preparation(
+    postgres_credentials, monkeypatch
+) -> None:
+    locator = postgres_table("public", "guardrail_created_late")
+    original_execute = psycopg.Cursor.execute
+    created = []
+
+    def execute_with_concurrent_target(
+        cursor, query: LiteralString | bytes | sql.SQL | sql.Composed, params=None, **kwargs
+    ):
+        rendered = (
+            query.as_string(cursor.connection) if isinstance(query, sql.Composable) else query
+        )
+        if (
+            not created
+            and isinstance(rendered, str)
+            and rendered.startswith('CREATE TABLE IF NOT EXISTS "public"."guardrail_created_late"')
+        ):
+            # The existence query saw no target, but a different transaction
+            # creates one just before CREATE IF NOT EXISTS reaches PostgreSQL.
+            created.append(True)
+            with connect(postgres_credentials, connector_settings()) as concurrent:
+                concurrent.execute("SET lock_timeout = '1s'")
+                concurrent.execute(
+                    "CREATE TABLE public.guardrail_created_late (id INTEGER, ssn TEXT, label TEXT)"
+                )
+                concurrent.execute(
+                    "CREATE UNIQUE INDEX late_guardrail_key ON public.guardrail_created_late (lower(ssn))"
+                )
+                concurrent.execute(
+                    "INSERT INTO public.guardrail_created_late VALUES (1, 'synthetic-private', 'prior row')"
+                )
+        return original_execute(cursor, query, params, **kwargs)
+
+    monkeypatch.setattr(psycopg.Cursor, "execute", execute_with_concurrent_target)
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="id", data_type="Int32"),
+            ColumnSchema(name="label", data_type="String"),
+        ),
+        removed_columns=("ssn",),
+    )
+    with pytest.raises(ConnectorError, match="required destination key"):
+        PostgresConnector(connector_settings()).prepare_destination(
+            postgres_credentials,
+            locator,
+            schema,
+            PostgresAppendPolicy(),
+            run_id="guardrail-created-late",
+        )
+    assert created
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT id, ssn, label FROM public.guardrail_created_late",
+    ) == [(1, "synthetic-private", "prior row")]
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' "
+        "AND tablename = 'guardrail_created_late' AND indexname = 'late_guardrail_key'",
+    ) == [("late_guardrail_key",)]
 
 
 def test_postgres_copy_errors_are_sanitized(postgres_credentials) -> None:

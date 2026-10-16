@@ -74,14 +74,14 @@ def main() -> None:
                 ),
             )
 
-        def prepare(self, credentials, locator, schema, policy, *, run_id):
+        def prepare(self, credentials, locator, schema, write_policy, *, run_id):
             if getattr(locator, "table", "") == "guardrail_failed":
                 raise ConnectorError(
                     TransferErrorCode.SCHEMA_DRIFT,
                     "Synthetic destination preparation failure.",
                     retryable=False,
                 )
-            return original_prepare(self, credentials, locator, schema, policy, run_id=run_id)
+            return original_prepare(self, credentials, locator, schema, write_policy, run_id=run_id)
 
         # Inject markings through both emulator inspection paths, including live
         # cache refresh. Production connectors and cached payloads are untouched.

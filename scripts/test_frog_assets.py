@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run isolated SVG asset/export checks without loading the application."""
+
 from __future__ import annotations
 
 import tempfile
@@ -21,7 +22,9 @@ class FrogAssetTests(unittest.TestCase):
                 ids = [e.get("id") for e in root.iter() if e.get("id")]
                 self.assertEqual(len(ids), len(set(ids)))
                 for element in root.iter():
-                    self.assertNotIn(element.tag.rsplit("}", 1)[-1], {"script", "image", "foreignObject"})
+                    self.assertNotIn(
+                        element.tag.rsplit("}", 1)[-1], {"script", "image", "foreignObject"}
+                    )
                     for key, value in element.attrib.items():
                         self.assertFalse(key.lower().startswith("on"))
                         if key.rsplit("}", 1)[-1] == "href":
@@ -35,7 +38,9 @@ class FrogAssetTests(unittest.TestCase):
                     self.assertEqual(root.get("width"), "512")
                     self.assertEqual(root.get("height"), "512")
                     self.assertEqual(root.findall(f".//{{{NS}}}style"), [])
-                    self.assertTrue(any(e.get("fill") == COLORS[theme]["surface"] for e in root.iter()))
+                    self.assertTrue(
+                        any(e.get("fill") == COLORS[theme]["surface"] for e in root.iter())
+                    )
                     self.assertFalse(any(e.get("class") for e in root.iter()))
 
     def test_optical_sizes_change_geometry(self) -> None:

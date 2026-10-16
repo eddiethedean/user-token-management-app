@@ -63,7 +63,7 @@ The GitHub repository is `user-token-management-app`. The installable package an
 `access-registry`. The product name in the UI is Data Mover.
 
 **Which Python version do I need?**  
-Python 3.11 or newer. CI runs 3.11.
+Python 3.11 or newer. CI runs 3.11, 3.12, and 3.13.
 
 **What CSV files can I use as pipeline sources?**
 UTF-8 `.csv` files up to 5 MB. Data Mover validates the header and row shape, then detects column names,

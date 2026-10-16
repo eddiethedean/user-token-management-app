@@ -467,6 +467,7 @@ class PostgresConnector:
                     )
                 if recreates_schema:
                     return ObjectSchema(locator=locator, columns=source_schema.columns)
+                _reject_removed_destination_keys(cursor, locator, source_schema.removed_columns)
                 cursor.execute(
                     """
                     SELECT column_name, data_type, is_nullable, numeric_precision, numeric_scale,
@@ -514,24 +515,6 @@ class PostgresConnector:
                 unique_columns: dict[str, list[str]] = {}
                 for constraint_name, column_name in cursor.fetchall():
                     unique_columns.setdefault(str(constraint_name), []).append(str(column_name))
-                removed_destination_keys = set(source_schema.removed_columns).intersection(
-                    {
-                        *primary_key,
-                        *(name for names in unique_columns.values() for name in names),
-                    }
-                )
-                if removed_destination_keys:
-                    removed_key = sorted(removed_destination_keys)[0]
-                    raise ConnectorError(
-                        TransferErrorCode.SCHEMA_DRIFT,
-                        "A selected Remove action targets a required destination key.",
-                        retryable=False,
-                        field_errors={
-                            f"Destination column {removed_key}": (
-                                "A column that belongs to a primary or unique key cannot be removed."
-                            )
-                        },
-                    )
 
             destination_columns = tuple(
                 ColumnSchema(
@@ -825,9 +808,6 @@ class PostgresConnector:
                             )
                         destination_exists = bool(destination_row[0])
                         if destination_exists:
-                            _reject_removed_destination_keys(
-                                cursor, locator, schema.removed_columns
-                            )
                             transferable_schema = ObjectSchema(
                                 locator=schema.locator,
                                 columns=tuple(
@@ -859,6 +839,18 @@ class PostgresConnector:
                             sql.Identifier(locator.schema_name, locator.table), col_defs
                         )
                     )
+                    if schema.removed_columns:
+                        # LOCK without ONLY includes all current descendants and
+                        # prevents concurrent index creation or partition changes.
+                        # Check after CREATE so a target created by another session
+                        # since the earlier existence query is protected as well.
+                        # The load transaction retains these locks until commit/abort.
+                        cursor.execute(
+                            sql.SQL("LOCK TABLE {} IN ACCESS EXCLUSIVE MODE").format(
+                                sql.Identifier(locator.schema_name, locator.table)
+                            )
+                        )
+                        _reject_removed_destination_keys(cursor, locator, schema.removed_columns)
                     cursor.execute(
                         sql.SQL(
                             "CREATE TABLE {} (LIKE {} INCLUDING DEFAULTS INCLUDING GENERATED)"
@@ -1555,14 +1547,36 @@ def _reject_removed_destination_keys(
 
     if not removed_columns:
         return
+    # indkey names direct index columns, but expressions use a zero entry
+    # and partial-index predicates are absent. Their column dependencies live
+    # in pg_depend; dropping one would silently drop the unique index as well.
+    # Column drops also recurse through partitions and inheritance descendants,
+    # including descendants in other schemas with their own local indexes.
     cursor.execute(
         """
+        WITH RECURSIVE affected_relations(oid) AS (
+            SELECT c.oid
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = %s AND c.relname = %s
+            UNION
+            SELECT child.inhrelid
+            FROM pg_inherits child
+            JOIN affected_relations parent ON parent.oid = child.inhparent
+        )
         SELECT DISTINCT a.attname
-        FROM pg_index i
-        JOIN pg_class c ON c.oid = i.indrelid
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-        WHERE n.nspname = %s AND c.relname = %s AND i.indisunique
+        FROM affected_relations relation
+        JOIN pg_index i ON i.indrelid = relation.oid
+        JOIN pg_attribute a ON a.attrelid = i.indrelid AND (
+            a.attnum = ANY(i.indkey)
+            OR EXISTS (
+                SELECT 1 FROM pg_depend d
+                WHERE d.classid = 'pg_class'::regclass AND d.objid = i.indexrelid
+                  AND d.refclassid = 'pg_class'::regclass AND d.refobjid = i.indrelid
+                  AND d.refobjsubid = a.attnum AND a.attnum > 0
+            )
+        )
+        WHERE i.indisunique
         """,
         (locator.schema_name, locator.table),
     )

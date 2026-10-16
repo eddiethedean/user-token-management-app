@@ -124,7 +124,7 @@ ignore = ["B008", "E501"]
 pythonVersion = "3.11"
 typeCheckingMode = "standard"
 extraPaths = ["."]
-include = ["app", "tests"]
+include = ["app", "tests", "scripts"]
 exclude = ["**/__pycache__", "access_registry.egg-info", ".venv"]
 reportMissingTypeStubs = false
 

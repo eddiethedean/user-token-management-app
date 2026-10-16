@@ -135,6 +135,7 @@ log during routine review or incident investigation.
 | [docs/architecture.md](docs/architecture.md) | Trust boundaries and layout |
 | [docs/data-pipelines.md](docs/data-pipelines.md) | Current pipeline lifecycle and future scheduling, validation, and transformation architecture |
 | [docs/maintainer-guide.md](docs/maintainer-guide.md) | Developer workflow, extension points, testing, and operations |
+| [docs/README.md](docs/README.md) | Documentation map, code map, source-of-truth locations, and change recipes |
 | [docs/runbooks/pipeline-worker.md](docs/runbooks/pipeline-worker.md) | In-process transfer runtime operations |
 | [docs/providers/mss.md](docs/providers/mss.md) | Frozen MSS/Foundry protocol notes |
 | [docs/providers/mcscop.md](docs/providers/mcscop.md) | Frozen MCS-COP/Foundry protocol notes |
@@ -148,7 +149,7 @@ log during routine review or incident investigation.
 
 ## Prerequisites
 
-- **Python 3.11+** (CI runs 3.11; 3.12/3.13 should work)
+- **Python 3.11+** (CI runs 3.11, 3.12, and 3.13)
 - Network access to install dependencies from PyPI
 - **Development:** SQLite (default)
 - **Production:** PostgreSQL (`postgresql+psycopg://…`), HTTPS, SMTP — see [docs/deploy.md](docs/deploy.md)
@@ -246,7 +247,13 @@ Schema must be current before `create-admin` or `serve` (startup checks).
 | `make serve` | `python -m app serve --reload` |
 | `make demo` | Create/refresh a local demo account, seed three fake provider connections, and serve on port 8765 |
 | `make create-admin` | Uses `ADMIN_EMAIL` (default `admin@example.gov`); set `ADMIN_BOOTSTRAP_PASSWORD` for non-interactive local mode |
-| `make check` | ruff + basedpyright + Hedron/Posit checks + pytest (80% coverage gate) + demo-app tests |
+| `make lint` | Run Ruff lint checks only |
+| `make format` | Reformat Python files with Ruff |
+| `make format-check` | Check Ruff formatting without changing files |
+| `make typecheck` | Run basedpyright only |
+| `make test-file FILE=…` | Run one focused pytest file using the repository interpreter |
+| `make docs-check` | Check local Markdown link targets |
+| `make check` | Run the complete CI-quality gate: lint, formatting, types, docs, Hedron/Posit checks, pytest (80% coverage gate), and demo-app tests |
 | `make hedron-check` | Validate Hedron routes and interaction contracts |
 | `make hedron-security-check` | Write the strict Hedron security posture report |
 | `make posit-check` | Validate HedronPosit deployment and cookie-path matrix |
@@ -298,7 +305,9 @@ Details: [docker/README.md](docker/README.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, and how to add an HTMX page.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, and how to add an HTMX page. The
+[documentation guide](docs/README.md) is the quickest way to find the right code, test, or runbook
+when fixing a problem.
 
 ## License
 
