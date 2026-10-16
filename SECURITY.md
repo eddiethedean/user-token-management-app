@@ -30,7 +30,11 @@ pipeline definitions are real owner-scoped database content. Day-to-day setup li
 [README](README.md) and [docs/](docs/); use this file for the decision register and production gate.
 Sensitive-data guardrails refresh configured Foundry metadata, block table-level sensitivity,
 scan the complete extracted source for supported SSN patterns, and enforce saved Hash/Remove
-decisions before destination staging (SD-27). Databricks/Advana and MongoDB remain outside the
+decisions before destination staging (SD-27). The gated Databricks connector adds owner-bound
+Unity Catalog metadata review, durable compute startup, and staged Delta publication with recovery.
+Its [provider controls](docs/providers/databricks.md) and
+[live acceptance requirements](docs/plans/databricks-acceptance.md) apply independently of local
+simulation results. This does not attest an Advana deployment. MongoDB remains outside the
 implemented connector surface; proposed or archived integrations do not extend this boundary.
 
 ## Reporting a vulnerability
@@ -1278,6 +1282,11 @@ it. Column-level matches require a saved **Hash** or **Remove** decision. The se
 detector checks untagged columns for supported SSN-shaped digit, hyphen, space, and numeric forms
 and returns column-level matching-cell counts without returning matched values. It does not identify
 all PII or prove that a detected number is an assigned SSN.
+Finite whole numeric values (including float/decimal scalars and numeric text) are normalized to
+nine digits to restore leading zeros lost in storage. Fractional, negative, non-finite, and
+out-of-range numeric values are excluded rather than rounded into an SSN-shaped value.
+Numeric text uses the CSV profiler's integer/decimal grammar, including trailing decimal points
+and leading-dot scientific notation, even in columns containing other text values.
 
 The owner's optional preview scan binds findings and controls to the selected source. Submitted
 preview findings are review data, not execution authority. Enqueue repeats live source/destination
@@ -1293,7 +1302,15 @@ and exact column identifier. Whitespace in an identifier is preserved; blank/con
 names and duplicate detector/column decisions are rejected. Saved policies still apply to columns
 that remain present when their current marker or pattern match disappears. Remove wins when both
 actions apply to the same column. Missing marked columns, removing all source columns, or removing
-a required destination primary/unique key blocks the run before staging.
+a required destination primary/unique key blocks the run before staging. PostgreSQL preflight and
+destination preparation also protect columns used by unique index expressions or predicates, whose
+removal would otherwise silently drop uniqueness enforcement. This check includes local indexes on
+all partition and inheritance descendants, including nested partitions in other schemas.
+For Remove actions, preparation acquires recursive `ACCESS EXCLUSIVE` table locks before the
+authoritative dependency check and retains them through destination commit or rollback. The check
+runs after ensuring the target exists, including a target created concurrently during preparation.
+Concurrent index creation and partition changes cannot invalidate the checked dependencies before
+the column drop. Read-only preflight remains advisory and does not acquire these write locks.
 
 | Action | Implemented behavior | Security and operational boundary |
 | --- | --- | --- |

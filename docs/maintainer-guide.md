@@ -67,7 +67,7 @@ cryptography stay behind their owning service boundaries.
 
 ## Local development
 
-Use Python 3.11, which is the CI version:
+Use Python 3.11 for the local baseline. CI also exercises Python 3.12 and 3.13:
 
 ```bash
 python3.11 -m venv .venv
@@ -235,8 +235,9 @@ The built-in baseline is symmetric for remote providers: MSS, MCS-COP, and Postg
 source and destination roles, and all three writers default to enabled. CSV is the sole source-only
 provider. Preserve that matrix unless a provider's tested protocol changes.
 
-1. Add typed credential fields in `app/services/secrets_types.py` and register the provider in
-   `app/services/secret_catalog.py`.
+1. Add framework-neutral credential value types in `app/domain/credentials.py` when needed and
+   register provider fields in `app/services/secret_catalog.py`. The compatibility exports in
+   `app/services/secrets_types.py` should not become a second source of truth.
 2. Add or update pure validation rules in `app/services/secret_validation.py`.
 3. Implement the `Connector` protocol in `app/connectors/`; keep a fake adapter for demo mode.
 4. Register the factory through `app/connectors/registry.py` and add capability metadata.

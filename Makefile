@@ -3,7 +3,7 @@
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 POSIT_CLI ?= $(if $(wildcard $(dir $(PYTHON))hedron-posit),$(dir $(PYTHON))hedron-posit,hedron-posit)
 
-.PHONY: check demo demo-check databricks-tools databricks-check hedron-check hedron-build hedron-security-check posit-check migrate install serve create-admin schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
+.PHONY: check format format-check lint typecheck test test-file docs-check demo demo-check databricks-tools databricks-check hedron-check hedron-build hedron-security-check posit-check migrate install serve create-admin schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -32,13 +32,32 @@ create-admin:
 		$(PYTHON) -m app create-admin --email "$(ADMIN_EMAIL)"; \
 	fi
 
-check: databricks-tools
-	$(PYTHON) -m ruff check app tests demo-app
-	$(PYTHON) -m ruff format --check app tests demo-app
+format:
+	$(PYTHON) -m ruff format app tests demo-app scripts
+
+format-check:
+	$(PYTHON) -m ruff format --check app tests demo-app scripts
+
+lint:
+	$(PYTHON) -m ruff check app tests demo-app scripts
+
+typecheck:
 	$(PYTHON) -m basedpyright
+
+test: databricks-tools
+	DATABRICKS_TEST_TOOLS_REQUIRED=1 $(PYTHON) -m pytest -n auto --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
+
+test-file:
+	@test -n "$(FILE)" || (echo "Usage: make test-file FILE=tests/test_example.py" >&2; exit 1)
+	$(PYTHON) -m pytest "$(FILE)"
+
+docs-check:
+	$(PYTHON) scripts/check_docs.py
+
+check: lint format-check typecheck docs-check
 	$(MAKE) hedron-check
 	$(MAKE) posit-check
-	DATABRICKS_TEST_TOOLS_REQUIRED=1 $(PYTHON) -m pytest -n auto --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
+	$(MAKE) test
 	$(MAKE) demo-check
 
 demo-check:

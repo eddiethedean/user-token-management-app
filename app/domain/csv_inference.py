@@ -15,6 +15,15 @@ _DECIMAL_PATTERN = re.compile(r"^[+-]?(?:(?:\d+\.\d*|\d*\.\d+)(?:[eE][+-]?\d+)?|
 _PADDED_NUMBER_PATTERN = re.compile(r"^[+-]?0\d+(?:\.|[eE])")
 
 
+def is_numeric_text(value: str) -> bool:
+    """Match the integer and decimal syntax accepted by CSV profiling."""
+
+    return (
+        _INTEGER_PATTERN.fullmatch(value) is not None
+        or _DECIMAL_PATTERN.fullmatch(value) is not None
+    )
+
+
 @dataclass(frozen=True)
 class CsvColumnProfile:
     name: str

@@ -18,6 +18,10 @@ The current content detector recognizes SSN-shaped patterns only. It is designed
 
 The SSN checker matches supported digit, hyphen, and space forms without returning the matching text. It counts matches by column. Metadata-tagged columns are excluded from the content detector because their sensitivity has already been identified by Foundry metadata.
 
+Whole numeric values, including float/decimal columns and numeric text, are normalized to nine digits so leading zeros lost in storage are restored before checking. Fractional, negative, non-finite, and out-of-range numeric values are excluded without rounding. Schema examples use the same detector to redact matching numeric values.
+
+Numeric text shares the CSV profiler's numeric syntax, including trailing decimal points and leading-dot scientific notation. Detection applies even when other values in the same column require keeping it as text.
+
 The preview route binds scan results to the current source identity; changing the selected source invalidates results from the prior source. The worker independently scans every extracted batch and accumulates per-column counts while writing source batches into an encrypted, size-limited spool for the pre-write review.
 
 Preview validates generated findings before rendering action controls. A finding whose column name is blank, over 256 characters, or contains ASCII control characters returns safe HTTP 422 feedback with instructions to rename the unsupported column and scan again. New CSV uploads reject control characters in headers during inspection with instructions to rename and re-upload; tab delimiters and quoted multiline **cell values** remain supported. Guardrail decisions preserve exact inspected names rather than silently trimming them.

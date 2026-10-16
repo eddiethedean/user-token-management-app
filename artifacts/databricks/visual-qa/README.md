@@ -38,7 +38,8 @@ Twelve new Databricks UI/presentation/cache regressions live in `tests/test_data
 
 ## Local validation
 
-- `make check`: 796 application tests and 25 demo tests passed; 80.78% coverage. Ruff, formatting, BasedPyright, Hedron, and the Posit matrix passed.
+- Final validation includes the latest `main` changes and resolved Makefile/guardrail conflicts.
+- `make check`: 854 application tests and 25 demo tests passed; 81.03% coverage. Ruff, formatting, BasedPyright, Hedron, and the Posit matrix passed.
 - `make databricks-check`: 131 tests passed, requiring MiniLake, WireMock, Toxiproxy, and PostgreSQL coverage.
 - `make hedron-build`, `uv lock --check`, and `git diff --check` passed.
 

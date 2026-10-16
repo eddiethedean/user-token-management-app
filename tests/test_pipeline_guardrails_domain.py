@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import polars as pl
 import pytest
@@ -121,6 +122,63 @@ def test_scan_frame_counts_matches_without_returning_ignored_columns() -> None:
     )
     assert scan_ssn_frame(frame, ignored_columns=("tagged",)) == {"ssn": 1}
     assert scan_ssn_frame(frame) == {"ssn": 1, "tagged": 1}
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        12345678,
+        12345678.0,
+        Decimal("12345678.00"),
+        Decimal("1.2345678E+7"),
+        "12345678.00",
+        "1.2345678E+7",
+        "12345678.",
+        "12345678.e0",
+        ".12345678e8",
+        "+.12345678E+8",
+    ],
+)
+def test_ssn_detection_restores_leading_zero_for_integral_numbers(value) -> None:
+    assert contains_supported_ssn(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        12345678.5,
+        Decimal("12345678.01"),
+        "123456789.01",
+        ".12345678901e9",
+        "-12345678.e0",
+        "-123456789.00",
+        "1E+999999999999999999999",
+        -123456789,
+        1234567890,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        Decimal("NaN"),
+        Decimal("sNaN"),
+        Decimal("Infinity"),
+        Decimal("1E+1000"),
+        Decimal("666123456.00"),
+        Decimal("123004567.00"),
+        Decimal("123450000.00"),
+    ],
+)
+def test_ssn_detection_rejects_invalid_numeric_values(value) -> None:
+    assert not contains_supported_ssn(value)
+
+
+def test_scan_frame_detects_leading_zero_ssns_in_float_and_decimal_columns() -> None:
+    frame = pl.DataFrame(
+        {
+            "floating": [12345678.0, None, 12345678.5],
+            "decimal": [Decimal("12345678.00"), None, Decimal("12345678.01")],
+        }
+    )
+    assert scan_ssn_frame(frame) == {"floating": 1, "decimal": 1}
 
 
 def test_action_lookup_keys_detector_and_column() -> None:

@@ -90,6 +90,80 @@ def test_legacy_csv_scan_returns_feedback_for_unsupported_column_names(
     assert "123-45-6789" not in response.text
 
 
+@pytest.mark.parametrize("numeric_text", ["12345678.00", "12345678.", "12345678.e0", ".12345678e8"])
+@pytest.mark.parametrize("mixed_text", [False, True], ids=["decimal-column", "text-column"])
+def test_decimal_ssn_requires_review_before_destination_preparation(
+    client, demo_connections, monkeypatch, numeric_text, mixed_text
+) -> None:
+    web_login(client, next_path="/pipeline")
+    csrf = csrf_from(client.get("/pipeline").text)
+    content = f"id,ssn\n1,{numeric_text}\n" + ("2,ordinary\n" if mixed_text else "")
+    upload = client.post(
+        "/pipeline/csv/inspect",
+        data={"csrf_token": csrf},
+        files={"csv_file": ("numeric-ssn.csv", content.encode(), "text/csv")},
+        headers={"HX-Request": "true", "HX-Target": "pipeline-csv-inspection"},
+    )
+    assert upload.status_code == 200
+    match = re.search(r'name="source_upload_id" value="([^"]+)"', upload.text)
+    assert match is not None
+    form = {
+        "csrf_token": csrf,
+        "pipeline_name": "Decimal SSN guardrail",
+        "source_provider": "csv",
+        "source_upload_id": match.group(1),
+        "destination_provider": "postgres",
+        "destination_schema": "public",
+        "destination_table": "numeric_ssn_review",
+        "write_mode": "append",
+    }
+    preview = client.post(
+        "/pipeline/preview",
+        data={**form, "scan_sensitive_data": "true"},
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+    assert preview.status_code == 200
+    summary_match = re.search(r'name="guardrail_scan_result" value="([^"]+)"', preview.text)
+    assert summary_match is not None
+    findings = json.loads(html.unescape(summary_match.group(1)))["findings"]
+    assert findings == [{"detector": "ssn", "source": "Content scan", "column": "ssn", "count": 1}]
+    assert numeric_text not in preview.text
+    saved = client.post("/pipeline/save", data=form)
+    assert saved.status_code == 303
+    with SessionLocal() as db:
+        pipeline_id = db.scalar(
+            select(PipelineDefinition.id).where(PipelineDefinition.name == form["pipeline_name"])
+        )
+    assert pipeline_id is not None
+
+    destination = destination_writer_for("postgres")
+    monkeypatch.setattr(
+        destination,
+        "prepare_destination",
+        lambda *args, **kwargs: pytest.fail("Unresolved numeric SSN reached destination staging"),
+    )
+    monkeypatch.setattr("app.worker.destination_writer_for", lambda _provider: destination)
+    queued = client.post(
+        "/pipeline/runs",
+        data={"csrf_token": csrf, "pipeline_id": pipeline_id},
+        headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor"},
+    )
+    assert queued.status_code == 202
+    with SessionLocal() as db:
+        run = db.scalar(
+            select(PipelineRun).where(PipelineRun.pipeline_definition_id == pipeline_id)
+        )
+        assert run is not None
+        assert run.status == "blocked"
+        assert run.error_code == "sensitive_data_guardrail_blocked"
+        assert run.loaded_rows == 0
+        review = json.loads(run.guardrail_json or "{}")
+        assert review["outcome"] == "blocked"
+        assert review["destination_outcome"] == "unchanged"
+        assert review["findings"][0]["column"] == "ssn"
+        assert numeric_text not in (run.guardrail_json or "")
+
+
 @pytest.mark.parametrize("resolved_columns", [(), ("ssn",), ("ssn", "alternate")])
 def test_saved_content_decisions_protect_every_batch_and_keep_review_value_free(
     client, demo_connections, monkeypatch, caplog, resolved_columns

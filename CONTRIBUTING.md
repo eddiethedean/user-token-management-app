@@ -29,9 +29,15 @@ only when an explicitly disposable database should be reset to the fake values.
 make check
 ```
 
-This runs Ruff (lint + format check), basedpyright on `app/`, Hedron and HedronPosit checks, pytest
-with an 80% coverage gate, and the demo-app tests. CI runs the same on Python 3.11 for pushes and
-PRs to `main`, followed by the production Hedron manifest build.
+This runs Ruff (lint + format check), basedpyright on `app/`, `tests/`, and `scripts/`, Hedron and
+HedronPosit checks, pytest with an 80% coverage gate, and the demo-app tests. CI runs the same on
+Python 3.11, 3.12, and 3.13 for pushes and PRs to `main`, followed by the production Hedron
+manifest build on Python 3.11.
+
+For faster feedback while iterating, use `make lint`, `make format-check`, `make typecheck`, or
+`make test-file FILE=tests/test_example.py`. `make docs-check` catches broken local Markdown link
+targets.
+The [documentation guide](docs/README.md) maps common changes to their owning modules and tests.
 
 ## Architecture for contributors
 
@@ -75,8 +81,9 @@ tests under `tests/` (especially `test_auth_security.py`, `test_secrets.py`, and
 
 Provider and pipeline features span several contracts. When adding or changing a connection type:
 
-1. Define its typed credential fields in `app/services/secrets_types.py`, register the provider in
-   `app/services/secret_catalog.py`, and keep validation policy in `app/services/secret_validation.py`.
+1. Add framework-neutral credential value types in `app/domain/credentials.py` when needed, register
+   provider fields in `app/services/secret_catalog.py`, and keep validation policy in
+   `app/services/secret_validation.py`. `app/services/secrets_types.py` retains compatibility exports.
 2. Implement the connector protocol in `app/connectors/` and register it (keep a fake adapter until
    the real path's exit gate passes).
 3. Add the provider to the typed form allowlists in `app/ui/params.py` and to pipeline persistence

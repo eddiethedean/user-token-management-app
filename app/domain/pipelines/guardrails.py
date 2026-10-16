@@ -7,9 +7,12 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.domain.csv_inference import is_numeric_text
 
 GuardrailDetector = Literal["foundry_metadata", "databricks_metadata", "ssn"]
 GuardrailActionName = Literal["hash", "remove"]
@@ -65,7 +68,6 @@ class GuardrailFinding:
 
 
 _SSN_PATTERN = re.compile(r"(?<!\d)(?!000|666|9\d\d)\d{3}[- ]?(?!00)\d{2}[- ]?(?!0000)\d{4}(?!\d)")
-_SSN_NUMBER_PATTERN = re.compile(r"^\d{1,9}$")
 
 
 def guardrail_source_key(
@@ -318,8 +320,22 @@ def contains_supported_ssn(value: object) -> bool:
     if isinstance(value, bool):
         return False
     text = str(value).strip()
-    if _SSN_NUMBER_PATTERN.fullmatch(text) and len(text) < 9:
-        text = text.zfill(9)
+    if isinstance(value, (int, float, Decimal)) or is_numeric_text(text):
+        # Numeric storage can discard leading zeros and retain a decimal
+        # scale. Restore the nine-digit form only for finite whole values;
+        # rounding a fractional value could invent a sensitivity finding.
+        # Schema examples and text columns also carry numeric values as text.
+        try:
+            number = Decimal(text)
+        except InvalidOperation:
+            return False
+        if (
+            not number.is_finite()
+            or not 0 <= number <= 999_999_999
+            or number != number.to_integral_value()
+        ):
+            return False
+        text = str(int(number)).zfill(9)
     return _SSN_PATTERN.search(text) is not None
 
 
