@@ -1,0 +1,410 @@
+"date","type","issue_id","summary","linked_to","description","acceptance_criteria","hrs"
+"2026-10-14","Epic","RM-EPIC","Data Mover: Guided pipeline remediation and safe new attempts","","Give the owner one Remediation tab to explain a stopped run, correct its cause, check readiness, and start a traceable new attempt. Scope: connection/schema/guardrail/destination-review flows with durable evidence and consistent admission policy.
+
+Owner role: Product / Engineering
+Status: Proposed / not started
+Estimate: planning rollup of Task hrs; do not add parent rollups to task effort.
+Task estimates include implementation, focused tests, normal review fixes, and local verification. Live-provider approval and deployment waiting are excluded.
+Epic guide: ../../docs/stories/pipeline-remediation-epic.md
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md","- All six stories meet their acceptance criteria with named evidence.
+- Unknown/partial writes stay blocked after review; supported resolution and current readiness determine the next action.
+- New attempts use current saved configuration, start from the beginning, and link to the original failure without duplicate admission.
+- Owner/CSRF/redaction, mounted navigation, migration, retention, and rollout contracts are verified.","312"
+"2026-10-14","Story","RM-1","Data Mover: Explain failures and define safe recovery actions","RM-EPIC","As a pipeline owner, I want a clear explanation of what failed, what happened to my destination, and which actions are appropriate so I can choose the next step confidently.
+
+Owner role: Engineering / Product
+Depends on: None
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: task rollup; no additional story-level effort.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-1-tasks","- Every current transfer error and terminal run state maps to a typed remediation case, recommended steps, alternatives, and safe impact copy.
+- Unknown or malformed facts remain conservative. Destination uncertainty takes precedence over credential, schema, and availability fixes.
+- Corrected nonretryable failures can become eligible through supported remediation without changing the original retryable flag. Unknown failures cannot become eligible merely because a health check passes.
+- The reviewed action matrix and policy tests agree on all five destination dispositions, table-level blocks, cancellation, and combined failures.","32"
+"2026-10-14","Task","RM-1-T01","Data Mover: Review recovery copy and disposition policy","RM-1","Review the implementation-plan matrix and five destination dispositions with Product and Operations using synthetic examples.
+
+Owner role: Engineering / Product / Operations
+Depends on: None
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 4 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-1-tasks","- Record agreed wording, operator-report labels, escalation paths, and unresolved external decisions.","4"
+"2026-10-14","Task","RM-1-T02","Data Mover: Define remediation domain contracts","RM-1","Add framework-neutral plan, case, step, action, requirement, observation, and resolution values composed with existing feedback contracts.
+
+Owner role: Engineering
+Depends on: RM-1-T01
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-1-tasks","- Values serialize predictably and reject unsupported actions without importing HTTP or ORM types.","8"
+"2026-10-14","Task","RM-1-T03","Data Mover: Map failures to recovery steps","RM-1","Map stable failure codes, stages, provider roles, guardrail findings, and impact into recommended paths and applicable alternatives.
+
+Owner role: Engineering
+Depends on: RM-1-T02
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-1-tasks","- Every current error family is covered; an ambiguous provider role stays unknown and no action is selected by matching display text.","6"
+"2026-10-14","Task","RM-1-T04","Data Mover: Implement shared eligibility policy","RM-1","Define eligibility for terminal parents, unresolved obligations, corrective prerequisites, cancellation, unknown facts, and resolved publication.
+
+Owner role: Engineering
+Depends on: RM-1-T02, RM-1-T03
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-1-tasks","- Partial/unknown outcomes deny retries, completed publication denies duplicate recovery, and original failure facts remain immutable.","8"
+"2026-10-14","Task","RM-1-T05","Data Mover: Verify policy matrix and conservative fallbacks","RM-1","Add pure policy tests for all codes, terminal states, five dispositions, combined failures, malformed legacy facts, and correction of original nonretryable errors.
+
+Owner role: Engineering / Quality
+Depends on: RM-1-T03, RM-1-T04
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-1-tasks","- Named cases prove precedence and fail-closed behavior without mirroring UI wording.","6"
+"2026-10-14","Story","RM-2","Data Mover: Persist destination reviews and enforce recovery admission","RM-EPIC","As a pipeline owner, I want destination reviews and unresolved obligations to survive refreshes and restarts so that recording a review cannot accidentally authorize an unsafe retry.
+
+Owner role: Engineering
+Depends on: RM-1
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: task rollup; no additional story-level effort.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-2-tasks","- Review records distinguish still unknown, partial/unexpected data, confirmed unchanged, externally restored, and confirmed complete; evidence distinguishes operator reports from provider verification.
+- Every enqueue path uses typed resolution rather than a timestamp alone, and considers older unresolved obligations for the pipeline.
+- Owner checks, expected review revisions, recovery intent uniqueness, and parent relationships are enforced in the service and database.
+- Unresolved reviews and run evidence survive retention cleanup. Legacy timestamps require a typed disposition for new work without cancelling existing runs.
+- SQLite/PostgreSQL migration and separate-session concurrency checks provide named evidence.","68"
+"2026-10-14","Task","RM-2-T01","Data Mover: Add review, readiness, and recovery-intent schema","RM-2","Design additive records, bounded fields, foreign keys, revisions, and uniqueness constraints in the next available Alembic revision.
+
+Owner role: Engineering
+Depends on: RM-1-T05
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-2-tasks","- Both database paths migrate successfully; legacy run status and original manifests are preserved.","8"
+"2026-10-14","Task","RM-2-T02","Data Mover: Implement owner-scoped repositories","RM-2","Persist typed reviews, superseded observations, readiness inputs/results, and recovery intents with transactional reads and writes.
+
+Owner role: Engineering
+Depends on: RM-2-T01
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 10 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-2-tasks","- Cross-owner references fail; supported fields are allowlisted and effective review state is read from durable records.","10"
+"2026-10-14","Task","RM-2-T03","Data Mover: Record structured destination review outcomes","RM-2","Implement review commands, expected-revision checks, evidence kind/reference, actor/time, and resolution rules.
+
+Owner role: Engineering
+Depends on: RM-2-T02, RM-1-T04
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-2-tasks","- Unknown/partial reviews remain unresolved; unchanged/restored can permit later checks; confirmed complete closes recovery without relabelling the original run.","8"
+"2026-10-14","Task","RM-2-T04","Data Mover: Replace timestamp-only enqueue gates","RM-2","Apply the shared policy to ordinary enqueue, Retry, Run again, Save and Run, and the legacy reconcile handler; retain pipeline locking.
+
+Owner role: Engineering
+Depends on: RM-2-T03
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-2-tasks","- All entry points reject unresolved older obligations and stale clients cannot bypass typed resolution.","8"
+"2026-10-14","Task","RM-2-T05","Data Mover: Persist atomic recovery intents and parent checks","RM-2","Bind intent tokens to owner, parent, pipeline, candidate fingerprint, and resulting child; enforce parent terminal state and one admitted recovery branch.
+
+Owner role: Engineering
+Depends on: RM-2-T02, RM-2-T04
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 10 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-2-tasks","- Same intent resolves to one child; mismatched token inputs and competing branches are rejected with actionable conflicts.","10"
+"2026-10-14","Task","RM-2-T06","Data Mover: Handle legacy review and interrupted check records","RM-2","Implement conservative upgrade interpretation and abandonment deadlines for interrupted readiness checks.
+
+Owner role: Engineering
+Depends on: RM-2-T02, RM-2-T04
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-2-tasks","- A legacy timestamp without supported resolution does not unlock new work; existing active/completed attempts retain their state and interrupted checks never become passed.","8"
+"2026-10-14","Task","RM-2-T07","Data Mover: Preserve unresolved evidence through retention and deletion","RM-2","Update janitor and deletion behavior for unresolved reviews, run facts, retained children, and expired check records.
+
+Owner role: Engineering
+Depends on: RM-2-T02, RM-2-T06
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-2-tasks","- Unknown/partial reviews protect evidence; unresolved obligations cannot disappear through pipeline deletion; missing retained ancestors have explicit fallback labels.","6"
+"2026-10-14","Task","RM-2-T08","Data Mover: Verify migration, review races, and gate compatibility","RM-2","Exercise upgrade fixtures, owner isolation, simultaneous review edits, admission/token races, old endpoints, and janitor rules with SQLite and separate PostgreSQL sessions.
+
+Owner role: Engineering / Quality
+Depends on: RM-2-T03, RM-2-T04, RM-2-T05, RM-2-T06, RM-2-T07
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 10 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-2-tasks","- Evidence proves one admission, conflict detection, conservative migration, and consistent gates across start paths.","10"
+"2026-10-14","Story","RM-3","Data Mover: Provide a persistent Remediation tab and focused navigation","RM-EPIC","As a pipeline owner, I want a dedicated tab tied to the failed run so I can review the problem and open the right settings without losing my place.
+
+Owner role: Engineering / Product
+Depends on: RM-1, RM-2
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: task rollup; no additional story-level effort.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-3-tasks","- The tab shows selected run context, plain failure explanation, destination impact, ordered actions, alternative options, evidence, and disabled-action reasons.
+- Explicit links open remediation. Polling updates badges without switching tabs, moving focus, changing the selected historical run, or erasing form edits.
+- Edit links target the affected connection or route control and provide a safe return to the selected run.
+- Empty, deleted, inaccessible, historical, and cancelled cases work through root, Connect, and Workbench mounts with ordinary form/navigation fallbacks.","48"
+"2026-10-14","Task","RM-3-T01","Data Mover: Extract the recovery presenter and fragments","RM-3","Move recovery presentation out of the large pipeline route module into dedicated presenter and partial modules.
+
+Owner role: Engineering
+Depends on: RM-1-T05, RM-2-T08
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-3-tasks","- Existing impact semantics survive extraction and business eligibility stays outside UI rendering.","6"
+"2026-10-14","Task","RM-3-T02","Data Mover: Add tab, badge, and terminal-run entry links","RM-3","Add Remediation beside Live transfer with action-needed count, empty state, Resolve this failure links, and appropriate cancellation entry.
+
+Owner role: Engineering
+Depends on: RM-3-T01
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-3-tasks","- Badge counts unresolved required steps; an explicit link selects the tab and poll completion never switches it automatically.","8"
+"2026-10-14","Task","RM-3-T03","Data Mover: Validate selected run and pipeline navigation context","RM-3","Support owner-scoped pipeline/run/tab parameters and historical-run selection through page and fragment routes.
+
+Owner role: Engineering
+Depends on: RM-3-T02
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-3-tasks","- Forged or unrelated IDs fail safely; new runs do not silently replace the selected historical failure.","6"
+"2026-10-14","Task","RM-3-T04","Data Mover: Render recommended steps, alternatives, and evidence","RM-3","Build compact ordered actions, impact statements, prerequisites, expandable evidence, busy state, and existing schema/guardrail references.
+
+Owner role: Engineering
+Depends on: RM-3-T01, RM-3-T03
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-3-tasks","- Required information remains visible; every disabled action explains why, and unsupported or missing facts produce a clear fallback.","8"
+"2026-10-14","Task","RM-3-T05","Data Mover: Add exact edit links and safe return navigation","RM-3","Link affected connection/route controls, carry server-generated return context, and guard unsaved authoring changes.
+
+Owner role: Engineering
+Depends on: RM-3-T03, RM-3-T04
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-3-tasks","- Users return to the same run after save/test; arbitrary redirects are rejected and returning does not mark a correction complete.","6"
+"2026-10-14","Task","RM-3-T06","Data Mover: Integrate HTMX regions and keyboard behavior","RM-3","Declare remediation/badge regions and route allowlists; provide keyboard access, focus handling, announcements, escaped output, and ordinary-form fallbacks.
+
+Owner role: Engineering
+Depends on: RM-3-T02, RM-3-T04, RM-3-T05
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-3-tasks","- Mount-aware links and fragment swaps preserve selected state and open forms; actions remain usable without hover.","6"
+"2026-10-14","Task","RM-3-T07","Data Mover: Verify terminal states and mounted navigation","RM-3","Add focused route/browser coverage for empty/deleted states, historical runs, cross-owner access, safe return links, polling, narrow layout, and keyboard/focus behavior.
+
+Owner role: Engineering / Quality
+Depends on: RM-3-T02, RM-3-T03, RM-3-T04, RM-3-T05, RM-3-T06
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-3-tasks","- Named checks cover root/Connect/Workbench paths and prove no unsolicited navigation or loss of unsaved input.","8"
+"2026-10-14","Story","RM-4","Data Mover: Guide corrective actions and check current readiness","RM-EPIC","As a pipeline owner, I want to fix the affected connection or route and see a fresh readiness result so I know which prerequisites remain before another attempt.
+
+Owner role: Engineering
+Depends on: RM-2, RM-3
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: task rollup; no additional story-level effort.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-4-tasks","- Existing connection, schema, type, locator, and guardrail controls are reused with affected role/slot context and return navigation.
+- Readiness performs bounded explicit checks and shared source/destination preflight without enqueueing, destination preparation, or writes.
+- Persisted check statuses distinguish not checked, running, passed, failed, stale, and unavailable, with time, scope, and demo/real evidence.
+- Configuration, credential revision, or review changes invalidate results. Differences from the failed snapshot are visible without exposing secrets.
+- Known guardrail decisions can be reviewed; a passed readiness check never replaces the worker full-source scan or overrides a table block.","62"
+"2026-10-14","Task","RM-4-T01","Data Mover: Extract shared read-only route preflight","RM-4","Move the current route preflight into a reusable application operation with injected catalog/connector ports and execution ownership.
+
+Owner role: Engineering
+Depends on: RM-2-T08, RM-3-T07
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-4-tasks","- Enqueue and remediation use the same validation behavior; checks perform no destination preparation or data writes.","8"
+"2026-10-14","Task","RM-4-T02","Data Mover: Implement bounded readiness checks and state","RM-4","Add check command/route, input references, result statuses, timestamps, coalescing, deadlines, safe failures, and persistence.
+
+Owner role: Engineering
+Depends on: RM-4-T01, RM-2-T02
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-4-tasks","- Results reflect actual check scope/mode; duplicate check requests do not launch unbounded work and timed-out checks stay unavailable.","8"
+"2026-10-14","Task","RM-4-T03","Data Mover: Connect remediation to credential repair and health checks","RM-4","Use existing save/test controls for the affected provider and display other owned routes using the shared slot.
+
+Owner role: Engineering
+Depends on: RM-4-T02, RM-3-T05
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-4-tasks","- Slot scope and shared-route effects are explained; unknown failed roles are not guessed and stored credentials remain unrevealed.","6"
+"2026-10-14","Task","RM-4-T04","Data Mover: Guide schema, type, locator, and policy corrections","RM-4","Show persisted/current schema evidence and relevant fields; reuse discovery, cast, key, and write-mode authoring controls.
+
+Owner role: Engineering
+Depends on: RM-4-T01, RM-3-T05
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-4-tasks","- Unsupported or unavailable schema information is explicit; edits are deliberate and current projected schema passes the same destination rules.","8"
+"2026-10-14","Task","RM-4-T05","Data Mover: Integrate sensitive-data remediation decisions","RM-4","Show value-free metadata/content findings, exact column identities, saved Hash/Remove choices, and table-level source blocks.
+
+Owner role: Engineering
+Depends on: RM-4-T01, RM-4-T04
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-4-tasks","- Saving is owner-authorized; PostgreSQL Remove explains prior-value deletion; table/protected-key/all-column blocks cannot be overridden.","8"
+"2026-10-14","Task","RM-4-T06","Data Mover: Compare candidate configuration and invalidate stale checks","RM-4","Fingerprint canonical current definitions, upload identity, non-secret connection revisions, and effective review revision; display changes since the failed snapshot.
+
+Owner role: Engineering
+Depends on: RM-4-T02, RM-4-T03, RM-4-T04, RM-4-T05
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-4-tasks","- Relevant edits invalidate readiness; old credential revisions are labelled unknown and no ciphertext or plaintext secret is included.","8"
+"2026-10-14","Task","RM-4-T07","Data Mover: Render check progress and remaining prerequisites","RM-4","Present per-check status/time/scope, actionable failures, alternatives, and retry prerequisites without replacing open forms.
+
+Owner role: Engineering
+Depends on: RM-4-T02, RM-4-T06, RM-3-T06
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-4-tasks","- Users distinguish preflight from full scan or publication verification, and one passed check cannot hide another open requirement.","6"
+"2026-10-14","Task","RM-4-T08","Data Mover: Verify corrected, stale, and blocked readiness flows","RM-4","Test successful/failing repairs, config/review changes, unknown role, timeout, concurrency, schema unavailability, guardrail blocks, and absence of destination side effects.
+
+Owner role: Engineering / Quality
+Depends on: RM-4-T03, RM-4-T04, RM-4-T05, RM-4-T06, RM-4-T07
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 10 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-4-tasks","- Fixtures prove bounded operations, stale-result invalidation, policy consistency, and zero writes during checks.","10"
+"2026-10-14","Story","RM-5","Data Mover: Start linked recovery attempts and prepare support details","RM-EPIC","As a pipeline owner, I want to review what will change and start one traceable new attempt, or share safe support details when I cannot resolve the problem.
+
+Owner role: Engineering
+Depends on: RM-2, RM-4
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: task rollup; no additional story-level effort.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-5-tasks","- An explicit recovery submission reruns preflight, compares captured/current revisions under lock, and creates a new immutable snapshot from the latest saved definition.
+- Every recovery child has a validated parent and next attempt number; repeated intent returns the same child, mismatched tokens fail, and competing branches/active-run conflicts are blocked.
+- Confirmed completed publication closes remediation without a duplicate recovery run. Historical parent pages link to their existing child.
+- The UI states that a new run starts from the beginning and shows relevant changes. Original failure and retryable facts stay intact.
+- Support output and remediation activity are owner-scoped, no-store, allowlisted, and exclude credential, row, raw SQL, and provider-body data.","54"
+"2026-10-14","Task","RM-5-T01","Data Mover: Implement explicit recovery enqueue command and route","RM-5","Wire a CSRF-protected recovery action through shared admission using parent, current candidate, check/review references, and an intent token.
+
+Owner role: Engineering
+Depends on: RM-2-T08, RM-4-T08
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-5-tasks","- All eligibility and ownership decisions happen on the server; remediation cannot bypass normal route/writer/destination gates.","8"
+"2026-10-14","Task","RM-5-T02","Data Mover: Enforce revision checks and concurrent duplicate handling","RM-5","Rerun preflight outside transactions, then reload/compare definition and review revisions under lock; resolve existing intents before new provider side effects.
+
+Owner role: Engineering
+Depends on: RM-5-T01, RM-2-T05, RM-4-T06
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 10 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-5-tasks","- Stale candidate/review inputs return actionable conflicts; same intent creates one child and competing tokens/active pipeline runs cannot create recovery branches.","10"
+"2026-10-14","Task","RM-5-T03","Data Mover: Show new-attempt review and parent-child history","RM-5","Display latest saved configuration changes, starts-from-beginning copy, next attempt reference, original failure link, and completed-without-rerun disposition.
+
+Owner role: Engineering
+Depends on: RM-5-T01, RM-5-T02, RM-3-T04
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-5-tasks","- Users can follow the failed run to its child; subsequent child failures are remediated from that child and deleted ancestors have a safe fallback.","8"
+"2026-10-14","Task","RM-5-T04","Data Mover: Build sanitized support summary and copy/download action","RM-5","Project allowed run/role/stage/impact/check/review facts into owner-only no-store text, omitting locators by default.
+
+Owner role: Engineering
+Depends on: RM-3-T04, RM-4-T07
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-5-tasks","- Synthetic secrets, tokens, DSNs, SQL, cell values, and provider bodies are excluded; copying/downloading never sends information externally.","6"
+"2026-10-14","Task","RM-5-T05","Data Mover: Record remediation activity and structured diagnostic events","RM-5","Add audit/run events for check outcomes, reviews, eligibility denial, and new attempts, with safe actor and parent/child references.
+
+Owner role: Engineering
+Depends on: RM-2-T03, RM-4-T02, RM-5-T01
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-5-tasks","- Events are allowlisted/redacted, preserve original failure facts, and can trace the recovery sequence after refresh/restart.","6"
+"2026-10-14","Task","RM-5-T06","Data Mover: Replace duplicate retry controls with shared recovery actions","RM-5","Route existing terminal Retry/Run again surfaces through the common policy and linked recovery flow; retain ordinary start semantics where appropriate.
+
+Owner role: Engineering
+Depends on: RM-5-T02, RM-5-T03, RM-5-T05
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-5-tasks","- Contradictory buttons disappear and old start/reconcile entry paths cannot unlock unresolved writes.","6"
+"2026-10-14","Task","RM-5-T07","Data Mover: Verify admission races, traceability, and support disclosure","RM-5","Exercise same/different token races, stale edits, intent replay after completion, parent ownership, active-run conflicts, completed publication, and support/event leaks.
+
+Owner role: Engineering / Quality
+Depends on: RM-5-T02, RM-5-T03, RM-5-T04, RM-5-T05, RM-5-T06
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 10 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-5-tasks","- Separate-session and route evidence confirms one child, valid history, completed-publication duplicate prevention, and excluded sensitive fields.","10"
+"2026-10-14","Story","RM-6","Data Mover: Verify user journeys and prepare the release","RM-EPIC","As a pipeline owner and deployment operator, I want the recovery flows demonstrated and upgrade instructions tested so the feature can ship with understandable behavior and reliable safeguards.
+
+Owner role: Engineering / Quality / Operations
+Depends on: RM-3, RM-4, RM-5
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: task rollup; no additional story-level effort.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-6-tasks","- Synthetic end-to-end walkthroughs demonstrate connection repair, schema correction, sensitive-data action, and uncertain-write resolution with clear original/new attempt links.
+- Keyboard, narrow-screen, mounted navigation, polling, and plain-form behavior are verified and screenshots show synthetic data only.
+- Required lint/type/test/Hedron/build/security checks have recorded outcomes; skipped or external evidence remains explicit.
+- Migration/legacy re-review, coordinated deployment, retention, and rollback guidance prevent an older timestamp-only instance from bypassing new admission policy.
+- User/security/operator documentation matches shipped behavior. Aggregate measurement definitions do not treat closing remediation as successful transfer.","48"
+"2026-10-14","Task","RM-6-T01","Data Mover: Verify the four primary journeys end to end","RM-6","Add cross-layer synthetic fixtures for repair, schema change, Hash/Remove, and uncertain destination outcomes through checks and new attempts.
+
+Owner role: Engineering / Quality
+Depends on: RM-5-T07, RM-4-T08
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 10 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-6-tasks","- Each journey demonstrates appropriate blocked/ready states and real persistence/enqueue behavior; these checks cover integration gaps beyond task-local tests.","10"
+"2026-10-14","Task","RM-6-T02","Data Mover: Run accessibility and mounted-browser acceptance","RM-6","Verify keyboard/focus, announcements, narrow layout, no unsaved-form loss, safe return, and root/Connect/Workbench path adaptation.
+
+Owner role: Engineering / Quality
+Depends on: RM-6-T01, RM-3-T07
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-6-tasks","- A recorded browser checklist covers the four flows and supported mounts without unapproved live-provider claims.","8"
+"2026-10-14","Task","RM-6-T03","Data Mover: Capture synthetic screenshots and validate recovery copy","RM-6","Capture implemented states with explanatory captions and review language with Product/Operations.
+
+Owner role: Engineering / Product / Operations
+Depends on: RM-6-T01, RM-6-T02
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 6 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-6-tasks","- Screenshots match the actual UI, expose no secrets/real rows, and users can explain destination impact and the enabled/blocked next action.","6"
+"2026-10-14","Task","RM-6-T04","Data Mover: Update product, security, and operator documentation","RM-6","Update user guide, FAQ, runbook, security record, feedback matrix, diagnostic dictionary, changelog, and backlog implementation evidence.
+
+Owner role: Engineering
+Depends on: RM-6-T01, RM-5-T05, RM-6-T03
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-6-tasks","- Documentation covers shared-slot effects, full-scan distinction, PostgreSQL Remove, disposition policy, and legacy re-review with verified local links.","8"
+"2026-10-14","Task","RM-6-T05","Data Mover: Rehearse upgrade, retention, and rollback procedures","RM-6","Exercise restored synthetic databases with historical reviews/active runs and write coordinated rollout, retained-gate rollback, and operator evidence instructions.
+
+Owner role: Engineering / Operations
+Depends on: RM-2-T08, RM-6-T01
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-6-tasks","- Old instances cannot admit timestamp-only retries during rollout; unresolved evidence remains protected and active/completed runs are preserved.","8"
+"2026-10-14","Task","RM-6-T06","Data Mover: Complete release checks and measurement definitions","RM-6","Run required release checks, address bounded release integration defects, link evidence, and define aggregate failure-to-readiness/repeat-failure/linked-attempt measures.
+
+Owner role: Engineering / Quality / Operations
+Depends on: RM-6-T02, RM-6-T03, RM-6-T04, RM-6-T05
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/pipeline-remediation-tab.md
+Estimate: 8 person-hours including implementation, focused verification, and normal review fixes.
+Task guide: ../../docs/stories/pipeline-remediation-tasks.md#rm-6-tasks","- Actual outcomes/skips are recorded; external provider/deployment evidence has an owner and remains a separate gate; metric definitions distinguish closed cases from successful transfers.","8"

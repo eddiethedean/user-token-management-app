@@ -16,6 +16,7 @@ class CredentialField:
     required: bool = False
     default: str = ""
     options: tuple[str, ...] = ()
+    option_labels: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class SecretProvider:
     environment_variable: str
     fields: tuple[CredentialField, ...]
     setup_hint: str = ""
+    enabled_setting: str | None = None
 
 
 class SecretCatalog:

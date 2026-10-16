@@ -13,6 +13,7 @@ from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import parse_write_policy, postgres_table
 from app.connectors.registry import capabilities_for, route_allowed, writer_enabled
 from app.domain.pipelines import PipelineDraft, PipelinePolicy, PipelinePolicyError
+from app.domain.pipelines.guardrails import databricks_guardrail_source_key
 from app.infrastructure.catalog_factory import build_user_catalog_with_metadata
 from app.infrastructure.runtime import ExecutionRuntime
 from app.services.catalogs import CREATE_TABLE_VALUE, NEW_TABLE_VALUE_PREFIX
@@ -42,7 +43,7 @@ class SqlAlchemyPipelineAuthoringOperation(PipelineAuthoringOperation):
                     settings = self._runtime.execution_settings
                     available_providers = {
                         provider.name
-                        for provider, secret in list_user_secrets(db, user)
+                        for provider, secret in list_user_secrets(db, user, settings)
                         if secret is not None and secret.validation_status == "connected"
                     }
                     try:
@@ -109,6 +110,39 @@ class SqlAlchemyPipelineAuthoringOperation(PipelineAuthoringOperation):
                         if destination_provider in available_providers
                         else ""
                     )
+                    source_locator = None
+                    destination_locator = None
+                    if source_provider == "databricks":
+                        source_locator = catalog.databricks_locator(
+                            command.source_schema, command.source_table, inspect=True
+                        )
+                        expected_source_key = databricks_guardrail_source_key(
+                            source_locator, owner_id=actor.user_id
+                        )
+                        if any(
+                            action.detector == "foundry_metadata"
+                            or action.source_key != expected_source_key
+                            for action in command.guardrail_actions
+                        ):
+                            raise ValueError(
+                                "The Databricks source changed after its sensitive-data review. Review the source actions again."
+                            )
+                    if destination_provider == "databricks":
+                        creating_databricks_table = command.destination_table in {
+                            CREATE_TABLE_VALUE
+                        } or command.destination_table.startswith(NEW_TABLE_VALUE_PREFIX)
+                        target_name = (
+                            command.destination_table.removeprefix(NEW_TABLE_VALUE_PREFIX)
+                            if command.destination_table.startswith(NEW_TABLE_VALUE_PREFIX)
+                            else command.destination_table_new.strip()
+                            if command.destination_table == CREATE_TABLE_VALUE
+                            else command.destination_table
+                        )
+                        destination_locator = catalog.databricks_locator(
+                            command.destination_schema,
+                            target_name,
+                            inspect=not creating_databricks_table,
+                        )
                     creates_postgres_table = destination_provider == "postgres" and (
                         command.destination_table == CREATE_TABLE_VALUE
                         or command.destination_table.startswith(NEW_TABLE_VALUE_PREFIX)
@@ -230,6 +264,8 @@ class SqlAlchemyPipelineAuthoringOperation(PipelineAuthoringOperation):
                         auto_increment_primary_key=command.auto_increment_primary_key,
                         available_providers=available_providers,
                         pipeline_id=command.pipeline_id,
+                        source_locator=source_locator,
+                        destination_locator=destination_locator,
                         request=metadata,
                     )
                     return PipelineSummary(

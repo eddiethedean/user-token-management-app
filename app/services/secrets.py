@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hmac import compare_digest
 
 from fastapi import Request
@@ -19,7 +19,15 @@ from app.connectors.redaction import redact_text
 from app.connectors.registry import connection_tester_for
 from app.db_compat import execute_dml, insert_for, supports_returning
 from app.logging_config import log_event, safe_exception_traceback
-from app.models import ApiTokenKeyUsage, PipelineCatalogCache, User, UserSecret, new_id, utcnow
+from app.models import (
+    ApiTokenKeyUsage,
+    DatabricksComputeAttempt,
+    PipelineCatalogCache,
+    User,
+    UserSecret,
+    new_id,
+    utcnow,
+)
 from app.services.audit import record_event
 from app.services.secret_catalog import (
     SECRET_CATALOG,
@@ -99,16 +107,52 @@ def _reserve_master_key_use(db: Session, settings: Settings, key_id: str) -> int
     return int(count)
 
 
-def require_secret_provider(provider: str) -> SecretProvider:
-    return SECRET_CATALOG.require(provider)
+def require_secret_provider(provider: str, settings: Settings | None = None) -> SecretProvider:
+    specification = SECRET_CATALOG.require(provider)
+    if specification.enabled_setting:
+        if settings is None:
+            from app.connectors.registry import connector_settings
+
+            settings = connector_settings()
+        if not getattr(settings, specification.enabled_setting, False):
+            raise ValueError("This connection provider is disabled by the operator.")
+    return specification
 
 
-def list_user_secrets(db: Session, user: User) -> list[tuple[SecretProvider, UserSecret | None]]:
+def list_user_secrets(
+    db: Session, user: User, settings: Settings | None = None
+) -> list[tuple[SecretProvider, UserSecret | None]]:
+    if settings is None:
+        from app.connectors.registry import connector_settings
+
+        settings = connector_settings()
     stored = {
         secret.provider: secret
         for secret in db.scalars(select(UserSecret).where(UserSecret.user_id == user.id)).all()
     }
-    return [(provider, stored.get(provider.name)) for provider in SECRET_CATALOG.providers]
+    providers = []
+    for provider in SECRET_CATALOG.providers:
+        if provider.enabled_setting is not None and not getattr(
+            settings, provider.enabled_setting, False
+        ):
+            continue
+        if provider.name == "databricks":
+            fields = tuple(
+                replace(
+                    field,
+                    options=(
+                        ("manual", "allow_start")
+                        if settings.pipeline_databricks_startup_contract_verified
+                        else ("manual",)
+                    ),
+                )
+                if field.name == "startup_policy"
+                else field
+                for field in provider.fields
+            )
+            provider = replace(provider, fields=fields)
+        providers.append((provider, stored.get(provider.name)))
+    return providers
 
 
 def store_user_secret(
@@ -161,8 +205,32 @@ def store_user_credentials_if_changed(
 ) -> StoredCredentials:
     """Store a normalized bundle only when its encrypted value would change."""
 
-    specification = require_secret_provider(provider)
-    normalized = _validate_credentials(specification, credentials)
+    specification = require_secret_provider(provider, settings)
+    normalized = _validate_credentials(specification, credentials, settings=settings)
+    if specification.name == "databricks":
+        existing = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == specification.name,
+            )
+        )
+        if existing is not None:
+            try:
+                previous = CredentialEnvelope.decrypt(settings, existing)
+            except CredentialEnvelopeError:
+                normalized["startup_policy"] = "manual"
+            else:
+                identity_fields = (
+                    "workspace_url",
+                    "client_id",
+                    "compute_kind",
+                    "compute_id",
+                    "http_path",
+                )
+                if any(
+                    previous.get(name, "") != normalized.get(name, "") for name in identity_fields
+                ):
+                    normalized["startup_policy"] = "manual"
     encoded_token = CredentialEnvelope.serialize(normalized)
     if len(encoded_token) > _FIELD_MAX_BYTES:
         raise ValueError("Connection credentials are too large to store.")
@@ -236,6 +304,9 @@ def _store_encrypted_value(
     stored.validation_reference = ""
     stored.validation_message = "Saved. Connection check pending."
     stored.runtime_status = ""
+    stored.runtime_updated_at = None
+    if specification.name == "databricks":
+        _invalidate_databricks_compute_attempts(db, user.id)
     db.execute(
         delete(PipelineCatalogCache).where(
             PipelineCatalogCache.user_id == user.id,
@@ -267,7 +338,7 @@ def test_user_connection(
     """Decrypt credentials inside this call, test the connector, and persist health."""
     started = time.perf_counter()
     reference_id = _connection_reference(request)
-    specification = require_secret_provider(provider)
+    specification = require_secret_provider(provider, settings)
     try:
         stored = db.scalar(
             select(UserSecret).where(
@@ -356,11 +427,13 @@ def test_user_connection(
         TransferErrorCode.INTERNAL_ERROR,
         reference_id=reference_id,
     ).message[:240]
+    runtime_status = ""
     completed_outcome: str | None = None
     try:
         resolver = connector_resolver or connection_tester_for
         health = resolver(provider).test_connection(credentials)
         validation_status = health.status
+        runtime_status = health.runtime_status
         validation_mode = (
             "emulated"
             if settings.is_demo_mode or "emulator" in str(health.server_identity or "").casefold()
@@ -369,6 +442,8 @@ def test_user_connection(
         validation_scope = (
             "Emulated provider configuration"
             if validation_mode == "emulated"
+            else "OAuth authentication, compute visibility, and SQL readiness"
+            if specification.name == "databricks"
             else "Provider connectivity and authentication"
         )
         validation_message = redact_text(health.message)[:240]
@@ -445,7 +520,8 @@ def test_user_connection(
             validation_code=validation_code,
             validation_reference=reference_id,
             validation_message=validation_message,
-            runtime_status="",
+            runtime_status=runtime_status,
+            runtime_updated_at=utcnow() if runtime_status else None,
         ),
     )
     db.commit()
@@ -517,8 +593,9 @@ def delete_user_secret(
     user: User,
     provider: str,
     request: Request | None = None,
+    settings: Settings | None = None,
 ) -> bool:
-    specification = require_secret_provider(provider)
+    specification = require_secret_provider(provider, settings)
     db.scalar(select(User).where(User.id == user.id).with_for_update())
     remove = (
         delete(UserSecret)
@@ -545,6 +622,8 @@ def delete_user_secret(
             PipelineCatalogCache.provider == specification.name,
         )
     )
+    if specification.name == "databricks":
+        _invalidate_databricks_compute_attempts(db, user.id)
     record_event(
         db,
         "api_token.deleted",
@@ -590,7 +669,7 @@ def decrypt_user_credentials_for_run(
     purpose: str = "run",
 ) -> dict[str, str]:
     """Return credentials at an authorized connector boundary; never expose them in a response."""
-    specification = require_secret_provider(provider)
+    specification = require_secret_provider(provider, settings)
     stored = db.scalar(
         select(UserSecret).where(
             UserSecret.user_id == user.id, UserSecret.provider == specification.name
@@ -603,6 +682,10 @@ def decrypt_user_credentials_for_run(
     except CredentialEnvelopeError as exc:
         raise SecretStorageError(str(exc)) from exc
     credential_revision = stored.updated_at
+    if specification.name == "databricks":
+        credentials["connection_generation"] = credential_revision.isoformat(
+            timespec="microseconds"
+        )
     db.execute(
         update(UserSecret)
         .where(
@@ -623,7 +706,55 @@ def decrypt_user_credentials_for_run(
     return credentials
 
 
+def _invalidate_databricks_compute_attempts(db: Session, user_id: str) -> None:
+    """Credential replacement or deletion revokes outstanding startup consent."""
+
+    now = utcnow()
+    db.execute(
+        update(DatabricksComputeAttempt)
+        .where(
+            DatabricksComputeAttempt.user_id == user_id,
+            DatabricksComputeAttempt.active_key.is_not(None),
+        )
+        .values(
+            status="stale",
+            active_key=None,
+            completed_at=now,
+            checked_at=now,
+            next_poll_at=now,
+            lease_token=None,
+            lease_expires_at=None,
+            error_code="credentials_stale",
+            error_summary="The saved Databricks connection changed during compute startup.",
+        )
+    )
+
+
 def _validate_credentials(
-    specification: SecretProvider, credentials: Mapping[str, str]
+    specification: SecretProvider,
+    credentials: Mapping[str, str],
+    *,
+    settings: Settings | None = None,
 ) -> dict[str, str]:
-    return CredentialValidator(max_bytes=_FIELD_MAX_BYTES).validate(specification, credentials)
+    normalized = CredentialValidator(max_bytes=_FIELD_MAX_BYTES).validate(
+        specification, credentials
+    )
+    if specification.name == "databricks":
+        if normalized.get("startup_policy") == "allow_start" and (
+            settings is None or not settings.pipeline_databricks_startup_contract_verified
+        ):
+            raise ValueError(
+                "Automatic Databricks startup is disabled until its provider contract is accepted. Choose manual startup."
+            )
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(normalized["workspace_url"])
+        host = (parsed.hostname or "").casefold().rstrip(".")
+        allowed_hosts = settings.allowed_https_hosts if settings is not None else set()
+        if not allowed_hosts or host not in allowed_hosts:
+            raise ValueError("Workspace host is not approved by the operator.")
+        if parsed.port not in {None, 443}:
+            raise ValueError("Workspace URL must use the approved HTTPS port.")
+        normalized["workspace_url"] = f"https://{host}"
+        normalized["http_path"] = normalized["http_path"].strip().strip("/")
+    return normalized

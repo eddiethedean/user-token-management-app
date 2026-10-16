@@ -268,6 +268,83 @@ class UserSecret(Base):
     user: Mapped[User] = relationship()
 
 
+class DatabricksComputeAttempt(Base):
+    """Durable, owner-audited observation of a Databricks compute start."""
+
+    __tablename__ = "databricks_compute_attempts"
+    __table_args__ = (
+        # NULL means terminal. A non-NULL value serializes starts for a shared
+        # workspace/compute while allowing historical attempts to be retained.
+        UniqueConstraint("active_key", name="uq_databricks_compute_attempt_active_key"),
+        Index("ix_databricks_compute_attempts_due", "status", "next_poll_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(String(64))
+    compute_key: Mapped[str] = mapped_column(String(64))
+    active_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    compute_kind: Mapped[str] = mapped_column(String(32))
+    compute_id: Mapped[str] = mapped_column(String(128))
+    connection_generation: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24), default="starting", index=True)
+    last_state: Mapped[str] = mapped_column(String(32), default="UNKNOWN")
+    poll_count: Mapped[int] = mapped_column(Integer, default=0)
+    requested_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    deadline_at: Mapped[datetime] = mapped_column(DateTime)
+    next_poll_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lease_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str] = mapped_column(String(240), default="")
+
+    user: Mapped[User] = relationship()
+
+
+class DatabricksPublication(Base):
+    """Durable evidence and target fence for one Databricks publication."""
+
+    __tablename__ = "databricks_publications"
+    __table_args__ = (
+        UniqueConstraint("active_target_key", name="uq_databricks_publications_active_target"),
+        Index("ix_databricks_publications_recovery", "state", "updated_at"),
+    )
+
+    run_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("pipeline_runs.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(String(64))
+    connection_generation: Mapped[str] = mapped_column(String(64))
+    target_key: Mapped[str] = mapped_column(String(64))
+    active_target_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_locator_json: Mapped[str] = mapped_column(Text)
+    write_mode: Mapped[str] = mapped_column(String(24))
+    staging_name: Mapped[str] = mapped_column(String(520), default="")
+    state: Mapped[str] = mapped_column(String(32), default="preparing", index=True)
+    submission_id: Mapped[str] = mapped_column(String(36), default="")
+    staged_rows: Mapped[int] = mapped_column(BigInteger, default=0)
+    staged_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cleanup_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    recovery_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    recovery_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_error_summary: Mapped[str] = mapped_column(String(240), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    user: Mapped[User] = relationship()
+    run: Mapped[PipelineRun] = relationship()
+
+
 class PipelineUpload(Base):
     __tablename__ = "pipeline_uploads"
 
@@ -377,6 +454,13 @@ class PipelineRun(Base):
         String(40), default=PipelineRunStatus.QUEUED.value, index=True
     )
     stage: Mapped[str] = mapped_column(String(40), default="queued")
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    databricks_compute_attempt_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("databricks_compute_attempts.id", ondelete="SET NULL"), nullable=True
+    )
+    databricks_compute_start_deadline_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
     attempt: Mapped[int] = mapped_column(Integer, default=1)
     queued_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

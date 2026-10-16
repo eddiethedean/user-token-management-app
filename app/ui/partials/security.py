@@ -42,7 +42,7 @@ from hedron import (
 from hedron_core import HtmlAttrValue, NodeLike
 
 from app.dependencies import AuthContext
-from app.models import AuditEvent, RefreshSession
+from app.models import AuditEvent, DatabricksComputeAttempt, RefreshSession
 from app.services.catalogs import require_catalog_provider
 from app.services.secrets import CredentialField, SecretProvider
 from app.ui.design_system import DataMoverPageHeader as PageHeader
@@ -160,7 +160,10 @@ def secret_slot(
         if field.options:
             control = Select(
                 field.name,
-                [(option, option) for option in field.options],
+                [
+                    (option, dict(field.option_labels).get(option, option))
+                    for option in field.options
+                ],
                 id=field_id,
                 required=field.required,
                 value=field.default,
@@ -309,6 +312,35 @@ def secret_slot(
                 ),
             ),
             (
+                Stack(
+                    Alert(
+                        "Starting compute may incur Databricks charges. Data Mover will not stop it; Databricks retains lifecycle control.",
+                        tone="warning",
+                        appearance="soft",
+                    ),
+                    Form(
+                        csrf_hidden(csrf_token),
+                        Button(
+                            "Start selected Databricks compute",
+                            type="submit",
+                            variant="secondary",
+                            size="sm",
+                        ),
+                        action=form_action(request, "security/secrets/databricks/start"),
+                        method="post",
+                        **hx_attrs(
+                            request,
+                            path="security/secrets/databricks/start",
+                            target="#connection-status-list",
+                            indicator=INDICATOR,
+                        ),
+                    ),
+                    gap="xs",
+                )
+                if provider.name == "databricks" and configured
+                else None
+            ),
+            (
                 Dialog(
                     f"Delete {provider.label} connection",
                     html.p(
@@ -343,6 +375,7 @@ def connection_status_list(
     secret_slots,
     *,
     csrf_token: str,
+    compute_attempts: list[DatabricksComputeAttempt] | None = None,
     oob: bool = False,
 ) -> NodeLike:
     rows: list[NodeLike] = []
@@ -355,8 +388,26 @@ def connection_status_list(
         incomplete = bool(
             configured and outcome is not None and str(outcome.code) == "connection_test_incomplete"
         )
+        runtime_state = str(getattr(secret, "runtime_status", "") or "").upper()
+        databricks_sql_ready = runtime_state in {"RUNNING", "RESIZING"}
+        startup_failed = runtime_state in {"FAILED", "TIMED_OUT"}
+        databricks_runtime_visible = provider.name == "databricks" and configured
         status_label = (
-            "Connected"
+            "SQL ready"
+            if databricks_runtime_visible and databricks_sql_ready
+            else "Compute starting"
+            if databricks_runtime_visible and runtime_state in {"STARTING", "PENDING"}
+            else "Compute stopping"
+            if databricks_runtime_visible and runtime_state == "STOPPING"
+            else "Compute stopped"
+            if databricks_runtime_visible and runtime_state in {"STOPPED", "TERMINATED"}
+            else "Startup timed out"
+            if databricks_runtime_visible and runtime_state == "TIMED_OUT"
+            else "Readiness checks stopped"
+            if databricks_runtime_visible and runtime_state == "OBSERVATION_CANCELLED"
+            else "Startup failed"
+            if databricks_runtime_visible and runtime_state == "FAILED"
+            else "Connected"
             if connected
             else "Failed"
             if failed
@@ -368,7 +419,15 @@ def connection_status_list(
         )
         status_tone = (
             "success"
-            if connected
+            if connected and (provider.name != "databricks" or databricks_sql_ready)
+            else "danger"
+            if databricks_runtime_visible and startup_failed
+            else "warning"
+            if databricks_runtime_visible and runtime_state == "OBSERVATION_CANCELLED"
+            else "warning"
+            if databricks_runtime_visible and runtime_state and not databricks_sql_ready
+            else "warning"
+            if connected and provider.name == "databricks"
             else "danger"
             if failed
             else "warning"
@@ -377,7 +436,24 @@ def connection_status_list(
             if configured
             else "neutral"
         )
-        if configured and secret.validated_at:
+        if provider.name == "databricks" and configured:
+            checked = (
+                f"status checked {secret.runtime_updated_at.strftime('%b %d at %H:%M')}"
+                if secret.runtime_updated_at
+                else "compute status not checked yet"
+            )
+            runtime_detail = (
+                f"Compute status: {runtime_state.replace('_', ' ').lower()} · {checked}"
+                if runtime_state
+                else "Test the connection before browsing objects or running."
+            )
+            validation_detail = (
+                f"{secret.validation_scope or 'Provider authentication'} · {secret.validation_message}"
+                if secret.validated_at
+                else "Connection credentials are saved."
+            )
+            detail = f"{validation_detail} · {runtime_detail}"
+        elif configured and secret.validated_at:
             checked = f"Checked {secret.validated_at.strftime('%b %d at %H:%M')}"
             if connected:
                 detail = f"{secret.validation_scope or 'Provider connectivity'} · {checked}"
@@ -441,11 +517,100 @@ def connection_status_list(
     attrs: dict[str, HtmlAttrValue] = {"id": "connection-status-list"}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
+    attempt_history = []
+    attempt_controls = []
+    for attempt in compute_attempts or []:
+        requested = attempt.requested_at.strftime("%b %d at %H:%M")
+        state = str(attempt.status or "unknown").replace("_", " ").title()
+        last_state = str(attempt.last_state or "unknown").replace("_", " ")
+        detail = (
+            f"{attempt.compute_kind.replace('_', ' ').title()} · {attempt.compute_id} · "
+            f"{attempt.poll_count:,} readiness check(s) · last provider state {last_state}"
+        )
+        if attempt.error_code:
+            detail += f" · {attempt.error_code.replace('_', ' ')}"
+        attempt_history.append((requested, state, detail))
+        if attempt.status == "starting":
+            attempt_controls.append(
+                Form(
+                    csrf_hidden(csrf_token),
+                    Button(
+                        "Stop readiness checks",
+                        type="submit",
+                        variant="secondary",
+                        size="sm",
+                    ),
+                    action=form_action(
+                        request,
+                        f"security/secrets/databricks/start/{attempt.id}/cancel",
+                    ),
+                    method="post",
+                    **hx_attrs(
+                        request,
+                        path=f"security/secrets/databricks/start/{attempt.id}/cancel",
+                        target="#connection-status-list",
+                        sync="#connection-status-list:drop",
+                        indicator=INDICATOR,
+                    ),
+                )
+            )
+        elif attempt.status == "cancelled" and attempt.active_key:
+            attempt_controls.append(
+                Form(
+                    csrf_hidden(csrf_token),
+                    Button(
+                        "Resume readiness checks",
+                        type="submit",
+                        variant="secondary",
+                        size="sm",
+                    ),
+                    action=form_action(
+                        request,
+                        f"security/secrets/databricks/start/{attempt.id}/resume",
+                    ),
+                    method="post",
+                    **hx_attrs(
+                        request,
+                        path=f"security/secrets/databricks/start/{attempt.id}/resume",
+                        target="#connection-status-list",
+                        sync="#connection-status-list:drop",
+                        indicator=INDICATOR,
+                    ),
+                )
+            )
+
     return html.div(
         ResourceList(
             *rows,
             label="Connection readiness",
             density="compact",
+        ),
+        (
+            Expander(
+                "Databricks startup history",
+                Text(
+                    "This owner-scoped history records explicit start requests and readiness checks. "
+                    "Data Mover does not stop or change compute.",
+                    role="caption",
+                    overflow="wrap",
+                ),
+                Timeline(attempt_history, label="Databricks startup attempts"),
+                Stack(
+                    Text(
+                        "Stopping checks does not stop compute at Databricks. Resuming checks keeps the original startup deadline.",
+                        role="caption",
+                        overflow="wrap",
+                    ),
+                    *attempt_controls,
+                    gap="xs",
+                )
+                if attempt_controls
+                else None,
+                open=False,
+                enhance="native",
+            )
+            if attempt_history
+            else None
         ),
         **attrs,
     )
@@ -666,6 +831,7 @@ def security_tabs(
     *,
     csrf_token: str,
     secret_slots,
+    compute_attempts: list[DatabricksComputeAttempt] | None = None,
     secret_feedback: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> NavigationTabs:
     secret_feedback = secret_feedback or {}
@@ -727,6 +893,7 @@ def security_tabs(
                     request,
                     secret_slots,
                     csrf_token=csrf_token,
+                    compute_attempts=compute_attempts,
                 ),
             ),
         )

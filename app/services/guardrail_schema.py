@@ -41,4 +41,7 @@ def project_schema_for_guardrails(schema: ObjectSchema, actions: Mapping[str, st
         sensitivity_markers=schema.sensitivity_markers,
         column_sensitivity_markers=schema.column_sensitivity_markers,
         removed_columns=tuple(sorted(set(schema.removed_columns) | removed)),
+        metadata_coverage=schema.metadata_coverage,
+        schema_fingerprint=schema.schema_fingerprint,
+        sensitivity_fingerprint=schema.sensitivity_fingerprint,
     )

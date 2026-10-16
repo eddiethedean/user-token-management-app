@@ -27,6 +27,8 @@ class TransferErrorCode(StrEnum):
     SPOOL_LIMIT_EXCEEDED = "spool_limit_exceeded"
     RUN_TIMEOUT = "run_timeout"
     DESTINATION_CONFLICT = "destination_conflict"
+    COMPUTE_NOT_READY = "compute_not_ready"
+    METADATA_INCOMPLETE = "metadata_incomplete"
     PARTIAL_WRITE = "partial_write"
     PUBLISH_UNCERTAIN = "publish_uncertain"
     VERIFICATION_FAILED = "verification_failed"

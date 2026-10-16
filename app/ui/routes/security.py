@@ -3,23 +3,25 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from hedron import Hedron, HedronRouter, InteractionResult
 from hedron.htmx import is_htmx_request
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.responses import Response
 
 from app.application.feedback import connection_failure
 from app.application.ports import RequestMetadata
+from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.redaction import redact_text
 from app.connectors.registry import connection_tester_for
 from app.database import current_session_factory
 from app.dependencies import Auth, DbSession, RequireCsrf, SettingsDep, clear_auth_cookies
 from app.logging_config import log_event
-from app.models import RefreshSession, User, UserSecret
+from app.models import RefreshSession, User, UserSecret, utcnow
 from app.security.passwords import PasswordPolicyError
 from app.services.accounts import (
     CurrentPasswordError,
@@ -33,6 +35,7 @@ from app.services.mailer import schedule_email_delivery
 from app.services.secrets import (
     ConnectionNotConfiguredError,
     SecretStorageError,
+    decrypt_user_credentials_for_run,
     delete_user_secret,
     require_secret_provider,
     store_user_credentials_if_changed,
@@ -41,6 +44,7 @@ from app.services.secrets import (
 from app.ui import partials as ui
 from app.ui.http import hx_target, mutation_response, render_authenticated_view, render_page
 from app.ui.interactions import (
+    ToastTone,
     connection_status_oob,
     htmx_redirect,
     interaction_response,
@@ -63,6 +67,7 @@ from app.ui.regions import (
     MAIN_PANEL,
     PASSWORD_FORM,
     REQUEST_FEEDBACK,
+    SECRET_SLOT_DATABRICKS,
     SECRET_SLOT_MCSCOP,
     SECRET_SLOT_MSS,
     SECRET_SLOT_POSTGRES,
@@ -151,6 +156,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                 request,
                 csrf_token=csrf,
                 secret_slots=values["secret_slots"],
+                compute_attempts=values["compute_attempts"],
                 secret_feedback=getattr(request.state, "secret_feedback", None),
             ),
         ]
@@ -346,11 +352,176 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
         )
 
     @app.action(
+        "/security/secrets/databricks/start",
+        fragment_regions=(CONNECTION_STATUS_LIST, TOAST_HOST, REQUEST_FEEDBACK),
+        include_in_schema=False,
+    )
+    async def databricks_compute_start_submit(
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
+        _csrf: RequireCsrf,
+    ) -> Response:
+        try:
+            require_secret_provider("databricks", settings)
+            outcome = await run_owned_sync(
+                request,
+                _start_databricks_compute_in_thread,
+                settings,
+                auth.user.id,
+                getattr(request.state, "request_id", ""),
+                getattr(request.state, "support_reference", ""),
+            )
+        except (ConnectorError, ValueError, SecretStorageError) as exc:
+            values = security_page_values(db, auth.user, settings)
+            summary = (
+                exc.summary
+                if isinstance(exc, ConnectorError)
+                else "Save and test the Databricks connection before starting compute."
+                if isinstance(exc, ValueError)
+                else "The Databricks connection could not be loaded. Contact your administrator."
+            )
+            return await mutation_response(
+                request,
+                redirect=redirect_path(request, "/security"),
+                fragment=ok_fragment(
+                    ui.connection_status_list(
+                        request,
+                        values["secret_slots"],
+                        csrf_token=auth.session.csrf_token,
+                        compute_attempts=values["compute_attempts"],
+                    ),
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    toast=summary,
+                    toast_tone="warning",
+                ),
+            )
+        outcome = cast(dict[str, str], outcome)
+        values = security_page_values(db, auth.user, settings)
+        start_toasts: dict[str, tuple[str, ToastTone]] = {
+            "already_running": ("Compute is already running.", "success"),
+            "already_starting": ("A Databricks startup check is already in progress.", "warning"),
+            "start_uncertain": (
+                "The start response was unclear. Data Mover will keep checking compute readiness.",
+                "warning",
+            ),
+        }
+        toast, toast_tone = start_toasts.get(
+            outcome["outcome"],
+            (
+                "Databricks accepted the start request. Readiness checks will continue in the background.",
+                "success",
+            ),
+        )
+        return await mutation_response(
+            request,
+            redirect=redirect_path(request, "/security"),
+            fragment=ok_fragment(
+                ui.connection_status_list(
+                    request,
+                    values["secret_slots"],
+                    csrf_token=auth.session.csrf_token,
+                    compute_attempts=values["compute_attempts"],
+                ),
+                toast=toast,
+                toast_tone=toast_tone,
+            ),
+        )
+
+    @app.action(
+        "/security/secrets/databricks/start/{attempt_id}/cancel",
+        fragment_regions=(CONNECTION_STATUS_LIST, TOAST_HOST, REQUEST_FEEDBACK),
+        include_in_schema=False,
+    )
+    async def databricks_compute_observation_cancel(
+        attempt_id: str,
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
+        _csrf: RequireCsrf,
+    ) -> Response:
+        from app.services.databricks_compute import cancel_compute_observation
+
+        stopped = cancel_compute_observation(
+            db,
+            user_id=auth.user.id,
+            attempt_id=attempt_id,
+        )
+        values = security_page_values(db, auth.user, settings)
+        return await mutation_response(
+            request,
+            redirect=redirect_path(request, "/security"),
+            fragment=ok_fragment(
+                ui.connection_status_list(
+                    request,
+                    values["secret_slots"],
+                    csrf_token=auth.session.csrf_token,
+                    compute_attempts=values["compute_attempts"],
+                ),
+                toast=(
+                    "Data Mover readiness checks stopped. Databricks compute was not stopped."
+                    if stopped
+                    else "No active Databricks readiness check was found for this account."
+                ),
+                toast_tone="success" if stopped else "warning",
+            ),
+        )
+
+    @app.action(
+        "/security/secrets/databricks/start/{attempt_id}/resume",
+        fragment_regions=(CONNECTION_STATUS_LIST, TOAST_HOST, REQUEST_FEEDBACK),
+        include_in_schema=False,
+    )
+    async def databricks_compute_observation_resume(
+        attempt_id: str,
+        request: Request,
+        auth: Auth,
+        db: DbSession,
+        settings: SettingsDep,
+        _csrf: RequireCsrf,
+    ) -> Response:
+        from app.services.databricks_compute import resume_compute_observation
+
+        resumed = resume_compute_observation(
+            db,
+            user_id=auth.user.id,
+            attempt_id=attempt_id,
+        )
+        values = security_page_values(db, auth.user, settings)
+        return await mutation_response(
+            request,
+            redirect=redirect_path(request, "/security"),
+            fragment=ok_fragment(
+                ui.connection_status_list(
+                    request,
+                    values["secret_slots"],
+                    csrf_token=auth.session.csrf_token,
+                    compute_attempts=values["compute_attempts"],
+                ),
+                toast=(
+                    "Databricks readiness checks resumed using the original startup deadline."
+                    if resumed == "resumed"
+                    else "The original startup deadline expired; start a fresh attempt after checking compute."
+                    if resumed == "timed_out"
+                    else "No resumable Databricks readiness check was found for this account."
+                ),
+                toast_tone="warning"
+                if resumed == "timed_out"
+                else "success"
+                if resumed
+                else "warning",
+            ),
+        )
+
+    @app.action(
         "/security/secrets/{provider}",
         fragment_regions=(
             SECRET_SLOT_MCSCOP,
             SECRET_SLOT_MSS,
             SECRET_SLOT_POSTGRES,
+            SECRET_SLOT_DATABRICKS,
             CONNECTION_STATUS_LIST,
             TOAST_HOST,
             REQUEST_FEEDBACK,
@@ -369,7 +540,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
         changed = False
         automatic_test_error = ""
         try:
-            specification = require_secret_provider(provider)
+            specification = require_secret_provider(provider, settings)
             submitted = await request.form()
             credentials = {
                 field.name: str(submitted.get(field.name, "")) for field in specification.fields
@@ -401,7 +572,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                     exception_type=type(exc).__name__,
                 )
             try:
-                specification = require_secret_provider(provider)
+                specification = require_secret_provider(provider, settings)
             except ValueError as provider_exc:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail="Connection provider not found"
@@ -478,6 +649,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
             request,
             values["secret_slots"],
             csrf_token=auth.session.csrf_token,
+            compute_attempts=values["compute_attempts"],
         )
         slot = ui.secret_slot(
             request,
@@ -577,6 +749,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
             SECRET_SLOT_MCSCOP,
             SECRET_SLOT_MSS,
             SECRET_SLOT_POSTGRES,
+            SECRET_SLOT_DATABRICKS,
             CONNECTION_STATUS_LIST,
             TOAST_HOST,
             REQUEST_FEEDBACK,
@@ -592,8 +765,10 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
         _csrf: RequireCsrf,
     ) -> Response:
         try:
-            specification = require_secret_provider(provider)
-            deleted = delete_user_secret(db, user=auth.user, provider=provider, request=request)
+            specification = require_secret_provider(provider, settings)
+            deleted = delete_user_secret(
+                db, user=auth.user, provider=provider, request=request, settings=settings
+            )
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Connection provider not found"
@@ -619,6 +794,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                         request,
                         values["secret_slots"],
                         csrf_token=auth.session.csrf_token,
+                        compute_attempts=values["compute_attempts"],
                     ),
                 ),
                 toast=f"{specification.label} credentials deleted.",
@@ -639,7 +815,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
         _csrf: RequireCsrf,
     ) -> Response:
         try:
-            specification = require_secret_provider(provider)
+            specification = require_secret_provider(provider, settings)
             checked = await run_owned_sync(
                 request,
                 _test_user_connection_in_thread,
@@ -682,6 +858,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                         request,
                         values["secret_slots"],
                         csrf_token=auth.session.csrf_token,
+                        compute_attempts=values["compute_attempts"],
                     ),
                     status_code=(
                         status.HTTP_503_SERVICE_UNAVAILABLE
@@ -723,6 +900,7 @@ def register_security_routes(app: Hedron, fragment_router: HedronRouter) -> None
                     request,
                     values["secret_slots"],
                     csrf_token=auth.session.csrf_token,
+                    compute_attempts=values["compute_attempts"],
                 ),
                 toast=toast,
                 toast_tone=toast_tone,
@@ -751,3 +929,157 @@ def _test_user_connection_in_thread(
             request=RequestMetadata(request_id=request_id, reference_id=reference_id),
             connector_resolver=connection_tester_for,
         )
+
+
+def _start_databricks_compute_in_thread(
+    settings,
+    user_id: str,
+    request_id: str = "",
+    reference_id: str = "",
+) -> dict[str, str]:
+    """Submit an explicitly requested provider start with an owner-scoped credential."""
+
+    from app.services.audit import record_event
+    from app.services.databricks_compute import (
+        create_compute_attempt,
+        record_start_failure,
+        record_start_submission,
+        record_start_uncertain,
+    )
+
+    with current_session_factory()() as db:
+        user = db.get(User, user_id)
+        if user is None or not user.is_active:
+            raise SecretStorageError("The account is no longer available.")
+        credentials = decrypt_user_credentials_for_run(
+            db,
+            settings,
+            user=user,
+            provider="databricks",
+            request=RequestMetadata(request_id=request_id, reference_id=reference_id),
+            purpose="compute_start",
+        )
+        attempt, created = create_compute_attempt(
+            db,
+            user=user,
+            credentials=credentials,
+            settings=settings,
+        )
+        if not created:
+            return {
+                "outcome": "already_starting",
+                "state": attempt.last_state,
+                "kind": attempt.compute_kind,
+            }
+        db.commit()
+
+        # The attempt is durable before the provider side effect. Re-read the
+        # credential revision immediately before starting shared compute.
+        with current_session_factory()() as revision_db:
+            active_revision = revision_db.scalar(
+                select(UserSecret.updated_at).where(
+                    UserSecret.user_id == user.id,
+                    UserSecret.provider == "databricks",
+                )
+            )
+        active_generation = (
+            active_revision.isoformat(timespec="microseconds")
+            if active_revision is not None
+            else ""
+        )
+        if active_generation != attempt.connection_generation:
+            error = ConnectorError(
+                TransferErrorCode.CREDENTIALS_STALE,
+                "The Databricks connection changed before compute could be started. Save the connection and try again.",
+                retryable=False,
+            )
+            record_start_failure(db, attempt_id=attempt.id, error=error)
+            raise error
+
+        stored = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == "databricks",
+            )
+        )
+        if stored is not None:
+            db.execute(
+                update(UserSecret)
+                .where(
+                    UserSecret.id == stored.id,
+                    UserSecret.updated_at == stored.updated_at,
+                )
+                .values(
+                    runtime_status="STARTING",
+                    runtime_updated_at=utcnow(),
+                    updated_at=stored.updated_at,
+                )
+            )
+            db.commit()
+        connector = connection_tester_for("databricks")
+        start = getattr(connector, "start_compute", None)
+        if not callable(start):
+            raise ConnectorError(
+                TransferErrorCode.INTERNAL_ERROR,
+                "The Databricks connector does not support compute startup.",
+                retryable=False,
+            )
+        try:
+            result = cast(dict[str, str], start(credentials))
+        except ConnectorError as exc:
+            if exc.code in {
+                TransferErrorCode.COMPUTE_NOT_READY,
+                TransferErrorCode.CONNECTION_TIMEOUT,
+                TransferErrorCode.PROVIDER_UNAVAILABLE,
+                TransferErrorCode.RATE_LIMITED,
+            }:
+                record_start_uncertain(db, attempt_id=attempt.id, error=exc)
+                return {
+                    "outcome": "start_uncertain",
+                    "state": attempt.last_state,
+                    "kind": attempt.compute_kind,
+                }
+            record_start_failure(db, attempt_id=attempt.id, error=exc)
+            raise
+        record_start_submission(
+            db,
+            attempt_id=attempt.id,
+            result=result,
+            settings=settings,
+        )
+        stored = db.scalar(
+            select(UserSecret).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == "databricks",
+            )
+        )
+        if stored is not None:
+            db.execute(
+                update(UserSecret)
+                .where(
+                    UserSecret.id == stored.id,
+                    UserSecret.updated_at == stored.updated_at,
+                )
+                .values(
+                    runtime_status="RUNNING"
+                    if result["outcome"] == "already_running"
+                    else "STARTING",
+                    runtime_updated_at=utcnow(),
+                    updated_at=stored.updated_at,
+                )
+            )
+        record_event(
+            db,
+            "databricks.compute_start_requested",
+            request=RequestMetadata(request_id=request_id, reference_id=reference_id),
+            actor=user,
+            target=user,
+            detail={
+                "kind": result["kind"],
+                "outcome": result["outcome"],
+                "compute_id": credentials.get("compute_id", ""),
+                "attempt_id": attempt.id,
+            },
+        )
+        db.commit()
+        return result

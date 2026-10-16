@@ -53,6 +53,7 @@ _RUN_STAGE_COPY = {
 
 EVENT_STAGE_LABELS = {
     "queued": "Queue",
+    "compute_startup": "Compute startup",
     "authenticate": "Validate",
     "inspect": "Extract",
     "transfer": "Load",
@@ -96,7 +97,12 @@ def run_action_phase(status: str) -> str:
     return "idle"
 
 
-def run_stage_copy(status: str) -> tuple[str, str]:
+def run_stage_copy(status: str, *, stage: str = "") -> tuple[str, str]:
+    if status == "queued" and stage == "waiting_for_compute":
+        return (
+            "Waiting for compute",
+            "Authorized Databricks startup is being observed; the run will resume when SQL is ready.",
+        )
     return _RUN_STAGE_COPY.get(status, (status.replace("_", " ").title(), ""))
 
 
@@ -133,7 +139,7 @@ def run_action_state(
         if phase in {"error", "conflict"} and outcome is not None
         else getattr(run, "error_summary", None)
         if phase in {"error", "conflict"}
-        else run_stage_copy(status)[0]
+        else run_stage_copy(status, stage=str(getattr(run, "stage", "")))[0]
     )
     return ActionState(
         phase=ActionPhase(phase),
@@ -213,11 +219,13 @@ def run_flow_steps(flow_statuses: tuple[str, str, str, str]) -> tuple[FlowStep, 
 def destination_count_metric(run: Any, *, provider: str = "postgres") -> Metric:
     """Build a before/after destination count metric from persisted verification data."""
 
-    label = "Destination table" if provider == "postgres" else "Destination file"
+    label = "Destination table" if provider in {"postgres", "databricks"} else "Destination file"
 
     try:
         verification = json.loads(run.verification_json or "{}")
     except (TypeError, ValueError):
+        verification = {}
+    if not isinstance(verification, dict):
         verification = {}
     before = verification.get("destination_rows_before")
     after = verification.get("destination_rows_after")
@@ -241,6 +249,8 @@ def destination_count_metric(run: Any, *, provider: str = "postgres") -> Metric:
     return Metric(
         label,
         "Count unavailable",
-        delta="Provider does not expose counts",
+        delta="Count not recorded"
+        if provider in {"postgres", "databricks"}
+        else "Provider does not expose counts",
         delta_tone="neutral",
     )

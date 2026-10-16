@@ -776,6 +776,62 @@ def run_pipeline_janitor_background(
         operation.release()
 
 
+def process_pending_databricks_compute_attempt_background(
+    runtime: ExecutionRuntime,
+) -> bool:
+    """Poll one due, durably coordinated Databricks compute start."""
+
+    operation = runtime.try_admit_pipeline_operation()
+    if operation is None or runtime.stop_event.is_set():
+        if operation is not None:
+            operation.release()
+        return False
+    try:
+        with runtime.context():
+            from app.connectors.registry import connection_tester_for
+            from app.services.databricks_compute import process_due_compute_attempt
+
+            return process_due_compute_attempt(
+                settings=runtime.execution_settings,
+                session_factory=runtime.sessions,
+                connector_resolver=connection_tester_for,
+            )
+    except Exception:
+        log.exception("Databricks compute observation cycle failed")
+        return False
+    finally:
+        operation.release()
+
+
+def process_pending_databricks_publication_recovery_background(
+    runtime: ExecutionRuntime,
+) -> bool:
+    """Recover one abandoned Databricks stage or reconcile a submitted commit."""
+
+    operation = runtime.try_admit_pipeline_operation()
+    if operation is None or runtime.stop_event.is_set():
+        if operation is not None:
+            operation.release()
+        return False
+    try:
+        with runtime.context():
+            from app.connectors.registry import connection_tester_for
+            from app.services.databricks_publication import (
+                process_pending_publication_recovery,
+            )
+
+            return process_pending_publication_recovery(
+                settings=runtime.execution_settings,
+                session_factory=runtime.sessions,
+                connector_resolver=connection_tester_for,
+            )
+    except Exception:
+        log.exception("Databricks publication recovery cycle failed")
+        return False
+    finally:
+        operation.release()
+
+
 async def run_background_runtime(
     settings: Settings | None = None,
     stop_event: threading.Event | None = None,
@@ -823,6 +879,20 @@ async def run_background_runtime(
         while not stop_event.is_set():
             await _drainable_thread_call(
                 active_runtime, process_pending_pipeline_run_background, active_runtime
+            )
+            if stop_event.is_set():
+                break
+            await _drainable_thread_call(
+                active_runtime,
+                process_pending_databricks_compute_attempt_background,
+                active_runtime,
+            )
+            if stop_event.is_set():
+                break
+            await _drainable_thread_call(
+                active_runtime,
+                process_pending_databricks_publication_recovery_background,
+                active_runtime,
             )
             if stop_event.is_set():
                 break

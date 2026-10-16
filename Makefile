@@ -3,7 +3,7 @@
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
 POSIT_CLI ?= $(if $(wildcard $(dir $(PYTHON))hedron-posit),$(dir $(PYTHON))hedron-posit,hedron-posit)
 
-.PHONY: check format format-check lint typecheck test test-file docs-check demo demo-check hedron-check hedron-build hedron-security-check posit-check migrate install serve create-admin schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
+.PHONY: check format format-check lint typecheck test test-file docs-check demo demo-check databricks-tools databricks-check hedron-check hedron-build hedron-security-check posit-check migrate install serve create-admin schema-status workbench-up workbench-down workbench-test workbench-logs connect-smoke
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -44,8 +44,8 @@ lint:
 typecheck:
 	$(PYTHON) -m basedpyright
 
-test:
-	$(PYTHON) -m pytest -n auto --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
+test: databricks-tools
+	DATABRICKS_TEST_TOOLS_REQUIRED=1 $(PYTHON) -m pytest -n auto --cov=app --cov-report=term-missing --cov-fail-under=$(COV_FAIL_UNDER)
 
 test-file:
 	@test -n "$(FILE)" || (echo "Usage: make test-file FILE=tests/test_example.py" >&2; exit 1)
@@ -62,6 +62,12 @@ check: lint format-check typecheck docs-check
 
 demo-check:
 	PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 $(PYTHON) -m pytest demo-app/tests
+
+databricks-tools:
+	$(PYTHON) scripts/install-databricks-test-tools.py
+
+databricks-check: databricks-tools
+	DATABRICKS_TEST_TOOLS_REQUIRED=1 $(PYTHON) -m pytest -n auto tests/test_databricks_*.py
 
 hedron-check:
 	$(PYTHON) -m hedron --app app.main:app check --severity warning

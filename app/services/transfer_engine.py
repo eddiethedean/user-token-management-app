@@ -32,6 +32,7 @@ from app.connectors.base import (
 )
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
+    DatabricksTableLocator,
     DefinitionSnapshot,
     FoundryUploadLocator,
     PostgresAppendPolicy,
@@ -45,10 +46,18 @@ from app.connectors.registry import (
     writer_enabled,
 )
 from app.domain.feedback import DataImpact
-from app.domain.pipelines.guardrails import GuardrailAction, action_lookup, scan_ssn_frame
+from app.domain.pipelines.guardrails import (
+    GuardrailAction,
+    action_lookup,
+    databricks_guardrail_source_key,
+    scan_ssn_frame,
+)
 from app.models import PipelineRun
 from app.services import pipeline_runs
-from app.services.catalogs import invalidate_published_foundry_file_cache
+from app.services.catalogs import (
+    invalidate_published_databricks_table_cache,
+    invalidate_published_foundry_file_cache,
+)
 from app.services.column_casting import (
     apply_column_type_overrides_to_schema,
     cast_batch_columns,
@@ -296,20 +305,23 @@ class _EncryptedBatchSpool:
 
 
 def _metadata_guardrail_findings(schema: ObjectSchema) -> list[dict[str, object]]:
+    is_databricks = isinstance(schema.locator, DatabricksTableLocator)
+    detector = "databricks_metadata" if is_databricks else "foundry_metadata"
+    source = "Databricks metadata" if is_databricks else "Foundry metadata"
     findings: dict[str, dict[str, object]] = {}
     for name, markers in schema.column_sensitivity_markers:
         if markers:
             findings[name] = {
-                "detector": "foundry_metadata",
-                "source": "Foundry metadata",
+                "detector": detector,
+                "source": source,
                 "column": name,
                 "count": None,
             }
     for column in schema.columns:
         if column.sensitivity_markers:
             findings[column.name] = {
-                "detector": "foundry_metadata",
-                "source": "Foundry metadata",
+                "detector": detector,
+                "source": source,
                 "column": column.name,
                 "count": None,
             }
@@ -483,28 +495,35 @@ def _abort_quietly(destination, session) -> AbortResult:
         return AbortResult.UNCERTAIN
 
 
-def _refresh_published_foundry_cache(
+def _refresh_published_destination_cache(
     db: Session, run: PipelineRun, snapshot: DefinitionSnapshot
 ) -> None:
-    if not isinstance(snapshot.destination, FoundryUploadLocator):
+    if not isinstance(snapshot.destination, (FoundryUploadLocator, DatabricksTableLocator)):
         return
     try:
-        invalidate_published_foundry_file_cache(
-            db,
-            user_id=run.user_id,
-            provider=snapshot.destination_provider,
-            dataset_rid=snapshot.destination.dataset_rid,
-            branch=snapshot.destination.branch,
-            file_name=snapshot.destination.file_name,
-        )
+        if isinstance(snapshot.destination, DatabricksTableLocator):
+            invalidate_published_databricks_table_cache(
+                db, user_id=run.user_id, locator=snapshot.destination
+            )
+        else:
+            invalidate_published_foundry_file_cache(
+                db,
+                user_id=run.user_id,
+                provider=snapshot.destination_provider,
+                dataset_rid=snapshot.destination.dataset_rid,
+                branch=snapshot.destination.branch,
+                file_name=snapshot.destination.file_name,
+            )
     except Exception as exc:
         # Publication and the run result were already persisted. A cache
         # failure must not change the transfer outcome or require review.
         try:
             db.rollback()
         except Exception as rollback_exc:
-            log.warning("Foundry catalog cache rollback failed (%s)", type(rollback_exc).__name__)
-        log.warning("Foundry catalog cache refresh failed (%s)", type(exc).__name__)
+            log.warning(
+                "Destination catalog cache rollback failed (%s)", type(rollback_exc).__name__
+            )
+        log.warning("Destination catalog cache refresh failed (%s)", type(exc).__name__)
 
 
 def _cancel_after_abort(db, run: PipelineRun, *, lease_token: str, destination, session) -> None:
@@ -640,16 +659,56 @@ def execute_transfer(
         destination, destination_credentials, snapshot.destination
     )
     source_schema = source.inspect_object(source_credentials, snapshot.source)
+    if isinstance(snapshot.source, DatabricksTableLocator):
+        if (
+            not snapshot.source.object_id
+            or not snapshot.source.schema_fingerprint
+            or not snapshot.source.sensitivity_fingerprint
+            or not isinstance(source_schema.locator, DatabricksTableLocator)
+            or source_schema.locator.object_id != snapshot.source.object_id
+            or source_schema.schema_fingerprint != snapshot.source.schema_fingerprint
+            or source_schema.sensitivity_fingerprint != snapshot.source.sensitivity_fingerprint
+        ):
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "The Databricks source identity, schema, or sensitivity policy changed after review. Select the source and review its actions again.",
+                retryable=False,
+            )
+        expected_review_key = databricks_guardrail_source_key(snapshot.source, owner_id=run.user_id)
+        if any(
+            action.detector == "foundry_metadata" or action.source_key != expected_review_key
+            for action in snapshot.guardrail_actions
+        ):
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "A saved sensitive-data action is bound to an older Databricks review. Review the source actions again.",
+                retryable=False,
+            )
+    if isinstance(snapshot.source, DatabricksTableLocator) and (
+        source_schema.metadata_coverage != "verified"
+        or not source_schema.schema_fingerprint
+        or not source_schema.sensitivity_fingerprint
+    ):
+        raise ConnectorError(
+            TransferErrorCode.METADATA_INCOMPLETE,
+            "Databricks schema and sensitivity metadata coverage is incomplete.",
+            retryable=False,
+        )
     if lease_lost():
         raise RunConflictError("This worker no longer holds the run lease.")
     if cancel_requested():
         pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
         return
     if source_schema.sensitivity_markers:
-        table_identity = getattr(snapshot.source, "dataset_rid", "")
+        is_databricks = isinstance(snapshot.source, DatabricksTableLocator)
+        table_identity = (
+            f"{snapshot.source.catalog}.{snapshot.source.schema_name}.{snapshot.source.table}"
+            if isinstance(snapshot.source, DatabricksTableLocator)
+            else getattr(snapshot.source, "dataset_rid", "")
+        )
         table_finding = {
-            "detector": "foundry_metadata",
-            "source": "Foundry metadata",
+            "detector": "databricks_metadata" if is_databricks else "foundry_metadata",
+            "source": "Databricks metadata" if is_databricks else "Foundry metadata",
             "column": "Table-level sensitivity",
             "count": None,
             "action": None,
@@ -750,6 +809,9 @@ def execute_transfer(
                     estimated_rows=source_schema.estimated_rows,
                     sensitivity_markers=source_schema.sensitivity_markers,
                     column_sensitivity_markers=source_schema.column_sensitivity_markers,
+                    metadata_coverage=source_schema.metadata_coverage,
+                    schema_fingerprint=source_schema.schema_fingerprint,
+                    sensitivity_fingerprint=source_schema.sensitivity_fingerprint,
                 )
             expected = tuple(column.name for column in schema.columns)
             actual = tuple(str(name) for name in extracted_batch.frame.columns)
@@ -793,6 +855,21 @@ def execute_transfer(
         if cancel_requested():
             pipeline_runs.cancel_claimed_run(db, run, lease_token=lease_token)
             return
+
+        if isinstance(snapshot.source, DatabricksTableLocator):
+            refreshed_schema = source.inspect_object(source_credentials, snapshot.source)
+            if (
+                not isinstance(refreshed_schema.locator, DatabricksTableLocator)
+                or not isinstance(source_schema.locator, DatabricksTableLocator)
+                or refreshed_schema.locator.object_id != source_schema.locator.object_id
+                or refreshed_schema.schema_fingerprint != source_schema.schema_fingerprint
+                or refreshed_schema.sensitivity_fingerprint != source_schema.sensitivity_fingerprint
+            ):
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "Databricks source identity, schema, or sensitivity policy changed during the scan. Review the route before retrying.",
+                    retryable=False,
+                )
 
         findings = [*metadata_findings]
         findings.extend(
@@ -1096,7 +1173,7 @@ def execute_transfer(
                 needs_reconciliation=True,
                 verification_facts=verification,
             )
-            _refresh_published_foundry_cache(db, run, snapshot)
+            _refresh_published_destination_cache(db, run, snapshot)
             return
         pipeline_runs.complete_run(
             db,
@@ -1151,7 +1228,7 @@ def execute_transfer(
                 ],
             },
         )
-        _refresh_published_foundry_cache(db, run, snapshot)
+        _refresh_published_destination_cache(db, run, snapshot)
     except Exception as exc:
         abort_result = None
         if session is not None:

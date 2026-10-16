@@ -9,6 +9,11 @@ MAIN_PANEL = FragmentRegion(
     selector="#main-panel",
     description="Authenticated main content panel",
 )
+PIPELINE_WORKFLOW_STATUS = FragmentRegion(
+    id="pipeline-workflow-status",
+    selector="#pipeline-workflow-status",
+    description="Current pipeline workflow progress",
+)
 TOAST_HOST = FragmentRegion(
     id="hedron-toast",
     selector="#hedron-toast",
@@ -83,6 +88,11 @@ SECRET_SLOT_POSTGRES = FragmentRegion(
     id="secret-slot-postgres",
     selector="#secret-slot-postgres",
     description="PostgreSQL connection credential slot",
+)
+SECRET_SLOT_DATABRICKS = FragmentRegion(
+    id="secret-slot-databricks",
+    selector="#secret-slot-databricks",
+    description="Databricks workspace connection credential slot",
 )
 CONNECTION_STATUS_LIST = FragmentRegion(
     id="connection-status-list",

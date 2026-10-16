@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import ApiTokenKeyUsage, User, UserSecret
+from app.models import ApiTokenKeyUsage, DatabricksComputeAttempt, User, UserSecret, utcnow
 from app.services.secrets import (
     SecretStorageError,
     decrypt_user_credentials_for_run,
@@ -275,6 +275,150 @@ def test_mss_connection_without_dataset_remains_untested(client, make_user) -> N
         assert stored is not None
         assert stored.validation_status == "untested"
         assert stored.validated_at is not None
+
+
+def test_databricks_startup_history_is_owner_scoped(client, make_user) -> None:
+    owner = make_user("databricks.audit.owner@example.gov")
+    other = make_user("databricks.audit.other@example.gov")
+    now = utcnow()
+    with SessionLocal() as db:
+        active_attempt = DatabricksComputeAttempt(
+            user_id=owner.id,
+            workspace_id="owner-workspace",
+            compute_key="d" * 64,
+            active_key="d" * 64,
+            compute_kind="warehouse",
+            compute_id="active-owner-warehouse",
+            connection_generation="owner-generation",
+            status="starting",
+            last_state="STARTING",
+            poll_count=1,
+            requested_at=now,
+            deadline_at=now,
+            next_poll_at=now,
+        )
+        db.add_all(
+            [
+                DatabricksComputeAttempt(
+                    user_id=owner.id,
+                    workspace_id="owner-workspace",
+                    compute_key="a" * 64,
+                    compute_kind="warehouse",
+                    compute_id="owner-warehouse-id",
+                    connection_generation="owner-generation",
+                    status="failed",
+                    last_state="STOPPED",
+                    poll_count=3,
+                    requested_at=now,
+                    deadline_at=now,
+                    next_poll_at=now,
+                    error_code="compute_start_failed",
+                ),
+                DatabricksComputeAttempt(
+                    user_id=other.id,
+                    workspace_id="other-workspace",
+                    compute_key="b" * 64,
+                    compute_kind="classic_cluster",
+                    compute_id="other-private-cluster-id",
+                    connection_generation="other-generation",
+                    status="ready",
+                    last_state="RUNNING",
+                    poll_count=2,
+                    requested_at=now,
+                    deadline_at=now,
+                    next_poll_at=now,
+                ),
+                active_attempt,
+            ]
+        )
+        db.commit()
+        active_attempt_id = active_attempt.id
+
+    web_login(client, owner.email, USER_PASSWORD)
+    response = client.get("/security")
+
+    assert response.status_code == 200
+    assert "Databricks startup history" in response.text
+    assert "owner-warehouse-id" in response.text
+    assert "other-private-cluster-id" not in response.text
+    assert "Stop readiness checks" in response.text
+
+    stopped = client.post(
+        f"/security/secrets/databricks/start/{active_attempt_id}/cancel",
+        data={"csrf_token": csrf_from(response.text)},
+        headers={
+            "HX-Request": "true",
+            "HX-Target": "connection-status-list",
+            "Accept": "text/html",
+        },
+    )
+    assert stopped.status_code == 200
+    assert "Databricks compute was not stopped" in stopped.text
+    assert "Resume readiness checks" in stopped.text
+    assert "other-private-cluster-id" not in stopped.text
+    with SessionLocal() as db:
+        saved = db.get(DatabricksComputeAttempt, active_attempt_id)
+        assert saved is not None
+        assert saved.status == "cancelled"
+
+
+def test_databricks_startup_consent_requires_contract_and_resets_on_compute_change(
+    make_user,
+) -> None:
+    user = make_user("databricks.startup-consent@example.gov")
+    settings = get_settings().model_copy(
+        update={
+            "pipeline_enable_databricks": True,
+            "pipeline_allowed_https_hosts": "dbc-12345678.cloud.databricks.com",
+        }
+    )
+    credentials = {
+        "workspace_url": "https://dbc-12345678.cloud.databricks.com",
+        "client_id": "service-principal-id",
+        "client_secret": "service-principal-secret",
+        "compute_kind": "warehouse",
+        "compute_id": "warehouse-1",
+        "http_path": "sql/1.0/warehouses/warehouse-1",
+        "startup_policy": "allow_start",
+    }
+
+    with SessionLocal() as db:
+        with pytest.raises(ValueError, match="provider contract is accepted"):
+            store_user_credentials(
+                db,
+                settings,
+                user=user,
+                provider="databricks",
+                credentials=credentials,
+            )
+
+        approved = settings.model_copy(
+            update={"pipeline_databricks_startup_contract_verified": True}
+        )
+        store_user_credentials(
+            db,
+            approved,
+            user=user,
+            provider="databricks",
+            credentials=credentials,
+        )
+        saved = decrypt_user_credentials_for_run(db, approved, user=user, provider="databricks")
+        assert saved["startup_policy"] == "allow_start"
+
+        changed = {
+            **credentials,
+            "compute_id": "warehouse-2",
+            "http_path": "sql/1.0/warehouses/warehouse-2",
+        }
+        store_user_credentials(
+            db,
+            approved,
+            user=user,
+            provider="databricks",
+            credentials=changed,
+        )
+        saved = decrypt_user_credentials_for_run(db, approved, user=user, provider="databricks")
+        assert saved["startup_policy"] == "manual"
 
 
 def test_native_connection_test_failure_stays_visible_with_status_and_reference(

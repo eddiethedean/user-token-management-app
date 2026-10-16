@@ -56,8 +56,9 @@ record the released code-to-copy-to-log and operator lookup contracts.
 | SOLID full-refactor review | [Isolation and lifecycle remediation plan](solid-full-refactor-review-remediation.md) | Implemented; FR1–FR5 acceptance closed |
 | SOLID drain-failure review | [Drain failures, cancellation origin, and failed startup plan](solid-runtime-drain-failure-remediation.md) | Implemented; D1–D3 acceptance closed |
 | Feedback and diagnostics | [User feedback and troubleshooting upgrade plan](user-feedback-observability-upgrade.md) | Implemented locally; deployment/provider gates remain external |
+| Pipeline remediation | [Remediation tab implementation plan](pipeline-remediation-tab.md), [epic and six stories](../stories/pipeline-remediation-epic.md), and [41 estimated tasks](../stories/pipeline-remediation-tasks.md) | Proposed; 312 task hours plus a separate 78-hour reserve; guided fixes, readiness, destination review, and linked attempts |
 | Sensitive-data guardrails | [Open GitHub issue acceptance audit](open-guardrail-issue-acceptance.md) | All 28 open acceptance records implemented; automated evidence indexed |
-| Proposed Databricks connector | [Databricks connections and sensitive-data guardrails epic](../stories/databricks-connection-epic.md) and [57 implementation tasks](../stories/databricks-connection-tasks.md) | Proposed scope and task backlog; no first-class connector implemented |
+| Databricks connector epic | [Implementation plan](databricks-epic-implementation.md), [acceptance ledger](databricks-acceptance.md), [epic](../stories/databricks-connection-epic.md), and [57 implementation tasks](../stories/databricks-connection-tasks.md) | Local connector, durable startup/publication records, UI and default-off gates implemented in progress; live provider contract, acceptance evidence, user/operator guide, screenshots and release sign-off remain open |
 
 ## Review convention
 

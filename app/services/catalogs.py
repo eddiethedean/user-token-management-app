@@ -6,7 +6,7 @@ import hashlib
 import json
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, cast
 
@@ -32,6 +32,7 @@ from app.connectors.decimal_validation import validate_decimal_destination_schem
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
     CsvUploadLocator,
+    DatabricksTableLocator,
     FoundryDatasetFilesLocator,
     parse_locator,
     validate_locator,
@@ -39,6 +40,7 @@ from app.connectors.locators import (
 from app.connectors.registry import (
     capabilities_for,
     catalog_browser_for,
+    connection_tester_for,
     listed_capabilities,
     load_builtin_connectors,
     object_schema_inspector_for,
@@ -48,7 +50,15 @@ from app.connectors.registry import (
 from app.db_compat import insert_for
 from app.domain.locators import Locator, PostgresTableLocator, PostgresUpsertPolicy, WritePolicy
 from app.domain.pipelines.guardrails import scan_ssn_frame
-from app.models import FoundryDataset, PipelineCatalogCache, PipelineUpload, User, new_id, utcnow
+from app.models import (
+    FoundryDataset,
+    PipelineCatalogCache,
+    PipelineUpload,
+    User,
+    UserSecret,
+    new_id,
+    utcnow,
+)
 
 CREATE_TABLE_VALUE = "__new__"
 NEW_TABLE_VALUE_PREFIX = f"{CREATE_TABLE_VALUE}:"
@@ -158,7 +168,22 @@ class UserCatalog:
                 **credentials,
                 "branch": self.branch_for_namespace(provider, namespace),
             }
-        page = self.browser_resolver(provider).list_objects(credentials, namespace)
+        browser = self.browser_resolver(provider)
+        page = browser.list_objects(credentials, namespace)
+        if provider.casefold() == "databricks":
+            items = list(page.items)
+            cursor = page.cursor
+            while cursor is not None:
+                page = browser.list_objects(credentials, namespace, cursor)
+                items.extend(page.items)
+                cursor = page.cursor
+                if len(items) > 10_000:
+                    raise ConnectorError(
+                        TransferErrorCode.SOURCE_LIMIT_EXCEEDED,
+                        "This workspace has too many visible tables for one catalog request.",
+                        retryable=False,
+                    )
+            page = CatalogPage(items=tuple(items), cursor=None)
         self._write_cache(
             provider,
             namespace,
@@ -260,7 +285,25 @@ class UserCatalog:
                     return cached_schema
                 except (TypeError, ValueError):
                     pass
-        inspected = inspector.inspect_object(self._credentials_for(provider), locator)
+        credentials = self._credentials_for(provider)
+        if provider.casefold() == "databricks" and isinstance(locator, DatabricksTableLocator):
+            locator = locator.model_copy(
+                update={"connection_generation": credentials.get("connection_generation", "")}
+            )
+        inspected = inspector.inspect_object(credentials, locator)
+        if provider.casefold() == "databricks" and isinstance(
+            inspected.locator, DatabricksTableLocator
+        ):
+            inspected = replace(
+                inspected,
+                locator=inspected.locator.model_copy(
+                    update={
+                        "connection_generation": credentials.get("connection_generation", ""),
+                        "schema_fingerprint": inspected.schema_fingerprint,
+                        "sensitivity_fingerprint": inspected.sensitivity_fingerprint,
+                    }
+                ),
+            )
         if cache_namespace:
             self._write_cache(
                 provider,
@@ -347,6 +390,24 @@ class UserCatalog:
                         retryable=False,
                     )
                 ignored_sensitive_columns = set(column_markers)
+            elif provider_id == "databricks":
+                inspected = self.inspect_object(provider_id, locator)
+                if inspected.metadata_coverage != "verified":
+                    raise ConnectorError(
+                        TransferErrorCode.METADATA_INCOMPLETE,
+                        "Databricks sensitivity metadata coverage could not be verified.",
+                        retryable=False,
+                    )
+                if inspected.sensitivity_markers:
+                    raise ConnectorError(
+                        TransferErrorCode.SENSITIVE_DATA_GUARDRAIL_BLOCKED,
+                        "A table-level Databricks sensitivity marking blocks content scanning.",
+                        retryable=False,
+                    )
+                ignored_sensitive_columns = {
+                    column.name for column in inspected.columns if column.sensitivity_markers
+                }
+                locator = inspected.locator
 
         source = source_reader_for(provider_id)
         counts: dict[str, int] = {}
@@ -486,6 +547,51 @@ class UserCatalog:
             return self._credentials_for(provider).get("branch", "") or "master"
         return ""
 
+    def databricks_locator(self, namespace: str, table: str, *, inspect: bool = True):
+        """Build an owner-bound table locator and capture its stable provider ID."""
+
+        try:
+            identity = json.loads(namespace)
+        except (TypeError, ValueError):
+            identity = None
+        if (
+            not isinstance(identity, list)
+            or len(identity) != 3
+            or not all(isinstance(item, str) and item for item in identity)
+        ):
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "Select a current Databricks catalog and schema.",
+                retryable=False,
+            )
+        from app.domain.locators import DatabricksTableLocator, databricks_workspace_id
+
+        credentials = self._credentials_for("databricks")
+        workspace_id = databricks_workspace_id(credentials["workspace_url"])
+        if identity[0] != workspace_id:
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "This Databricks schema belongs to a different workspace; select it again.",
+                retryable=False,
+            )
+        locator = DatabricksTableLocator(
+            workspace_id=workspace_id,
+            catalog=identity[1],
+            schema=identity[2],
+            table=table,
+            connection_generation=credentials.get("connection_generation", ""),
+        )
+        if not inspect:
+            return locator
+        inspected = self.inspect_object("databricks", locator)
+        if not isinstance(inspected.locator, DatabricksTableLocator):
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "Databricks returned an invalid table identity.",
+                retryable=False,
+            )
+        return inspected.locator
+
     def branch_for_namespace(self, provider: str, namespace: str) -> str:
         """Resolve the branch for a saved or newly provisioned destination dataset."""
 
@@ -515,11 +621,66 @@ class UserCatalog:
                 self.credential_resolver = SqlAlchemyCredentialResolver(
                     self.db, self.settings, self.user, self.request
                 )
-            self._credentials[provider_id] = self.credential_resolver(
+            credentials = self.credential_resolver(
                 user_id=self.user.id,
                 provider=provider_id,
                 purpose="catalog",
             )
+            if provider_id == "databricks":
+                revision = self.db.scalar(
+                    select(UserSecret.updated_at).where(
+                        UserSecret.user_id == self.user.id,
+                        UserSecret.provider == provider_id,
+                    )
+                )
+                if revision is None:
+                    raise ConnectorError(
+                        TransferErrorCode.CREDENTIALS_MISSING,
+                        "The Databricks connection is no longer available.",
+                        retryable=False,
+                    )
+                credentials["connection_generation"] = revision.isoformat(timespec="microseconds")
+                expected_generation = credentials["connection_generation"]
+
+                def require_current_generation() -> None:
+                    current_revision = self.db.scalar(
+                        select(UserSecret.updated_at).where(
+                            UserSecret.user_id == self.user.id,
+                            UserSecret.provider == provider_id,
+                        )
+                    )
+                    current_generation = (
+                        current_revision.isoformat(timespec="microseconds")
+                        if current_revision is not None
+                        else ""
+                    )
+                    if current_generation != expected_generation:
+                        raise ConnectorError(
+                            TransferErrorCode.CREDENTIALS_STALE,
+                            "The Databricks connection changed during this operation. Reconnect and review the selection again.",
+                            retryable=False,
+                        )
+
+                cast(dict[str, Any], credentials)["_authorization_check"] = (
+                    require_current_generation
+                )
+                if credentials.get("startup_policy") == "allow_start":
+
+                    def request_databricks_start(observed_state: str) -> dict[str, str]:
+                        from app.services.databricks_compute import request_compute_start
+
+                        return request_compute_start(
+                            self.db,
+                            settings=self.settings,
+                            user=self.user,
+                            credentials=credentials,
+                            connector_resolver=connection_tester_for,
+                            observed_state=observed_state,
+                            require_opt_in=True,
+                        )
+
+                    cast(dict[str, Any], credentials)["_startup_request"] = request_databricks_start
+            self._credentials[provider_id] = credentials
         return self._credentials[provider_id]
 
     def _read_cache(self, provider: str, namespace: str) -> dict[str, Any] | None:
@@ -667,6 +828,26 @@ def invalidate_published_foundry_file_cache(
             PipelineCatalogCache.user_id == user_id,
             PipelineCatalogCache.provider == provider.casefold(),
             PipelineCatalogCache.namespace.in_((dataset_rid, schema_key)),
+        )
+    )
+    db.commit()
+
+
+def invalidate_published_databricks_table_cache(
+    db: Session, *, user_id: str, locator: DatabricksTableLocator
+) -> None:
+    """Refresh the owner's table listing after a confirmed Delta publication."""
+
+    namespace = json.dumps(
+        [locator.workspace_id, locator.catalog, locator.schema_name],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    db.execute(
+        delete(PipelineCatalogCache).where(
+            PipelineCatalogCache.user_id == user_id,
+            PipelineCatalogCache.provider == "databricks",
+            PipelineCatalogCache.namespace == namespace,
         )
     )
     db.commit()

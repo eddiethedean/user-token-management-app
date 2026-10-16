@@ -45,6 +45,7 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.SECRET_SLOT_MSS,
     region_defs.SECRET_SLOT_MCSCOP,
     region_defs.SECRET_SLOT_POSTGRES,
+    region_defs.SECRET_SLOT_DATABRICKS,
     region_defs.CONNECTION_STATUS_LIST,
     region_defs.CSV_INSPECTION,
     region_defs.CSV_UPLOAD_STATE,
@@ -161,7 +162,13 @@ def security_activity_oob(events) -> OobUpdate:
     )
 
 
-def connection_status_oob(request: Request, secret_slots, *, csrf_token: str) -> OobUpdate:
+def connection_status_oob(
+    request: Request,
+    secret_slots,
+    *,
+    csrf_token: str,
+    compute_attempts=None,
+) -> OobUpdate:
     from app.ui.partials.security import connection_status_list
 
     return OobUpdate(
@@ -169,6 +176,7 @@ def connection_status_oob(request: Request, secret_slots, *, csrf_token: str) ->
             request,
             secret_slots,
             csrf_token=csrf_token,
+            compute_attempts=compute_attempts,
         ),
         element_id="connection-status-list",
         swap="outerHTML",

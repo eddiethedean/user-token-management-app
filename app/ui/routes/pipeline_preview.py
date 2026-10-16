@@ -28,6 +28,7 @@ from app.domain.column_types import (
 )
 from app.domain.pipelines.guardrails import (
     GuardrailAction,
+    databricks_guardrail_source_key,
     guardrail_scan_matches_source,
     guardrail_source_key,
     parse_guardrail_action_values,
@@ -60,6 +61,7 @@ from app.ui.params import (
     PipelineSwapForm,
     PipelineWriteModeForm,
 )
+from app.ui.presenters.pipeline import route_object_label
 from app.ui.regions import (
     CSV_INSPECTION,
     CSV_UPLOAD_STATE,
@@ -169,6 +171,7 @@ class PipelineSchemaPreviewPanel(Protocol):
         *,
         request: Request,
         catalog_access: CatalogAccess,
+        owner_id: str = "",
         source_provider: str,
         source_schema: str,
         source_object: str,
@@ -317,36 +320,6 @@ def register_pipeline_preview_routes(
             "pipeline-source-schema-select",
             "pipeline-source-table-select",
         }
-        expected_guardrail_source_key = guardrail_source_key(
-            source_provider,
-            source_schema,
-            source_table,
-            source_upload_id,
-        )
-        try:
-            parsed_guardrail_actions = parse_guardrail_action_values(
-                guardrail_actions or (),
-                expected_source_key=expected_guardrail_source_key,
-            )
-            parsed_guardrail_scan = parse_guardrail_scan_result(
-                guardrail_scan_result,
-                expected_source_key=expected_guardrail_source_key,
-            )
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
-            ) from exc
-        if guardrail_scan_result and not guardrail_scan_matches_source(
-            guardrail_scan_result, expected_guardrail_source_key
-        ):
-            parsed_guardrail_scan = []
-            guardrail_scan_result = ""
-            guardrail_scan_complete = False
-        if source_selection_changed or swap_direction:
-            parsed_guardrail_actions = []
-            parsed_guardrail_scan = []
-            guardrail_scan_result = ""
-            guardrail_scan_complete = False
         if add_column_cast:
             if (
                 not manual_cast_column.strip()
@@ -378,7 +351,7 @@ def register_pipeline_preview_routes(
                 "validation": secret.validation_status if secret is not None else "unconfigured",
                 "runtime": secret.runtime_status if secret is not None else "",
             }
-            for provider, secret in list_user_secrets(db, auth.user)
+            for provider, secret in list_user_secrets(db, auth.user, settings)
         }
         if swap_direction:
             swap_eligibility = await run_owned_sync(
@@ -485,7 +458,71 @@ def register_pipeline_preview_routes(
                     destination=True,
                 ),
             )
+        databricks_review_unavailable = False
+        if source_provider == "databricks" and source_schema and source_table:
+            try:
+                review_locator = await run_owned_sync(
+                    request,
+                    with_user_catalog,
+                    settings,
+                    auth.user.id,
+                    request,
+                    lambda catalog: catalog.databricks_locator(
+                        source_schema, source_table, inspect=True
+                    ),
+                )
+            except ConnectorError:
+                # Keep browsing usable when metadata cannot be verified. No
+                # action or scan may retain authority from the previous table.
+                databricks_review_unavailable = True
+                expected_guardrail_source_key = guardrail_source_key(
+                    source_provider, source_schema, source_table, source_upload_id
+                )
+                guardrail_actions = None
+                guardrail_scan_result = ""
+                guardrail_scan_complete = False
+            else:
+                expected_guardrail_source_key = databricks_guardrail_source_key(
+                    review_locator, owner_id=auth.user.id
+                )
+        else:
+            expected_guardrail_source_key = guardrail_source_key(
+                source_provider,
+                source_schema,
+                source_table,
+                source_upload_id,
+            )
+        try:
+            parsed_guardrail_actions = parse_guardrail_action_values(
+                guardrail_actions or (),
+                expected_source_key=expected_guardrail_source_key,
+                bind_source_key=source_provider == "databricks",
+            )
+            parsed_guardrail_scan = parse_guardrail_scan_result(
+                guardrail_scan_result,
+                expected_source_key=expected_guardrail_source_key,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+        if guardrail_scan_result and not guardrail_scan_matches_source(
+            guardrail_scan_result, expected_guardrail_source_key
+        ):
+            parsed_guardrail_scan = []
+            guardrail_scan_result = ""
+            guardrail_scan_complete = False
+        if source_selection_changed or swap_direction:
+            parsed_guardrail_actions = []
+            parsed_guardrail_scan = []
+            guardrail_scan_result = ""
+            guardrail_scan_complete = False
         if scan_sensitive_data:
+            if databricks_review_unavailable:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Databricks metadata coverage could not be verified. Review connection permissions before scanning this source.",
+                )
             if source_provider == "csv":
                 if csv_upload is None or csv_inspection is None:
                     raise HTTPException(
@@ -503,6 +540,22 @@ def register_pipeline_preview_routes(
                         detail="Choose a source table before scanning it.",
                     )
                 source_locator = postgres_table(source_schema, source_table)
+            elif source_provider == "databricks":
+                if not source_schema or not source_table:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail="Choose a Databricks source table before scanning it.",
+                    )
+                source_locator = await run_owned_sync(
+                    request,
+                    with_user_catalog,
+                    settings,
+                    auth.user.id,
+                    request,
+                    lambda catalog: catalog.databricks_locator(
+                        source_schema, source_table, inspect=True
+                    ),
+                )
             else:
                 if not source_schema or not source_table:
                     raise HTTPException(
@@ -605,6 +658,7 @@ def register_pipeline_preview_routes(
             lambda catalog: pipeline_schema_preview_panel(
                 request=request,
                 catalog_access=catalog,
+                owner_id=auth.user.id,
                 source_provider=source_provider,
                 source_schema=source_schema,
                 source_object=source_object,
@@ -643,7 +697,7 @@ def register_pipeline_preview_routes(
             if source_provider == "csv" and source_ready and csv_inspection is not None
             else "Choose a CSV file"
             if source_provider == "csv"
-            else f"{source_schema}.{source_table}"
+            else route_object_label(source_provider, source_schema, source_table)
         )
         target_object = committed_new_table_name(destination_table_new) or destination_table
         if destination_table == CREATE_TABLE_VALUE:
@@ -687,7 +741,7 @@ def register_pipeline_preview_routes(
                     include_id=False,
                     catalog=target_catalog,
                     detail=(
-                        f"{destination_schema}.{target_object}"
+                        route_object_label(destination_provider, destination_schema, target_object)
                         if target_catalog is not None
                         else "Configure a connection"
                     ),

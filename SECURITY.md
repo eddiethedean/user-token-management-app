@@ -30,7 +30,11 @@ pipeline definitions are real owner-scoped database content. Day-to-day setup li
 [README](README.md) and [docs/](docs/); use this file for the decision register and production gate.
 Sensitive-data guardrails refresh configured Foundry metadata, block table-level sensitivity,
 scan the complete extracted source for supported SSN patterns, and enforce saved Hash/Remove
-decisions before destination staging (SD-27). Databricks/Advana and MongoDB remain outside the
+decisions before destination staging (SD-27). The gated Databricks connector adds owner-bound
+Unity Catalog metadata review, durable compute startup, and staged Delta publication with recovery.
+Its [provider controls](docs/providers/databricks.md) and
+[live acceptance requirements](docs/plans/databricks-acceptance.md) apply independently of local
+simulation results. This does not attest an Advana deployment. MongoDB remains outside the
 implemented connector surface; proposed or archived integrations do not extend this boundary.
 
 ## Reporting a vulnerability

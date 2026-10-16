@@ -2,7 +2,27 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+
+
+def route_object_label(provider: str, namespace: str, object_name: str) -> str:
+    """Display qualified table names without exposing serialized selector identities."""
+    if provider == "csv":
+        return object_name
+    if provider == "databricks":
+        try:
+            parts = json.loads(namespace)
+        except (TypeError, ValueError):
+            return "Choose a Databricks table"
+        if (
+            not isinstance(parts, list)
+            or len(parts) != 3
+            or not all(isinstance(part, str) and part for part in parts)
+        ):
+            return "Choose a Databricks table"
+        return ".".join([parts[1], parts[2], object_name])
+    return f"{namespace}.{object_name}"
 
 
 @dataclass(frozen=True)

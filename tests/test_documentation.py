@@ -3,6 +3,8 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
+from packaging.version import Version
+
 from app import APP_VERSION
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -19,7 +21,7 @@ def test_calendar_release_versions_are_recorded_in_order() -> None:
     assert configuration["project"]["version"] == APP_VERSION
     lockfile = tomllib.loads(_read("uv.lock"))
     package = next(item for item in lockfile["package"] if item["name"] == "access-registry")
-    assert package["version"] == APP_VERSION
+    assert Version(package["version"]) == Version(APP_VERSION)
     positions = [
         changelog.index(f"## [{version}]") for version in (APP_VERSION, "140926.1", "140926.0")
     ]

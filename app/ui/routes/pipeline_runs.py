@@ -55,6 +55,7 @@ from app.ui.regions import (
     PIPELINE_RUN_FEEDBACK,
     PIPELINE_RUN_MONITOR,
     PIPELINE_SAVE_NOTICE,
+    PIPELINE_WORKFLOW_STATUS,
     REQUEST_FEEDBACK,
     TOAST_HOST,
 )
@@ -272,6 +273,7 @@ def register_pipeline_run_routes(
         fragment_regions=(
             PIPELINE_RUN_FEEDBACK,
             PIPELINE_RUN_MONITOR,
+            PIPELINE_WORKFLOW_STATUS,
             PIPELINE_SAVE_NOTICE,
             TOAST_HOST,
             REQUEST_FEEDBACK,
@@ -328,7 +330,7 @@ def register_pipeline_run_routes(
 
     @fragment_router.view(
         "/pipeline/runs/{run_id}/status",
-        fragment_regions=(PIPELINE_RUN_MONITOR, REQUEST_FEEDBACK),
+        fragment_regions=(PIPELINE_RUN_MONITOR, PIPELINE_WORKFLOW_STATUS, REQUEST_FEEDBACK),
         include_in_schema=False,
     )
     async def pipeline_run_status(
@@ -366,7 +368,12 @@ def register_pipeline_run_routes(
 
     @app.action(
         "/pipeline/runs/{run_id}/cancel",
-        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST, REQUEST_FEEDBACK),
+        fragment_regions=(
+            PIPELINE_RUN_MONITOR,
+            PIPELINE_WORKFLOW_STATUS,
+            TOAST_HOST,
+            REQUEST_FEEDBACK,
+        ),
         include_in_schema=False,
     )
     async def pipeline_run_cancel(
@@ -402,7 +409,12 @@ def register_pipeline_run_routes(
 
     @app.action(
         "/pipeline/runs/{run_id}/reconcile",
-        fragment_regions=(PIPELINE_RUN_MONITOR, TOAST_HOST, REQUEST_FEEDBACK),
+        fragment_regions=(
+            PIPELINE_RUN_MONITOR,
+            PIPELINE_WORKFLOW_STATUS,
+            TOAST_HOST,
+            REQUEST_FEEDBACK,
+        ),
         include_in_schema=False,
     )
     async def pipeline_run_reconcile(

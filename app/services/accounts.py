@@ -8,7 +8,15 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import AuditEvent, PasswordReset, RefreshSession, User, UserSecret, utcnow
+from app.models import (
+    AuditEvent,
+    DatabricksComputeAttempt,
+    PasswordReset,
+    RefreshSession,
+    User,
+    UserSecret,
+    utcnow,
+)
 from app.security.passwords import PasswordService, validate_password
 from app.services.audit import record_event
 from app.services.auth import revoke_all_sessions
@@ -31,6 +39,7 @@ class ProfileValues:
 class SecurityPageValues(TypedDict):
     sessions: list[RefreshSession]
     secret_slots: list[tuple[SecretProvider, UserSecret | None]]
+    compute_attempts: list[DatabricksComputeAttempt]
     events: list[AuditEvent]
     local_password: bool
     security_success: str
@@ -126,9 +135,16 @@ def security_page_values(
         .order_by(AuditEvent.occurred_at.desc())
         .limit(12)
     ).all()
+    compute_attempts = db.scalars(
+        select(DatabricksComputeAttempt)
+        .where(DatabricksComputeAttempt.user_id == user.id)
+        .order_by(DatabricksComputeAttempt.requested_at.desc())
+        .limit(5)
+    ).all()
     return {
         "sessions": list(sessions),
-        "secret_slots": list_user_secrets(db, user),
+        "secret_slots": list_user_secrets(db, user, settings),
+        "compute_attempts": list(compute_attempts),
         "events": list(events),
         "local_password": settings.authentication_mode == "local_password",
         "security_success": security_success,

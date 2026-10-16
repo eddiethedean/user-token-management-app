@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from urllib.parse import urlsplit
 
@@ -45,7 +46,54 @@ class CredentialValidator:
         self._validate_connect_timeout(normalized)
         self._validate_choice(specification, normalized, "sslmode", "PostgreSQL SSL mode")
         self._validate_choice(specification, normalized, "tlsmode", "MongoDB TLS mode")
+        if specification.name == "databricks":
+            self._validate_databricks(normalized)
         return normalized
+
+    @staticmethod
+    def _validate_databricks(credentials: Mapping[str, str]) -> None:
+        workspace = credentials.get("workspace_url", "")
+        parsed = urlsplit(workspace)
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("Workspace URL contains an invalid port.") from exc
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or "\\" in workspace
+            or any(character.isspace() for character in workspace)
+            or (port is not None and port != 443)
+        ):
+            raise ValueError("Workspace URL must be an HTTPS origin without a path or credentials.")
+        compute_id = credentials.get("compute_id", "")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", compute_id):
+            raise ValueError("Compute ID contains unsupported characters.")
+        http_path = credentials.get("http_path", "").strip().strip("/")
+        compute_kind = credentials.get("compute_kind", "")
+        if compute_kind == "warehouse":
+            path_match = re.fullmatch(r"sql/1\.0/warehouses/([A-Za-z0-9_-]{1,128})", http_path)
+        elif compute_kind == "classic_cluster":
+            path_match = re.fullmatch(
+                r"sql/protocolv1/o/([A-Za-z0-9_-]{1,128})/([A-Za-z0-9_-]{1,128})",
+                http_path,
+            )
+        else:
+            raise ValueError("Choose a supported Databricks compute type.")
+        path_id = (
+            path_match.group(1)
+            if compute_kind == "warehouse" and path_match
+            else (path_match.group(2) if path_match else "")
+        )
+        if not path_match or path_id != compute_id:
+            raise ValueError("SQL HTTP path must match the selected compute type and ID.")
+        if credentials.get("startup_policy", "manual") not in {"manual", "allow_start"}:
+            raise ValueError("Choose a supported Databricks startup policy.")
 
     @staticmethod
     def _validate_token(credentials: Mapping[str, str]) -> None:

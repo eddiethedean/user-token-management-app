@@ -60,3 +60,6 @@ class ObjectSchema:
     sensitivity_markers: tuple[str, ...] = ()
     column_sensitivity_markers: tuple[tuple[str, tuple[str, ...]], ...] = ()
     removed_columns: tuple[str, ...] = ()
+    metadata_coverage: str = "unknown"
+    schema_fingerprint: str = ""
+    sensitivity_fingerprint: str = ""

@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from types import SimpleNamespace
@@ -18,9 +19,16 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.connectors.errors import TransferErrorCode
+from app.connectors.locators import (
+    CsvUploadLocator,
+    DatabricksCreatePolicy,
+    DatabricksTableLocator,
+    DefinitionSnapshot,
+)
 from app.database import SessionLocal
 from app.domain.feedback import DataImpact
 from app.models import (
+    DatabricksPublication,
     PipelineDefinition,
     PipelineRun,
     PipelineRunEvent,
@@ -47,7 +55,7 @@ from app.services.pipeline_runs import (
 from app.services.pipeline_state import RunConflictError
 from app.services.pipelines import save_pipeline
 from app.worker import _cancel_flag, process_one
-from tests.helpers import csrf_from, web_login
+from tests.helpers import USER_PASSWORD, csrf_from, web_login
 
 
 def test_guarded_transitions_reject_illegal_jumps() -> None:
@@ -101,6 +109,8 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert 'aria-label="Live transfer stages"' in queued.text
     assert 'aria-label="Event feed for Worker handshake"' in queued.text
     assert "Transfer succeeded." in queued.text
+    assert 'id="pipeline-workflow-status"' in queued.text
+    assert 'hx-swap-oob="outerHTML:#pipeline-workflow-status"' in queued.text
     assert "Destination table" in queued.text
     assert "0 → 3 rows" in queued.text
     assert "+3 rows" in queued.text
@@ -116,6 +126,9 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert queued.headers.get("HX-Push-Url") == f"/pipeline?pipeline_id={pipeline_id}"
 
     restored = client.get(f"/pipeline?pipeline_id={pipeline_id}")
+    setup_tab = re.search(r'<button[^>]*id="pipeline-workspace-tabs-tab-0"[^>]*>', restored.text)
+    assert setup_tab is not None
+    assert 'aria-selected="true"' in setup_tab.group()
     assert "Live transfer" in restored.text
     assert "Persisted run history" in restored.text
     assert "Transfer succeeded." in restored.text
@@ -135,6 +148,63 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
         )
         assert events
         assert all("token" not in event.message.casefold() for event in events)
+
+
+def test_databricks_run_review_shows_durable_uncertain_publication(client, make_user) -> None:
+    user = make_user("databricks.publication.review@example.gov")
+    web_login(client, user.email, USER_PASSWORD)
+    run_id = str(uuid.uuid4())
+    workspace_id = "a" * 64
+    snapshot = DefinitionSnapshot(
+        name="Databricks publication review",
+        source_provider="csv",
+        destination_provider="databricks",
+        source=CsvUploadLocator(upload_id=str(uuid.uuid4()), checksum_sha256="b" * 64),
+        destination=DatabricksTableLocator(
+            workspace_id=workspace_id,
+            catalog="review_catalog",
+            schema="review_schema",
+            table="review_table",
+        ),
+        write_policy=DatabricksCreatePolicy(),
+    )
+    with SessionLocal() as db:
+        run = PipelineRun(
+            id=run_id,
+            user_id=user.id,
+            definition_snapshot_json=snapshot.model_dump_json(),
+            status=PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
+            stage="failed",
+            reconciliation_required=True,
+            error_code="publish_uncertain",
+            error_summary="Publication response was lost.",
+        )
+        db.add(run)
+        db.flush()
+        db.add(
+            DatabricksPublication(
+                run_id=run_id,
+                user_id=user.id,
+                workspace_id=workspace_id,
+                connection_generation="test-generation",
+                target_key="c" * 64,
+                active_target_key="c" * 64,
+                target_locator_json=snapshot.destination.model_dump_json(by_alias=True),
+                write_mode="databricks_create",
+                staging_name="private.must-never-be-rendered",
+                state="uncertain",
+                submission_id=run_id,
+            )
+        )
+        db.commit()
+
+    response = client.get(f"/pipeline?run_id={run_id}")
+
+    assert response.status_code == 200
+    assert "Databricks publication" in response.text
+    assert "Outcome uncertain" in response.text
+    assert "Do not retry or edit this target" in response.text
+    assert "private.must-never-be-rendered" not in response.text
 
 
 def test_csv_decimal_destination_is_rejected_before_a_run_is_queued(

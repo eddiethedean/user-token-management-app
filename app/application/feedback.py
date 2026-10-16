@@ -128,6 +128,18 @@ _PIPELINE_FAILURE_COPY = {
         FeedbackAction.RECONFIGURE,
         DataImpact.UNCHANGED,
     ),
+    TransferErrorCode.COMPUTE_NOT_READY: (
+        "Databricks compute is not ready for this operation.",
+        "Check the selected compute state. Start it explicitly if needed, then test the connection again.",
+        FeedbackAction.RECONFIGURE,
+        DataImpact.UNCHANGED,
+    ),
+    TransferErrorCode.METADATA_INCOMPLETE: (
+        "Databricks sensitivity metadata could not be verified.",
+        "No destination writes occurred. Ask the workspace administrator to verify Unity Catalog metadata permissions and runtime support.",
+        FeedbackAction.CONTACT_ADMIN,
+        DataImpact.UNCHANGED,
+    ),
     TransferErrorCode.VERIFICATION_FAILED: (
         "The transfer completed without a verified result.",
         "Inspect the destination and run facts before deciding whether to retry.",

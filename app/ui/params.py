@@ -18,7 +18,7 @@ _UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[
 UserIdPath = Annotated[str, Path(min_length=36, max_length=36, pattern=_UUID_PATTERN)]
 SessionIdPath = Annotated[str, Path(min_length=36, max_length=36, pattern=_UUID_PATTERN)]
 InvitationIdPath = Annotated[str, Path(min_length=36, max_length=36, pattern=_UUID_PATTERN)]
-SecretProviderPath = Annotated[Literal["mss", "mcscop", "postgres"], Path()]
+SecretProviderPath = Annotated[Literal["mss", "mcscop", "postgres", "databricks"], Path()]
 
 # --- Query (defaults at call site) ---
 
@@ -54,9 +54,13 @@ ListingStatusForm = Annotated[str, Form(max_length=20)]
 ListingPageForm = Annotated[int, Form(ge=1)]
 PipelineIdForm = Annotated[str, Form(max_length=36)]
 PipelineNameForm = Annotated[str, Form(min_length=1, max_length=120)]
-PipelineProviderForm = Annotated[Literal["mss", "mcscop", "postgres"], Form()]
-PipelineOptionalProviderForm = Annotated[Literal["mss", "mcscop", "postgres", ""], Form()]
-PipelineSourceProviderForm = Annotated[Literal["mss", "mcscop", "postgres", "csv"], Form()]
+PipelineProviderForm = Annotated[Literal["mss", "mcscop", "postgres", "databricks"], Form()]
+PipelineOptionalProviderForm = Annotated[
+    Literal["mss", "mcscop", "postgres", "databricks", ""], Form()
+]
+PipelineSourceProviderForm = Annotated[
+    Literal["mss", "mcscop", "postgres", "databricks", "csv"], Form()
+]
 PipelineSchemaForm = Annotated[str, Form(min_length=1, max_length=240)]
 PipelineTableForm = Annotated[str, Form(min_length=1, max_length=240)]
 PipelineOptionalTableForm = Annotated[str, Form(max_length=1000)]
@@ -69,7 +73,7 @@ PipelineGuardrailScanCompleteForm = Annotated[bool, Form()]
 PipelineAddColumnCastForm = Annotated[bool, Form()]
 PipelinePrimaryKeyColumnsForm = Annotated[str, Form(max_length=1000)]
 PipelineAutoIncrementPrimaryKeyForm = Annotated[str, Form(max_length=63)]
-PipelineWriteModeForm = Annotated[Literal["upsert", "append", "replace"], Form()]
+PipelineWriteModeForm = Annotated[Literal["upsert", "append", "replace", "create"], Form()]
 PipelineSwapForm = Annotated[bool, Form()]
 PipelineSaveAndRunForm = Annotated[bool, Form()]
 FoundryFolderRidForm = Annotated[str, Form(min_length=1, max_length=240)]

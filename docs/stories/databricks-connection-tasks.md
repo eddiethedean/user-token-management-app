@@ -2,7 +2,9 @@
 
 [Parent epic](databricks-connection-epic.md) · [Issue CSV export](../../artifacts/jira/data-mover-databricks-connection-issues.csv) · Prepared October 9, 2026
 
-This backlog contains **57 tasks across eight stories**. All tasks are **proposed / not started**.
+This backlog contains **57 tasks across eight stories**. Local implementation has started; see the
+[acceptance ledger](../plans/databricks-acceptance.md) for current code evidence and open gates.
+No task is complete until its specified local and live evidence is recorded.
 IDs are local planning references, not assigned GitHub/Jira issue IDs. Owner roles are proposed
 accountability, not assignments to named people. The epic remains the scope and acceptance authority.
 
@@ -154,4 +156,4 @@ The epic release checklist is satisfied through DBX-01-T07 (provider decisions),
 verification task (automated and live evidence as specified), DBX-08-T03 (rollout gates),
 DBX-08-T04 (end-to-end redaction), DBX-08-T05/T06 (docs and annotated screenshots), and
 DBX-08-T07 (the consolidated acceptance record). Until that evidence exists, these tasks describe
-future implementation work and do not claim a released Databricks connector.
+the implementation and acceptance record; they do not claim a released Databricks connector.

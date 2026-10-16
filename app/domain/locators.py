@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from typing import Annotated, Literal
@@ -128,8 +129,53 @@ class CsvUploadLocator(BaseModel):
         return value
 
 
+class DatabricksTableLocator(BaseModel):
+    """Unity Catalog Delta table identity without connection credentials."""
+
+    kind: Literal["databricks_table"] = "databricks_table"
+    workspace_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    catalog: str = Field(min_length=1, max_length=256)
+    schema_name: str = Field(alias="schema", min_length=1, max_length=256)
+    table: str = Field(min_length=1, max_length=256)
+    object_id: str = Field(default="", max_length=128)
+    connection_generation: str = Field(default="", max_length=64)
+    schema_fingerprint: str = Field(default="", max_length=64)
+    sensitivity_fingerprint: str = Field(default="", max_length=64)
+
+    model_config = {"populate_by_name": True}
+
+    @field_validator("catalog", "schema_name", "table")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if not value.strip() or any(
+            ord(character) < 32 or ord(character) == 127 for character in value
+        ):
+            raise ValueError(
+                "Databricks object names must not be empty or contain control characters."
+            )
+        return value
+
+    @field_validator("object_id", "connection_generation")
+    @classmethod
+    def validate_object_id(cls, value: str) -> str:
+        if any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise ValueError("Databricks identity metadata is invalid.")
+        return value
+
+    @field_validator("schema_fingerprint", "sensitivity_fingerprint")
+    @classmethod
+    def validate_fingerprint(cls, value: str) -> str:
+        if value and not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise ValueError("Databricks metadata fingerprint is invalid.")
+        return value
+
+
 Locator = Annotated[
-    PostgresTableLocator | FoundryDatasetFilesLocator | FoundryUploadLocator | CsvUploadLocator,
+    PostgresTableLocator
+    | FoundryDatasetFilesLocator
+    | FoundryUploadLocator
+    | CsvUploadLocator
+    | DatabricksTableLocator,
     Field(discriminator="kind"),
 ]
 
@@ -230,14 +276,32 @@ class FoundryReplaceFilePolicy(ColumnTypeOverridesPolicy):
     publication: Literal["committed_upload", "preview_upload"] = "committed_upload"
 
 
+class DatabricksCreatePolicy(ColumnTypeOverridesPolicy):
+    kind: Literal["databricks_create"] = "databricks_create"
+
+
+class DatabricksAppendPolicy(ColumnTypeOverridesPolicy):
+    kind: Literal["databricks_append"] = "databricks_append"
+
+
+class DatabricksReplacePolicy(ColumnTypeOverridesPolicy):
+    kind: Literal["databricks_replace"] = "databricks_replace"
+
+
 WritePolicy = Annotated[
-    PostgresAppendPolicy | PostgresUpsertPolicy | PostgresReplacePolicy | FoundryReplaceFilePolicy,
+    PostgresAppendPolicy
+    | PostgresUpsertPolicy
+    | PostgresReplacePolicy
+    | FoundryReplaceFilePolicy
+    | DatabricksCreatePolicy
+    | DatabricksAppendPolicy
+    | DatabricksReplacePolicy,
     Field(discriminator="kind"),
 ]
 
 
 class DefinitionSnapshot(BaseModel):
-    version: int = 4
+    version: int = 5
     name: str
     source_provider: str
     destination_provider: str
@@ -250,6 +314,17 @@ class DefinitionSnapshot(BaseModel):
 
 def postgres_table(schema: str, table: str) -> PostgresTableLocator:
     return PostgresTableLocator.model_validate({"schema": schema, "table": table})
+
+
+def databricks_workspace_id(workspace_url: str) -> str:
+    """Hash a canonical workspace host so review keys do not retain the URL."""
+
+    from urllib.parse import urlsplit
+
+    host = (urlsplit(workspace_url).hostname or "").casefold().rstrip(".")
+    if not host:
+        raise ValueError("Enter a valid Databricks workspace URL.")
+    return hashlib.sha256(host.encode("utf-8")).hexdigest()
 
 
 def parse_locator(payload: object) -> Locator:
