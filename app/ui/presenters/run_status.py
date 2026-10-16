@@ -219,11 +219,13 @@ def run_flow_steps(flow_statuses: tuple[str, str, str, str]) -> tuple[FlowStep, 
 def destination_count_metric(run: Any, *, provider: str = "postgres") -> Metric:
     """Build a before/after destination count metric from persisted verification data."""
 
-    label = "Destination table" if provider == "postgres" else "Destination file"
+    label = "Destination table" if provider in {"postgres", "databricks"} else "Destination file"
 
     try:
         verification = json.loads(run.verification_json or "{}")
     except (TypeError, ValueError):
+        verification = {}
+    if not isinstance(verification, dict):
         verification = {}
     before = verification.get("destination_rows_before")
     after = verification.get("destination_rows_after")
@@ -247,6 +249,8 @@ def destination_count_metric(run: Any, *, provider: str = "postgres") -> Metric:
     return Metric(
         label,
         "Count unavailable",
-        delta="Provider does not expose counts",
+        delta="Count not recorded"
+        if provider in {"postgres", "databricks"}
+        else "Provider does not expose counts",
         delta_tone="neutral",
     )

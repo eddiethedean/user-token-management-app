@@ -9,6 +9,11 @@ MAIN_PANEL = FragmentRegion(
     selector="#main-panel",
     description="Authenticated main content panel",
 )
+PIPELINE_WORKFLOW_STATUS = FragmentRegion(
+    id="pipeline-workflow-status",
+    selector="#pipeline-workflow-status",
+    description="Current pipeline workflow progress",
+)
 TOAST_HOST = FragmentRegion(
     id="hedron-toast",
     selector="#hedron-toast",

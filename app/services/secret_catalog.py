@@ -152,6 +152,10 @@ SECRET_PROVIDERS = (
                 "Choose compute type",
                 required=True,
                 options=("warehouse", "classic_cluster"),
+                option_labels=(
+                    ("warehouse", "SQL warehouse"),
+                    ("classic_cluster", "Classic cluster"),
+                ),
             ),
             CredentialField(
                 "compute_id",
@@ -169,6 +173,10 @@ SECRET_PROVIDERS = (
                 required=True,
                 default="manual",
                 options=("manual", "allow_start"),
+                option_labels=(
+                    ("manual", "Start manually"),
+                    ("allow_start", "Allow automatic startup"),
+                ),
             ),
         ),
         setup_hint=(

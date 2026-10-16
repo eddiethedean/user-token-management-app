@@ -16,6 +16,7 @@ class CredentialField:
     required: bool = False
     default: str = ""
     options: tuple[str, ...] = ()
+    option_labels: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)

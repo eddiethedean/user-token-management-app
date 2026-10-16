@@ -54,7 +54,10 @@ from app.domain.pipelines.guardrails import (
 )
 from app.models import PipelineRun
 from app.services import pipeline_runs
-from app.services.catalogs import invalidate_published_foundry_file_cache
+from app.services.catalogs import (
+    invalidate_published_databricks_table_cache,
+    invalidate_published_foundry_file_cache,
+)
 from app.services.column_casting import (
     apply_column_type_overrides_to_schema,
     cast_batch_columns,
@@ -492,28 +495,35 @@ def _abort_quietly(destination, session) -> AbortResult:
         return AbortResult.UNCERTAIN
 
 
-def _refresh_published_foundry_cache(
+def _refresh_published_destination_cache(
     db: Session, run: PipelineRun, snapshot: DefinitionSnapshot
 ) -> None:
-    if not isinstance(snapshot.destination, FoundryUploadLocator):
+    if not isinstance(snapshot.destination, (FoundryUploadLocator, DatabricksTableLocator)):
         return
     try:
-        invalidate_published_foundry_file_cache(
-            db,
-            user_id=run.user_id,
-            provider=snapshot.destination_provider,
-            dataset_rid=snapshot.destination.dataset_rid,
-            branch=snapshot.destination.branch,
-            file_name=snapshot.destination.file_name,
-        )
+        if isinstance(snapshot.destination, DatabricksTableLocator):
+            invalidate_published_databricks_table_cache(
+                db, user_id=run.user_id, locator=snapshot.destination
+            )
+        else:
+            invalidate_published_foundry_file_cache(
+                db,
+                user_id=run.user_id,
+                provider=snapshot.destination_provider,
+                dataset_rid=snapshot.destination.dataset_rid,
+                branch=snapshot.destination.branch,
+                file_name=snapshot.destination.file_name,
+            )
     except Exception as exc:
         # Publication and the run result were already persisted. A cache
         # failure must not change the transfer outcome or require review.
         try:
             db.rollback()
         except Exception as rollback_exc:
-            log.warning("Foundry catalog cache rollback failed (%s)", type(rollback_exc).__name__)
-        log.warning("Foundry catalog cache refresh failed (%s)", type(exc).__name__)
+            log.warning(
+                "Destination catalog cache rollback failed (%s)", type(rollback_exc).__name__
+            )
+        log.warning("Destination catalog cache refresh failed (%s)", type(exc).__name__)
 
 
 def _cancel_after_abort(db, run: PipelineRun, *, lease_token: str, destination, session) -> None:
@@ -1163,7 +1173,7 @@ def execute_transfer(
                 needs_reconciliation=True,
                 verification_facts=verification,
             )
-            _refresh_published_foundry_cache(db, run, snapshot)
+            _refresh_published_destination_cache(db, run, snapshot)
             return
         pipeline_runs.complete_run(
             db,
@@ -1218,7 +1228,7 @@ def execute_transfer(
                 ],
             },
         )
-        _refresh_published_foundry_cache(db, run, snapshot)
+        _refresh_published_destination_cache(db, run, snapshot)
     except Exception as exc:
         abort_result = None
         if session is not None:

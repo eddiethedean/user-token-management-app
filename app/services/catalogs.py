@@ -579,6 +579,7 @@ class UserCatalog:
             catalog=identity[1],
             schema=identity[2],
             table=table,
+            connection_generation=credentials.get("connection_generation", ""),
         )
         if not inspect:
             return locator
@@ -827,6 +828,26 @@ def invalidate_published_foundry_file_cache(
             PipelineCatalogCache.user_id == user_id,
             PipelineCatalogCache.provider == provider.casefold(),
             PipelineCatalogCache.namespace.in_((dataset_rid, schema_key)),
+        )
+    )
+    db.commit()
+
+
+def invalidate_published_databricks_table_cache(
+    db: Session, *, user_id: str, locator: DatabricksTableLocator
+) -> None:
+    """Refresh the owner's table listing after a confirmed Delta publication."""
+
+    namespace = json.dumps(
+        [locator.workspace_id, locator.catalog, locator.schema_name],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    db.execute(
+        delete(PipelineCatalogCache).where(
+            PipelineCatalogCache.user_id == user_id,
+            PipelineCatalogCache.provider == "databricks",
+            PipelineCatalogCache.namespace == namespace,
         )
     )
     db.commit()

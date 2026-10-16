@@ -89,7 +89,7 @@ from app.domain.pipelines.guardrails import (
     guardrail_source_key,
     parse_guardrail_scan_result,
 )
-from app.models import DatabricksPublication, PipelineDefinition, PipelineUpload
+from app.models import DatabricksPublication, PipelineDefinition, PipelineUpload, User
 from app.services.catalogs import (
     CREATE_TABLE_VALUE,
     CSV_SOURCE_CATALOG,
@@ -124,7 +124,11 @@ from app.ui.layout import INDICATOR, alert_box
 from app.ui.params import NoticeQuery
 from app.ui.partials.feedback import feedback_panel
 from app.ui.presenters.feedback import run_outcome, verification_summary
-from app.ui.presenters.pipeline import SavedPipelineFields, saved_pipeline_form_data
+from app.ui.presenters.pipeline import (
+    SavedPipelineFields,
+    route_object_label,
+    saved_pipeline_form_data,
+)
 from app.ui.presenters.run_status import (
     EVENT_STAGE_LABELS,
     destination_count_metric,
@@ -1893,7 +1897,12 @@ def _route_schema_preview(
         metadata_coverage = "incomplete" if provider == "databricks" else "unavailable"
     if destination and capabilities.exact_row_counts:
         try:
-            counted = catalog_access.count_rows(provider, remote.locator)
+            counted = catalog_access.count_rows(
+                provider,
+                inspected.locator
+                if provider == "databricks" and inspected is not None
+                else remote.locator,
+            )
             estimated_rows = counted if counted is not None else estimated_rows
             if counted is not None:
                 row_provenance = "exact"
@@ -2488,7 +2497,7 @@ def _guardrail_review_surface(
             description=(
                 "The complete source scan found no SSN patterns."
                 if scan_complete
-                else "Foundry metadata and any completed content scan will appear here."
+                else "Provider metadata and any completed content scan will appear here."
             ),
         )
     )
@@ -2503,6 +2512,9 @@ def _guardrail_review_surface(
                 or (source_provider and source_schema and source_object)
             )
             or bool(preview.get("table_sensitivity_markers"))
+            or (
+                source_provider == "databricks" and preview.get("metadata_coverage") == "incomplete"
+            )
         ),
         attrs={
             **hx_attrs(
@@ -2521,7 +2533,7 @@ def _guardrail_review_surface(
             "Sensitive-data guardrails",
             eyebrow="Pre-run review",
             description=(
-                "A table-level Foundry marking blocks this source before extraction."
+                "A table-level sensitivity marking blocks this source before extraction."
                 if preview.get("table_sensitivity_markers")
                 else "Review metadata and content findings, then choose Hash or Remove for each affected column."
             ),
@@ -3107,8 +3119,8 @@ def _saved_pipeline_cards(
             ResourceRow(
                 pipeline.name,
                 description=(
-                    f"{source_object if pipeline.source_provider == 'csv' else f'{source_namespace}.{source_object}'} → "
-                    f"{destination_namespace}.{destination_object} · Updated "
+                    f"{route_object_label(pipeline.source_provider, source_namespace, source_object)} → "
+                    f"{route_object_label(pipeline.destination_provider, destination_namespace, destination_object)} · Updated "
                     f"{pipeline.updated_at.strftime('%b %d, %H:%M')} · {_saved_run_summary(latest)}"
                 ),
                 meta=Inline(
@@ -3507,7 +3519,7 @@ def _pipeline_preview_fragment(
             oob=True,
         ),
         html.p(
-            source_schema + "." + source_object_name
+            route_object_label(source_provider, source_schema, source_object_name)
             if source_provider != "csv"
             else (
                 csv_inspection.filename
@@ -3518,7 +3530,9 @@ def _pipeline_preview_fragment(
             **{"hx-swap-oob": "outerHTML:#pipeline-source-detail"},
         ),
         html.p(
-            target_schema + "." + table_name if target_provider else "Configure a connection",
+            route_object_label(target_provider, target_schema, table_name)
+            if target_provider
+            else "Configure a connection",
             id="pipeline-target-detail",
             **{"hx-swap-oob": "outerHTML:#pipeline-target-detail"},
         ),
@@ -3540,6 +3554,85 @@ def _pipeline_preview_fragment(
             id="pipeline-availability-note",
             **{"hx-swap-oob": "outerHTML:#pipeline-availability-note"},
         ),
+    )
+
+
+def _pipeline_workflow(
+    *,
+    ready_count: int,
+    connection_count: int,
+    pipeline_saved: bool,
+    has_visible_run: bool,
+    run_status: str,
+    initial_run_ready: bool,
+):
+    run_finished = run_status == "succeeded"
+    run_needs_review = run_status in {
+        "failed",
+        "failed_needs_reconciliation",
+        "cancelled",
+        "blocked",
+    }
+    return ProcessFlow(
+        FlowStep(
+            "Connect",
+            status=(
+                "complete"
+                if connection_count > 0 and ready_count == connection_count
+                else "current"
+            ),
+            description=(
+                f"{ready_count} of {connection_count} validated"
+                if connection_count
+                else "Add source and target connections"
+            ),
+            status_text=(
+                "Ready"
+                if connection_count > 0 and ready_count == connection_count
+                else "Needs attention"
+                if connection_count
+                else "Start here"
+            ),
+        ),
+        FlowStep(
+            "Configure",
+            status="complete" if pipeline_saved or has_visible_run else "current",
+            description="Source, target, and write policy",
+            status_text="Saved" if pipeline_saved or has_visible_run else "In progress",
+        ),
+        FlowStep(
+            "Run",
+            status=(
+                "complete"
+                if run_finished
+                else "current"
+                if has_visible_run or pipeline_saved and initial_run_ready
+                else "pending"
+            ),
+            description=(
+                "Review the latest transfer"
+                if has_visible_run
+                else "Ready to start a transfer"
+                if pipeline_saved and initial_run_ready
+                else "Save a route to run it"
+            ),
+            status_text=(
+                "Succeeded"
+                if run_finished
+                else "Needs review"
+                if run_needs_review
+                else "In progress"
+                if has_visible_run
+                else "Ready"
+                if pipeline_saved and initial_run_ready
+                else "Next"
+            ),
+        ),
+        label="Pipeline workflow",
+        direction="horizontal",
+        collapse="never",
+        density="compact",
+        appearance="plain",
     )
 
 
@@ -3813,70 +3906,16 @@ def _pipeline_body(
         indicator=INDICATOR,
         busy="region",
     )
-    has_visible_run = run_monitor is not None
-    run_finished = run_status == "succeeded"
-    run_needs_review = run_status in {
-        "failed",
-        "failed_needs_reconciliation",
-        "cancelled",
-        "blocked",
-    }
-    setup_flow = ProcessFlow(
-        FlowStep(
-            "Connect",
-            status=("complete" if connections and ready_count == len(connections) else "current"),
-            description=(
-                f"{ready_count} of {len(connections)} validated"
-                if connections
-                else "Add source and target connections"
-            ),
-            status_text=(
-                "Ready"
-                if connections and ready_count == len(connections)
-                else "Needs attention"
-                if connections
-                else "Start here"
-            ),
+    setup_flow = html.div(
+        _pipeline_workflow(
+            ready_count=ready_count,
+            connection_count=len(connections),
+            pipeline_saved=bool(pipeline_id),
+            has_visible_run=run_monitor is not None,
+            run_status=run_status,
+            initial_run_ready=initial_run_ready,
         ),
-        FlowStep(
-            "Configure",
-            status="complete" if pipeline_id or has_visible_run else "current",
-            description="Source, target, and write policy",
-            status_text="Saved" if pipeline_id or has_visible_run else "In progress",
-        ),
-        FlowStep(
-            "Run",
-            status=(
-                "complete"
-                if run_finished
-                else "current"
-                if has_visible_run or pipeline_id and initial_run_ready
-                else "pending"
-            ),
-            description=(
-                "Review the latest transfer"
-                if has_visible_run
-                else "Ready to start a transfer"
-                if pipeline_id and initial_run_ready
-                else "Save a route to run it"
-            ),
-            status_text=(
-                "Succeeded"
-                if run_finished
-                else "Needs review"
-                if run_needs_review
-                else "In progress"
-                if has_visible_run
-                else "Ready"
-                if pipeline_id and initial_run_ready
-                else "Next"
-            ),
-        ),
-        label="Pipeline workflow",
-        direction="horizontal",
-        collapse="never",
-        density="compact",
-        appearance="plain",
+        id="pipeline-workflow-status",
     )
     return [
         PageHeader(
@@ -4300,7 +4339,11 @@ def _pipeline_body(
                                             kind="source",
                                             catalog=source_catalog,
                                             detail=(
-                                                f"{source_schema_name}.{source_object_name}"
+                                                route_object_label(
+                                                    source_provider,
+                                                    source_schema_name,
+                                                    source_object_name,
+                                                )
                                                 if source_provider != "csv"
                                                 else loaded_source_inspection.filename
                                                 if loaded_source_inspection is not None
@@ -4344,7 +4387,11 @@ def _pipeline_body(
                                             kind="target",
                                             catalog=target_catalog,
                                             detail=(
-                                                f"{target_schema_name}.{target_object_name}"
+                                                route_object_label(
+                                                    target_provider,
+                                                    target_schema_name,
+                                                    target_object_name,
+                                                )
                                                 if target_catalog is not None
                                                 else "Configure a connection"
                                             ),
@@ -4503,7 +4550,13 @@ def _pipeline_body(
                     demo_mode=demo_mode,
                 ),
             ),
-            active=("Route setup" if notice == "saved" or run_monitor is None else "Live transfer"),
+            active=(
+                "Route setup"
+                if notice == "saved"
+                or run_monitor is None
+                or (pipeline_id and not request.query_params.get("run_id"))
+                else "Live transfer"
+            ),
             id="pipeline-workspace-tabs",
         ),
     ]
@@ -5417,7 +5470,37 @@ def _run_status_fragment(
         label=f"Pipeline run {run.id} status",
         mark="pipeline-run-status",
     )
+    workflow_update = None
+    if request.headers.get("HX-Target", "").lstrip("#") == "pipeline-run-monitor":
+        owner = db.get(User, run.user_id)
+        connections = (
+            [
+                {
+                    "configured": secret is not None,
+                    "validation": secret.validation_status if secret else "unconfigured",
+                    "runtime": secret.runtime_status if secret else "",
+                }
+                for _provider, secret in list_user_secrets(
+                    db, owner, getattr(request.state, "settings", None)
+                )
+            ]
+            if owner is not None
+            else []
+        )
+        workflow_update = html.div(
+            _pipeline_workflow(
+                ready_count=sum(_connection_runnable(item) for item in connections),
+                connection_count=len(connections),
+                pipeline_saved=bool(run.pipeline_definition_id),
+                has_visible_run=True,
+                run_status=run_status,
+                initial_run_ready=False,
+            ),
+            id="pipeline-workflow-status",
+            **{"hx-swap-oob": "outerHTML:#pipeline-workflow-status"},
+        )
     return html.div(
+        workflow_update,
         status_bar,
         ConnectorFlow(
             ConnectorNode(

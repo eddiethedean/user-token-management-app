@@ -109,6 +109,8 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert 'aria-label="Live transfer stages"' in queued.text
     assert 'aria-label="Event feed for Worker handshake"' in queued.text
     assert "Transfer succeeded." in queued.text
+    assert 'id="pipeline-workflow-status"' in queued.text
+    assert 'hx-swap-oob="outerHTML:#pipeline-workflow-status"' in queued.text
     assert "Destination table" in queued.text
     assert "0 → 3 rows" in queued.text
     assert "+3 rows" in queued.text
@@ -124,6 +126,9 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert queued.headers.get("HX-Push-Url") == f"/pipeline?pipeline_id={pipeline_id}"
 
     restored = client.get(f"/pipeline?pipeline_id={pipeline_id}")
+    setup_tab = re.search(r'<button[^>]*id="pipeline-workspace-tabs-tab-0"[^>]*>', restored.text)
+    assert setup_tab is not None
+    assert 'aria-selected="true"' in setup_tab.group()
     assert "Live transfer" in restored.text
     assert "Persisted run history" in restored.text
     assert "Transfer succeeded." in restored.text

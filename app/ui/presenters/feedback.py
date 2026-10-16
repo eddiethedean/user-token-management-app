@@ -174,7 +174,12 @@ def verification_summary(run: Any) -> str:
     if not verification:
         return "Verification details are unavailable."
     if verification.get("verification_level") != "exact":
-        return "The provider recorded completion, but does not expose an exact destination row-count comparison."
+        if isinstance(verification.get("destination_row_delta"), int):
+            return (
+                f"Observed destination row change: {verification['destination_row_delta']:+,}. "
+                "Exact per-run verification was not recorded."
+            )
+        return "Completion was recorded; an exact before-and-after destination row-count comparison was not recorded."
     if isinstance(verification.get("destination_row_delta"), int):
         return f"Destination row change: {verification['destination_row_delta']:+,}."
     if isinstance(verification.get("loaded_rows"), int):

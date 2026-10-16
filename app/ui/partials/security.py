@@ -160,7 +160,10 @@ def secret_slot(
         if field.options:
             control = Select(
                 field.name,
-                [(option, option) for option in field.options],
+                [
+                    (option, dict(field.option_labels).get(option, option))
+                    for option in field.options
+                ],
                 id=field_id,
                 required=field.required,
                 value=field.default,
