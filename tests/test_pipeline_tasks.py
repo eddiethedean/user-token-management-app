@@ -408,11 +408,13 @@ def test_cancellation_after_thread_completion_still_signals_shutdown() -> None:
     async def scenario() -> None:
         supervisor = asyncio.current_task()
         assert supervisor is not None
-        original_submit = pipeline_tasks._submit_sync
+        loop = asyncio.get_running_loop()
 
         def submit(function, *args):
-            completion = original_submit(function, *args)
-            completion.add_done_callback(lambda _: supervisor.cancel())
+            completion = loop.create_future()
+            value = function(*args)
+            loop.call_soon(completion.set_result, value)
+            loop.call_soon(supervisor.cancel)
             return completion
 
         with patch.object(pipeline_tasks, "_submit_sync", submit):

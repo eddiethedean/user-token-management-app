@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -27,18 +28,28 @@ def _fixture_docs() -> tuple[str, str, list[dict]]:
     return payload["database"], payload["collection"], list(payload["documents"])
 
 
-def test_mongodb_ping_and_lists_collections(mongodb: MongoClient) -> None:
+def _test_collection(mongodb: MongoClient, node_id: str):
+    database, collection, docs = _fixture_docs()
+    suffix = hashlib.sha256(node_id.encode()).hexdigest()[:12]
+    coll = mongodb[database][f"{collection}_{suffix}"]
+    coll.drop()
+    return coll, docs
+
+
+def test_mongodb_ping_and_lists_collections(
+    mongodb: MongoClient, request: pytest.FixtureRequest
+) -> None:
     hello = mongodb.admin.command("ping")
     assert hello.get("ok") == 1
-    database, collection, docs = _fixture_docs()
-    mongodb[database][collection].insert_many(docs)
-    names = mongodb[database].list_collection_names()
-    assert collection in names
+    coll, docs = _test_collection(mongodb, request.node.nodeid)
+    coll.insert_many(docs)
+    assert coll.name in mongodb[coll.database.name].list_collection_names()
 
 
-def test_mongodb_round_trips_sanitized_fixture_documents(mongodb: MongoClient) -> None:
-    database, collection, docs = _fixture_docs()
-    coll = mongodb[database][collection]
+def test_mongodb_round_trips_sanitized_fixture_documents(
+    mongodb: MongoClient, request: pytest.FixtureRequest
+) -> None:
+    coll, docs = _test_collection(mongodb, request.node.nodeid)
     coll.insert_many(deepcopy(docs))
     found = list(coll.find({}, {"_id": 0}).sort("event_id", 1))
     assert found == docs
@@ -47,9 +58,10 @@ def test_mongodb_round_trips_sanitized_fixture_documents(mongodb: MongoClient) -
     assert "password" not in dumped
 
 
-def test_mongodb_extracts_mixed_types_to_polars(mongodb: MongoClient) -> None:
-    database, collection, docs = _fixture_docs()
-    coll = mongodb[database][collection]
+def test_mongodb_extracts_mixed_types_to_polars(
+    mongodb: MongoClient, request: pytest.FixtureRequest
+) -> None:
+    coll, docs = _test_collection(mongodb, request.node.nodeid)
     coll.insert_many(
         [
             *docs,
@@ -72,9 +84,10 @@ def test_mongodb_extracts_mixed_types_to_polars(mongodb: MongoClient) -> None:
     assert frame["score"].null_count() == 1
 
 
-def test_mongodb_replace_collection_drops_prior_docs(mongodb: MongoClient) -> None:
-    database, collection, docs = _fixture_docs()
-    coll = mongodb[database][collection]
+def test_mongodb_replace_collection_drops_prior_docs(
+    mongodb: MongoClient, request: pytest.FixtureRequest
+) -> None:
+    coll, docs = _test_collection(mongodb, request.node.nodeid)
     coll.insert_many(docs)
     coll.delete_many({})
     coll.insert_one({"event_id": 99, "unit_name": "Zulu"})
