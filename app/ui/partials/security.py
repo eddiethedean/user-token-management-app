@@ -377,6 +377,7 @@ def connection_status_list(
     csrf_token: str,
     compute_attempts: list[DatabricksComputeAttempt] | None = None,
     oob: bool = False,
+    region_id: str | None = "connection-status-list",
 ) -> NodeLike:
     rows: list[NodeLike] = []
     for provider, secret in secret_slots:
@@ -514,7 +515,7 @@ def connection_status_list(
             )
         )
 
-    attrs: dict[str, HtmlAttrValue] = {"id": "connection-status-list"}
+    attrs: dict[str, HtmlAttrValue] = {"id": region_id}
     if oob:
         attrs["hx-swap-oob"] = "outerHTML"
     attempt_history = []
@@ -864,11 +865,19 @@ def security_tabs(
                 ),
                 Stack(
                     Grid(
-                        *[render_slot(p, s) for p, s in secret_slots if p.name != "postgres"],
+                        *[
+                            render_slot(p, s)
+                            for p, s in secret_slots
+                            if p.name not in {"postgres", "databricks"}
+                        ],
                         columns={"base": 1, "xl": 2},
                         gap="md",
                     ),
-                    *[render_slot(p, s) for p, s in secret_slots if p.name == "postgres"],
+                    *[
+                        render_slot(p, s)
+                        for p, s in secret_slots
+                        if p.name in {"postgres", "databricks"}
+                    ],
                     gap="md",
                 ),
             ),

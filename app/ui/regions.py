@@ -64,6 +64,11 @@ AUDIT_MATCH_COUNT = FragmentRegion(
     selector="#audit-match-count",
     description="Audit log match count",
 )
+AUDIT_REFRESH = FragmentRegion(
+    id="audit-refresh-control",
+    selector="#audit-refresh-control",
+    description="Refresh the current audit filters and page",
+)
 PASSWORD_FORM = FragmentRegion(
     id="password-form-region",
     selector="#password-form-region",

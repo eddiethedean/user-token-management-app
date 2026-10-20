@@ -56,8 +56,10 @@ from app.ui.params import (
     StatusFilterQuery,
     UserIdPath,
 )
+from app.ui.partials.admin_audit import audit_refresh_oob
 from app.ui.regions import (
     AUDIT_MATCH_COUNT,
+    AUDIT_REFRESH,
     AUDIT_RESULTS,
     AUDIT_RESULTS_BODY,
     AUDIT_RESULTS_LAZY_BODY,
@@ -534,6 +536,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
             AUDIT_RESULTS_BODY,
             AUDIT_RESULTS_LAZY_BODY,
             AUDIT_MATCH_COUNT,
+            AUDIT_REFRESH,
             REQUEST_FEEDBACK,
         ),
         include_in_schema=False,
@@ -579,13 +582,22 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                     request,
                     ok_fragment(
                         body,
-                        oob=(audit_match_count_oob(total),),
+                        oob=(
+                            audit_match_count_oob(total),
+                            audit_refresh_oob(request, event_type=et, outcome=oc, page=page),
+                        ),
                         reswap="outerHTML",
                     ),
                 )
             return await interaction_response(
                 request,
-                ok_fragment(results, oob=(audit_match_count_oob(total),)),
+                ok_fragment(
+                    results,
+                    oob=(
+                        audit_match_count_oob(total),
+                        audit_refresh_oob(request, event_type=et, outcome=oc, page=page),
+                    ),
+                ),
             )
         csrf = auth.session.csrf_token
         body = [
@@ -625,6 +637,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
             AUDIT_RESULTS,
             AUDIT_RESULTS_LAZY_BODY,
             AUDIT_MATCH_COUNT,
+            AUDIT_REFRESH,
             REQUEST_FEEDBACK,
         ),
         include_in_schema=False,
@@ -663,7 +676,10 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                     page_size=AUDIT_PAGE_SIZE,
                     region_id=region_id,
                 ),
-                oob=(audit_match_count_oob(total),),
+                oob=(
+                    audit_match_count_oob(total),
+                    audit_refresh_oob(request, event_type=et, outcome=oc, page=page),
+                ),
             )
         except SQLAlchemyError:
             return ok_fragment(

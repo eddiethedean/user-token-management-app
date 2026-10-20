@@ -123,6 +123,8 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert 'data-hedron-async-region="true"' in queued.text
     assert 'data-hedron-action-phase="success"' in queued.text
     assert 'id="pipeline-save-notice" hx-swap-oob="outerHTML"' in queued.text
+    for region_id in ("pipeline-save-notice", "pipeline-run-feedback"):
+        assert queued.text.count(f'id="{region_id}"') == 1
     assert queued.headers.get("HX-Push-Url") == f"/pipeline?pipeline_id={pipeline_id}"
 
     restored = client.get(f"/pipeline?pipeline_id={pipeline_id}")

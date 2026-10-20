@@ -21,6 +21,7 @@ from hedron import (
     Lazy,
     LinkButton,
     Loading,
+    OobUpdate,
     Section,
     Stack,
     StateView,
@@ -37,7 +38,7 @@ from app.ui.design_system import apply_data_recipe
 from app.ui.forms import submit_button
 from app.ui.layout import INDICATOR
 from app.ui.partials.shared import _filter_base_path, hedron_pagination
-from app.ui.regions import AUDIT_RESULTS
+from app.ui.regions import AUDIT_REFRESH, AUDIT_RESULTS
 from app.ui.urls import form_action, hx_attrs, mounted_path, page_href
 
 
@@ -83,7 +84,12 @@ def audit_match_count(total: int, *, oob: bool = False) -> NodeLike:
 
 
 def audit_refresh_button(
-    request: Request, *, event_type: str = "", outcome: str = "", page: int = 1
+    request: Request,
+    *,
+    event_type: str = "",
+    outcome: str = "",
+    page: int = 1,
+    region_id: str | None = AUDIT_REFRESH.id,
 ) -> NodeLike:
     path = _audit_results_path(request, event_type=event_type, outcome=outcome, page=page)
     return ActionGroup(
@@ -101,6 +107,19 @@ def audit_refresh_button(
             ),
         ),
         align="end",
+        id=region_id,
+    )
+
+
+def audit_refresh_oob(
+    request: Request, *, event_type: str = "", outcome: str = "", page: int = 1
+) -> OobUpdate:
+    return OobUpdate(
+        content=audit_refresh_button(
+            request, event_type=event_type, outcome=outcome, page=page, region_id=None
+        ),
+        element_id=AUDIT_REFRESH.id,
+        swap="outerHTML",
     )
 
 

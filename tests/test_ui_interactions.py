@@ -6,8 +6,11 @@ Uses hedron.testing helpers (AppScenario, fastapi_fixture, fragment_client, asse
 from __future__ import annotations
 
 from datetime import datetime
+from html import unescape
+from html.parser import HTMLParser
 from types import SimpleNamespace
 from typing import cast
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi.testclient import TestClient
 from hedron.testing import (
@@ -251,6 +254,8 @@ def test_profile_mutation_toast_and_identity_oob(htmx) -> None:
     assert_html_contains(adapter, "Interaction Admin")
     assert_toast_markup(adapter, contains="Your profile has been updated")
     assert_oob_present(adapter, contains="hedron-toast")
+    assert response.text.count('id="account-summary"') == 1
+    assert response.text.count('id="profile-identity"') == 1
     assert "Vary" in response.headers
 
 
@@ -355,6 +360,7 @@ def test_session_revoke_with_second_session(access_app, make_user) -> None:
     with SessionLocal() as db:
         session = db.get(RefreshSession, remote_id)
         assert session is not None and session.revoked_at is not None
+    assert revoked.text.count('id="security-activity"') == 1
 
 
 def test_security_activity_lazy_fragment(htmx) -> None:
@@ -500,6 +506,47 @@ def test_audit_full_page_lazy_placeholder(page) -> None:
     assert_html_contains(audit, 'data-hedron-align="end"')
     assert_html_contains(audit, 'hx-target="#audit-results-region"')
     assert_ui_targets_subset_of_regions(audit.body, APP_REGIONS)
+
+
+def test_audit_refresh_tracks_filter_changes_and_pagination(htmx) -> None:
+    from app.models import AuditEvent
+
+    class RefreshParser(HTMLParser):
+        path = ""
+
+        def handle_starttag(self, tag, attrs):
+            values = dict(attrs)
+            if tag == "button" and str(values.get("hx-get", "")).startswith("/admin/audit/results"):
+                self.path = str(values["hx-get"])
+
+    htmx_login(htmx)
+    with SessionLocal() as db:
+        db.add_all(
+            AuditEvent(event_type="qa.refresh", outcome="success", detail="{}") for _ in range(51)
+        )
+        db.add(AuditEvent(event_type="qa.other", outcome="failure", detail="{}"))
+        db.commit()
+
+    for target, page_number in (("audit-results-region", "1"), ("audit-results-body", "2")):
+        filtered = htmx.get(
+            "/admin/audit",
+            params={"event_type": "qa.refresh", "outcome": "success", "page": page_number},
+            headers={"HX-Target": target},
+        )
+        assert filtered.status_code == 200
+        assert filtered.text.count('id="audit-refresh-control"') == 1
+        parser = RefreshParser()
+        parser.feed(filtered.text)
+        assert parse_qs(urlsplit(unescape(parser.path)).query) == {
+            "event_type": ["qa.refresh"],
+            "outcome": ["success"],
+            **({"page": [page_number]} if page_number == "2" else {}),
+        }
+        refreshed = htmx.get(parser.path, headers={"HX-Target": "audit-results-region"})
+        assert refreshed.status_code == 200
+        assert "51 matching events" in refreshed.text
+        assert "qa.other" not in refreshed.text
+        assert refreshed.text.count('id="audit-refresh-control"') == 1
 
 
 def test_non_admin_cannot_nav_swap_admin_panels(htmx, make_user) -> None:

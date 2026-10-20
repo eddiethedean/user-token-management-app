@@ -45,7 +45,7 @@ from hedron import (
     resolve_theme_preference,
     theme_markers,
 )
-from hedron_core import HtmlAttrValue, NodeLike
+from hedron_core import NodeLike
 from hedron_core.builtins import (
     BusyRegion,
     SwapReveal,
@@ -267,12 +267,11 @@ def color_mode_toggle(request: Request, *, csrf_token: str) -> NodeLike:
     )
 
 
-def account_summary(request: Request, auth: AuthContext, *, oob: bool = False) -> NodeLike:
+def account_summary(
+    request: Request, auth: AuthContext, *, region_id: str | None = "account-summary"
+) -> NodeLike:
     """Typed account identity link with a real target for HTMX OOB updates."""
     user = auth.user
-    attrs: dict[str, HtmlAttrValue] = {}
-    if oob:
-        attrs["hx-swap-oob"] = "outerHTML"
     return AccountSummary(
         user.full_name or user.email_original,
         detail=user.email_original if user.full_name else None,
@@ -281,9 +280,8 @@ def account_summary(request: Request, auth: AuthContext, *, oob: bool = False) -
         mark_size="md",
         mark_shape="circle",
         mark_tone="accent",
-        id="account-summary",
+        id=region_id,
         class_="data-mover-account-summary",
-        attrs=attrs,
     )
 
 

@@ -200,6 +200,23 @@ _WRITE_MODE_LABELS = {
 }
 
 
+def _available_write_modes(
+    catalog: ProviderCatalog | None,
+    *,
+    upsert_available: bool = True,
+    destination_object: str = "",
+) -> tuple[str, ...]:
+    if catalog is None:
+        return ()
+    return tuple(
+        mode
+        for mode in catalog.write_modes
+        if mode != "upsert" or upsert_available
+        if catalog.name != "databricks"
+        or (mode == "create") == (destination_object == CREATE_TABLE_VALUE)
+    )
+
+
 def _resolved_write_mode(
     catalog: ProviderCatalog | None,
     selected: str,
@@ -207,11 +224,8 @@ def _resolved_write_mode(
     upsert_available: bool = True,
     destination_object: str = "",
 ) -> str:
-    supported = tuple(
-        mode
-        for mode in (catalog.write_modes if catalog is not None else ())
-        if mode != "upsert" or upsert_available
-        if (mode == "create") == (destination_object == CREATE_TABLE_VALUE)
+    supported = _available_write_modes(
+        catalog, upsert_available=upsert_available, destination_object=destination_object
     )
     if selected in supported:
         return selected
@@ -233,11 +247,8 @@ def _write_mode_select(
         upsert_available=upsert_available,
         destination_object=destination_object,
     )
-    supported = tuple(
-        mode
-        for mode in (catalog.write_modes if catalog is not None else ())
-        if mode != "upsert" or upsert_available
-        if (mode == "create") == (destination_object == CREATE_TABLE_VALUE)
+    supported = _available_write_modes(
+        catalog, upsert_available=upsert_available, destination_object=destination_object
     )
     options = [
         _option(mode, _WRITE_MODE_LABELS[mode], selected=mode == resolved) for mode in supported
@@ -2524,7 +2535,9 @@ def _guardrail_review_surface(
                 target="#pipeline-preview-region",
                 swap="none",
                 include="#pipeline-form",
+                indicator=INDICATOR,
             ),
+            "data-pipeline-preview-action": "true",
             "hx-vals": '{"scan_sensitive_data":true}',
         },
     )
@@ -2935,6 +2948,7 @@ def _csv_upload_control(
     *,
     oob: bool = False,
     status_text: str = "Select a file to inspect its schema.",
+    include_id: bool = True,
 ) -> NodeLike:
     attrs = hx_attrs(
         request,
@@ -2947,17 +2961,20 @@ def _csv_upload_control(
     attrs["hx-encoding"] = "multipart/form-data"
     if oob:
         attrs["hx-swap-oob"] = "outerHTML:#pipeline-csv-file"
+    upload = FileUpload(
+        name="csv_file",
+        accept=".csv,text/csv",
+        maximum_size=MAX_CSV_UPLOAD_BYTES,
+        label="Choose CSV file",
+        hint="UTF-8 CSV · scanned locally before use",
+        status=status_text,
+        appearance="soft",
+        density="comfortable",
+    )
+    if not include_id:
+        return html.div(upload, **attrs)
     return AttrHost(
-        FileUpload(
-            name="csv_file",
-            accept=".csv,text/csv",
-            maximum_size=MAX_CSV_UPLOAD_BYTES,
-            label="Choose CSV file",
-            hint="UTF-8 CSV · scanned locally before use",
-            status=status_text,
-            appearance="soft",
-            density="comfortable",
-        ),
+        upload,
         id="pipeline-csv-file",
         attrs={str(key): str(value) for key, value in attrs.items()},
     )
@@ -4507,6 +4524,13 @@ def _pipeline_body(
                         action=form_action(request, "/pipeline/save"),
                         method="post",
                         id="pipeline-form",
+                        **{
+                            "hx-sync": "#pipeline-form:replace",
+                            "hx-disabled-elt": (
+                                "#pipeline-form button[type='submit'], "
+                                "#pipeline-form [data-pipeline-preview-action]"
+                            ),
+                        },
                     ),
                     id="pipeline-builder",
                 ),
@@ -4722,7 +4746,7 @@ def register_pipeline_routes(
         app,
         inspection_fragment=_csv_inspection,
         upload_control=lambda request, status_text: _csv_upload_control(
-            request, status_text=status_text
+            request, status_text=status_text, include_id=False
         ),
     )
     register_pipeline_dataset_routes(

@@ -62,6 +62,7 @@ def test_secret_slots_render_and_htmx_never_reveals_token(client, htmx, make_use
     assert_html_contains(adapter, "Configured")
     assert MSS_TOKEN not in saved.text
     assert "ciphertext" not in saved.text
+    assert saved.text.count('id="connection-status-list"') == 1
 
     deleted = htmx.post(
         "/security/secrets/mss/delete",

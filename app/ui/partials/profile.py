@@ -122,12 +122,12 @@ def profile_form(
     )
 
 
-def profile_identity(request: Request, auth: AuthContext, *, oob: bool = False) -> NodeLike:
+def profile_identity(
+    request: Request, auth: AuthContext, *, region_id: str | None = "profile-identity"
+) -> NodeLike:
     """Render the profile summary in a native Hedron inset surface."""
     user = auth.user
-    attrs: dict[str, HtmlAttrValue] = {"id": "profile-identity"}
-    if oob:
-        attrs["hx-swap-oob"] = "outerHTML"
+    attrs: dict[str, HtmlAttrValue] = {"id": region_id}
     initial = (user.full_name or user.email_original or "?")[:1].upper()
     last_login = (
         user.last_login_at.strftime("%b %d, %Y %H:%M") if user.last_login_at else "First session"
@@ -198,12 +198,12 @@ def profile_response(
     form = profile_form(request, auth, csrf_token=csrf_token, success=success)
     oob = (
         OobUpdate(
-            content=account_summary(request, auth, oob=False),
+            content=account_summary(request, auth, region_id=None),
             element_id="account-summary",
             swap="outerHTML",
         ),
         OobUpdate(
-            content=profile_identity(request, auth, oob=False),
+            content=profile_identity(request, auth, region_id=None),
             element_id="profile-identity",
             swap="outerHTML",
         ),

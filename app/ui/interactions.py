@@ -77,6 +77,7 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.AUDIT_RESULTS_LAZY_BODY,
     region_defs.AUDIT_RESULTS_BODY,
     region_defs.AUDIT_MATCH_COUNT,
+    region_defs.AUDIT_REFRESH,
     region_defs.SECURITY_ACTIVITY,
     region_defs.SECURITY_ACTIVITY_LAZY_BODY,
 )
@@ -130,7 +131,7 @@ def request_feedback_oob(
 
 def user_match_count_oob(total: int) -> OobUpdate:
     return OobUpdate(
-        content=Badge(f"{total} matching accounts", tone="info"),
+        content=Badge(f"{total} matching {'account' if total == 1 else 'accounts'}", tone="info"),
         element_id="user-match-count",
         swap="outerHTML",
     )
@@ -138,7 +139,7 @@ def user_match_count_oob(total: int) -> OobUpdate:
 
 def audit_match_count_oob(total: int) -> OobUpdate:
     return OobUpdate(
-        content=Badge(f"{total} matching events", tone="info"),
+        content=Badge(f"{total} matching {'event' if total == 1 else 'events'}", tone="info"),
         element_id="audit-match-count",
         swap="outerHTML",
     )
@@ -156,7 +157,7 @@ def security_activity_oob(events) -> OobUpdate:
     from app.ui.partials.security import security_activity
 
     return OobUpdate(
-        content=security_activity(None, events, oob=False, with_polling=False),
+        content=security_activity(None, events, oob=False, with_polling=False, region_id=None),
         element_id="security-activity",
         swap="outerHTML",
     )
@@ -177,6 +178,7 @@ def connection_status_oob(
             secret_slots,
             csrf_token=csrf_token,
             compute_attempts=compute_attempts,
+            region_id=None,
         ),
         element_id="connection-status-list",
         swap="outerHTML",
@@ -187,7 +189,7 @@ def pipeline_run_feedback_clear_oob() -> OobUpdate:
     """Clear a prior preflight error after a run is accepted."""
 
     return OobUpdate(
-        content=html.div(id="pipeline-run-feedback"),
+        content=None,
         element_id="pipeline-run-feedback",
         swap="outerHTML",
     )
@@ -197,7 +199,7 @@ def pipeline_save_notice_clear_oob() -> OobUpdate:
     """Clear a stale save confirmation when the user starts a run."""
 
     return OobUpdate(
-        content=html.div(id="pipeline-save-notice"),
+        content=None,
         element_id="pipeline-save-notice",
         swap="outerHTML",
     )
