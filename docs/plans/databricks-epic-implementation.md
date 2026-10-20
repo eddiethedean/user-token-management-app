@@ -1,17 +1,18 @@
 # Databricks epic implementation plan
 
-**Status:** Local connector implementation underway; live acceptance and release remain blocked.\
-**Prepared:** October 15, 2026.\
+**Status:** Local connector implementation complete; live acceptance and release remain blocked.\
+**Prepared:** October 15, 2026. **Status verified:** October 20, 2026.\
 **Baseline:** `c5a52f4` on `main`; `git pull --ff-only` reported already up to date.\
 **Scope authority:** [Databricks epic](../stories/databricks-connection-epic.md),
 [57 tasks across eight stories](../stories/databricks-connection-tasks.md), and
 [issue CSV](../../artifacts/jira/data-mover-databricks-connection-issues.csv).
 
-This plan turns the existing backlog into ordered, reviewable implementation slices. The local
-connector, encrypted connection flow, review bindings, default-off gates, durable compute attempts,
-and publication recovery have now been implemented in this working tree. Tasks remain open until
-their specified evidence is recorded; this plan does not assign external tracker IDs or claim live
-Databricks acceptance.
+This plan records the implementation slices from the existing backlog. The local connector,
+encrypted connection flow, review bindings, default-off gates, durable compute attempts, and
+publication recovery are implemented and covered by the local checks listed in the acceptance
+ledger. Tasks remain open until their specified evidence is recorded; local checks do not establish
+live Databricks acceptance. This plan does not assign external tracker IDs or claim provider
+support.
 Existing local pipeline-remediation planning changes are independent work and remain intact.
 
 ## Delivery outcome
