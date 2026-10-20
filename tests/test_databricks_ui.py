@@ -173,8 +173,7 @@ def metadata_ui(access_app, client, make_user, request_settings_override):
             provider="databricks",
             credentials={
                 "workspace_url": WORKSPACE,
-                "client_id": "synthetic-client",
-                "client_secret": "synthetic-secret",
+                "token": "synthetic-api-token",
                 "compute_kind": "warehouse",
                 "compute_id": "warehouse-1",
                 "http_path": "sql/1.0/warehouses/warehouse-1",

@@ -54,7 +54,7 @@ dependencies = [
   "sqlalchemy>=2.0",
   "uvicorn[standard]>=0.32.0",
   "databricks-sdk>=0.50",
-  "databricks-sql-connector>=3",
+  "databricks-sql-connector>=4.1.3",
 ]
 
 [project.optional-dependencies]
@@ -101,7 +101,7 @@ markers = [
   "postgres: ephemeral PostgreSQL via testing.postgresql (skipped if server binaries are missing)",
   "mongodb: ephemeral MongoDB via pytest-mongo (skipped if mongod is missing)",
   "minilake: real Databricks SDK management calls against an isolated local MiniLake server",
-  "databricks_transport: real SDK HTTP/OAuth and network faults using pinned WireMock/Toxiproxy",
+  "databricks_transport: real SDK HTTP/PAT and network faults using pinned WireMock/Toxiproxy",
 ]
 
 [tool.coverage.run]

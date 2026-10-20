@@ -20,7 +20,7 @@ committed without displaying sensitive values.
 
 | Area | Included | Deferred |
 | --- | --- | --- |
-| Authentication | OAuth M2M service principal; encrypted owner-scoped bundle; refresh and rotation | PAT fallback, interactive user OAuth |
+| Authentication | Workspace personal access token; encrypted owner-scoped bundle; replacement and revocation | Interactive user OAuth, OAuth M2M |
 | Compute | Existing SQL warehouse or Unity Catalog-compatible all-purpose classic cluster | Jobs compute, notebook/job submission, compute creation, resizing, automatic shutdown |
 | Objects | Unity Catalog base Delta tables; fully qualified catalog/schema/table identity | Legacy Hive metastore, views, materialized/streaming tables, foreign tables, arbitrary SQL |
 | Sources | One consistent query result, bounded batches, full worker scan and encrypted spool | Unbounded extracts, incremental/CDC transfers |
@@ -206,10 +206,10 @@ evidence and the live acceptance gates that remain.
 
 **As a pipeline owner**, I can manage my own Databricks credentials and see what validation proves.
 
-- Save workspace URL, OAuth client ID/secret, compute type/ID, and startup policy with existing
+- Save workspace URL, workspace API token, compute type/ID, and startup policy with existing
   encrypted replace/delete behavior. Derive or verify the SQL HTTP path against that compute.
   Validate allowed HTTPS endpoints, TLS, and redirect behavior before sending credentials.
-- Refresh access tokens through the supported SDK; reject expired/revoked credentials safely.
+- Use PAT authentication through the supported SDK; reject expired/revoked credentials safely.
   Secrets are absent from pipeline definitions, URLs, logs, and diagnostics.
 - Add provider capabilities, typed locators/write policies, serialization and UI support. Extend
   the guardrail detector model for `databricks_metadata`; keep existing Foundry/SSN records valid.

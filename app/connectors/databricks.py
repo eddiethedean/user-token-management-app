@@ -1,6 +1,6 @@
 """Databricks Unity Catalog and Delta connector.
 
-All Databricks-specific SQL, OAuth, compute, and identifier handling stays in
+All Databricks-specific SQL, API-token authentication, compute, and identifier handling stays in
 this adapter. The provider is omitted from the registry unless the operator
 explicitly enables it. Its destination writer has an independent flag.
 """
@@ -23,9 +23,8 @@ from urllib.parse import urlsplit
 import polars as pl
 from databricks import sql
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.core import Config
-from databricks.sdk.credentials_provider import oauth_service_principal
 from databricks.sdk.errors import NotFound
+from databricks.sdk.service.sql import QueryFilter, TimeRange
 
 from app.config import Settings
 from app.connectors.base import (
@@ -140,7 +139,7 @@ class DatabricksConnector:
         self._loads: dict[str, _LoadState] = {}
 
     def test_connection(self, credentials: Mapping[str, str]) -> ConnectionHealth:
-        """Validate OAuth and compute visibility through management APIs only."""
+        """Validate API-token authentication and compute visibility through management APIs only."""
 
         started = self._clock()
         try:
@@ -154,7 +153,7 @@ class DatabricksConnector:
         return ConnectionHealth(
             status="connected",
             message=(
-                f"OAuth authenticated; {compute_kind.replace('_', ' ')} state: {state}. "
+                f"API token authenticated; {compute_kind.replace('_', ' ')} state: {state}. "
                 f"SQL readiness: {'ready' if sql_ready else 'not ready'}."
             ),
             latency_ms=max(0, int((self._clock() - started) * 1000)),
@@ -603,11 +602,24 @@ class DatabricksConnector:
                 retryable=False,
             )
         submit_started = False
+        target_marker = _publication_target_marker(state.locator)
+        serverless = self._is_serverless_warehouse(state.credentials)
         try:
-            with self._sql_cursor(state.credentials) as cursor:
-                cursor.execute(
-                    "SET spark.databricks.delta.commitInfo.userMetadata = ?", [operation_id]
-                )
+            with self._sql_cursor(
+                state.credentials,
+                query_tags=(
+                    {
+                        "data_mover_run_id": operation_id,
+                        "data_mover_target": target_marker,
+                    }
+                    if serverless
+                    else None
+                ),
+            ) as cursor:
+                if not serverless:
+                    cursor.execute(
+                        "SET spark.databricks.delta.commitInfo.userMetadata = ?", [operation_id]
+                    )
                 _record_publication_event(
                     state.credentials,
                     "publish_submitted",
@@ -616,6 +628,10 @@ class DatabricksConnector:
                 )
                 submit_started = True
                 state.publish_submitted = True
+                if serverless:
+                    statement = (
+                        f"/* datamover-run:{operation_id};target:{target_marker} */ {statement}"
+                    )
                 cursor.execute(statement)
         except Exception as exc:
             if submit_started:
@@ -841,13 +857,62 @@ class DatabricksConnector:
         locator: Locator,
         *,
         submission_id: str,
+        submitted_at_ms: int,
     ) -> str:
-        """Confirm a Delta commit only when its history carries our exact ID."""
+        """Confirm publication from the exact provider marker for its compute family."""
 
         target = _databricks_locator(locator)
         _require_workspace_identity(credentials, target)
-        if not re.fullmatch(r"[0-9a-fA-F-]{20,40}", submission_id):
+        if not re.fullmatch(r"[0-9a-fA-F-]{20,40}", submission_id) or submitted_at_ms <= 0:
             return "unknown"
+        now_ms = int(time.time() * 1000)
+        lookback_start_ms = submitted_at_ms - 60_000
+        if lookback_start_ms < now_ms - 30 * 24 * 60 * 60 * 1000:
+            return "unknown"
+        if self._is_serverless_warehouse(credentials):
+            target_marker = _publication_target_marker(target)
+            workspace = self._workspace_client(credentials)
+            page_token = None
+            try:
+                for _ in range(100):
+                    page = workspace.query_history.list(
+                        filter_by=QueryFilter(
+                            warehouse_ids=[str(credentials["compute_id"])],
+                            query_start_time_range=TimeRange(
+                                start_time_ms=lookback_start_ms,
+                                end_time_ms=now_ms,
+                            ),
+                        ),
+                        max_results=999,
+                        page_token=page_token,
+                    )
+                    for query in page.res or ():
+                        if _sdk_value(getattr(query, "status", None), "UNKNOWN").upper() != (
+                            "FINISHED"
+                        ):
+                            continue
+                        tags = getattr(query, "query_tags", None) or ()
+                        tag_values = {
+                            str(getattr(tag, "key", "")): str(getattr(tag, "value", ""))
+                            for tag in tags
+                        }
+                        query_text = str(getattr(query, "query_text", "") or "")
+                        exact_tags = (
+                            tag_values.get("data_mover_run_id") == submission_id
+                            and tag_values.get("data_mover_target") == target_marker
+                        )
+                        exact_comment = (
+                            f"datamover-run:{submission_id};target:{target_marker}" in query_text
+                        )
+                        if exact_tags or exact_comment:
+                            return "committed"
+                    if not page.has_next_page or not page.next_page_token:
+                        return "unknown"
+                    page_token = page.next_page_token
+            except Exception:
+                return "unknown"
+            return "unknown"
+
         try:
             with self._sql_cursor(credentials) as cursor:
                 cursor.execute(f"DESCRIBE HISTORY {_qualified(target)} LIMIT 1000")
@@ -869,11 +934,16 @@ class DatabricksConnector:
         )
 
     @contextmanager
-    def _sql_cursor(self, credentials: Mapping[str, str]):
+    def _sql_cursor(
+        self,
+        credentials: Mapping[str, str],
+        *,
+        query_tags: Mapping[str, str] | None = None,
+    ):
         connection = None
         cursor = None
         try:
-            connection = self._open_sql(credentials)
+            connection = self._open_sql(credentials, query_tags=query_tags)
             cursor = connection.cursor()
             yield cursor
         except ConnectorError:
@@ -892,28 +962,27 @@ class DatabricksConnector:
                 except Exception:
                     pass
 
-    def _open_sql(self, credentials: Mapping[str, str]) -> Any:
+    def _open_sql(
+        self,
+        credentials: Mapping[str, str],
+        *,
+        query_tags: Mapping[str, str] | None = None,
+    ) -> Any:
         self._require_sql_ready(credentials)
         workspace_url = str(credentials["workspace_url"])
-        config = Config(
-            host=workspace_url,
-            client_id=str(credentials["client_id"]),
-            client_secret=str(credentials["client_secret"]),
-        )
-
-        def oauth_provider():
-            return oauth_service_principal(config)
-
         try:
-            return self._sql_connect(
-                server_hostname=urlsplit(workspace_url).hostname,
-                http_path=str(credentials["http_path"]),
-                credentials_provider=oauth_provider,
-                use_cloud_fetch=False,
-                use_inline_params=False,
-                _use_arrow_native_complex_types=False,
-                user_agent_entry="DataMover",
-            )
+            options: dict[str, Any] = {
+                "server_hostname": urlsplit(workspace_url).hostname,
+                "http_path": str(credentials["http_path"]),
+                "access_token": str(credentials["token"]),
+                "use_cloud_fetch": False,
+                "use_inline_params": False,
+                "_use_arrow_native_complex_types": False,
+                "user_agent_entry": "DataMover",
+            }
+            if query_tags:
+                options["query_tags"] = dict(query_tags)
+            return self._sql_connect(**options)
         except Exception as exc:
             raise _provider_error(exc, "SQL connection") from None
 
@@ -949,11 +1018,30 @@ class DatabricksConnector:
             )
         return self._workspace_client_factory(
             host=workspace_url,
-            client_id=str(credentials["client_id"]),
-            client_secret=str(credentials["client_secret"]),
-            auth_type="oauth-m2m",
+            token=str(credentials["token"]),
+            auth_type="pat",
             product="DataMover",
         )
+
+    def _is_serverless_warehouse(self, credentials: Mapping[str, str]) -> bool:
+        if str(credentials.get("compute_kind", "")) != "warehouse":
+            return False
+        try:
+            details = self._workspace_client(credentials).warehouses.get(
+                id=str(credentials["compute_id"])
+            )
+        except ConnectorError:
+            raise
+        except Exception as exc:
+            raise _provider_error(exc, "warehouse compute-mode check") from None
+        serverless = getattr(details, "enable_serverless_compute", None)
+        if not isinstance(serverless, bool):
+            raise ConnectorError(
+                TransferErrorCode.UNSUPPORTED_TYPE,
+                "The selected Databricks warehouse does not report whether it uses serverless compute.",
+                retryable=False,
+            )
+        return serverless
 
     @staticmethod
     def _compute_state(workspace: Any, credentials: Mapping[str, str]) -> tuple[str, str]:
@@ -1243,6 +1331,18 @@ def _qualified(locator: DatabricksTableLocator) -> str:
     return ".".join((_quote(locator.catalog), _quote(locator.schema_name), _quote(locator.table)))
 
 
+def _publication_target_marker(locator: DatabricksTableLocator) -> str:
+    identity = [
+        locator.workspace_id,
+        locator.catalog.casefold(),
+        locator.schema_name.casefold(),
+        locator.table.casefold(),
+    ]
+    return hashlib.sha256(
+        json.dumps(identity, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+    ).hexdigest()
+
+
 def _parse_namespace(namespace: str) -> tuple[str, str, str]:
     try:
         parts = json.loads(namespace)
@@ -1407,20 +1507,13 @@ def _provider_error(
     status = getattr(exception, "status_code", None) or getattr(exception, "http_status", None)
     name = type(exception).__name__.casefold()
     # The SDK exposes some errors as subclasses (e.g. ResourceDoesNotExist)
-    # without carrying an HTTP status. OAuth token failures use ValueError
-    # with the protocol error code as a prefix; never expose its description.
+    # without carrying an HTTP status.
     missing = isinstance(exception, NotFound) or status == 404 or "notfound" in name
-    oauth_rejected = isinstance(exception, ValueError) and str(exception).partition(":")[0] in {
-        "invalid_client",
-        "invalid_grant",
-        "invalid_token",
-        "unauthorized_client",
-    }
     code = (
         TransferErrorCode.RATE_LIMITED
         if status == 429 or "toomanyrequests" in name or "ratelimit" in name
         else TransferErrorCode.AUTHENTICATION_FAILED
-        if status == 401 or "unauthenticated" in name or oauth_rejected
+        if status == 401 or "unauthenticated" in name
         else TransferErrorCode.PERMISSION_DENIED
         if status == 403 or "permissiondenied" in name
         else TransferErrorCode.DESTINATION_NOT_FOUND

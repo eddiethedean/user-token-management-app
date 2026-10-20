@@ -10,9 +10,11 @@ acceptance environment. It is not approval to connect a production workspace.
 
 ## Current scope
 
-The code is intended for an OAuth M2M service principal and existing SQL warehouses or supported
+The code uses a workspace personal access token (PAT) with existing SQL warehouses or supported
 all-purpose classic clusters. Object support is Unity Catalog base Delta tables with scalar columns.
-The design excludes PATs, interactive user OAuth, jobs compute, compute creation/resizing/shutdown,
+PATs do not refresh automatically: an owner must replace an expired or revoked token in the
+connection form. Use a short-lived, least-privileged token where workspace policy permits it.
+The design excludes interactive user OAuth, OAuth M2M, jobs compute, compute creation/resizing/shutdown,
 legacy metastore objects, views, complex columns, arbitrary SQL, incremental extraction, upsert, and
 external-storage credentials. No compute or write combination is supported until the provider
 contract decision in [DBX-01](../plans/databricks-epic-implementation.md#provider-decisions-that-must-precede-supported-implementation)
@@ -24,15 +26,15 @@ management APIs to authenticate and inspect compute without submitting SQL or st
 manual policy, a stopped compute blocks a run until the owner starts it explicitly. With consented
 startup, an eligible stopped compute is started through the durable attempt service; the run is
 requeued without holding a worker and resumes when readiness is observed. Consent is bound to the
-workspace, principal, compute kind and ID, and SQL path. Changing any of those values resets consent.
+workspace, API token, compute kind and ID, and SQL path. Changing any of those values resets consent.
 Starting compute may incur provider charges. Data Mover does not stop compute or change its settings.
 
 ## Prepare an isolated workspace
 
 Use synthetic tables and a non-production workspace. Platform staff should provision:
 
-- an OAuth M2M service principal with the minimum management permissions to inspect the selected
-  compute, plus start permission only for a separately approved startup probe;
+- a PAT owner with the minimum management permissions to inspect the selected compute, plus start
+  permission only for a separately approved startup probe;
 - an existing SQL warehouse or eligible all-purpose classic cluster, with the compute ID and SQL
   HTTP path taken from that same workspace and compute;
 - Unity Catalog catalogs, schemas, and Delta fixtures that cover allowed and denied visibility,
@@ -41,7 +43,7 @@ Use synthetic tables and a non-production workspace. Platform staff should provi
 - network routes, DNS, proxy, TLS/CA trust, and workspace host allowlisting for the app deployment.
 
 Do not use a real data set or paste credentials into issue comments, screenshots, or logs. The
-service principal must not receive broad workspace administration rights. The current checker
+token owner must not receive broad workspace administration rights. The current checker
 requires the SQL path, workspace, compute kind, and compute ID to agree; unsupported IDs and hosts
 fail closed.
 
@@ -52,7 +54,8 @@ Only after the operator has approved an isolated acceptance deployment and enabl
 
 1. **Workspace URL**: the HTTPS workspace origin, without a path, query, fragment, credentials, or
    nonstandard port. It must match the deployment's `PIPELINE_ALLOWED_HTTPS_HOSTS` policy.
-2. **OAuth service principal client ID** and **OAuth service principal secret**.
+2. **Personal access token**: create it in the approved workspace for an appropriately scoped
+   identity. Paste it only into the password field; saved values are encrypted and never displayed.
 3. **Compute type**: `warehouse` or `classic_cluster`.
 4. **Compute ID** and that compute's SQL **HTTP path**.
 5. **Startup policy**: `manual` by default. `allow_start` is available only when the operator has
@@ -108,24 +111,32 @@ or backups.
 
 ## Writer behavior and recovery
 
-The current candidate writer creates a run-scoped Delta staging table in the configured private
-schema, writes only after the scan and guardrail pass, then submits create, append, or full replace.
-The database stores publication intent before staging and tracks committed, unchanged, uncertain,
-and cleanup-pending outcomes. A target fence prevents another Data Mover writer from racing while
-the outcome is unresolved. Run review exposes the persisted publication state.
+The writer creates a run-scoped Delta staging table in the configured private schema, writes only
+after the scan and guardrail pass, then submits create, append, or full replace. For serverless
+warehouses, the exact publish statement carries a non-sensitive run UUID and target fingerprint as
+query tags and a SQL comment; recovery confirms only a `FINISHED` statement with the exact run and
+target query tags or the exact SQL comment from Query History. For classic warehouses and eligible
+all-purpose clusters, it sets Delta's
+`userMetadata` for the publish statement and confirms the exact marker in `DESCRIBE HISTORY`. These
+markers contain no source values. The database stores publication intent before staging and tracks
+committed, unchanged, uncertain, and cleanup-pending outcomes. A target fence prevents another Data
+Mover writer from racing while the outcome is unresolved. Run review exposes the persisted
+publication state.
 
-Do not treat the candidate SQL statements as a provider contract. Live probes still need to prove
-atomicity, governance preservation, exact commit-marker behavior, interaction with external writers,
-and each failure window for every claimed compute family. An uncertain publication holds its target
-fence; do not retry or manually drop its staging table until recovery determines the commit outcome.
-The recovery worker uses the saved connection generation and a deterministic run-owned stage name.
+Live probes still need to prove atomicity, governance preservation, Query History visibility and
+marker retention on serverless, Delta History visibility on classic compute, interaction with
+external writers, and each failure window for every claimed compute family. Serverless Query
+History is limited to the API's 30-day search window; older or inaccessible entries remain uncertain
+and fenced for operator review. An uncertain publication holds its target fence; do not retry or
+manually drop its staging table until recovery determines the commit outcome. The recovery worker
+uses the saved connection generation and a deterministic run-owned stage name.
 If credentials were rotated, recovery retains a safe operator-visible unresolved state rather than
 using new credentials to mutate a stage created with the old connection.
 
 Before retrying after any uncertain outcome, inspect the destination and use the run's
 **Databricks publication** section. Recording a reconciliation review does not prove an uncertain
-commit; recovery must first confirm the exact Delta history marker. Cleanup completion is separate
-from whether the destination changed.
+commit; recovery must first confirm the exact compute-family publication marker. Cleanup completion
+is separate from whether the destination changed.
 
 ## Local connection integration tests
 
@@ -156,13 +167,13 @@ Recovery tests exercise superseded poll leases, competing cleanup workers, stale
 and retrying staging cleanup after the destination commit has already been confirmed.
 
 MiniLake accepts dummy tokens and provides the REST Statement Execution API rather than the
-SQL connector's Thrift protocol. These tests do **not** validate OAuth, Thrift/TLS behavior, Unity
+SQL connector's Thrift protocol. These tests do **not** validate SQL PAT acceptance, Thrift/TLS behavior, Unity
 Catalog sensitivity metadata, or Delta publication guarantees. MiniLake's cluster responses also
 omit metadata needed to establish Unity Catalog compatibility; that case must remain blocked.
 Existing SQL adapter tests and the live acceptance probes remain necessary. Passing emulator tests
 does not enable startup or writer rollout gates.
 
-### HTTP, OAuth, network faults, and PostgreSQL concurrency
+### HTTP, PAT, network faults, and PostgreSQL concurrency
 
 `make databricks-tools` downloads WireMock 3.13.2 and Toxiproxy 2.12.0 into the ignored
 `.cache/databricks-tools/` directory. Both `make databricks-check` and `make check` run this
@@ -180,10 +191,10 @@ worker, use isolated journals and temporary directories, and terminate the proce
 WireMock drives stopped/starting/running states, 429/503 retries, permission and missing-resource
 errors, and a start request whose response is lost after the simulated state changes. The latter
 checks that the application retains its durable attempt, deduplicates a second request, and
-resolves the uncertainty with a read-only worker poll. Scripted OAuth discovery and token endpoints
-exercise the real SDK's client-credentials request, expired-token renewal, Basic authentication,
-scope, bearer headers, and sanitized invalid-client failures. These are protocol tests against
-synthetic responses, not evidence that Databricks accepts the credentials.
+resolves the uncertainty with a read-only worker poll. Scripted HTTP tests verify the real SDK sends
+the configured PAT as a bearer token, does not contact an OAuth token endpoint, and sanitizes
+authentication failures. These are protocol tests against synthetic responses, not evidence that
+Databricks accepts the credentials.
 
 Toxiproxy forwards real SDK traffic to MiniLake while injecting TCP resets, truncated response
 bodies, and stalled reads. The tests require retryable safe errors and a usable connection after

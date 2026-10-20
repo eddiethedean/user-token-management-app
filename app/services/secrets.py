@@ -222,7 +222,7 @@ def store_user_credentials_if_changed(
             else:
                 identity_fields = (
                     "workspace_url",
-                    "client_id",
+                    "token",
                     "compute_kind",
                     "compute_id",
                     "http_path",
@@ -442,7 +442,7 @@ def test_user_connection(
         validation_scope = (
             "Emulated provider configuration"
             if validation_mode == "emulated"
-            else "OAuth authentication, compute visibility, and SQL readiness"
+            else "API-token authentication, compute visibility, and SQL readiness"
             if specification.name == "databricks"
             else "Provider connectivity and authentication"
         )

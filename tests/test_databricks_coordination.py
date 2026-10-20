@@ -402,8 +402,7 @@ def test_opted_in_start_is_persisted_before_provider_call_and_deduplicated(
     )
     saved_credentials = {
         "workspace_url": "https://dbc-12345678.cloud.databricks.com",
-        "client_id": "service-principal-id",
-        "client_secret": "service-principal-secret",
+        "token": "synthetic-api-token",
         "compute_kind": "warehouse",
         "compute_id": "warehouse-1",
         "http_path": "sql/1.0/warehouses/warehouse-1",
@@ -674,8 +673,7 @@ def _saved_databricks_credentials(
 ) -> dict[str, str]:
     values = {
         "workspace_url": "https://dbc-12345678.cloud.databricks.com",
-        "client_id": "service-principal-id",
-        "client_secret": "service-principal-secret",
+        "token": "synthetic-api-token",
         "compute_kind": "warehouse",
         "compute_id": "warehouse-1",
         "http_path": "sql/1.0/warehouses/warehouse-1",
@@ -895,7 +893,9 @@ def test_publication_recovery_cleans_unsubmitted_stage_and_confirms_exact_commit
         def cleanup_staging(self, _credentials, *, run_id: str) -> None:
             self.cleaned.append(run_id)
 
-        def reconcile_publication(self, _credentials, _locator, *, submission_id: str) -> str:
+        def reconcile_publication(
+            self, _credentials, _locator, *, submission_id: str, submitted_at_ms: int
+        ) -> str:
             self.reconciled.append(submission_id)
             return "committed"
 
@@ -939,7 +939,9 @@ def test_publication_recovery_keeps_unconfirmed_commit_fenced_and_retries(
         )
 
     class UnknownCommit:
-        def reconcile_publication(self, _credentials, _locator, *, submission_id: str) -> str:
+        def reconcile_publication(
+            self, _credentials, _locator, *, submission_id: str, submitted_at_ms: int
+        ) -> str:
             assert submission_id == run_id
             return "unknown"
 
@@ -1148,7 +1150,9 @@ class _RecoveryProbe:
         self.reconciled: list[str] = []
         self.cleaned: list[str] = []
 
-    def reconcile_publication(self, _credentials, _locator, *, submission_id: str) -> str:
+    def reconcile_publication(
+        self, _credentials, _locator, *, submission_id: str, submitted_at_ms: int
+    ) -> str:
         self.reconciled.append(submission_id)
         return "committed"
 
