@@ -1,7 +1,7 @@
 # Proposed Epic: Databricks connections and sensitive-data guardrails
 
-**Status:** Local implementation underway; provider acceptance and release remain open. No external epic issue has been assigned.
-**Reviewed:** October 15, 2026.
+**Status:** Local implementation complete; provider acceptance and release remain open. No external epic issue has been assigned.
+**Reviewed:** October 20, 2026.
 **Depends on:** [Sensitive-data guardrails](CDO-4551-sensitive-data-guardrails-epic.md).
 
 [Issue CSV export](../../artifacts/jira/data-mover-databricks-connection-issues.csv) contains the epic,
@@ -182,9 +182,9 @@ recoverable.
 
 DBX labels below are local planning references, not assigned tracker IDs. Each story includes its
 acceptance criteria, prerequisites, and linked implementation tasks. The [task backlog](databricks-connection-tasks.md)
-contains 57 proposed tasks with owner roles, dependencies, and completion evidence. Local connector
-work is underway; see the [acceptance ledger](../plans/databricks-acceptance.md) for implementation
-evidence and the live acceptance gates that remain.
+contains 57 proposed tasks with owner roles, dependencies, and completion evidence. The local
+connector implementation is complete; see the [acceptance ledger](../plans/databricks-acceptance.md)
+for local test evidence and the live acceptance gates that remain.
 
 ### DBX-01 — Validate the provider contract
 

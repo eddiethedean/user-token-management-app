@@ -285,8 +285,9 @@ At the end of **Route setup**, the **Route capabilities** panel explains what th
 can expose before and after a run. For example, a catalog estimate is different from an exact
 destination count, and Foundry file routes may only provide a local manifest after the transfer.
 
-Use **Cancel run** in the live monitor to request a safe stop. The monitor stays active until the
-background task records a terminal state. Retry is shown only for failures marked safe to retry. If a
+Use **Cancel run** in the live monitor, then confirm in the dialog. The worker stops at its next
+safe checkpoint, and the monitor stays active until the background task records a terminal state.
+Retry is shown only for failures marked safe to retry. If a
 task loses its lease after destination work begins, a Foundry upload outcome is uncertain, or final
 run-state persistence fails after the destination commits, the run enters **Failed / reconciliation
 needed** and the monitor provides **Record reconciliation review**. Inspect the destination first;
