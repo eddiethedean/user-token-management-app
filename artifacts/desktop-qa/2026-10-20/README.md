@@ -51,9 +51,9 @@ props; no application CSS was added or changed.
   invitation delivered to the local console backend, and dialog dismissal.
 - Audit filtering, refresh, details, counts, and empty-state controls. Automated
   coverage also verifies the refresh link on the second page of filtered results.
-- Native cancellation confirmation was exercised. The in-app browser did not
-  reliably expose that native popup to its dialog API; worker cancellation is
-  verified by the local automated suite.
+- The Hedron cancellation dialog was opened and dismissed while the transfer
+  continued, then confirmed; the worker stopped at its safe checkpoint and the
+  monitor showed the cancelled state.
 
 No horizontal overflow was observed at the tested desktop widths. Final browser
 checks found no duplicate IDs after upload, profile save, preview, or run-start
