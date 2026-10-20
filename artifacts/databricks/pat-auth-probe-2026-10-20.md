@@ -25,14 +25,16 @@ dropped after each probe.
 - Raw Delta SQL create, append, and replace each passed in an isolated random schema, with observed
   row counts of one, two, and one. The schema was dropped after the probe.
 - Data Mover's staged destination flow successfully created staging tables and wrote batches, but
-  its create, append, and replace publication attempts stopped before publication. The required
-  `SET spark.databricks.delta.commitInfo.userMetadata` statement is rejected by this serverless
-  warehouse with `CONFIG_NOT_AVAILABLE.WITHOUT_SUGGESTION` (SQLSTATE `42K0I`). Without commit
-  metadata, Data Mover cannot safely reconcile uncertain publication outcomes, so live Data Mover
-  writes are not verified and must remain disabled for this compute family. Raw SQL mode success
+  its create, append, and replace publication attempts stopped before publication. The then-current
+  implementation's `SET spark.databricks.delta.commitInfo.userMetadata` statement was rejected by
+  this serverless warehouse with `CONFIG_NOT_AVAILABLE.WITHOUT_SUGGESTION` (SQLSTATE `42K0I`). The
+  writer has since been changed to use per-statement query tags and Query History for serverless,
+  while retaining Delta `userMetadata` and `DESCRIBE HISTORY` for classic compute. Those new paths
+  have local synthetic tests but have not been rerun against this workspace. Raw SQL mode success
   does not establish durable publication/recovery support. Databricks documents that serverless
-  compute requires the DataFrameWriter `userMetadata` option; the current SQL Connector writer does
-  not use that API ([Databricks custom commit metadata](https://docs.databricks.com/aws/en/tables/operations/custom-metadata)).
+  compute requires the DataFrameWriter `userMetadata` option; the SQL Connector-compatible query
+  history marker is the app's alternative ([Databricks custom commit metadata](https://docs.databricks.com/aws/en/tables/operations/custom-metadata),
+  [query history API](https://docs.databricks.com/api/query-history/v1/query-history)).
 - The isolated schemas were dropped. A final attempt to restart the warehouse for a destination
   guard probe was rejected by the workspace with a generic resource-creation error; no fixture was
   left behind. The warehouse remained `STOPPED`.
@@ -40,7 +42,6 @@ dropped after each probe.
 This proves the live PAT connection, serverless warehouse startup, SQL transport, namespace and
 Delta source discovery, metadata and column-tag visibility, bounded extraction, scan/transform
 behavior, and raw SQL Delta create/append/replace on this workspace. It does not prove classic
-cluster support, a denied-permission profile, or Data Mover's durable destination publication and
-reconciliation on serverless. Keep the production Databricks provider and writer flags disabled
-until the serverless publication contract is redesigned and accepted, or an eligible classic
-compute is available and passes the same live acceptance.
+compute support, a denied-permission profile, or Data Mover's revised durable destination
+publication and reconciliation on either compute family. Keep the production Databricks writer flag
+disabled until the revised serverless path and a classic-compute path pass live acceptance.

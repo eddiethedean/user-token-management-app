@@ -111,24 +111,32 @@ or backups.
 
 ## Writer behavior and recovery
 
-The current candidate writer creates a run-scoped Delta staging table in the configured private
-schema, writes only after the scan and guardrail pass, then submits create, append, or full replace.
-The database stores publication intent before staging and tracks committed, unchanged, uncertain,
-and cleanup-pending outcomes. A target fence prevents another Data Mover writer from racing while
-the outcome is unresolved. Run review exposes the persisted publication state.
+The writer creates a run-scoped Delta staging table in the configured private schema, writes only
+after the scan and guardrail pass, then submits create, append, or full replace. For serverless
+warehouses, the exact publish statement carries a non-sensitive run UUID and target fingerprint as
+query tags and a SQL comment; recovery confirms only a `FINISHED` statement with the exact run and
+target query tags or the exact SQL comment from Query History. For classic warehouses and eligible
+all-purpose clusters, it sets Delta's
+`userMetadata` for the publish statement and confirms the exact marker in `DESCRIBE HISTORY`. These
+markers contain no source values. The database stores publication intent before staging and tracks
+committed, unchanged, uncertain, and cleanup-pending outcomes. A target fence prevents another Data
+Mover writer from racing while the outcome is unresolved. Run review exposes the persisted
+publication state.
 
-Do not treat the candidate SQL statements as a provider contract. Live probes still need to prove
-atomicity, governance preservation, exact commit-marker behavior, interaction with external writers,
-and each failure window for every claimed compute family. An uncertain publication holds its target
-fence; do not retry or manually drop its staging table until recovery determines the commit outcome.
-The recovery worker uses the saved connection generation and a deterministic run-owned stage name.
+Live probes still need to prove atomicity, governance preservation, Query History visibility and
+marker retention on serverless, Delta History visibility on classic compute, interaction with
+external writers, and each failure window for every claimed compute family. Serverless Query
+History is limited to the API's 30-day search window; older or inaccessible entries remain uncertain
+and fenced for operator review. An uncertain publication holds its target fence; do not retry or
+manually drop its staging table until recovery determines the commit outcome. The recovery worker
+uses the saved connection generation and a deterministic run-owned stage name.
 If credentials were rotated, recovery retains a safe operator-visible unresolved state rather than
 using new credentials to mutate a stage created with the old connection.
 
 Before retrying after any uncertain outcome, inspect the destination and use the run's
 **Databricks publication** section. Recording a reconciliation review does not prove an uncertain
-commit; recovery must first confirm the exact Delta history marker. Cleanup completion is separate
-from whether the destination changed.
+commit; recovery must first confirm the exact compute-family publication marker. Cleanup completion
+is separate from whether the destination changed.
 
 ## Local connection integration tests
 

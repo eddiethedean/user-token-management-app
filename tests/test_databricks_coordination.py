@@ -893,7 +893,9 @@ def test_publication_recovery_cleans_unsubmitted_stage_and_confirms_exact_commit
         def cleanup_staging(self, _credentials, *, run_id: str) -> None:
             self.cleaned.append(run_id)
 
-        def reconcile_publication(self, _credentials, _locator, *, submission_id: str) -> str:
+        def reconcile_publication(
+            self, _credentials, _locator, *, submission_id: str, submitted_at_ms: int
+        ) -> str:
             self.reconciled.append(submission_id)
             return "committed"
 
@@ -937,7 +939,9 @@ def test_publication_recovery_keeps_unconfirmed_commit_fenced_and_retries(
         )
 
     class UnknownCommit:
-        def reconcile_publication(self, _credentials, _locator, *, submission_id: str) -> str:
+        def reconcile_publication(
+            self, _credentials, _locator, *, submission_id: str, submitted_at_ms: int
+        ) -> str:
             assert submission_id == run_id
             return "unknown"
 
@@ -1146,7 +1150,9 @@ class _RecoveryProbe:
         self.reconciled: list[str] = []
         self.cleaned: list[str] = []
 
-    def reconcile_publication(self, _credentials, _locator, *, submission_id: str) -> str:
+    def reconcile_publication(
+        self, _credentials, _locator, *, submission_id: str, submitted_at_ms: int
+    ) -> str:
         self.reconciled.append(submission_id)
         return "committed"
 

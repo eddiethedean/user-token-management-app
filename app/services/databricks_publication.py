@@ -7,7 +7,7 @@ import json
 import secrets
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from datetime import timedelta
+from datetime import UTC, timedelta
 from typing import Any, cast
 
 from sqlalchemy import or_, select, update
@@ -313,6 +313,18 @@ def process_pending_publication_recovery(
             "state": record.state,
             "target_locator_json": record.target_locator_json,
             "submission_id": record.submission_id,
+            "submitted_at_ms": (
+                int(
+                    (
+                        record.submitted_at.replace(tzinfo=UTC)
+                        if record.submitted_at.tzinfo is None
+                        else record.submitted_at.astimezone(UTC)
+                    ).timestamp()
+                    * 1000
+                )
+                if record.submitted_at is not None
+                else 0
+            ),
         }
 
     from app.domain.locators import DatabricksTableLocator
@@ -328,6 +340,7 @@ def process_pending_publication_recovery(
                 credentials,
                 locator,
                 submission_id=operation["submission_id"],
+                submitted_at_ms=operation["submitted_at_ms"],
             )
             if result != "committed":
                 with session_factory() as db:

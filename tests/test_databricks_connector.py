@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -15,6 +16,7 @@ from app.connectors.databricks import (
     _parse_namespace,
     _polars_type,
     _provider_error,
+    _publication_target_marker,
     _quote,
     _sql_type,
     _tag_marker,
@@ -57,19 +59,29 @@ def _settings(**updates):
 
 
 class _ManagementWorkspace:
-    def __init__(self, state: str = "STOPPED") -> None:
+    def __init__(self, state: str = "STOPPED", *, serverless: bool = False) -> None:
         self.state = state
         self.starts = 0
+        self.serverless = serverless
+        self.query_history_pages: list[SimpleNamespace] = []
+        self.query_history_calls: list[dict[str, Any]] = []
         self.clusters = SimpleNamespace()
         self.warehouses = SimpleNamespace(get=self.get_warehouse, start=self.start_warehouse)
+        self.query_history = SimpleNamespace(list=self.list_query_history)
 
     def get_warehouse(self, *, id: str):
         assert id == "warehouse-1"
-        return SimpleNamespace(state=self.state)
+        return SimpleNamespace(state=self.state, enable_serverless_compute=self.serverless)
 
     def start_warehouse(self, *, id: str):
         assert id == "warehouse-1"
         self.starts += 1
+
+    def list_query_history(self, **kwargs):
+        self.query_history_calls.append(kwargs)
+        if self.query_history_pages:
+            return self.query_history_pages.pop(0)
+        return SimpleNamespace(res=[], has_next_page=False, next_page_token=None)
 
 
 def test_management_validation_is_read_only_and_start_is_explicit() -> None:
@@ -272,11 +284,13 @@ class _SQLHarness:
         self.fail_on = fail_on
         self.statements: list[tuple[str, Any]] = []
         self.connections: list[_SQLConnection] = []
+        self.connection_options: list[dict[str, Any]] = []
 
     def connect(self, **kwargs) -> _SQLConnection:
         assert kwargs["server_hostname"] == HOST
         assert kwargs["access_token"] == "synthetic-api-token"
         assert kwargs["use_cloud_fetch"] is False
+        self.connection_options.append(kwargs)
         connection = _SQLConnection(self)
         self.connections.append(connection)
         return connection
@@ -288,8 +302,11 @@ def _sql_connector(
     *,
     startup_policy: str = "manual",
     metadata_verified: bool = True,
+    serverless: bool = False,
+    query_history_pages: list[SimpleNamespace] | None = None,
 ) -> tuple[DatabricksConnector, dict[str, Any]]:
-    workspace = _ManagementWorkspace("RUNNING")
+    workspace = _ManagementWorkspace("RUNNING", serverless=serverless)
+    workspace.query_history_pages = list(query_history_pages or [])
     settings = _settings(
         pipeline_enable_databricks_writer=True,
         pipeline_databricks_staging_schema="private.staging",
@@ -433,7 +450,15 @@ def test_abort_and_recovery_helpers_fail_closed_for_unknown_sessions(monkeypatch
     with pytest.raises(ConnectorError) as invalid_run:
         connector.cleanup_staging(credentials, run_id="bad")
     assert invalid_run.value.code is TransferErrorCode.INTERNAL_ERROR
-    assert connector.reconcile_publication(credentials, locator, submission_id="bad") == "unknown"
+    assert (
+        connector.reconcile_publication(
+            credentials,
+            locator,
+            submission_id="bad",
+            submitted_at_ms=int(time.time() * 1000),
+        )
+        == "unknown"
+    )
     assert _parse_cursor("17") == 17
     assert _parse_cursor(None) == 0
 
@@ -682,7 +707,7 @@ def test_publication_timeout_records_uncertain_result_and_history_reconciliation
     monkeypatch,
 ) -> None:
     harness = _SQLHarness(fail_on="create table `main`")
-    connector, credentials = _sql_connector(harness, monkeypatch)
+    connector, credentials = _sql_connector(harness, monkeypatch, serverless=True)
     events: list[str] = []
     credentials["_publication_event"] = lambda event, **_details: events.append(event)
     locator = _table_locator()
@@ -701,21 +726,166 @@ def test_publication_timeout_records_uncertain_result_and_history_reconciliation
     assert connector.abort(session) is AbortResult.UNCERTAIN
     assert (
         connector.reconcile_publication(
-            credentials, locator, submission_id="77777777-7777-4777-8777-777777777777"
+            credentials,
+            locator,
+            submission_id="77777777-7777-4777-8777-777777777777",
+            submitted_at_ms=int(time.time() * 1000),
         )
         == "unknown"
     )
 
-    history = _SQLHarness(history_marker="88888888-8888-4888-8888-888888888888")
-    connector, credentials = _sql_connector(history, monkeypatch)
+    marker_id = "88888888-8888-4888-8888-888888888888"
+    target_marker = _publication_target_marker(locator)
+    history_page = SimpleNamespace(
+        res=[
+            SimpleNamespace(
+                status="FINISHED",
+                query_tags=[
+                    SimpleNamespace(key="data_mover_run_id", value=marker_id),
+                    SimpleNamespace(key="data_mover_target", value=target_marker),
+                ],
+                query_text="INSERT INTO target",
+            )
+        ],
+        has_next_page=False,
+        next_page_token=None,
+    )
+    history = _SQLHarness()
+    connector, credentials = _sql_connector(
+        history, monkeypatch, serverless=True, query_history_pages=[history_page]
+    )
+    submitted_at_ms = int(time.time() * 1000)
     assert (
         connector.reconcile_publication(
             credentials,
             locator,
-            submission_id="88888888-8888-4888-8888-888888888888",
+            submission_id=marker_id,
+            submitted_at_ms=submitted_at_ms,
         )
         == "committed"
     )
+    workspace = connector._workspace_client_factory(host=WORKSPACE_URL, token="test")
+    call = workspace.query_history_calls[0]
+    assert call["filter_by"].warehouse_ids == ["warehouse-1"]
+    assert call["filter_by"].query_start_time_range.start_time_ms <= submitted_at_ms
+
+    classic_history = _SQLHarness(history_marker=marker_id)
+    classic_connector, classic_credentials = _sql_connector(classic_history, monkeypatch)
+    assert (
+        classic_connector.reconcile_publication(
+            classic_credentials,
+            locator,
+            submission_id=marker_id,
+            submitted_at_ms=submitted_at_ms,
+        )
+        == "committed"
+    )
+    assert any(
+        statement.startswith("DESCRIBE HISTORY") for statement, _ in classic_history.statements
+    )
+
+
+def test_publication_uses_serverless_compatible_exact_query_marker(monkeypatch) -> None:
+    harness = _SQLHarness()
+    connector, credentials = _sql_connector(harness, monkeypatch, serverless=True)
+    credentials["_publication_event"] = lambda _event, **_details: None
+    locator = _table_locator()
+    session = connector.prepare_destination(
+        credentials,
+        locator,
+        ObjectSchema(locator=locator, columns=(ColumnSchema("id", "Int64"),)),
+        DatabricksCreatePolicy(),
+        run_id="99999999-9999-4999-8999-999999999998",
+    )
+    connector.finalize(session)
+
+    publication_options = next(
+        options for options in harness.connection_options if options.get("query_tags")
+    )
+    target_marker = _publication_target_marker(locator)
+    assert publication_options["query_tags"] == {
+        "data_mover_run_id": "99999999-9999-4999-8999-999999999998",
+        "data_mover_target": target_marker,
+    }
+    publish_sql = next(
+        statement
+        for statement, _ in harness.statements
+        if "CREATE TABLE `main`.`analytics`.`orders` USING DELTA" in statement
+    )
+    assert "datamover-run:99999999-9999-4999-8999-999999999998" in publish_sql
+    assert not any(
+        statement.startswith("SET spark.databricks.delta") for statement, _ in harness.statements
+    )
+
+
+def test_publication_keeps_delta_history_marker_for_classic_compute(monkeypatch) -> None:
+    harness = _SQLHarness()
+    connector, credentials = _sql_connector(harness, monkeypatch, serverless=False)
+    credentials["_publication_event"] = lambda _event, **_details: None
+    locator = _table_locator()
+    session = connector.prepare_destination(
+        credentials,
+        locator,
+        ObjectSchema(locator=locator, columns=(ColumnSchema("id", "Int64"),)),
+        DatabricksCreatePolicy(),
+        run_id="99999999-9999-4999-8999-999999999997",
+    )
+    connector.finalize(session)
+
+    assert any(
+        statement.startswith("SET spark.databricks.delta.commitInfo.userMetadata")
+        for statement, _ in harness.statements
+    )
+    assert not any(options.get("query_tags") for options in harness.connection_options)
+
+
+def test_publication_reconciliation_requires_success_and_exact_target(monkeypatch) -> None:
+    locator = _table_locator()
+    marker_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    target_marker = _publication_target_marker(locator)
+    pages = [
+        SimpleNamespace(
+            res=[
+                SimpleNamespace(
+                    status="FAILED",
+                    query_tags=[
+                        SimpleNamespace(key="data_mover_run_id", value=marker_id),
+                        SimpleNamespace(key="data_mover_target", value=target_marker),
+                    ],
+                )
+            ],
+            has_next_page=True,
+            next_page_token="next-page",
+        ),
+        SimpleNamespace(
+            res=[
+                SimpleNamespace(
+                    status="FINISHED",
+                    query_tags=[
+                        SimpleNamespace(key="data_mover_run_id", value=marker_id),
+                        SimpleNamespace(key="data_mover_target", value="wrong-target"),
+                    ],
+                    query_text="INSERT INTO another_target",
+                )
+            ],
+            has_next_page=False,
+            next_page_token=None,
+        ),
+    ]
+    connector, credentials = _sql_connector(
+        _SQLHarness(), monkeypatch, serverless=True, query_history_pages=pages
+    )
+    assert (
+        connector.reconcile_publication(
+            credentials,
+            locator,
+            submission_id=marker_id,
+            submitted_at_ms=int(time.time() * 1000),
+        )
+        == "unknown"
+    )
+    workspace = connector._workspace_client_factory(host=WORKSPACE_URL, token="test")
+    assert [call["page_token"] for call in workspace.query_history_calls] == [None, "next-page"]
 
 
 def test_staging_create_and_cleanup_failures_are_recorded_for_recovery(monkeypatch) -> None:

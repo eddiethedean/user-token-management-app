@@ -60,7 +60,7 @@ requires-dist = [
     { name = "basedpyright", marker = "extra == 'dev'", specifier = ">=1.29" },
     { name = "cryptography", specifier = ">=42.0.8" },
     { name = "databricks-sdk", specifier = ">=0.50" },
-    { name = "databricks-sql-connector", specifier = ">=3" },
+    { name = "databricks-sql-connector", specifier = ">=4.1.3" },
     { name = "email-validator", specifier = ">=2.0.0" },
     { name = "fastapi", specifier = ">=0.133.0" },
     { name = "hedron", specifier = ">=1.1.1,<2" },
