@@ -639,6 +639,7 @@ def app_shell(
         title=page_title or settings.app_name,
         data_theme=markers["data-theme"],
         data_hedron_theme=markers["data-hedron-theme"],
+        htmx_extensions=("preload", "sse", "head-support"),
         head=document_head(
             request=request,
             page_title=page_title,

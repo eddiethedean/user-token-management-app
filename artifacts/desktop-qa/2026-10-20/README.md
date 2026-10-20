@@ -27,6 +27,11 @@ props; no application CSS was added or changed.
 - **Databricks credentials were cramped.** The Databricks form now occupies the
   full available row, alongside the existing full-width PostgreSQL form, using
   Hedron's native Stack/Grid composition.
+- **A fresh install could fail at startup.** FastAPI 0.149 rejects the ignored
+  `htmx_extensions` application argument. Extensions are now declared on Hedron's
+  `Page`, where the framework supports them. Document tests verify one script per
+  extension, and a fresh-dependency browser retest passed sign-in and navigation
+  with no console errors.
 
 ## Browser coverage
 
@@ -57,8 +62,11 @@ request replacement can emit HTMX `afterRequest`/`sendAbort` console messages.
 
 ## Validation
 
-- `make check`: **858 application tests and 25 demo tests passed**; **81.13%**
-  coverage. Ruff, formatting, BasedPyright, documentation links, Hedron warning-level
+- `make check`: **858 application tests and 25 demo tests passed**; **81.14%**
+  coverage in a fresh environment with the current CI dependencies (including
+  FastAPI 0.149, Polars 2.0, and Pydantic 2.14). The earlier locked-environment
+  full pass also succeeded, and document tests were rerun there after the startup
+  fix. Ruff, formatting, BasedPyright, documentation links, Hedron warning-level
   checks, and the Posit matrix passed. The required Databricks simulator and
   transport tests are included in this suite.
 - `make hedron-build`, `uv lock --check`, and `git diff --check` passed.
