@@ -80,10 +80,10 @@ Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/st
 "2026-10-09","Story","DBX-02","Data Mover: Databricks - Save and validate a workspace connection","DBX-EPIC","As a pipeline owner, I can manage my own Databricks credentials and see what validation proves.
 
 Prerequisites: DBX-01.
-Required evidence: Ownership, secret rotation, token refresh and migration tests.
+Required evidence: Ownership, token encryption and replacement, revoked-token handling, and connection/consent invalidation tests.
 Story and epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
 Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)","- Save workspace URL, personal access token, compute type/ID, and startup policy with existing encrypted replace/delete behavior. Derive or verify the SQL HTTP path against that compute. Validate allowed HTTPS endpoints, TLS, and redirect behavior before sending credentials.
-- Refresh access tokens through the supported SDK; reject expired/revoked credentials safely. Secrets are absent from pipeline definitions, URLs, logs, and diagnostics.
+- Send PATs only as bearer authentication to approved endpoints; reject expired or revoked tokens with bounded diagnostics. Tokens are absent from pipeline definitions, URLs, logs, and diagnostics.
 - Add provider capabilities, typed locators/write policies, serialization and UI support. Extend the guardrail detector model for `databricks_metadata`; keep existing Foundry/SSN records valid. Revalidation/review invalidation follows principal or connection changes.",""
 "2026-10-09","Task","DBX-02-T01","Data Mover: Databricks - Add Databricks domain and provider contracts","DBX-02","Define credential fields, typed locators/write policies, stable identities, provider capabilities, serialization, and the databricks_metadata detector without permissive provider-ID fallbacks.
 
@@ -108,7 +108,9 @@ Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/st
 Owner role: Engineering
 Depends on: DBX-02-T02, DBX-02-T03
 Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
-Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Failure paths retain safe diagnostics; failure paths retain safe diagnostics and never expose client secrets or tokens.",""
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- The real SDK sends the configured PAT as a bearer token for management and SQL requests without calling an OAuth token endpoint.
+- Invalid, expired, and revoked PAT failures are safely classified and never expose the token.
+- Replacing the PAT updates the encrypted connection and invalidates consent and reviews bound to the previous identity.",""
 "2026-10-09","Task","DBX-02-T05","Data Mover: Databricks - Implement management-only connection validation","DBX-02","Check authentication and selected compute visibility/state through management requests; separate authenticated, visible, stopped, stale, and SQL-ready information.
 
 Owner role: Engineering
