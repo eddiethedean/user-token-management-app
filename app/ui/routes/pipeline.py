@@ -22,6 +22,7 @@ from hedron import (
     ConnectorNode,
     ConnectorTrack,
     DescriptionList,
+    Dialog,
     Expander,
     FileUpload,
     FlowStep,
@@ -140,6 +141,7 @@ from app.ui.presenters.run_status import (
 )
 from app.ui.regions import (
     MAIN_PANEL,
+    PIPELINE_RUN_CANCEL_DIALOG,
     PIPELINE_SAVE_NOTICE,
     PIPELINE_SAVED_ROUTES,
     REQUEST_FEEDBACK,
@@ -200,6 +202,23 @@ _WRITE_MODE_LABELS = {
 }
 
 
+def _available_write_modes(
+    catalog: ProviderCatalog | None,
+    *,
+    upsert_available: bool = True,
+    destination_object: str = "",
+) -> tuple[str, ...]:
+    if catalog is None:
+        return ()
+    return tuple(
+        mode
+        for mode in catalog.write_modes
+        if mode != "upsert" or upsert_available
+        if catalog.name != "databricks"
+        or (mode == "create") == (destination_object == CREATE_TABLE_VALUE)
+    )
+
+
 def _resolved_write_mode(
     catalog: ProviderCatalog | None,
     selected: str,
@@ -207,11 +226,8 @@ def _resolved_write_mode(
     upsert_available: bool = True,
     destination_object: str = "",
 ) -> str:
-    supported = tuple(
-        mode
-        for mode in (catalog.write_modes if catalog is not None else ())
-        if mode != "upsert" or upsert_available
-        if (mode == "create") == (destination_object == CREATE_TABLE_VALUE)
+    supported = _available_write_modes(
+        catalog, upsert_available=upsert_available, destination_object=destination_object
     )
     if selected in supported:
         return selected
@@ -233,11 +249,8 @@ def _write_mode_select(
         upsert_available=upsert_available,
         destination_object=destination_object,
     )
-    supported = tuple(
-        mode
-        for mode in (catalog.write_modes if catalog is not None else ())
-        if mode != "upsert" or upsert_available
-        if (mode == "create") == (destination_object == CREATE_TABLE_VALUE)
+    supported = _available_write_modes(
+        catalog, upsert_available=upsert_available, destination_object=destination_object
     )
     options = [
         _option(mode, _WRITE_MODE_LABELS[mode], selected=mode == resolved) for mode in supported
@@ -2524,7 +2537,9 @@ def _guardrail_review_surface(
                 target="#pipeline-preview-region",
                 swap="none",
                 include="#pipeline-form",
+                indicator=INDICATOR,
             ),
+            "data-pipeline-preview-action": "true",
             "hx-vals": '{"scan_sensitive_data":true}',
         },
     )
@@ -2935,6 +2950,7 @@ def _csv_upload_control(
     *,
     oob: bool = False,
     status_text: str = "Select a file to inspect its schema.",
+    include_id: bool = True,
 ) -> NodeLike:
     attrs = hx_attrs(
         request,
@@ -2947,17 +2963,20 @@ def _csv_upload_control(
     attrs["hx-encoding"] = "multipart/form-data"
     if oob:
         attrs["hx-swap-oob"] = "outerHTML:#pipeline-csv-file"
+    upload = FileUpload(
+        name="csv_file",
+        accept=".csv,text/csv",
+        maximum_size=MAX_CSV_UPLOAD_BYTES,
+        label="Choose CSV file",
+        hint="UTF-8 CSV · scanned locally before use",
+        status=status_text,
+        appearance="soft",
+        density="comfortable",
+    )
+    if not include_id:
+        return html.div(upload, **attrs)
     return AttrHost(
-        FileUpload(
-            name="csv_file",
-            accept=".csv,text/csv",
-            maximum_size=MAX_CSV_UPLOAD_BYTES,
-            label="Choose CSV file",
-            hint="UTF-8 CSV · scanned locally before use",
-            status=status_text,
-            appearance="soft",
-            density="comfortable",
-        ),
+        upload,
         id="pipeline-csv-file",
         attrs={str(key): str(value) for key, value in attrs.items()},
     )
@@ -3649,6 +3668,7 @@ def _pipeline_body(
     notice: str = "",
     latest_runs: dict[str, object] | None = None,
     run_monitor: NodeLike = None,
+    run_cancel_dialog: NodeLike = None,
     run_status: str = "",
     demo_mode: bool = True,
     owner_id: str = "",
@@ -4507,6 +4527,13 @@ def _pipeline_body(
                         action=form_action(request, "/pipeline/save"),
                         method="post",
                         id="pipeline-form",
+                        **{
+                            "hx-sync": "#pipeline-form:replace",
+                            "hx-disabled-elt": (
+                                "#pipeline-form button[type='submit'], "
+                                "#pipeline-form [data-pipeline-preview-action]"
+                            ),
+                        },
                     ),
                     id="pipeline-builder",
                 ),
@@ -4536,6 +4563,7 @@ def _pipeline_body(
                         ),
                         id="pipeline-run-monitor",
                     ),
+                    html.div(run_cancel_dialog, id=PIPELINE_RUN_CANCEL_DIALOG.id),
                 ),
             ),
             (
@@ -4655,6 +4683,19 @@ def register_pipeline_routes(
                 if displayed_run is not None
                 else None
             ),
+            (
+                _pipeline_run_cancel_dialog(request, displayed_run.id, auth.session.csrf_token)
+                if displayed_run is not None
+                and str(displayed_run.status).lower()
+                not in {
+                    "succeeded",
+                    "blocked",
+                    "failed",
+                    "cancelled",
+                    "failed_needs_reconciliation",
+                }
+                else None
+            ),
             str(displayed_run.status) if displayed_run is not None else "",
             settings.is_demo_mode,
             catalog_runner_factory(request),
@@ -4722,7 +4763,7 @@ def register_pipeline_routes(
         app,
         inspection_fragment=_csv_inspection,
         upload_control=lambda request, status_text: _csv_upload_control(
-            request, status_text=status_text
+            request, status_text=status_text, include_id=False
         ),
     )
     register_pipeline_dataset_routes(
@@ -4753,6 +4794,7 @@ def register_pipeline_routes(
         app,
         fragment_router,
         status_fragment=_run_status_fragment,
+        cancel_dialog_fragment=_pipeline_run_cancel_dialog,
         events_loader=_events_after_for_run_routes,
         with_user_catalog=bound_with_user_catalog,
     )
@@ -4769,6 +4811,32 @@ def _events_after_for_run_routes(db, *, run, after_sequence=0):
     return pipeline_run_service.events_after(db, run=run, after_sequence=after_sequence)
 
 
+def _pipeline_run_cancel_dialog(request: Request, run_id: str, csrf_token: str):
+    """Render a Hedron confirmation dialog outside the polling run monitor."""
+
+    return Dialog(
+        "Cancel this transfer?",
+        html.p("The worker will stop at its next safe checkpoint."),
+        html.form(
+            csrf_hidden(csrf_token),
+            Button("Confirm cancellation", type="submit", variant="danger", size="sm"),
+            action=form_action(request, f"/pipeline/runs/{run_id}/cancel"),
+            method="post",
+            **hx_attrs(
+                request,
+                path=f"/pipeline/runs/{run_id}/cancel",
+                method="post",
+                target="#pipeline-run-monitor",
+                swap="outerHTML",
+                indicator=INDICATOR,
+                busy="region",
+            ),
+        ),
+        id="pipeline-run-cancel-confirmation",
+        open=False,
+    )
+
+
 def _pipeline_body_in_thread(
     request,
     settings,
@@ -4782,6 +4850,7 @@ def _pipeline_body_in_thread(
     loaded_source_inspection,
     latest_runs,
     run_monitor,
+    run_cancel_dialog,
     run_status,
     demo_mode,
     catalog_runner: CatalogOperationRunner,
@@ -4803,6 +4872,7 @@ def _pipeline_body_in_thread(
             loaded_source_inspection=loaded_source_inspection,
             latest_runs=latest_runs,
             run_monitor=run_monitor,
+            run_cancel_dialog=run_cancel_dialog,
             run_status=run_status,
             demo_mode=demo_mode,
             writer_policy=lambda provider: writer_enabled(provider, settings=settings),
@@ -5424,26 +5494,12 @@ def _run_status_fragment(
         else None
     )
     cancel_form = (
-        html.form(
-            csrf_hidden(csrf_token),
-            Button(
-                "Cancel run",
-                type="submit",
-                variant="danger",
-                size="sm",
-                attrs=hx_attrs(
-                    request,
-                    path=f"/pipeline/runs/{run.id}/cancel",
-                    method="post",
-                    target="#pipeline-run-monitor",
-                    swap="outerHTML",
-                    indicator=INDICATOR,
-                    busy="region",
-                    confirm="Cancel this transfer? The worker will stop at its next safe checkpoint.",
-                ),
-            ),
-            action=form_action(request, f"/pipeline/runs/{run.id}/cancel"),
-            method="post",
+        Button(
+            "Cancel run",
+            type="button",
+            variant="danger",
+            size="sm",
+            attrs={"data-hedron-dialog-open": "#pipeline-run-cancel-confirmation"},
         )
         if monitor_active
         else None

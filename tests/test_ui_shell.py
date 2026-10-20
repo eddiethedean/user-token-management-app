@@ -80,6 +80,8 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Sign in")
     assert_html_contains(response, 'name="preauth_csrf_token"')
     assert_html_contains(response, 'name="htmx-config"')
+    for extension in ("preload", "sse", "head-support"):
+        assert response.body.count(f'src="/hedron-static/ext/{extension}.js"') == 1
     assert_html_contains(
         response,
         'href="/app-assets/hedron-desktop.css?v=071026.0&amp;shell=5"',

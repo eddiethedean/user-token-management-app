@@ -107,6 +107,12 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     assert 'value="upsert"' not in mode_select.group(0)
     assert 'hx-post="/pipeline/preview"' in response.text
     assert 'hx-get="/pipeline/preview"' not in response.text
+    assert re.search(
+        r'<form\b(?=[^>]*id="pipeline-form")(?=[^>]*hx-sync="#pipeline-form:replace")[^>]*>',
+        response.text,
+    )
+    assert "#pipeline-form [data-pipeline-preview-action]" in response.text
+    assert 'data-pipeline-preview-action="true"' in response.text
     with SessionLocal() as db:
         assert db.scalar(select(PipelineCatalogCache.id).limit(1)) is not None
 
@@ -882,6 +888,8 @@ def test_uploaded_csv_can_be_scanned_saved_and_reloaded(client, demo_connections
     assert "integer" in scanned.text
     assert "datetime" in scanned.text
     assert "Schema ready. Choose another CSV to replace it." in scanned.text
+    for region_id in ("pipeline-csv-file", "pipeline-csv-inspection", "pipeline-csv-upload-state"):
+        assert scanned.text.count(f'id="{region_id}"') == 1
     upload_match = re.search(r'name="source_upload_id" value="([^"]+)"', scanned.text)
     assert upload_match is not None
     upload_id = upload_match.group(1)
@@ -1122,6 +1130,50 @@ def test_pipeline_exposes_swap_direction_and_dynamic_write_mode_refresh(
     mode_select = _pipeline_select(response.text, "pipeline-mode-select")
     assert 'hx-post="/pipeline/preview"' in mode_select
     assert 'hx-include="#pipeline-form"' in mode_select
+
+
+@pytest.mark.parametrize(
+    ("provider", "namespace"),
+    (
+        ("postgres", "public"),
+        ("mss", MSS_DATASET),
+        ("mcscop", "ri.foundry.main.dataset.demo-destination"),
+    ),
+)
+def test_new_destination_preview_keeps_a_savable_write_mode(
+    client, demo_connections, provider, namespace
+) -> None:
+    web_login(client, next_path="/pipeline")
+    page = client.get("/pipeline")
+    data = {
+        "csrf_token": csrf_from(page.text),
+        "pipeline_name": f"Create {provider} target from browser controls",
+        "source_provider": "postgres",
+        "source_schema": "public",
+        "source_table": "readiness_events",
+        "destination_provider": provider,
+        "destination_schema": namespace,
+        "destination_table": "__new__",
+        "destination_table_new": "qa_new_destination",
+        "write_mode": "replace",
+    }
+    preview = client.post(
+        "/pipeline/preview",
+        data=data,
+        headers={"HX-Request": "true", "HX-Target": "pipeline-preview-region"},
+    )
+    assert preview.status_code == 200
+    mode = _pipeline_select(preview.text, "pipeline-mode-select")
+    assert "disabled" not in mode
+    selected = re.search(r'<option value="([^"]+)" selected', mode)
+    assert selected is not None
+    assert selected.group(1) == "replace"
+    data["write_mode"] = selected.group(1)
+    saved = client.post("/pipeline/save", data=data)
+    assert saved.status_code == 303
+    loaded = client.get(saved.headers["location"])
+    assert loaded.status_code == 200
+    assert 'value="replace" selected' in _pipeline_select(loaded.text, "pipeline-mode-select")
 
 
 def test_foundry_single_file_preview_shows_detected_and_sent_types(
