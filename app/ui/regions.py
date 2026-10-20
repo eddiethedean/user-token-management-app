@@ -209,6 +209,11 @@ PIPELINE_RUN_MONITOR = FragmentRegion(
     selector="#pipeline-run-monitor",
     description="Persisted pipeline run status and events",
 )
+PIPELINE_RUN_CANCEL_DIALOG = FragmentRegion(
+    id="pipeline-run-cancel-dialog",
+    selector="#pipeline-run-cancel-dialog",
+    description="Pipeline run cancellation confirmation dialog",
+)
 PIPELINE_RUN_FEEDBACK = FragmentRegion(
     id="pipeline-run-feedback",
     selector="#pipeline-run-feedback",

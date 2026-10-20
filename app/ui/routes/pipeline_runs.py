@@ -7,7 +7,7 @@ from typing import Protocol
 
 from fastapi import BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
-from hedron import Hedron, HedronRouter, InteractionResult
+from hedron import Hedron, HedronRouter, InteractionResult, OobUpdate, html
 from hedron.htmx import is_htmx_request
 from hedron_core import NodeLike
 from sqlalchemy.orm import Session
@@ -52,6 +52,7 @@ from app.ui.params import PipelineIdForm
 from app.ui.partials.feedback import feedback_panel
 from app.ui.presenters.run_status import run_action_metadata, run_status_toasts
 from app.ui.regions import (
+    PIPELINE_RUN_CANCEL_DIALOG,
     PIPELINE_RUN_FEEDBACK,
     PIPELINE_RUN_MONITOR,
     PIPELINE_SAVE_NOTICE,
@@ -79,6 +80,10 @@ class EventsLoader(Protocol):
     def __call__(
         self, db: Session, *, run: PipelineRun, after_sequence: int = 0
     ) -> list[PipelineRunEvent]: ...
+
+
+class CancelDialogFragment(Protocol):
+    def __call__(self, request: Request, run_id: str, csrf_token: str) -> NodeLike: ...
 
 
 class PipelineReadinessError(Exception):
@@ -131,6 +136,7 @@ def register_pipeline_run_routes(
     fragment_router: HedronRouter,
     *,
     status_fragment: StatusFragment,
+    cancel_dialog_fragment: CancelDialogFragment,
     events_loader: EventsLoader | None = None,
     with_user_catalog: WithUserCatalog,
 ) -> Callable[..., Awaitable[Response]]:
@@ -255,7 +261,15 @@ def register_pipeline_run_routes(
                     status_code=status.HTTP_202_ACCEPTED,
                     action_state=action_state,
                     action_trace=action_trace,
-                    oob=(pipeline_run_feedback_clear_oob(), pipeline_save_notice_clear_oob()),
+                    oob=(
+                        pipeline_run_feedback_clear_oob(),
+                        pipeline_save_notice_clear_oob(),
+                        OobUpdate(
+                            cancel_dialog_fragment(request, run.id, auth.session.csrf_token),
+                            element_id=PIPELINE_RUN_CANCEL_DIALOG.id,
+                            swap="innerHTML",
+                        ),
+                    ),
                     push_url=mounted_path(request, f"/pipeline?pipeline_id={pipeline.id}"),
                 ),
             )
@@ -273,6 +287,7 @@ def register_pipeline_run_routes(
         fragment_regions=(
             PIPELINE_RUN_FEEDBACK,
             PIPELINE_RUN_MONITOR,
+            PIPELINE_RUN_CANCEL_DIALOG,
             PIPELINE_WORKFLOW_STATUS,
             PIPELINE_SAVE_NOTICE,
             TOAST_HOST,
@@ -370,6 +385,7 @@ def register_pipeline_run_routes(
         "/pipeline/runs/{run_id}/cancel",
         fragment_regions=(
             PIPELINE_RUN_MONITOR,
+            PIPELINE_RUN_CANCEL_DIALOG,
             PIPELINE_WORKFLOW_STATUS,
             TOAST_HOST,
             REQUEST_FEEDBACK,
@@ -399,6 +415,11 @@ def register_pipeline_run_routes(
                     run,
                     csrf_token=auth.session.csrf_token,
                     events=run_events,
+                ),
+                oob=(
+                    OobUpdate(
+                        html.div(), element_id=PIPELINE_RUN_CANCEL_DIALOG.id, swap="innerHTML"
+                    ),
                 ),
                 toast=toast,
                 toast_tone=toast_tone,

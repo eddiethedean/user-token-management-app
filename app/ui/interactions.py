@@ -65,6 +65,7 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.PIPELINE_SOURCE_PROVIDER_LABEL,
     region_defs.PIPELINE_SCHEMA_PREVIEW,
     region_defs.PIPELINE_RUN_MONITOR,
+    region_defs.PIPELINE_RUN_CANCEL_DIALOG,
     region_defs.PIPELINE_RUN_FEEDBACK,
     region_defs.PIPELINE_SAVE_NOTICE,
     region_defs.PIPELINE_TARGET_NODE,

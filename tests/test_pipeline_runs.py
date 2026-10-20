@@ -103,6 +103,10 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     )
     assert queued.status_code in {200, 202}
     assert "pipeline-run-monitor" in queued.text
+    assert 'hx-swap-oob="innerHTML"' in queued.text
+    assert 'id="pipeline-run-cancel-dialog"' in queued.text
+    assert 'id="pipeline-run-cancel-confirmation"' in queued.text
+    assert "The worker will stop at its next safe checkpoint." in queued.text
     assert "succeeded" in queued.text or "queued" in queued.text or "extracting" in queued.text
     assert "Succeeded" in queued.text
     assert 'data-hedron-connector-active="false"' in queued.text
@@ -1086,10 +1090,28 @@ def test_active_run_monitor_exposes_cancel_control(client, demo_connections, mon
     )
     assert response.status_code == 200
     assert "Cancel run" in response.text
-    assert f'hx-post="/pipeline/runs/{run_id}/cancel"' in response.text
+    assert 'data-hedron-dialog-open="#pipeline-run-cancel-confirmation"' in response.text
+    assert "hx-confirm=" not in response.text
     assert 'data-hedron-action-phase="pending"' in response.text
     assert f'hx-get="/pipeline/runs/{run_id}/status"' in response.text
     assert event_queries == [0]
+
+    page_with_run = client.get(f"/pipeline?run_id={run_id}")
+    assert page_with_run.status_code == 200
+    assert 'id="pipeline-run-cancel-dialog"' in page_with_run.text
+    assert 'id="pipeline-run-cancel-confirmation"' in page_with_run.text
+    assert 'data-hedron-dialog-open="#pipeline-run-cancel-confirmation"' in page_with_run.text
+    assert f'hx-post="/pipeline/runs/{run_id}/cancel"' in page_with_run.text
+
+    cancelled = client.post(
+        f"/pipeline/runs/{run_id}/cancel",
+        data={"csrf_token": csrf_from(page_with_run.text)},
+        headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor"},
+    )
+    assert cancelled.status_code == 200
+    assert 'hx-swap-oob="innerHTML"' in cancelled.text
+    assert 'id="pipeline-run-cancel-dialog"' in cancelled.text
+    assert 'id="pipeline-run-cancel-confirmation"' not in cancelled.text
 
     direct = client.get(f"/pipeline/runs/{run_id}/status")
     assert direct.status_code == 303

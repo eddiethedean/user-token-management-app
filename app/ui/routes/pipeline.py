@@ -22,6 +22,7 @@ from hedron import (
     ConnectorNode,
     ConnectorTrack,
     DescriptionList,
+    Dialog,
     Expander,
     FileUpload,
     FlowStep,
@@ -140,6 +141,7 @@ from app.ui.presenters.run_status import (
 )
 from app.ui.regions import (
     MAIN_PANEL,
+    PIPELINE_RUN_CANCEL_DIALOG,
     PIPELINE_SAVE_NOTICE,
     PIPELINE_SAVED_ROUTES,
     REQUEST_FEEDBACK,
@@ -3666,6 +3668,7 @@ def _pipeline_body(
     notice: str = "",
     latest_runs: dict[str, object] | None = None,
     run_monitor: NodeLike = None,
+    run_cancel_dialog: NodeLike = None,
     run_status: str = "",
     demo_mode: bool = True,
     owner_id: str = "",
@@ -4560,6 +4563,7 @@ def _pipeline_body(
                         ),
                         id="pipeline-run-monitor",
                     ),
+                    html.div(run_cancel_dialog, id=PIPELINE_RUN_CANCEL_DIALOG.id),
                 ),
             ),
             (
@@ -4679,6 +4683,19 @@ def register_pipeline_routes(
                 if displayed_run is not None
                 else None
             ),
+            (
+                _pipeline_run_cancel_dialog(request, displayed_run.id, auth.session.csrf_token)
+                if displayed_run is not None
+                and str(displayed_run.status).lower()
+                not in {
+                    "succeeded",
+                    "blocked",
+                    "failed",
+                    "cancelled",
+                    "failed_needs_reconciliation",
+                }
+                else None
+            ),
             str(displayed_run.status) if displayed_run is not None else "",
             settings.is_demo_mode,
             catalog_runner_factory(request),
@@ -4777,6 +4794,7 @@ def register_pipeline_routes(
         app,
         fragment_router,
         status_fragment=_run_status_fragment,
+        cancel_dialog_fragment=_pipeline_run_cancel_dialog,
         events_loader=_events_after_for_run_routes,
         with_user_catalog=bound_with_user_catalog,
     )
@@ -4793,6 +4811,32 @@ def _events_after_for_run_routes(db, *, run, after_sequence=0):
     return pipeline_run_service.events_after(db, run=run, after_sequence=after_sequence)
 
 
+def _pipeline_run_cancel_dialog(request: Request, run_id: str, csrf_token: str):
+    """Render a Hedron confirmation dialog outside the polling run monitor."""
+
+    return Dialog(
+        "Cancel this transfer?",
+        html.p("The worker will stop at its next safe checkpoint."),
+        html.form(
+            csrf_hidden(csrf_token),
+            Button("Confirm cancellation", type="submit", variant="danger", size="sm"),
+            action=form_action(request, f"/pipeline/runs/{run_id}/cancel"),
+            method="post",
+            **hx_attrs(
+                request,
+                path=f"/pipeline/runs/{run_id}/cancel",
+                method="post",
+                target="#pipeline-run-monitor",
+                swap="outerHTML",
+                indicator=INDICATOR,
+                busy="region",
+            ),
+        ),
+        id="pipeline-run-cancel-confirmation",
+        open=False,
+    )
+
+
 def _pipeline_body_in_thread(
     request,
     settings,
@@ -4806,6 +4850,7 @@ def _pipeline_body_in_thread(
     loaded_source_inspection,
     latest_runs,
     run_monitor,
+    run_cancel_dialog,
     run_status,
     demo_mode,
     catalog_runner: CatalogOperationRunner,
@@ -4827,6 +4872,7 @@ def _pipeline_body_in_thread(
             loaded_source_inspection=loaded_source_inspection,
             latest_runs=latest_runs,
             run_monitor=run_monitor,
+            run_cancel_dialog=run_cancel_dialog,
             run_status=run_status,
             demo_mode=demo_mode,
             writer_policy=lambda provider: writer_enabled(provider, settings=settings),
@@ -5448,26 +5494,12 @@ def _run_status_fragment(
         else None
     )
     cancel_form = (
-        html.form(
-            csrf_hidden(csrf_token),
-            Button(
-                "Cancel run",
-                type="submit",
-                variant="danger",
-                size="sm",
-                attrs=hx_attrs(
-                    request,
-                    path=f"/pipeline/runs/{run.id}/cancel",
-                    method="post",
-                    target="#pipeline-run-monitor",
-                    swap="outerHTML",
-                    indicator=INDICATOR,
-                    busy="region",
-                    confirm="Cancel this transfer? The worker will stop at its next safe checkpoint.",
-                ),
-            ),
-            action=form_action(request, f"/pipeline/runs/{run.id}/cancel"),
-            method="post",
+        Button(
+            "Cancel run",
+            type="button",
+            variant="danger",
+            size="sm",
+            attrs={"data-hedron-dialog-open": "#pipeline-run-cancel-confirmation"},
         )
         if monitor_active
         else None
