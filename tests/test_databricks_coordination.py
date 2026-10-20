@@ -402,8 +402,7 @@ def test_opted_in_start_is_persisted_before_provider_call_and_deduplicated(
     )
     saved_credentials = {
         "workspace_url": "https://dbc-12345678.cloud.databricks.com",
-        "client_id": "service-principal-id",
-        "client_secret": "service-principal-secret",
+        "token": "synthetic-api-token",
         "compute_kind": "warehouse",
         "compute_id": "warehouse-1",
         "http_path": "sql/1.0/warehouses/warehouse-1",
@@ -674,8 +673,7 @@ def _saved_databricks_credentials(
 ) -> dict[str, str]:
     values = {
         "workspace_url": "https://dbc-12345678.cloud.databricks.com",
-        "client_id": "service-principal-id",
-        "client_secret": "service-principal-secret",
+        "token": "synthetic-api-token",
         "compute_kind": "warehouse",
         "compute_id": "warehouse-1",
         "http_path": "sql/1.0/warehouses/warehouse-1",

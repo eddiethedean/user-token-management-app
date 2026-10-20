@@ -101,7 +101,7 @@ markers = [
   "postgres: ephemeral PostgreSQL via testing.postgresql (skipped if server binaries are missing)",
   "mongodb: ephemeral MongoDB via pytest-mongo (skipped if mongod is missing)",
   "minilake: real Databricks SDK management calls against an isolated local MiniLake server",
-  "databricks_transport: real SDK HTTP/OAuth and network faults using pinned WireMock/Toxiproxy",
+  "databricks_transport: real SDK HTTP/PAT and network faults using pinned WireMock/Toxiproxy",
 ]
 
 [tool.coverage.run]

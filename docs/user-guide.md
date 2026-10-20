@@ -79,13 +79,13 @@ cannot reveal another user's saved values.
 | MSS (Palantir Foundry) | API endpoint, API token | Default dataset RID, branch, TLS CA profile |
 | MCS-COP (Palantir Foundry) | API endpoint, API token | Default dataset RID, branch, TLS CA profile |
 | PostgreSQL | Host, port, database, username, password, SSL mode | Connect timeout, application name |
-| Databricks | Workspace URL, OAuth service principal client ID and secret, compute type and ID, SQL HTTP path | Startup policy (manual by default; opted-in only after operator acceptance) |
+| Databricks | Workspace URL, personal access token, compute type and ID, SQL HTTP path | Startup policy (manual by default; opted-in only after operator acceptance) |
 
 Databricks is implemented behind a default-off operator gate and is not a released or supported
 connection yet. Do not enable it until the [Databricks operator guide](providers/databricks.md) and
 [acceptance ledger](plans/databricks-acceptance.md) show approved live evidence for the deployment,
 compute, metadata, and route you intend to use. When the operator gate is off, the connection form
-is unavailable. The service principal credentials are encrypted with the same owner-scoped storage
+is unavailable. The API token is encrypted with the same owner-scoped storage
 as other connections.
 
 ### Finding connection values

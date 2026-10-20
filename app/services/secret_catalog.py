@@ -123,7 +123,7 @@ SECRET_PROVIDERS = (
         "databricks",
         "Databricks",
         "DBX",
-        "DATABRICKS_CLIENT_SECRET",
+        "DATABRICKS_API_TOKEN",
         (
             CredentialField(
                 "workspace_url",
@@ -133,15 +133,9 @@ SECRET_PROVIDERS = (
                 required=True,
             ),
             CredentialField(
-                "client_id",
-                "OAuth service principal client ID",
-                "Service principal application ID",
-                required=True,
-            ),
-            CredentialField(
-                "client_secret",
-                "OAuth service principal secret",
-                "Paste OAuth client secret",
+                "token",
+                "Personal access token",
+                "Paste Databricks API token",
                 input_type="password",
                 autocomplete="new-password",
                 required=True,
@@ -180,9 +174,9 @@ SECRET_PROVIDERS = (
             ),
         ),
         setup_hint=(
-            "Use an OAuth M2M service principal and an existing SQL warehouse or compatible "
+            "Use a workspace personal access token and an existing SQL warehouse or compatible "
             "all-purpose classic cluster. Confirm access, network and startup permissions with "
-            "your platform administrator. Changing workspace, principal or compute resets startup consent."
+            "your platform administrator. Changing the token, workspace or compute resets startup consent."
         ),
         enabled_setting="pipeline_enable_databricks",
     ),

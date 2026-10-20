@@ -2,7 +2,7 @@
 
 Completed October 16, 2026. Desktop light and dark appearance; mobile excluded at the user's request.
 
-The browser exercised the real application, authentication, forms, HTMX updates, persisted route/run state, transfer worker, and Databricks connector on an isolated localhost instance. MiniLake 1.8.0 served management requests through the real Databricks SDK. A disposable synthetic DB-API SQL boundary supplied Unity Catalog metadata, rows, staging, commit markers, and Delta history. Only synthetic credentials and records were used. This pass does not attest live OAuth, SQL Thrift/TLS, Unity Catalog governance, or live Delta behavior; the existing live acceptance gates remain required.
+The browser exercised the real application, authentication, forms, HTMX updates, persisted route/run state, transfer worker, and Databricks connector on an isolated localhost instance. MiniLake 1.8.0 served management requests through the real Databricks SDK. A disposable synthetic DB-API SQL boundary supplied Unity Catalog metadata, rows, staging, commit markers, and Delta history. Only synthetic credentials and records were used. This pass does not attest live PAT, SQL Thrift/TLS, Unity Catalog governance, or live Delta behavior; the existing live acceptance gates remain required.
 
 ## Browser results
 

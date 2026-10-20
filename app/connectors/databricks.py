@@ -1,6 +1,6 @@
 """Databricks Unity Catalog and Delta connector.
 
-All Databricks-specific SQL, OAuth, compute, and identifier handling stays in
+All Databricks-specific SQL, API-token authentication, compute, and identifier handling stays in
 this adapter. The provider is omitted from the registry unless the operator
 explicitly enables it. Its destination writer has an independent flag.
 """
@@ -23,8 +23,6 @@ from urllib.parse import urlsplit
 import polars as pl
 from databricks import sql
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.core import Config
-from databricks.sdk.credentials_provider import oauth_service_principal
 from databricks.sdk.errors import NotFound
 
 from app.config import Settings
@@ -140,7 +138,7 @@ class DatabricksConnector:
         self._loads: dict[str, _LoadState] = {}
 
     def test_connection(self, credentials: Mapping[str, str]) -> ConnectionHealth:
-        """Validate OAuth and compute visibility through management APIs only."""
+        """Validate API-token authentication and compute visibility through management APIs only."""
 
         started = self._clock()
         try:
@@ -154,7 +152,7 @@ class DatabricksConnector:
         return ConnectionHealth(
             status="connected",
             message=(
-                f"OAuth authenticated; {compute_kind.replace('_', ' ')} state: {state}. "
+                f"API token authenticated; {compute_kind.replace('_', ' ')} state: {state}. "
                 f"SQL readiness: {'ready' if sql_ready else 'not ready'}."
             ),
             latency_ms=max(0, int((self._clock() - started) * 1000)),
@@ -895,20 +893,11 @@ class DatabricksConnector:
     def _open_sql(self, credentials: Mapping[str, str]) -> Any:
         self._require_sql_ready(credentials)
         workspace_url = str(credentials["workspace_url"])
-        config = Config(
-            host=workspace_url,
-            client_id=str(credentials["client_id"]),
-            client_secret=str(credentials["client_secret"]),
-        )
-
-        def oauth_provider():
-            return oauth_service_principal(config)
-
         try:
             return self._sql_connect(
                 server_hostname=urlsplit(workspace_url).hostname,
                 http_path=str(credentials["http_path"]),
-                credentials_provider=oauth_provider,
+                access_token=str(credentials["token"]),
                 use_cloud_fetch=False,
                 use_inline_params=False,
                 _use_arrow_native_complex_types=False,
@@ -949,9 +938,8 @@ class DatabricksConnector:
             )
         return self._workspace_client_factory(
             host=workspace_url,
-            client_id=str(credentials["client_id"]),
-            client_secret=str(credentials["client_secret"]),
-            auth_type="oauth-m2m",
+            token=str(credentials["token"]),
+            auth_type="pat",
             product="DataMover",
         )
 
@@ -1407,20 +1395,13 @@ def _provider_error(
     status = getattr(exception, "status_code", None) or getattr(exception, "http_status", None)
     name = type(exception).__name__.casefold()
     # The SDK exposes some errors as subclasses (e.g. ResourceDoesNotExist)
-    # without carrying an HTTP status. OAuth token failures use ValueError
-    # with the protocol error code as a prefix; never expose its description.
+    # without carrying an HTTP status.
     missing = isinstance(exception, NotFound) or status == 404 or "notfound" in name
-    oauth_rejected = isinstance(exception, ValueError) and str(exception).partition(":")[0] in {
-        "invalid_client",
-        "invalid_grant",
-        "invalid_token",
-        "unauthorized_client",
-    }
     code = (
         TransferErrorCode.RATE_LIMITED
         if status == 429 or "toomanyrequests" in name or "ratelimit" in name
         else TransferErrorCode.AUTHENTICATION_FAILED
-        if status == 401 or "unauthenticated" in name or oauth_rejected
+        if status == 401 or "unauthenticated" in name
         else TransferErrorCode.PERMISSION_DENIED
         if status == 403 or "permissiondenied" in name
         else TransferErrorCode.DESTINATION_NOT_FOUND

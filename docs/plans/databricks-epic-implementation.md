@@ -16,7 +16,7 @@ Existing local pipeline-remediation planning changes are independent work and re
 
 ## Delivery outcome
 
-An owner can save an encrypted OAuth M2M workspace connection, select an existing SQL warehouse or
+An owner can save an encrypted PAT-authenticated workspace connection, select an existing SQL warehouse or
 Unity Catalog-compatible all-purpose classic cluster, understand compute readiness, explicitly
 authorize startup, and transfer reviewed batches to or from supported Unity Catalog base Delta
 tables. Source and destination sensitivity policy must pass before staging. Completed runs explain
@@ -29,7 +29,7 @@ documentation, screenshots, and release evidence. A provider combination or writ
 excluded only through the DBX-01 decision record with the reason and release effect recorded.
 Delivering source support alone is an intermediate milestone, not completion of this plan.
 
-Keep the epic's exclusions: PAT/user OAuth, jobs compute, compute creation/resizing/shutdown,
+Keep the epic's exclusions: interactive user OAuth and OAuth M2M, jobs compute, compute creation/resizing/shutdown,
 legacy metastore, views and non-base/non-Delta objects, arbitrary SQL, nested/complex types,
 CDC/incremental extraction, upsert/MERGE, external-storage credentials, new content detectors,
 governance editing, and physical data purge.
@@ -39,7 +39,7 @@ governance editing, and physical data purge.
 | Existing behavior | Evidence in the baseline | Required change |
 | --- | --- | --- |
 | App-owned connector registry, typed role protocols, runtime settings snapshots | `app/connectors/base.py`, `app/connectors/registry.py`, `app/bootstrap.py`, `app/infrastructure/runtime.py` | Add Databricks through the captured composition; introduce narrow compute/metadata/recovery ports where existing roles lack the needed contract. Avoid global clients or a parallel worker runtime. |
-| Encrypted owner/provider credential bundle with validation and cache invalidation | `app/models.py::UserSecret`, `app/services/secrets.py`, `app/services/secret_catalog.py`, `app/services/secret_validation.py` | Add OAuth and compute fields, explicit connection/principal generations, management-only validation, transport validation, and startup consent invalidation. Preserve one saved connection per owner/provider in this release. |
+| Encrypted owner/provider credential bundle with validation and cache invalidation | `app/models.py::UserSecret`, `app/services/secrets.py`, `app/services/secret_catalog.py`, `app/services/secret_validation.py` | Add PAT and compute fields, explicit connection/principal generations, management-only validation, transport validation, and startup consent invalidation. Preserve one saved connection per owner/provider in this release. |
 | Typed locators, policies, definition snapshots | `app/domain/locators.py`, `app/connectors/locators.py`, `app/services/pipelines.py` | Add qualified Delta identities and distinct proven write policies, update serialization and re-exports, and keep credentials out of definitions. |
 | Value-free schema sensitivity markers | `app/domain/catalogs.py::ObjectSchema`, `app/services/catalogs.py` | Represent detector provenance, stable identity, metadata coverage, policy revision, and fingerprints explicitly; verify all required source and target scopes. |
 | Existing SSN detector and action projection | `app/domain/pipelines/guardrails.py`, `app/services/guardrail_schema.py`, `app/services/transfer_engine.py` | Add `databricks_metadata`; generalize Foundry-specific findings/labels without changing legacy detector meaning. Bind Databricks decisions to the full connection/object/mapping context. |
@@ -83,7 +83,7 @@ documents REPLACE preservation of privileges, history, row filters and masks; th
 every tag/schema/removal case or outside-writer guarantee needed here. Treat create-as-select,
 insert-select and replace-as-select as probe candidates, not settled publication implementations.
 
-External inputs are an isolated workspace, M2M principals with both positive and denied permission
+External inputs are an isolated workspace, PAT identities with both positive and denied permission
 profiles, eligible warehouse/classic compute, synthetic governed tables, private staging, network/CA
 configuration and an approved startup test budget. Platform owns provision/access; Product owns
 support exclusions and marker policy; Engineering owns probes and decision evidence. Their
@@ -136,7 +136,7 @@ backlog still apply; early scaffolding does not satisfy a dependent task's compl
 | Slice | Task coverage | Deliverable and main touchpoints | Exit evidence |
 | --- | --- | --- | --- |
 | 1. Provider contract and probes | DBX-01-T01–T07 | Decision record, permission/support matrix, isolated probe harness and sanitized results; select SDK/SQL versions and publication/reconciliation strategy. | All six decision areas above resolved for every proposed supported combination, reviewed DBX-01-T07, explicit exclusions and live evidence links. |
-| 2. Domain, connection and gated composition | DBX-02-T01–T07; scaffold DBX-08-T03 | Add package/dependencies (`pyproject.toml`, `requirements.txt`, `uv.lock`), Delta locators/policies/detector, credential catalog/validation, SDK OAuth refresh, transport/compute-path binding, connection revisions and safe connection UI. Add default-off connector/writer flags in `app/config.py` and registration/save/enqueue/execution checks immediately. | Round trips and legacy migrations, owner isolation/CSRF, rotation/revocation, endpoint/redirect/TLS rejection, SDK redaction and management-only validation; disabled provider absent from authoring and denied through direct entry points. |
+| 2. Domain, connection and gated composition | DBX-02-T01–T07; scaffold DBX-08-T03 | Add package/dependencies (`pyproject.toml`, `requirements.txt`, `uv.lock`), Delta locators/policies/detector, credential catalog/validation, SDK PAT authentication, transport/compute-path binding, connection revisions and safe connection UI. Add default-off connector/writer flags in `app/config.py` and registration/save/enqueue/execution checks immediately. | Round trips and legacy migrations, owner isolation/CSRF, rotation/revocation, endpoint/redirect/TLS rejection, SDK redaction and management-only validation; disabled provider absent from authoring and denied through direct entry points. |
 | 3. Compute lifecycle and durable readiness | DBX-03-T01–T08; DBX-08-T02 | Compute adapter, startup coordination/audit migrations and repository, bounded background observer composed through `ExecutionRuntime`, state/Start/progress/cancel controls, source and destination readiness gates. | Every epic state, separate warehouse API, start permission denial, duplicate/lost response, refresh/restart, rate limit, deadline, lease loss, cross-owner coalescing and stop-before-SQL races; synthetic live evidence per compute family. |
 | 4. Unity Catalog discovery and identity | DBX-04-T01–T06 | Catalog/schema/table navigation, qualified Delta locator resolution, exact names/type inspection, metadata coverage, revised owner/workspace/generation cache scope in catalog service/persistence, blocked/empty/unsupported UI. | Complete bounded pages, cursor loops/limits, parent visibility, verified-empty/denied/partial results, cross-workspace names, object replacement, invalid names/views/types and stale caches; blocked metadata causes zero row reads. |
 | 5. Metadata policy and bound review | DBX-05-T01–T07 | Versioned exact-case key/key-value policy, four-scope tag reads, source/target gates, safe marker mapping, fingerprints and inspection refresh; shared detector labels and bound action forms in preview/save/UI. | Unknown `class.*`, case-distinct keys, source/target/parent denial, mapping drift, object/schema/policy changes and stale form attacks; no sample-table queries/raw tags retained; zero blocked-source reads or blocked-target staging. |

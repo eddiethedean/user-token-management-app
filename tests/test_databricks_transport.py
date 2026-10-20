@@ -1,8 +1,7 @@
-"""Real SDK requests through scripted HTTP, OAuth and TCP failure boundaries."""
+"""Real SDK requests through scripted HTTP, PAT and TCP failure boundaries."""
 
 from __future__ import annotations
 
-import base64
 from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
@@ -31,12 +30,9 @@ from tests.minilake_support import run_minilake
 pytestmark = [pytest.mark.integration, pytest.mark.databricks_transport]
 HOST = "dbc-transport.cloud.databricks.com"
 WAREHOUSE = "/api/2.0/sql/warehouses/test-warehouse"
-DISCOVERY = "/oidc/.well-known/oauth-authorization-server"
-TOKEN = "/oidc/v1/token"
 CREDENTIALS = {
     "workspace_url": f"https://{HOST}",
-    "client_id": "synthetic-client",
-    "client_secret": "synthetic-secret-never-log",
+    "token": "synthetic-api-token-never-log",
     "compute_kind": "warehouse",
     "compute_id": "test-warehouse",
     "http_path": "sql/1.0/warehouses/test-warehouse",
@@ -69,21 +65,14 @@ def transport_minilake(tmp_path_factory) -> Iterator[str]:
         yield endpoint
 
 
-def _client(endpoint: str, *, oauth: bool = False, retry_seconds: int = 1) -> WorkspaceClient:
-    auth: dict[str, Any] = (
-        {
-            "auth_type": "oauth-m2m",
-            "client_id": CREDENTIALS["client_id"],
-            "client_secret": CREDENTIALS["client_secret"],
-            "discovery_url": endpoint + DISCOVERY,
-            "disable_async_token_refresh": True,
-        }
-        if oauth
-        else {"auth_type": "pat", "token": "synthetic-token"}
-    )
+def _client(endpoint: str, *, retry_seconds: int = 1) -> WorkspaceClient:
     return WorkspaceClient(
         config=Config(
-            host=endpoint, http_timeout_seconds=1, retry_timeout_seconds=retry_seconds, **auth
+            host=endpoint,
+            token=CREDENTIALS["token"],
+            auth_type="pat",
+            http_timeout_seconds=1,
+            retry_timeout_seconds=retry_seconds,
         )
     )
 
@@ -91,7 +80,8 @@ def _client(endpoint: str, *, oauth: bool = False, retry_seconds: int = 1) -> Wo
 def _connector(client: WorkspaceClient) -> DatabricksConnector:
     def factory(**kwargs):
         assert kwargs["host"] == CREDENTIALS["workspace_url"]
-        assert kwargs["auth_type"] == "oauth-m2m"
+        assert kwargs["auth_type"] == "pat"
+        assert kwargs["token"] == CREDENTIALS["token"]
         return client
 
     def no_sql(**kwargs):
@@ -109,20 +99,6 @@ def _json(body: dict[str, Any], status: int = 200) -> dict[str, Any]:
 
 def _warehouse(state: str) -> dict[str, Any]:
     return _json({"id": "test-warehouse", "name": "Synthetic warehouse", "state": state})
-
-
-def _discovery(wiremock: WireMock) -> None:
-    wiremock.stub(
-        "GET",
-        DISCOVERY,
-        _json(
-            {
-                "issuer": wiremock.endpoint,
-                "token_endpoint": wiremock.endpoint + TOKEN,
-                "authorization_endpoint": wiremock.endpoint + "/oidc/v1/authorize",
-            }
-        ),
-    )
 
 
 def test_scripted_lifecycle_uses_real_sdk_without_starting_from_health(wiremock: WireMock) -> None:
@@ -188,62 +164,36 @@ def test_real_sdk_errors_are_classified_and_sanitized(
     wiremock.stub(
         "GET",
         WAREHOUSE,
-        _json({"error_code": provider_code, "message": CREDENTIALS["client_secret"]}, status),
+        _json({"error_code": provider_code, "message": CREDENTIALS["token"]}, status),
     )
     with pytest.raises(ConnectorError) as failure:
         _connector(_client(wiremock.endpoint)).test_connection(CREDENTIALS)
     assert failure.value.code is expected
     assert failure.value.retryable is False
-    assert CREDENTIALS["client_secret"] not in str(failure.value)
+    assert CREDENTIALS["token"] not in str(failure.value)
     assert wiremock.requests("POST", WAREHOUSE + "/start") == []
 
 
-def test_oauth_client_credentials_renews_expired_token_over_http(wiremock: WireMock) -> None:
-    _discovery(wiremock)
-    for previous, token, ttl, next_state in [
-        ("Started", "synthetic-expired", 0, "renew"),
-        ("renew", "synthetic-renewed", 3600, "renew"),
-    ]:
-        wiremock.stub(
-            "POST",
-            TOKEN,
-            _json({"access_token": token, "token_type": "Bearer", "expires_in": ttl}),
-            scenarioName="oauth",
-            requiredScenarioState=previous,
-            newScenarioState=next_state,
-        )
+def test_pat_is_sent_as_bearer_and_does_not_call_token_endpoint(wiremock: WireMock) -> None:
     wiremock.stub("GET", WAREHOUSE, _warehouse("RUNNING"))
-    connector = _connector(_client(wiremock.endpoint, oauth=True))
+    connector = _connector(_client(wiremock.endpoint))
     assert connector.test_connection(CREDENTIALS).runtime_status == "RUNNING"
-    assert connector.test_connection(CREDENTIALS).runtime_status == "RUNNING"
-    requests = wiremock.requests("POST", TOKEN)
-    assert len(requests) == 2
-    expected_basic = (
-        "Basic "
-        + base64.b64encode(
-            f"{CREDENTIALS['client_id']}:{CREDENTIALS['client_secret']}".encode()
-        ).decode()
-    )
-    assert all(request["headers"]["Authorization"] == expected_basic for request in requests)
-    assert all("grant_type=client_credentials" in request["body"] for request in requests)
-    assert all("scope=all-apis" in request["body"] for request in requests)
     auth_headers = [r["headers"]["Authorization"] for r in wiremock.requests("GET", WAREHOUSE)]
-    assert auth_headers == ["Bearer synthetic-expired", "Bearer synthetic-renewed"]
+    assert auth_headers == [f"Bearer {CREDENTIALS['token']}"]
+    assert wiremock.requests("POST", "/oidc/v1/token") == []
 
 
-def test_oauth_error_does_not_expose_secret_or_contact_warehouse(wiremock: WireMock) -> None:
-    _discovery(wiremock)
+def test_pat_auth_failure_does_not_expose_token(wiremock: WireMock) -> None:
     wiremock.stub(
-        "POST",
-        TOKEN,
-        _json({"error": "invalid_client", "error_description": CREDENTIALS["client_secret"]}, 401),
+        "GET",
+        WAREHOUSE,
+        _json({"error_code": "UNAUTHENTICATED", "message": CREDENTIALS["token"]}, 401),
     )
     with pytest.raises(ConnectorError) as failure:
-        _connector(_client(wiremock.endpoint, oauth=True)).test_connection(CREDENTIALS)
+        _connector(_client(wiremock.endpoint)).test_connection(CREDENTIALS)
     assert failure.value.code is TransferErrorCode.AUTHENTICATION_FAILED
     assert failure.value.retryable is False
-    assert CREDENTIALS["client_secret"] not in str(failure.value)
-    assert wiremock.requests("GET", WAREHOUSE) == []
+    assert CREDENTIALS["token"] not in str(failure.value)
 
 
 def test_lost_start_response_is_fenced_then_resolved_by_readiness_poll(
@@ -364,7 +314,7 @@ def test_minilake_network_fault_is_retryable_and_connection_recovers(
             TransferErrorCode.PROVIDER_UNAVAILABLE,
         }
         assert failure.value.retryable is True
-        assert CREDENTIALS["client_secret"] not in str(failure.value)
+        assert CREDENTIALS["token"] not in str(failure.value)
         proxy.clear()
         assert connector.test_connection(credentials).runtime_status == "RUNNING"
         assert direct.warehouses.get(id=warehouse.id).state is not None

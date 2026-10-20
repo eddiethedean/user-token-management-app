@@ -6,7 +6,7 @@ transfer before destination staging. Completed runs explain what was scanned, tr
 committed without displaying sensitive values.
 
 First-release scope:
-- Authentication: OAuth M2M service principal; encrypted owner-scoped bundle; refresh and rotation. Deferred: PAT fallback, interactive user OAuth.
+- Authentication: Workspace personal access token; encrypted owner-scoped bundle; replacement and revocation. Deferred: interactive user OAuth and OAuth M2M.
 - Compute: Existing SQL warehouse or Unity Catalog-compatible all-purpose classic cluster. Deferred: Jobs compute, notebook/job submission, compute creation, resizing, automatic shutdown.
 - Objects: Unity Catalog base Delta tables; fully qualified catalog/schema/table identity. Deferred: Legacy Hive metastore, views, materialized/streaming tables, foreign tables, arbitrary SQL.
 - Sources: One consistent query result, bounded batches, full worker scan and encrypted spool. Deferred: Unbounded extracts, incremental/CDC transfers.
@@ -15,7 +15,7 @@ First-release scope:
 
 Planning reference: DBX-EPIC; tracker key not assigned.
 Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
-Task backlog: [Databricks implementation tasks](../../docs/stories/databricks-connection-tasks.md)","- OAuth M2M credentials are encrypted, owner-scoped, replaceable/deletable and absent from definitions, URLs, diagnostics and logs.
+Task backlog: [Databricks implementation tasks](../../docs/stories/databricks-connection-tasks.md)","- Databricks personal access tokens are encrypted, owner-scoped, replaceable/deletable and absent from definitions, URLs, diagnostics and logs.
 - Management-only validation reports compute state without submitting SQL or initiating startup; SQL readiness is a distinct result.
 - Explicit and opted-in startup obey owner/provider permissions, compute binding and persisted readiness deadlines; driver-triggered startup races cannot bypass authorization.
 - Only supported Unity Catalog base Delta tables, compute combinations, scalar types and create/append/full-replace modes are available; unsupported objects and modes are rejected.
@@ -82,7 +82,7 @@ Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/st
 Prerequisites: DBX-01.
 Required evidence: Ownership, secret rotation, token refresh and migration tests.
 Story and epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
-Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)","- Save workspace URL, OAuth client ID/secret, compute type/ID, and startup policy with existing encrypted replace/delete behavior. Derive or verify the SQL HTTP path against that compute. Validate allowed HTTPS endpoints, TLS, and redirect behavior before sending credentials.
+Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)","- Save workspace URL, personal access token, compute type/ID, and startup policy with existing encrypted replace/delete behavior. Derive or verify the SQL HTTP path against that compute. Validate allowed HTTPS endpoints, TLS, and redirect behavior before sending credentials.
 - Refresh access tokens through the supported SDK; reject expired/revoked credentials safely. Secrets are absent from pipeline definitions, URLs, logs, and diagnostics.
 - Add provider capabilities, typed locators/write policies, serialization and UI support. Extend the guardrail detector model for `databricks_metadata`; keep existing Foundry/SSN records valid. Revalidation/review invalidation follows principal or connection changes.",""
 "2026-10-09","Task","DBX-02-T01","Data Mover: Databricks - Add Databricks domain and provider contracts","DBX-02","Define credential fields, typed locators/write policies, stable identities, provider capabilities, serialization, and the databricks_metadata detector without permissive provider-ID fallbacks.
@@ -91,7 +91,7 @@ Owner role: Engineering
 Depends on: DBX-01-T07
 Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
 Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Existing definitions and Foundry/SSN actions remain valid; new values round-trip without credentials and expose only supported modes.",""
-"2026-10-09","Task","DBX-02-T02","Data Mover: Databricks - Persist encrypted owner-scoped credentials","DBX-02","Integrate OAuth client ID/secret bundles into existing encrypted save/replace/delete flows; version principal/connection changes and invalidate related reviews and caches.
+"2026-10-09","Task","DBX-02-T02","Data Mover: Databricks - Persist encrypted owner-scoped credentials","DBX-02","Integrate workspace PATs into existing encrypted save/replace/delete flows; version credential/connection changes and invalidate related reviews and caches.
 
 Owner role: Engineering
 Depends on: DBX-02-T01
@@ -103,12 +103,12 @@ Owner role: Engineering
 Depends on: DBX-02-T01, DBX-01-T07
 Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
 Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Invalid hosts, mismatched compute paths and credential-forwarding redirects fail before secret-bearing requests.",""
-"2026-10-09","Task","DBX-02-T04","Data Mover: Databricks - Integrate OAuth refresh and safe failures","DBX-02","Use the supported SDK credentials provider for acquisition/refresh, secret rotation, revoked credentials, and bounded authentication errors.
+"2026-10-09","Task","DBX-02-T04","Data Mover: Databricks - Integrate PAT authentication and safe failures","DBX-02","Use the supported SDK PAT auth for management and SQL requests; handle token replacement, expiry/revocation, and bounded authentication errors.
 
 Owner role: Engineering
 Depends on: DBX-02-T02, DBX-02-T03
 Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
-Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Refresh succeeds without persisting access tokens in definitions; failure paths retain safe diagnostics and never expose client secrets or tokens.",""
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Failure paths retain safe diagnostics; failure paths retain safe diagnostics and never expose client secrets or tokens.",""
 "2026-10-09","Task","DBX-02-T05","Data Mover: Databricks - Implement management-only connection validation","DBX-02","Check authentication and selected compute visibility/state through management requests; separate authenticated, visible, stopped, stale, and SQL-ready information.
 
 Owner role: Engineering
@@ -121,7 +121,7 @@ Owner role: Engineering
 Depends on: DBX-02-T02, DBX-02-T05
 Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
 Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- The UI never reveals saved secrets and clears startup consent when workspace, principal, or compute changes; unsupported selections have actionable feedback.",""
-"2026-10-09","Task","DBX-02-T07","Data Mover: Databricks - Verify credential and compatibility boundaries","DBX-02","Add contract, persistence/migration, UI ownership, transport, secret rotation, OAuth refresh, revoked-authentication and serialization tests.
+"2026-10-09","Task","DBX-02-T07","Data Mover: Databricks - Verify credential and compatibility boundaries","DBX-02","Add contract, persistence/migration, UI ownership, transport, token rotation, revoked-authentication and serialization tests.
 
 Owner role: Engineering / Quality
 Depends on: DBX-02-T01, DBX-02-T02, DBX-02-T03, DBX-02-T04, DBX-02-T05, DBX-02-T06

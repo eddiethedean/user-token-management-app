@@ -87,6 +87,6 @@ only synthetic fixtures:
 The real app used disposable SQLite databases, fake PostgreSQL/Foundry connectors,
 MiniLake for Databricks management HTTP, and a synthetic SQL boundary for Unity
 Catalog and Delta publication. A fixture-only delay made worker stages observable.
-These checks do not attest live OAuth, SQL Thrift/TLS, Unity Catalog permissions,
+These checks do not attest live PAT, SQL Thrift/TLS, Unity Catalog permissions,
 or live Delta publication; those remain in the
 [Databricks acceptance checklist](../../../docs/plans/databricks-acceptance.md).

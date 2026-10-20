@@ -375,8 +375,7 @@ def test_databricks_startup_consent_requires_contract_and_resets_on_compute_chan
     )
     credentials = {
         "workspace_url": "https://dbc-12345678.cloud.databricks.com",
-        "client_id": "service-principal-id",
-        "client_secret": "service-principal-secret",
+        "token": "synthetic-api-token",
         "compute_kind": "warehouse",
         "compute_id": "warehouse-1",
         "http_path": "sql/1.0/warehouses/warehouse-1",
@@ -417,6 +416,25 @@ def test_databricks_startup_consent_requires_contract_and_resets_on_compute_chan
             user=user,
             provider="databricks",
             credentials=changed,
+        )
+        saved = decrypt_user_credentials_for_run(db, approved, user=user, provider="databricks")
+        assert saved["startup_policy"] == "manual"
+
+        reconsented = {**changed, "startup_policy": "allow_start"}
+        store_user_credentials(
+            db,
+            approved,
+            user=user,
+            provider="databricks",
+            credentials=reconsented,
+        )
+        rotated = {**reconsented, "token": "rotated-synthetic-api-token"}
+        store_user_credentials(
+            db,
+            approved,
+            user=user,
+            provider="databricks",
+            credentials=rotated,
         )
         saved = decrypt_user_credentials_for_run(db, approved, user=user, provider="databricks")
         assert saved["startup_policy"] == "manual"

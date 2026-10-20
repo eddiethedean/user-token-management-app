@@ -38,8 +38,7 @@ GENERATION = "2026-10-15T12:00:00.000000"
 def _credentials() -> dict[str, str]:
     return {
         "workspace_url": WORKSPACE_URL,
-        "client_id": "client-id",
-        "client_secret": "client-secret",
+        "token": "synthetic-api-token",
         "compute_kind": "warehouse",
         "compute_id": "warehouse-1",
         "http_path": "sql/1.0/warehouses/warehouse-1",
@@ -276,6 +275,7 @@ class _SQLHarness:
 
     def connect(self, **kwargs) -> _SQLConnection:
         assert kwargs["server_hostname"] == HOST
+        assert kwargs["access_token"] == "synthetic-api-token"
         assert kwargs["use_cloud_fetch"] is False
         connection = _SQLConnection(self)
         self.connections.append(connection)
@@ -284,15 +284,11 @@ class _SQLHarness:
 
 def _sql_connector(
     harness: _SQLHarness,
-    monkeypatch,
+    monkeypatch=None,
     *,
     startup_policy: str = "manual",
     metadata_verified: bool = True,
 ) -> tuple[DatabricksConnector, dict[str, Any]]:
-    monkeypatch.setattr(
-        "app.connectors.databricks.Config",
-        lambda **values: SimpleNamespace(**values),
-    )
     workspace = _ManagementWorkspace("RUNNING")
     settings = _settings(
         pipeline_enable_databricks_writer=True,
@@ -324,7 +320,7 @@ def _table_locator(**updates) -> DatabricksTableLocator:
 
 def test_catalog_discovery_inspection_count_and_bounded_extraction(monkeypatch) -> None:
     harness = _SQLHarness(paginate=True, exists=True)
-    connector, credentials = _sql_connector(harness, monkeypatch)
+    connector, credentials = _sql_connector(harness)
 
     namespaces = connector.list_namespaces(credentials)
     assert len(namespaces) == 1
@@ -444,13 +440,13 @@ def test_abort_and_recovery_helpers_fail_closed_for_unknown_sessions(monkeypatch
 
 def test_incomplete_or_sensitive_metadata_blocks_schema_and_target(monkeypatch) -> None:
     hidden_metadata = _SQLHarness(exists=True)
-    connector, credentials = _sql_connector(hidden_metadata, monkeypatch, metadata_verified=False)
+    connector, credentials = _sql_connector(hidden_metadata, metadata_verified=False)
     with pytest.raises(ConnectorError) as missing_attestation:
         connector.inspect_object(credentials, _table_locator())
     assert missing_attestation.value.code is TransferErrorCode.METADATA_INCOMPLETE
 
     sensitive_tags = _SQLHarness(tags={"table_tags": [("classification", "sensitive")]})
-    connector, credentials = _sql_connector(sensitive_tags, monkeypatch)
+    connector, credentials = _sql_connector(sensitive_tags)
     credentials["_publication_event"] = lambda _event, **_details: None
     with pytest.raises(ConnectorError) as guarded:
         connector.prepare_destination(
@@ -486,13 +482,9 @@ def test_automatic_sql_start_requires_owner_callback_and_defers_retryably() -> N
     assert callbacks == ["STOPPED"]
 
 
-def test_auto_start_state_race_is_rechecked_before_sql(monkeypatch) -> None:
+def test_auto_start_state_race_is_rechecked_before_sql() -> None:
     harness = _SQLHarness()
     workspace = _ManagementWorkspace("STOPPED")
-    monkeypatch.setattr(
-        "app.connectors.databricks.Config",
-        lambda **values: SimpleNamespace(**values),
-    )
     connector = DatabricksConnector(
         _settings(pipeline_databricks_startup_contract_verified=True),
         workspace_client_factory=lambda **_: workspace,

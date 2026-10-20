@@ -1,6 +1,6 @@
 """Databricks management contracts over real HTTP and generated SDK models.
 
-MiniLake does not implement OAuth or the SQL connector's Thrift protocol. Only
+MiniLake does not implement the SQL connector's Thrift protocol. Only
 the injected management factory redirects to loopback; production endpoint
 validation stays enabled, and any unexpected SQL connection fails the test.
 """
@@ -82,8 +82,7 @@ def minilake_connection(minilake_endpoint: str) -> MiniLakeConnection:
     )
     credentials: dict[str, Any] = {
         "workspace_url": WORKSPACE_URL,
-        "client_id": "synthetic-client-id",
-        "client_secret": "synthetic-client-secret",
+        "token": "synthetic-api-token",
         "compute_kind": "warehouse",
         "compute_id": warehouse.id,
         "http_path": f"sql/1.0/warehouses/{warehouse.id}",
@@ -93,9 +92,8 @@ def minilake_connection(minilake_endpoint: str) -> MiniLakeConnection:
 
     def workspace_factory(**kwargs) -> WorkspaceClient:
         assert kwargs["host"] == WORKSPACE_URL
-        assert kwargs["auth_type"] == "oauth-m2m"
-        assert kwargs["client_id"] == credentials["client_id"]
-        assert kwargs["client_secret"] == credentials["client_secret"]
+        assert kwargs["auth_type"] == "pat"
+        assert kwargs["token"] == credentials["token"]
         return client
 
     def unexpected_sql(**kwargs):
@@ -363,7 +361,7 @@ def _replacement_credentials(dbx: MiniLakeConnection) -> dict[str, Any]:
         **dbx.credentials,
         "compute_id": warehouse.id,
         "http_path": f"sql/1.0/warehouses/{warehouse.id}",
-        "client_secret": "rotated-secret-canary",
+        "token": "rotated-api-token-canary",
         "startup_policy": "manual",
     }
 
