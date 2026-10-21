@@ -80,16 +80,18 @@ cannot reveal another user's saved values.
 | MSS (Palantir Foundry) | API endpoint, API token | Default dataset RID, branch, TLS CA profile |
 | MCS-COP (Palantir Foundry) | API endpoint, API token | Default dataset RID, branch, TLS CA profile |
 | PostgreSQL | Host, port, database, username, password, SSL mode | Connect timeout, application name |
-| Databricks | Workspace URL, personal access token, compute type and ID, SQL HTTP path | Startup policy (manual by default; opted-in only after operator acceptance) |
+| Databricks | Workspace URL, personal access token, compute type and ID, SQL HTTP path | Startup policy (manual by default; automatic startup requires owner consent) |
 
 The offline `make demo` launcher enables Databricks with synthetic credentials; see
-[Local seeded demo](#local-seeded-demo). Live Databricks is implemented behind a default-off
-operator gate and is not released or supported yet. For live use, do not enable it until the
-[Databricks operator guide](providers/databricks.md) and
-[acceptance ledger](plans/databricks-acceptance.md) show approved live evidence for the deployment,
-compute, metadata, and route you intend to use. When the operator gate is off, the connection form
-is unavailable. The API token is encrypted with the same owner-scoped storage
-as other connections.
+[Local seeded demo](#local-seeded-demo). Databricks connections, catalog browsing, and compute
+startup controls are enabled by default. Live schema inspection, row counts, source transfers,
+and Delta create/append/replace require an explicit operator attestation of metadata visibility.
+The default writer follows its prerequisites and stays disabled until that attestation is supplied.
+Writes require a configured private staging schema; automatic startup requires owner consent on
+the connection. Live acceptance and release remain tracked in the
+[operator guide](providers/databricks.md) and [acceptance ledger](plans/databricks-acceptance.md).
+When `PIPELINE_ENABLE_DATABRICKS=false`, the connection form is unavailable. The API token is
+encrypted with the same owner-scoped storage as other connections.
 
 ### Finding connection values
 
@@ -366,7 +368,7 @@ API token, or paid compute is needed. Table changes last until the app process s
 Built-in table identities stay stable across restarts so saved routes remain usable. Routes
 saved before this identity fix need their Databricks table reselected and saved once.
 Set `PIPELINE_ENABLE_DATABRICKS=false` before `make demo` to omit this connection. Direct
-`seed-demo-connections` calls include Databricks when `PIPELINE_ENABLE_DATABRICKS=true`.
+`seed-demo-connections` calls also include Databricks by default unless the provider flag is false.
 
 ## Account and administrator pages
 
@@ -390,7 +392,9 @@ the identity-proxy administrator according to your organization's incident proce
 
 - Demo mode does not contact remote APIs.
 - Real mode contacts allowlisted Foundry hosts, configured PostgreSQL servers, and approved
-  Databricks workspaces only when their operator gates are enabled.
+  Databricks workspaces. Databricks provider and compute controls are enabled by default; schema
+  inspection, row counts, source transfers, and destination writes stay blocked until an operator
+  explicitly verifies metadata visibility for the deployment's principals and workspaces.
 - Saved credentials are encrypted at rest, but a demo deployment is not an approved secret manager.
 - CSV content, spool files, and saved pipelines are real application data.
 - Data Mover does not itself provide an ATO, FedRAMP package, FIPS validation, identity proofing, or

@@ -370,6 +370,7 @@ def test_databricks_startup_consent_requires_contract_and_resets_on_compute_chan
     settings = get_settings().model_copy(
         update={
             "pipeline_enable_databricks": True,
+            "pipeline_databricks_startup_contract_verified": False,
             "pipeline_allowed_https_hosts": "dbc-12345678.cloud.databricks.com",
         }
     )

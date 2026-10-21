@@ -175,9 +175,13 @@ searches.
 
 ## Databricks demo and transfer display
 
-- If Databricks is missing from `make demo`, check `PIPELINE_ENABLE_DATABRICKS`; the launcher
-  defaults it to true, while ordinary application startup defaults it to false. Stop and restart
-  the demo after changing it. A live deployment still requires the independent operator gates in
+- If Databricks is missing from Connections or `make demo`, check `PIPELINE_ENABLE_DATABRICKS`;
+  all startup paths default it to true. Remove an explicit false override or set it to true,
+  then restart the app. For disabled operations, also check the writer and legacy `*_VERIFIED`
+  overrides. Unspecified writers follow their prerequisites, so false verification flags disable
+  the writer without preventing startup. An explicit writer=true still requires every prerequisite.
+  Metadata visibility must be explicitly verified; empty tag results alone do not establish it.
+  Writes require a private staging schema; see
   the [Databricks guide](providers/databricks.md).
 - If a demo table disappeared after restart, recreate it or select a built-in seed table. Emulator
   table contents are process-local; persisted pipeline definitions and run history are durable.

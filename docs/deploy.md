@@ -11,10 +11,17 @@ are for local development and tests only.
 Before deploying, review the [production security gate](../SECURITY.md#production-security-gate) and
 [configuration reference](configuration.md).
 
-Live Databricks remains disabled unless the [Databricks operator guide](providers/databricks.md) and
-acceptance ledger approve the exact workspace, compute family, metadata policy, and write modes.
-Pass every approved setting explicitly to the deployment; a successful local simulation does not
-satisfy those gates.
+Databricks appears in Connections by default, including on Posit Connect. Set
+`PIPELINE_ENABLE_DATABRICKS=false` to hide it. An existing false environment override takes
+precedence over the default; remove it or set it to true, then restart the app.
+Catalog browsing and compute startup controls also default to enabled. Source transfers and Delta
+create/append/replace require metadata visibility verification; only after verifying coverage for
+the deployment's principals and workspaces, set `PIPELINE_DATABRICKS_METADATA_VISIBILITY_VERIFIED=true`.
+The unspecified writer follows all prerequisites, so false verification overrides disable the
+writer without preventing startup. Explicit writer=true with a false prerequisite is rejected.
+Configure the workspace host allowlist and an existing private `PIPELINE_DATABRICKS_STAGING_SCHEMA`
+for writes (default: `main.data_mover_staging`). See the [Databricks operator guide](providers/databricks.md)
+for permissions, startup consent, and the live acceptance record.
 
 ## Workbench
 

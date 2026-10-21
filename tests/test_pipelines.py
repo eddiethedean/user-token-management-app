@@ -68,7 +68,7 @@ def test_pipeline_workspace_renders_live_feedback_controls(client) -> None:
     assert "CSV file · Upload from device" in response.text
     assert 'id="pipeline-csv-file"' in response.text
     assert 'id="pipeline-csv-inspection"' in response.text
-    assert "0/3 connections ready" in response.text
+    assert "0/4 connections ready" in response.text
     assert "Set up at least one connection" in response.text
     assert "hedron-alert-warning" in response.text
     assert "hedron-badge-info" in response.text
@@ -79,7 +79,7 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     response = client.get("/pipeline")
 
     assert response.status_code == 200
-    assert "3/3 connections ready" in response.text
+    assert "4/4 connections ready" in response.text
     assert "hedron-process-flow" in response.text
     assert 'data-hedron-flow-appearance="plain"' in response.text
     assert "hedron-alert-success" in response.text
@@ -87,6 +87,7 @@ def test_pipeline_workspace_only_lists_configured_connections(client, demo_conne
     assert 'value="mss"' in response.text
     assert 'value="postgres"' in response.text
     assert 'value="mcscop"' in response.text
+    assert 'value="databricks"' in response.text
     assert "PostgreSQL 16" in response.text
     assert "Palantir Foundry" in response.text
     assert "Create a new file" in response.text
@@ -988,6 +989,7 @@ def test_pipeline_live_writer_flags_select_a_valid_initial_route(
     monkeypatch.setattr(settings, "pipeline_enable_postgres_writer", True)
     monkeypatch.setattr(settings, "pipeline_enable_mss_writer", False)
     monkeypatch.setattr(settings, "pipeline_enable_mcscop_writer", False)
+    monkeypatch.setattr(settings, "pipeline_enable_databricks_writer", False)
     request_settings_override(settings)
     web_login(client, next_path="/pipeline")
     response = client.get("/pipeline")
@@ -998,15 +1000,16 @@ def test_pipeline_live_writer_flags_select_a_valid_initial_route(
     assert 'value="postgres"' in source  # Can switch direction without a circular filter.
     assert 'value="postgres" selected' in target
     assert 'value="mss"' not in target
+    assert 'value="databricks"' not in target
 
 
 @pytest.mark.parametrize(
     ("source", "old_target", "expected_targets"),
     [
-        ("mss", "mss", {"mss", "postgres", "mcscop"}),
-        ("mcscop", "mcscop", {"mss", "postgres", "mcscop"}),
-        ("postgres", "postgres", {"mss", "postgres", "mcscop"}),
-        ("csv", "postgres", {"postgres", "mss", "mcscop"}),
+        ("mss", "mss", {"mss", "postgres", "mcscop", "databricks"}),
+        ("mcscop", "mcscop", {"mss", "postgres", "mcscop", "databricks"}),
+        ("postgres", "postgres", {"mss", "postgres", "mcscop", "databricks"}),
+        ("csv", "postgres", {"postgres", "mss", "mcscop", "databricks"}),
     ],
 )
 def test_pipeline_source_change_refreshes_destination_options(
@@ -1530,6 +1533,7 @@ def test_pipeline_empty_destination_explains_disabled_writes_and_recovers(
     monkeypatch.setattr(settings, "pipeline_enable_postgres_writer", False)
     monkeypatch.setattr(settings, "pipeline_enable_mss_writer", False)
     monkeypatch.setattr(settings, "pipeline_enable_mcscop_writer", False)
+    monkeypatch.setattr(settings, "pipeline_enable_databricks_writer", False)
     request_settings_override(settings)
     web_login(client, next_path="/pipeline")
     page = client.get("/pipeline")
@@ -1609,6 +1613,7 @@ def test_pipeline_preview_accepts_mcscop_as_a_source(client, demo_connections) -
         "mss",
         "mcscop",
         "postgres",
+        "databricks",
     }
 
 

@@ -3,8 +3,10 @@
 Data Mover is a self-hosted data-movement application for organizations that want to
 configure connections, browse remote objects, save pipelines, and run durable transfers
 between MSS, MCS-COP, PostgreSQL, and local CSV files using each user's encrypted credentials.
-The offline demo also includes Databricks; live Databricks use remains subject to separate
-operator and acceptance gates.
+Databricks connections, browsing, and compute startup controls default to enabled. Source transfers
+and Delta create/append/replace require explicit metadata visibility verification. Live writes use
+`main.data_mover_staging` by default; see the [operator guide](docs/providers/databricks.md) for
+workspace setup and live acceptance status.
 
 It is a **browser UI** (FastAPI + [Hedron](https://github.com/eddiethedean/hedron) + HTMX),
 **not a public REST API**. Auth is either local passwords or a trusted identity header behind
@@ -29,7 +31,7 @@ See [SECURITY.md](SECURITY.md).
 - Saved, user-owned pipelines with provider-accurate locators (schema/table or dataset/branch/file)
 - MSS, MCS-COP, and PostgreSQL connections in either source or destination roles; CSV uploads are
   source-only
-- Offline Databricks demo with Unity Catalog browsing and Delta create, append, and replace
+- Databricks Unity Catalog browsing and Delta create, append, and replace, with an offline demo
 - In-app Foundry dataset creation for MSS and MCS-COP destination folders
 - Owner-scoped CSV sources with header discovery and inferred column data types
 - Durable pipeline runs with enqueue, cancel, and HTMX polling against persisted events
@@ -111,8 +113,9 @@ destination so you can create its first Foundry dataset.
 
 MSS, MCS-COP, and PostgreSQL can each be used as a source or destination. Their writers default to
 enabled. The Databricks demo also supports both directions and local Delta create, append, and
-replace. Live Databricks remains gated; the demo is not evidence of live workspace acceptance. CSV
-is source-only.
+replace. Live Databricks transfers require explicit metadata visibility verification; workspace
+permissions, startup consent, and runtime checks still apply. The demo is not evidence of live
+workspace acceptance. CSV is source-only.
 [Light-mode status](docs/screenshots/connections-status-light.jpg).
 
 ### Audit activity
@@ -238,7 +241,8 @@ create, append, and replace run locally without a Databricks account or compute 
 table changes last for the app process. Built-in table IDs remain stable across restarts so
 saved routes to unchanged seed tables still work; tables created during a session must be recreated
 after restart. `make demo` enables this provider by default; set
-`PIPELINE_ENABLE_DATABRICKS=false` to omit it. Real-mode Databricks writer approval gates are unchanged.
+`PIPELINE_ENABLE_DATABRICKS=false` to omit it. Real-mode transfers require explicit metadata
+visibility verification; live writes use `main.data_mover_staging` unless overridden.
 
 ## CLI reference
 

@@ -239,7 +239,9 @@ Provider work spans several contracts. Complete all of these before calling the 
 The built-in baseline is symmetric for remote providers: MSS, MCS-COP, and PostgreSQL each support
 source and destination roles, and all three writers default to enabled. CSV is the sole source-only
 provider. The offline demo also enables Databricks in both directions, with create/append/replace.
-Live Databricks defaults off and requires the [operator acceptance gates](providers/databricks.md).
+Databricks connections and compute controls default to enabled. Live transfers require explicit
+metadata visibility verification; the unspecified writer follows all prerequisites. Writes also
+require a configured private staging schema; see the [operator guide](providers/databricks.md).
 Preserve those boundaries unless a provider's tested protocol changes.
 
 1. Add framework-neutral credential value types in `app/domain/credentials.py` when needed and

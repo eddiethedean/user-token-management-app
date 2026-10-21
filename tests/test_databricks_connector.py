@@ -10,7 +10,7 @@ import polars as pl
 import pytest
 from databricks.sdk.service import compute
 
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.connectors.base import AbortResult, TransferBatch
 from app.connectors.databricks import (
     DatabricksConnector,
@@ -592,12 +592,60 @@ def test_abort_and_recovery_helpers_fail_closed_for_unknown_sessions(monkeypatch
     assert _parse_cursor(None) == 0
 
 
+@pytest.mark.parametrize(
+    "tags",
+    ({}, {"column_tags": [("ssn", "class.tax_id", "true")]}),
+)
+def test_default_metadata_never_claims_verified_coverage(monkeypatch, tags) -> None:
+    monkeypatch.delenv("PIPELINE_DATABRICKS_METADATA_VISIBILITY_VERIFIED", raising=False)
+    monkeypatch.delenv("PIPELINE_ENABLE_DATABRICKS_WRITER", raising=False)
+    settings = Settings(_env_file=None, pipeline_allowed_https_hosts=HOST)  # pyright: ignore[reportCallIssue]
+    harness = _SQLHarness(exists=True, tags=tags)
+    workspace = _ManagementWorkspace("RUNNING")
+    connector = DatabricksConnector(
+        settings,
+        workspace_client_factory=lambda **_: workspace,
+        sql_connect=harness.connect,
+    )
+
+    with pytest.raises(ConnectorError) as unverified:
+        connector.inspect_object(_credentials(), _table_locator())
+    assert unverified.value.code is TransferErrorCode.METADATA_INCOMPLETE
+
+    verified_settings = settings.model_copy(
+        update={"pipeline_databricks_metadata_visibility_verified": True}
+    )
+    verified_connector = DatabricksConnector(
+        verified_settings,
+        workspace_client_factory=lambda **_: workspace,
+        sql_connect=harness.connect,
+    )
+    inspected = verified_connector.inspect_object(_credentials(), _table_locator())
+    assert inspected.metadata_coverage == "verified"
+    if tags:
+        assert inspected.column_sensitivity_markers == (("ssn", ("databricks_classification",)),)
+
+
 def test_incomplete_or_sensitive_metadata_blocks_schema_and_target(monkeypatch) -> None:
     hidden_metadata = _SQLHarness(exists=True)
     connector, credentials = _sql_connector(hidden_metadata, metadata_verified=False)
     with pytest.raises(ConnectorError) as missing_attestation:
         connector.inspect_object(credentials, _table_locator())
     assert missing_attestation.value.code is TransferErrorCode.METADATA_INCOMPLETE
+
+    credentials["_publication_event"] = lambda _event, **_details: None
+    with pytest.raises(ConnectorError) as unverified_target:
+        connector.prepare_destination(
+            credentials,
+            _table_locator(),
+            ObjectSchema(locator=_table_locator(), columns=(ColumnSchema("id", "Int64"),)),
+            DatabricksReplacePolicy(),
+            run_id="33333333-3333-4333-8333-333333333333",
+        )
+    assert unverified_target.value.code is TransferErrorCode.METADATA_INCOMPLETE
+    assert not any(
+        statement.startswith("CREATE TABLE") for statement, _ in hidden_metadata.statements
+    )
 
     sensitive_tags = _SQLHarness(tags={"table_tags": [("classification", "sensitive")]})
     connector, credentials = _sql_connector(sensitive_tags)

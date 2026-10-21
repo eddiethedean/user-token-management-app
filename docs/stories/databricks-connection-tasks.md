@@ -5,6 +5,9 @@
 This backlog contains **57 tasks across eight stories**. Local implementation has started; see the
 [acceptance ledger](../plans/databricks-acceptance.md) for current code evidence and open gates.
 No task is complete until its specified local and live evidence is recorded.
+The original default-off rollout criteria in this backlog are historical. Current defaults and
+metadata-verification prerequisites are documented in the
+[Databricks operator guide](../providers/databricks.md).
 IDs are local planning references, not assigned GitHub/Jira issue IDs. Owner roles are proposed
 accountability, not assignments to named people. The epic remains the scope and acceptance authority.
 

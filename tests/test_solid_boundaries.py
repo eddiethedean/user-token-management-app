@@ -49,6 +49,7 @@ def test_compositions_own_independent_database_and_connector_registries(tmp_path
             "mss",
             "mcscop",
             "csv",
+            "databricks",
         }
         first_execution_providers = {
             item.provider for item in first.execution.connectors.listed_capabilities()

@@ -1,5 +1,11 @@
 # Databricks epic implementation plan
 
+**October 21, 2026 default update:** Provider visibility, browsing, and compute controls default to
+enabled. Metadata visibility verification stays false until explicitly attested; the unspecified
+writer follows all prerequisites. The default-off rollout described below records the original
+plan. This configuration change does not add live acceptance evidence;
+see the [operator guide](../providers/databricks.md).
+
 **Status:** Local connector implementation underway; live acceptance and release remain blocked.\
 **Prepared:** October 15, 2026.\
 **Baseline:** `c5a52f4` on `main`; `git pull --ff-only` reported already up to date.\
@@ -8,7 +14,7 @@
 [issue CSV](../../artifacts/jira/data-mover-databricks-connection-issues.csv).
 
 This plan turns the existing backlog into ordered, reviewable implementation slices. The local
-connector, encrypted connection flow, review bindings, default-off gates, durable compute attempts,
+connector, encrypted connection flow, review bindings, rollout gates, durable compute attempts,
 and publication recovery have now been implemented in this working tree. Tasks remain open until
 their specified evidence is recorded; this plan does not assign external tracker IDs or claim live
 Databricks acceptance.

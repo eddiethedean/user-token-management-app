@@ -6,8 +6,11 @@ It brings connection setup, reusable transfer routes, run monitoring, and audit 
 place while keeping access tied to each user's own permissions.
 
 The project is designed for teams that need a repeatable, reviewable way to move operational data
-between MSS, MCS-COP, PostgreSQL, and local CSV files. The offline demo also includes
-Databricks Unity Catalog and Delta tables; live Databricks remains subject to separate acceptance.
+between MSS, MCS-COP, PostgreSQL, Databricks Unity Catalog/Delta tables, and local CSV files. The
+Databricks provider, browsing, and compute controls are available by default, including on Posit
+Connect. Live source transfers and destination writes require explicit metadata-visibility
+verification; live release and acceptance remain open. See the
+[Databricks operator guide](docs/providers/databricks.md) for the exact gates.
 
 > [!IMPORTANT]
 > Data Mover supports an organization's security and operational controls, but it does not by
@@ -55,6 +58,8 @@ capability-driven rather than a fixed pair-by-pair allowlist:
 | MCS-COP | MSS, PostgreSQL, MCS-COP | Supported when the destination writer is enabled |
 | PostgreSQL | PostgreSQL, MSS, MCS-COP | Supported when the destination writer is enabled |
 | CSV upload | PostgreSQL, MSS, MCS-COP | Supported when the destination writer is enabled |
+| Databricks (live) | PostgreSQL, MSS, MCS-COP, Databricks | Requires verified metadata visibility; live acceptance remains open |
+| MSS, MCS-COP, PostgreSQL, CSV upload (live) | Databricks | Requires verified metadata visibility, writer prerequisites, and staging schema; live acceptance remains open |
 | MSS, MCS-COP, PostgreSQL, CSV upload (offline demo) | Databricks | Simulated Delta create, append, and replace |
 | Databricks (offline demo) | MSS, MCS-COP, PostgreSQL, Databricks | Simulated local source; same-system copies require distinct objects |
 
@@ -70,9 +75,12 @@ writing are enabled by default; operators can disable a writer through its
 The local `make demo` launcher seeds four connections and enables the Databricks emulator with
 create, append, and replace. No remote calls or compute charges occur. Demo table changes last for
 the app process; built-in table identities remain stable across restarts. Set
-`PIPELINE_ENABLE_DATABRICKS=false` to omit it. The [Databricks operator guide](docs/providers/databricks.md)
-records the independent live metadata, startup, writer, and recovery gates. Live Databricks remains
-unreleased and disabled by default.
+`PIPELINE_ENABLE_DATABRICKS=false` to omit it. In real mode the provider and compute controls are
+enabled by default. Metadata visibility verification defaults to false and must be explicitly
+attested before schema inspection, row counts, source transfers, or destination writes. The writer
+defaults on only while all prerequisites are true; its default staging schema is
+`main.data_mover_staging`. Enabling these controls does not close the separate live acceptance or
+release gates.
 
 Advana, MongoDB, and arbitrary custom workloads are outside the current project scope.
 

@@ -15,7 +15,7 @@ app/application Pipeline use cases, DTOs, ports, and explicit route/writer polic
     │
 app/services    Accounts, auth, catalogs, CSV inspection, pipelines, pipeline runs, transfer engine, secrets, audit, mailer
     │
-app/connectors  Postgres, Foundry (MSS/MCS-COP), gated Databricks, CSV source, fake demo adapters
+app/connectors  Postgres, Foundry (MSS/MCS-COP), metadata-gated Databricks, CSV source, fake demo adapters
     │
 app/security    Passwords, tokens, CSRF, email normalize, client trust
     │
@@ -132,7 +132,7 @@ app/ui routes ──► pipeline + catalog services ──► application DB
    └─ in-process task ───────┘ claims lease and decrypts required bundle(s) only
                               │
                               ▼
-                 connector registry ──► postgres / foundry / gated databricks / csv
+                 connector registry ──► postgres / foundry / metadata-gated databricks / csv
                               │
                               ▼
                  Polars batches / Parquet spool ──► destination write + verification

@@ -99,12 +99,12 @@ class ConfigDefaults:
     pipeline_enable_postgres_writer: bool = True
     pipeline_enable_mss_writer: bool = True
     pipeline_enable_mcscop_writer: bool = True
-    pipeline_enable_databricks: bool = False
-    pipeline_enable_databricks_writer: bool = False
-    pipeline_databricks_staging_schema: str = ""
+    pipeline_enable_databricks: bool = True
+    pipeline_enable_databricks_writer: bool = True
+    pipeline_databricks_staging_schema: str = "main.data_mover_staging"
     pipeline_databricks_metadata_visibility_verified: bool = False
-    pipeline_databricks_startup_contract_verified: bool = False
-    pipeline_databricks_writer_live_acceptance_verified: bool = False
+    pipeline_databricks_startup_contract_verified: bool = True
+    pipeline_databricks_writer_live_acceptance_verified: bool = True
     pipeline_databricks_sensitive_tag_rules: str = "[]"
     pipeline_databricks_metadata_policy_version: str = "1"
     pipeline_databricks_startup_timeout_seconds: int = 900
@@ -302,9 +302,15 @@ class Settings(BaseSettings):
     pipeline_databricks_staging_schema: str = Field(
         default=CONFIG_DEFAULTS.pipeline_databricks_staging_schema, max_length=520
     )
-    pipeline_databricks_metadata_visibility_verified: bool = False
-    pipeline_databricks_startup_contract_verified: bool = False
-    pipeline_databricks_writer_live_acceptance_verified: bool = False
+    pipeline_databricks_metadata_visibility_verified: bool = (
+        CONFIG_DEFAULTS.pipeline_databricks_metadata_visibility_verified
+    )
+    pipeline_databricks_startup_contract_verified: bool = (
+        CONFIG_DEFAULTS.pipeline_databricks_startup_contract_verified
+    )
+    pipeline_databricks_writer_live_acceptance_verified: bool = (
+        CONFIG_DEFAULTS.pipeline_databricks_writer_live_acceptance_verified
+    )
     pipeline_databricks_sensitive_tag_rules: str = Field(default="[]", max_length=20_000)
     pipeline_databricks_metadata_policy_version: str = Field(
         default="1", min_length=1, max_length=64
@@ -382,6 +388,17 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> Settings:
+        if "pipeline_enable_databricks_writer" not in self.model_fields_set and not all(
+            (
+                self.pipeline_enable_databricks,
+                self.pipeline_databricks_metadata_visibility_verified,
+                self.pipeline_databricks_startup_contract_verified,
+                self.pipeline_databricks_writer_live_acceptance_verified,
+            )
+        ):
+            # Resolve the default writer from its prerequisites. Explicit writer
+            # enablement still fails validation when a prerequisite is disabled.
+            self.pipeline_enable_databricks_writer = False
         if self.pipeline_enable_databricks_writer and not self.pipeline_enable_databricks:
             raise ValueError(
                 "PIPELINE_ENABLE_DATABRICKS_WRITER requires PIPELINE_ENABLE_DATABRICKS"

@@ -83,8 +83,9 @@ are documented in the [maintainer guide](maintainer-guide.md#testing-and-ci).
 
 The October 21, 2026 documentation refresh covers the four-provider offline demo, the native
 Hedron transfer panel, loading-only packet motion, light/dark desktop views, and stable built-in
-Delta demo identities across restarts. Live Databricks remains default-off and subject to the
-[operator acceptance contract](providers/databricks.md). Historical release and QA evidence keeps
+Delta demo identities across restarts. Databricks connections and compute controls default to
+enabled; live transfers require explicit metadata visibility verification. See the
+[operator guide](providers/databricks.md). Historical release and QA evidence keeps
 its original dates and test results.
 
 ## Documentation rules

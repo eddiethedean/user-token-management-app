@@ -13,7 +13,9 @@ definitions are always real data in Data Mover's database.
 Route compatibility comes from connector capabilities: MSS, MCS-COP, PostgreSQL, and CSV can feed
 any configured destination they support, including same-system copies. CSV is source-only.
 MSS, MCS-COP, and PostgreSQL writers are enabled by default and can be disabled by operator
-settings. The offline demo adds Databricks in both directions; live Databricks has separate gates.
+settings. The live Databricks writer follows its prerequisites, including explicit metadata
+visibility verification. It supports create, append, and replace using a private staging schema.
+Demo mode includes an offline Databricks emulator in both directions.
 
 **Can a pipeline write back to its source?**
 Same-system copies are supported when the source and destination objects differ. Data Mover rejects
@@ -55,8 +57,11 @@ Unity Catalog browsing, and Delta create, append, and replace. No cloud account 
 required. Tables created or changed in the emulator last only for that process; built-in table
 identities remain stable across restarts. Set `PIPELINE_ENABLE_DATABRICKS=false` to omit it.
 
-Live Databricks remains unreleased and default-off. Isolated workspace acceptance, the provider
-contract, and release evidence remain open. Read the [operator guide](providers/databricks.md) and
+Databricks connections, browsing, and compute controls default to enabled. Live transfers require
+explicit metadata visibility verification; the default writer follows all prerequisites.
+Writes require a configured private staging schema, and automatic startup requires owner consent.
+Live release, the provider contract, and release evidence remain open. Read the
+[operator guide](providers/databricks.md) and
 [Databricks acceptance ledger](plans/databricks-acceptance.md). Advana and MongoDB are not current
 product connections; archived transfer notes describe legacy integrations.
 

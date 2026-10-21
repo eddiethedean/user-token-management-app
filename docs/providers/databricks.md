@@ -1,10 +1,17 @@
 # Databricks connector: operator and acceptance guide
 
-**Live release status:** Not released. The connector and local integration are present, but the
-committed Databricks feature flags default to off. The local `make demo` launcher enables an
-offline emulator explicitly; this does not change live defaults or attest acceptance. Keep live
-Databricks off until the acceptance ledger links an approved provider contract and live evidence for the exact workspace, compute family, routes, and write modes
-being enabled.
+**Live release status:** Not released. Databricks connections, catalog/schema/table browsing,
+and explicit or owner-consented compute startup default to enabled, including on Posit Connect.
+Schema inspection, row counts, source transfers, and Delta create/append/replace require explicit
+metadata visibility verification. `PIPELINE_DATABRICKS_METADATA_VISIBILITY_VERIFIED` defaults to
+false; successful empty tag queries do not establish coverage. After verifying visibility for
+the deployment's principals and workspaces, an operator can attest it with this setting. The
+unspecified writer then enables when all prerequisites are true. These configuration controls
+do not add live acceptance evidence or change the release status.
+Set `PIPELINE_ENABLE_DATABRICKS=false` to hide the provider and disable its default writer.
+Live writes use `main.data_mover_staging` by default; the schema must exist and the token owner
+must have the required workspace permissions.
+The local `make demo` launcher uses an offline emulator.
 
 This guide records the current implementation contract so an operator can prepare an isolated
 acceptance environment. It is not approval to connect a production workspace.
@@ -24,9 +31,10 @@ saved before the identity fix need their Delta table reselected and saved once. 
 history remains in the application database.
 
 Set `PIPELINE_ENABLE_DATABRICKS=false` before `make demo` to omit the provider. Direct
-`seed-demo-connections` calls include it only when the provider flag is true. The reserved demo
-hostname is accepted only in demo mode. Real-mode HTTPS allowlisting and all metadata, startup,
-and writer attestations still apply. See the [user guide](../user-guide.md#local-seeded-demo) and
+`seed-demo-connections` calls also include it by default unless the provider flag is false. The reserved demo
+hostname is accepted only in demo mode. Real-mode HTTPS allowlisting and explicit metadata-visibility
+attestation still apply; startup and writer controls are enabled by default subject to prerequisites.
+See the [user guide](../user-guide.md#local-seeded-demo) and
 [current screenshots](../screenshots/README.md).
 
 ## Current live scope
@@ -37,12 +45,13 @@ PATs do not refresh automatically: an owner must replace an expired or revoked t
 connection form. Use a short-lived, least-privileged token where workspace policy permits it.
 The design excludes interactive user OAuth, OAuth M2M, jobs compute, compute creation/resizing/shutdown,
 legacy metastore objects, views, complex columns, arbitrary SQL, incremental extraction, upsert, and
-external-storage credentials. No compute or write combination is supported until the provider
-contract decision in [DBX-01](../plans/databricks-epic-implementation.md#provider-decisions-that-must-precede-supported-implementation)
-and its live probes are reviewed.
+external-storage credentials. Formal live support remains unapproved until the provider contract
+decision in [DBX-01](../plans/databricks-epic-implementation.md#provider-decisions-that-must-precede-supported-implementation)
+and its live probes are reviewed. Keep use within an isolated acceptance environment while that
+review remains open.
 
-Manual startup is the default. `allow_start` appears as a saved policy only after an operator has
-attested the startup contract; the setting is false by default. Saving or testing credentials uses
+Manual startup is the default. The `allow_start` policy is available by default, controlled by
+`PIPELINE_DATABRICKS_STARTUP_CONTRACT_VERIFIED`. Saving or testing credentials uses
 management APIs to authenticate and inspect compute without submitting SQL or starting it. With
 manual policy, a stopped compute blocks a run until the owner starts it explicitly. With consented
 startup, an eligible stopped compute is started through the durable attempt service; the run is
@@ -60,7 +69,8 @@ Use synthetic tables and a non-production workspace. Platform staff should provi
   HTTP path taken from that same workspace and compute;
 - Unity Catalog catalogs, schemas, and Delta fixtures that cover allowed and denied visibility,
   tagged and untagged columns, and all proposed publication modes;
-- a private catalog/schema reserved for Data Mover staging if writer acceptance is approved; and
+- the private catalog/schema `main.data_mover_staging` (the default), reserved for Data Mover
+  staging, with the required permissions for the PAT owner; and
 - network routes, DNS, proxy, TLS/CA trust, and workspace host allowlisting for the app deployment.
 
 Do not use a real data set or paste credentials into issue comments, screenshots, or logs. The
@@ -70,8 +80,9 @@ fail closed.
 
 ## Connection setup in an acceptance environment
 
-Only after the operator has approved an isolated acceptance deployment and enabled
-`PIPELINE_ENABLE_DATABRICKS`, open **Connections → Credentials** and provide:
+The connection form is available by default unless `PIPELINE_ENABLE_DATABRICKS=false`.
+After the operator has approved an isolated acceptance deployment, open
+**Connections → Credentials** and provide:
 
 1. **Workspace URL**: the HTTPS workspace origin, without a path, query, fragment, credentials, or
    nonstandard port. It must match the deployment's `PIPELINE_ALLOWED_HTTPS_HOSTS` policy.
@@ -79,8 +90,13 @@ Only after the operator has approved an isolated acceptance deployment and enabl
    identity. Paste it only into the password field; saved values are encrypted and never displayed.
 3. **Compute type**: `warehouse` or `classic_cluster`.
 4. **Compute ID** and that compute's SQL **HTTP path**.
-5. **Startup policy**: `manual` by default. `allow_start` is available only when the operator has
-   enabled and attested `PIPELINE_DATABRICKS_STARTUP_CONTRACT_VERIFIED` after isolated probes.
+5. **Startup policy**: `manual` by default. Choose `allow_start` to authorize startup for this
+   connection. It is available unless `PIPELINE_DATABRICKS_STARTUP_CONTRACT_VERIFIED=false`.
+
+Writes use the private `main.data_mover_staging` schema by default. Set
+`PIPELINE_DATABRICKS_STAGING_SCHEMA` to override it with another existing private `catalog.schema`.
+The token owner must be able to create, write, inspect, and drop staging tables. Destination
+permissions are also required. The application does not create the staging catalog or schema.
 
 The credential bundle is encrypted and owner-scoped. Replacing or deleting the connection invalidates
 saved reviews and active startup authorization. Saved secrets are never displayed again. Use **Test
@@ -95,33 +111,39 @@ polling against the original deadline. A timeout does not stop compute either.
 
 ## Operator gates
 
-All live gates are deployment settings; none should be turned on by copying a sample configuration.
-The defaults below are the committed settings, not the offline `make demo` launcher overrides.
+The provider, startup, and writer acceptance controls default to enabled. Metadata visibility
+verification defaults to false and requires explicit deployment evidence. The unspecified writer
+follows all prerequisites: a false provider or verification flag disables it without preventing
+app startup. Explicit writer=true with a false prerequisite is rejected.
+The defaults below are the committed settings.
 The exact runtime settings and safety checks are defined in `app/config.py` and the connector
 registry.
 
 | Setting | Current default | Purpose |
 | --- | --- | --- |
-| `PIPELINE_ENABLE_DATABRICKS` | `false` | Admit the provider and show its connection UI. |
-| `PIPELINE_ENABLE_DATABRICKS_WRITER` | `false` | Admit the destination writer; cannot be true unless the connector is enabled and all attestations pass. |
+| `PIPELINE_ENABLE_DATABRICKS` | `true` | Admit the provider and show its connection UI; set false to hide it. |
+| `PIPELINE_ENABLE_DATABRICKS_WRITER` | automatic | Enables only when the provider and all three verification prerequisites are true. Set false to opt out; explicit true rejects disabled prerequisites. |
 | `PIPELINE_ALLOWED_HTTPS_HOSTS` | empty | Exact HTTPS host allowlist shared by remote providers. Include only approved workspace hosts. |
-| `PIPELINE_DATABRICKS_STAGING_SCHEMA` | empty | Private `catalog.schema` used for run-scoped staging. Writer startup fails closed without it. |
-| `PIPELINE_DATABRICKS_METADATA_VISIBILITY_VERIFIED` | `false` | Operator attestation that isolated tests proved complete metadata visibility. |
-| `PIPELINE_DATABRICKS_STARTUP_CONTRACT_VERIFIED` | `false` | Operator attestation that compute/SQL startup races, manual mode, and opted-in readiness passed. |
-| `PIPELINE_DATABRICKS_WRITER_LIVE_ACCEPTANCE_VERIFIED` | `false` | Separate attestation for create, append, replace, governance, conflict, and recovery probes. |
+| `PIPELINE_DATABRICKS_STAGING_SCHEMA` | `main.data_mover_staging` | Existing private `catalog.schema` used for run-scoped staging. Writes fail closed if it is empty or inaccessible. |
+| `PIPELINE_DATABRICKS_METADATA_VISIBILITY_VERIFIED` | `false` | Explicit operator attestation of complete metadata visibility for the deployment's principals and workspaces. Empty query results alone cannot establish coverage. |
+| `PIPELINE_DATABRICKS_STARTUP_CONTRACT_VERIFIED` | `true` | Enable SQL actions and explicit or owner-consented compute startup. |
+| `PIPELINE_DATABRICKS_WRITER_LIVE_ACCEPTANCE_VERIFIED` | `true` | Allow the enabled destination writer to execute create, append, and replace. |
 | `PIPELINE_DATABRICKS_SENSITIVE_TAG_RULES` | `[]` | Exact-case tag rules mapped to fixed safe marker IDs; do not place sensitive values here. |
 | `PIPELINE_DATABRICKS_METADATA_POLICY_VERSION` | `1` | Binds reviews to the operator's marker policy revision. |
 
-The provider gate, metadata visibility attestation, startup-contract attestation, and writer live
-acceptance attestation are independent. Writes require all relevant checks and an approved private
-staging schema. These environment values are guardrails, not substitutes for the linked decision and
-probe evidence. Keep the writer flag off unless the exact enabled combination has passed review.
+The provider, metadata, startup, and writer controls are independent. Writes require all relevant
+checks and a private staging schema. Runtime checks for permissions, metadata completeness,
+sensitive-data policy, compute readiness, publication coordination, and recovery still apply.
+Enabling these environment values does not create acceptance evidence.
 
 ## Metadata policy and review
 
 The connector inspects Unity Catalog table, schema, catalog, column, and configured tag metadata.
-Incomplete or denied coverage blocks a transfer. An empty tag result is accepted only after complete
-visibility has been demonstrated and attested. `class.*` classifications are treated as sensitive;
+Incomplete, denied, or unattested coverage blocks a transfer. An empty tag result is accepted only
+after all scopes are read and the operator has explicitly attested complete metadata visibility.
+Tag views can filter rows by permissions without returning an error; a successful query alone
+does not prove visibility. Verify the deployment's principals and workspaces before setting the
+attestation, and clear it when the verified scope changes. `class.*` classifications are treated as sensitive;
 additional rules use exact case-sensitive keys and optional exact values, with fixed marker IDs.
 Never retain raw tag values, source examples, or matched SSNs in a review record.
 

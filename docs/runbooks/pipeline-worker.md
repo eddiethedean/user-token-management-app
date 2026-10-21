@@ -47,7 +47,9 @@ restarts. The application database retains saved routes and run history. The liv
 progress and packet motion are presentation only; use persisted status, counts, and impact for
 operational decisions. Motion stops outside loading and for reduced-motion preferences.
 
-Live Databricks is default-off. Before enabling it, complete the [provider acceptance gates](../providers/databricks.md).
+Databricks connections and compute controls default to enabled. Live transfers require explicit
+metadata visibility verification; the unspecified writer follows its prerequisites. Configure the
+workspace allowlist and private staging schema, and review the [provider operation controls](../providers/databricks.md).
 An uncertain Delta publication retains its target fence and may retain a staging table. Inspect
 **Databricks publication** in the run review and follow the provider's compute-family recovery
 procedure. A reconciliation review does not prove commit or authorize dropping an unresolved stage.

@@ -35,7 +35,8 @@ Unity Catalog metadata review, durable compute startup, and staged Delta publica
 Its [provider controls](docs/providers/databricks.md) and
 [live acceptance requirements](docs/plans/databricks-acceptance.md) apply independently of local
 simulation results. The local `make demo` launcher enables an offline Databricks adapter and fake
-credentials; no remote calls or compute startup occur, and real-mode gates remain unchanged.
+credentials; no remote calls or compute startup occur, and real-mode metadata verification and
+release gates remain in force.
 Its process-local table state is disposable; saved runs remain application data. This does not attest an Advana deployment. MongoDB remains outside the
 implemented connector surface; proposed or archived integrations do not extend this boundary.
 

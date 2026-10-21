@@ -4,6 +4,12 @@
 **Reviewed:** October 15, 2026.
 **Depends on:** [Sensitive-data guardrails](CDO-4551-sensitive-data-guardrails-epic.md).
 
+**October 21, 2026 runtime update:** This backlog records the original default-off rollout proposal.
+The current provider, browsing, and compute controls default to enabled; metadata visibility
+verification remains false until explicitly attested, and the writer follows its prerequisites.
+See the [operator guide](../providers/databricks.md) for current behavior. Live acceptance and
+release remain open.
+
 [Issue CSV export](../../artifacts/jira/data-mover-databricks-connection-issues.csv) contains the epic,
 eight stories, and 57 tasks in the previous epic's eight-column format. It uses local planning IDs
 for hierarchy links; tracker keys and hour estimates have not been assigned.

@@ -44,9 +44,9 @@ The committed defaults plus the development-only secret placeholders in
 - The example secrets and encryption key are for local work only. Generate new,
   independent values before sharing a database or deploying anywhere.
 
-The `make demo` launcher explicitly selects demo mode and enables Databricks by default, seeding
-four fake provider bundles. Set `PIPELINE_ENABLE_DATABRICKS=false` to omit it. This launcher override
-does not enable live Databricks publication or change the committed defaults.
+The `make demo` launcher explicitly selects demo mode and seeds four fake provider bundles.
+Databricks is enabled by default for all startup paths. Set `PIPELINE_ENABLE_DATABRICKS=false` to
+omit it. Demo mode keeps all operations local, regardless of the enabled live-operation defaults.
 
 ### Production
 
@@ -166,8 +166,15 @@ allowed ranges, production restrictions, and compatibility aliases remain author
 `app/config.py`. `EMAIL_FROM` also accepts the legacy `SMTP_FROM_EMAIL` name, and the two directory
 aliases documented below remain supported for existing deployments.
 
-Live Databricks defaults to disabled and requires separate provider, metadata, startup, and writer
-acceptance. See the [Databricks operator guide](providers/databricks.md#operator-gates) for the gate
+The Databricks provider, catalog browsing, and compute startup controls default to enabled.
+`PIPELINE_DATABRICKS_METADATA_VISIBILITY_VERIFIED` defaults to false: source transfers and writes
+require an explicit attestation after metadata visibility is verified for the deployment's
+principals and workspaces. The unspecified writer follows the provider and all verification
+prerequisites; a false prerequisite disables it without preventing app startup. An explicit
+`PIPELINE_ENABLE_DATABRICKS_WRITER=true` still requires every prerequisite to be true. Writes
+require an existing private staging schema (default: `main.data_mover_staging`, overridden with
+`PIPELINE_DATABRICKS_STAGING_SCHEMA`). See the
+[Databricks operator guide](providers/databricks.md#operator-gates) for the gate
 relationships and staging requirements. Never infer live readiness from a successful demo run.
 
 ## Naming and precedence notes

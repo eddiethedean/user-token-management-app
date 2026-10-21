@@ -48,7 +48,8 @@ an immutable snapshot, and the application persists status and sanitized evidenc
 and review.
 
 The local demo includes Databricks in both directions with simulated Unity Catalog and Delta
-publication. Live Databricks remains independently gated; see the [operator guide](providers/databricks.md).
+publication. Live Databricks connections and compute controls default to enabled; transfers require
+explicit metadata visibility verification. See the [operator guide](providers/databricks.md).
 The live panel visualizes persisted stages and counts; its loading animation is decorative and
 does not replace run events, schema evidence, or destination-impact reporting.
 
@@ -64,9 +65,10 @@ The saved definition contains:
 - a display name and owner;
 - source and destination provider IDs;
 - versioned, provider-specific locators, such as a PostgreSQL table, Foundry dataset file, or CSV
-  upload and checksum, or a gated Databricks qualified Delta identity;
+  upload and checksum, or a Databricks qualified Delta identity (live inspection and transfer
+  operations require explicit metadata-visibility verification);
 - a typed write policy, such as PostgreSQL append/upsert/replace, Foundry file replace, or
-  Databricks create/append/replace when enabled; and
+  Databricks create/append/replace when writer prerequisites are met; and
 - saved Hash or Remove decisions for detected sensitive columns.
 
 Credentials are deliberately absent. The definition refers to the owner's provider slots, and the
