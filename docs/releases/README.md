@@ -6,7 +6,8 @@ tags, so entries below describe repository milestones rather than asserting exte
 
 | Release note | Status | Scope |
 |---|---|---|
-| [Data Mover 102126.0](../../CHANGELOG.md#1021260) | Current repository release | Version bump |
+| [Data Mover 211026.0](../../CHANGELOG.md#2110260) | Current repository release | Version bump |
+| [Data Mover 102126.0](../../CHANGELOG.md#1021260) | Historical repository release | Version bump |
 | [Data Mover 071026.0](../../CHANGELOG.md#0710260) | Historical repository release | Version bump |
 | [Data Mover 240926.1](../../CHANGELOG.md#2409261) | Historical repository release | Desktop workspace, pipeline, connection, account, and administration visual refinements |
 | [Data Mover 240926.0](../../CHANGELOG.md#2409260) | Historical repository release | Pipeline readiness and metric provenance, saved-route and catalog reliability, sign-in recovery, and logging configuration |

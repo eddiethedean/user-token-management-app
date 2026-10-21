@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [211026.0] — 2026-10-21
+
+### Changed
+
+- Bumped the application version to `211026.0`.
+
 ## [102126.0] — 2026-10-21
 
 ### Changed
