@@ -66,7 +66,7 @@ INDICATOR = "#global-request-indicator"
 THEME_CHOICES = ("folio",)
 DEFAULT_COLOR_MODE: Literal["light", "dark"] = "dark"
 UI_PREFERENCE_MAX_AGE = 31536000
-UI_SHELL_STYLES_VERSION = "5"
+UI_SHELL_STYLES_VERSION = "7"
 UI_SCRIPT_VERSION = "7"
 
 BadgeTone = Literal["neutral", "info", "success", "warning", "danger"]

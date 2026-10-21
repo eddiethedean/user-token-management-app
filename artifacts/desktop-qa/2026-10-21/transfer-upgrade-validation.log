@@ -1,0 +1,208 @@
+.venv/bin/python -m ruff check app tests demo-app scripts
+All checks passed!
+.venv/bin/python -m ruff format --check app tests demo-app scripts
+237 files already formatted
+.venv/bin/python -m basedpyright
+0 errors, 0 warnings, 0 notes
+.venv/bin/python scripts/check_docs.py
+docs-check: 130 Markdown files and 861 local links checked; all targets exist
+/Library/Developer/CommandLineTools/usr/bin/make hedron-check
+.venv/bin/python -m hedron --app app.main:app check --severity warning
+hedron-explorer: skipped (not installed)
+HED-SEC-0001 information: CSRF required for unsafe actions
+Cookie-authenticated unsafe methods must validate CSRF.
+Remediation: Use HedronRouter.action and standard security profile.
+
+HED-A11Y-0001 information: Run axe for interactive surfaces
+Static markup checks do not replace browser accessibility analysis.
+Remediation: Use hedron[browser] axe hooks for Explorer and forms.
+
+HED-COMPAT-0001 information: 0.19 compatibility baseline is active
+Phase 0.19 classifies the public API and accessibility contracts. See docs/api/STABILITY.md for Supported vs experimental surfaces.
+Remediation: See docs/api/STABILITY.md and docs/guides/upgrade.md.
+/Library/Developer/CommandLineTools/usr/bin/make posit-check
+.venv/bin/hedron-posit check --matrix
+matrix_ok: True
+case root: mount='' cookie_path='/' ok=True
+case workbench-direct: mount='/s/abc/p/xyz' cookie_path='/s/abc/p/xyz' ok=True
+case workbench-proxy: mount='/s/abc/p/xyz' cookie_path='/s/abc/p/xyz' ok=True
+case connect-native: mount='/content/app1' cookie_path='/content/app1' ok=True
+case external-base: mount='/apps/demo' cookie_path='/apps/demo' ok=True
+/Library/Developer/CommandLineTools/usr/bin/make test
+.venv/bin/python scripts/install-databricks-test-tools.py
+Databricks test tools ready: WireMock 3.13.2, Toxiproxy 2.12.0
+DATABRICKS_TEST_TOOLS_REQUIRED=1 .venv/bin/python -m pytest -n auto --cov=app --cov-report=term-missing --cov-fail-under=80
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  8%]
+........................................................................ [ 16%]
+........................................................................ [ 24%]
+........................................................................ [ 32%]
+........................................................................ [ 40%]
+........................................................................ [ 48%]
+........................................................................ [ 56%]
+........................................................................ [ 64%]
+........................................................................ [ 72%]
+........................................................................ [ 80%]
+........................................................................ [ 88%]
+........................................................................ [ 97%]
+..........................                                               [100%]
+================================ tests coverage ================================
+______________ coverage: platform darwin, python 3.12.13-final-0 _______________
+
+Name                                                Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------------------
+app/__init__.py                                         3      0      0      0   100%
+app/__main__.py                                         4      4      2      0     0%   1-6
+app/application/__init__.py                             3      0      0      0   100%
+app/application/catalogs.py                            21      0     22     11    74%   16->exit, 17->exit, 18->exit, 19->exit, 20->exit, 21->exit, 28->exit, 29->exit, 32->exit, 33->exit, 37->exit
+app/application/dto.py                                 20      0      0      0   100%
+app/application/email.py                               10      0      2      1    92%   17->exit
+app/application/feedback.py                           189     54     96     29    70%   208, 229, 293, 295, 316, 334, 524-525, 565, 570-572, 577, 581-584, 586-590, 592-596, 598-602, 607-610, 612-613, 624-626, 630-634, 638-640, 644-645, 647-650, 652-653, 655-656, 658-659, 661-662, 664, 666, 673-676, 743
+app/application/identity/__init__.py                    2      0      0      0   100%
+app/application/identity/use_cases.py                  24      1      4      2    89%   27->exit, 38
+app/application/pipelines/__init__.py                  67      3      6      1    95%   28-30, 84
+app/application/pipelines/authoring.py                 25      0      2      1    96%   33->exit
+app/application/pipelines/use_cases.py                 28      3      6      2    79%   17->exit, 19->exit, 60-62
+app/application/ports.py                               25      0     10      5    86%   27->exit, 33->exit, 35->exit, 41->exit, 43->exit
+app/bootstrap.py                                       22      0      0      0   100%
+app/config.py                                         401     51    132     35    83%   361-362, 366, 457, 459, 461, 464-465, 467, 472, 475, 484, 487-488, 497-498, 508, 512, 514, 516, 528, 538, 540, 546, 550, 552, 554, 558-559, 571, 576-577, 583, 588-592, 594, 598, 600, 602, 604, 605->611, 618-619, 636-637, 640, 645, 649, 652, 656, 658
+app/connectors/__init__.py                              6      0      0      0   100%
+app/connectors/base.py                                152      1     64     23    89%   152->exit, 159->exit, 161->exit, 173->exit, 180->exit, 190->exit, 202->exit, 212->exit, 214->exit, 216->exit, 225->exit, 234->exit, 246->exit, 258->exit, 260->exit, 262->exit, 269->exit, 271->exit, 273->exit, 282->exit, 292->exit, 294->exit, 296->exit, 320
+app/connectors/csv_source.py                          150     23     58     13    83%   50, 56, 62, 111, 135, 138, 199-200, 211-214, 216, 225-226, 228, 253, 255->254, 268-269, 271, 278, 282-283, 285
+app/connectors/databricks.py                          689    105    200     36    84%   219, 250, 269, 271, 296, 330-331, 333, 421, 425->434, 428-429, 432-433, 434->exit, 437-438, 450, 458, 475, 503-504, 556-557, 599, 651-652, 658, 678-679, 730, 736-739, 743, 748, 772, 811-812, 817-833, 875, 916-918, 925-928, 933, 961-962, 966-967, 990-991, 1005-1006, 1032, 1037-1040, 1043, 1071, 1080, 1089, 1102-1103, 1136->1138, 1156-1159, 1161, 1203, 1208, 1213-1216, 1230, 1286-1289, 1292-1293, 1302, 1305, 1370-1371, 1378, 1401-1402, 1428, 1440, 1478-1481, 1566
+app/connectors/decimal_validation.py                   50     11     28      8    71%   60, 63, 65, 72->exit, 75, 78, 90-99
+app/connectors/errors.py                               47      0      2      0   100%
+app/connectors/fake.py                                480     79    158     41    78%   145-163, 188, 262, 322, 330, 350, 368, 378, 394-400, 424, 433-439, 442-443, 449, 481-492, 494, 547, 583-584, 590, 617, 630, 646, 657, 662, 678, 682, 704, 709, 716, 730, 856, 883, 890, 909-910, 917, 927, 939, 954, 970, 976, 998, 1003, 1010, 1022-1026, 1036, 1040, 1056-1057
+app/connectors/fake_databricks.py                     146     11     32      8    89%   141-142, 149, 172, 214, 264, 270, 280, 308, 340, 348
+app/connectors/foundry.py                             732    181    278     64    70%   81, 92, 95, 97->111, 109, 118, 121, 139, 141, 143, 145, 147, 150-189, 198-199, 209, 213, 216-219, 230-232, 244, 249-250, 256, 265, 293-304, 320, 339, 342, 367, 373, 379, 394, 441, 464->447, 489, 502, 516, 531, 585-588, 617-628, 642, 646, 650-656, 696-701, 720-721, 728-729, 758->778, 775, 779-811, 814-815, 821, 856-857, 929->931, 932-933, 956, 968-978, 995-1002, 1030, 1049, 1068, 1081, 1088, 1114, 1122-1123, 1152-1163, 1168, 1174, 1184, 1189, 1208, 1217->1219, 1222, 1238, 1270-1301, 1316-1317, 1353-1354, 1362-1363, 1364->1372, 1373, 1377, 1384, 1435-1436, 1437->exit
+app/connectors/locators.py                              2      0      0      0   100%
+app/connectors/mcscop.py                                8      0      0      0   100%
+app/connectors/mss.py                                   8      0      0      0   100%
+app/connectors/postgres.py                            685    170    284     55    71%   103, 107, 157, 208-209, 224, 301-337, 345, 379, 397, 403, 409-422, 429-436, 442, 448-455, 463, 469, 485, 517, 563, 572-591, 602->609, 616, 623-651, 657, 721, 731-737, 738->740, 742, 744, 761, 799-804, 805->791, 822, 823->839, 831, 923-924, 929-930, 952, 989, 1010, 1028->1060, 1083, 1113-1114, 1127-1128, 1139-1142, 1162-1163, 1208-1246, 1256-1266, 1277-1331, 1341, 1349, 1372, 1378, 1380, 1382, 1442, 1481, 1498-1499, 1509, 1545->1553, 1583-1584, 1654, 1657-1660, 1684, 1702, 1704, 1718, 1731, 1754
+app/connectors/redaction.py                            51      0     14      0   100%
+app/connectors/registry.py                            276     27     70     20    86%   36, 76, 140, 222, 224, 229, 271, 282->284, 290-291, 311, 323, 328, 399, 403, 445, 449, 463-464, 471, 481, 484, 495, 503->509, 505, 515->517, 525-527, 528->530, 538-539
+app/connectors/tls.py                                  32      7      8      2    78%   28-31, 38-39, 42
+app/database.py                                        86     17     16      7    75%   31-32, 45->57, 49-54, 62-63, 65, 68, 139, 147-150, 152
+app/db_compat.py                                       31      3      8      3    85%   31, 44, 66
+app/dependencies.py                                   143     16     34      8    85%   37-39, 41, 74, 95, 110->112, 122-123, 234-237, 296-299
+app/dev_trace.py                                       27      1     12      1    95%   29
+app/domain/__init__.py                                  2      0      0      0   100%
+app/domain/catalogs.py                                 47      0      0      0   100%
+app/domain/column_types.py                             27     16     12      1    31%   50-69
+app/domain/credentials.py                              35      0      2      0   100%
+app/domain/csv_inference.py                           131     16     58     10    86%   58, 60, 62, 84, 86, 90, 95, 104-105, 115-116, 141, 147, 161-162, 175
+app/domain/errors.py                                    4      4      0      0     0%   3-14
+app/domain/feedback.py                                 66      2      0      0    97%   87, 92
+app/domain/locators.py                                233     23     68     22    84%   72, 94, 106, 108, 121, 128, 153, 162, 169, 191, 193, 206-207, 215, 221, 223, 237, 239, 254, 262, 268, 270, 326
+app/domain/pipelines/__init__.py                        2      0      0      0   100%
+app/domain/pipelines/guardrails.py                    201     17     80     12    89%   44, 60, 101-106, 108, 164, 167, 192, 220, 222, 227, 263, 281, 309
+app/domain/pipelines/policy.py                         38      6     12      5    78%   40, 55, 64, 68, 73-74
+app/infrastructure/__init__.py                          0      0      0      0   100%
+app/infrastructure/catalog_factory.py                  34      2      2      1    92%   37-39
+app/infrastructure/email.py                            46     29      6      0    33%   20, 25, 28-38, 41-54, 57-70
+app/infrastructure/persistence/__init__.py              2      0      0      0   100%
+app/infrastructure/persistence/catalog_cache.py        34      2      4      0    95%   37-38
+app/infrastructure/persistence/database.py             65      5     16      7    85%   27, 43, 45, 60, 62->64, 71, 90->101
+app/infrastructure/persistence/legacy_pipeline.py       3      0      0      0   100%
+app/infrastructure/pipeline_authoring.py              106     21     40     11    75%   40, 42, 82, 87, 97, 127, 163->177, 171-173, 182-209, 220, 240
+app/infrastructure/runtime.py                         188     10     32      7    92%   49, 54, 57, 95, 112, 114->exit, 145, 179, 217-218, 246
+app/infrastructure/security/__init__.py                 0      0      0      0   100%
+app/infrastructure/security/credentials.py             18      1      2      1    90%   26
+app/infrastructure/security/identity.py                15      0      0      0   100%
+app/logging_config.py                                 130     12     62     10    88%   269, 303->305, 310, 325-326, 333-336, 354, 362, 370->372, 398, 403, 412->414
+app/main.py                                           495    104    112     30    76%   77-92, 98-119, 125-133, 171-173, 176->182, 191-198, 207-214, 219-220, 235-236, 239->246, 242-243, 247, 313, 336, 361, 377-379, 382->386, 404-405, 452, 475-476, 479-480, 484-486, 491, 515-516, 521-522, 529-530, 532-533, 555-558, 575, 579, 581, 586, 644-647, 664->666, 667-668, 684, 706-707, 715, 763-781, 803-845, 882, 924, 952-953, 957-958, 961-964
+app/models.py                                         368      0      0      0   100%
+app/scheduled_events.py                                31      0      2      0   100%
+app/schema.py                                         107     62     52      3    30%   54, 65, 72-155, 163-168
+app/security/__init__.py                                1      0      0      0   100%
+app/security/client.py                                 28      2      8      2    89%   12, 28
+app/security/cookies.py                                39      0     12      0   100%
+app/security/csrf.py                                   52      4     12      2    91%   52-53, 105, 133
+app/security/email.py                                  17      0      2      0   100%
+app/security/passwords.py                              85      4     22      1    95%   98-99, 106-107
+app/security/tokens.py                                 46      0      2      0   100%
+app/server.py                                          15      0      4      0   100%
+app/services/__init__.py                                1      0      0      0   100%
+app/services/accounts.py                               62      1      4      1    97%   80
+app/services/audit.py                                  57      3     20      2    94%   28-29, 32
+app/services/auth.py                                    7      0      0      0   100%
+app/services/auth_common.py                            37      0      2      0   100%
+app/services/catalogs.py                              349     60    116     24    79%   177-181, 213, 286-287, 336, 347, 385, 393-411, 427, 433, 445->447, 459, 471, 485-492, 508-517, 537, 556-557, 563, 573, 589, 638, 647-659, 670-683, 701-705, 722, 757-759, 762-777, 862
+app/services/column_casting.py                         63     37     24      2    39%   37, 85-100, 110, 124-133, 137-158, 162-171
+app/services/csv_uploads.py                           102     30     32     11    63%   44, 46, 48, 51-52, 60-61, 140-143, 145-146, 150, 152, 160-165, 169-174, 179, 195, 197
+app/services/databricks_compute.py                    330     27    120     31    87%   39, 82, 106, 115, 125, 128, 134, 142, 147->168, 157, 163, 182->184, 186, 188, 212-218, 221, 231, 285-287, 321, 382, 413->428, 482->492, 515, 543-545, 553->563, 728, 781, 810, 828->847, 849->861
+app/services/databricks_publication.py                198     34     70     18    78%   51, 85, 91, 97, 99-100, 119-122, 131, 139-151, 161, 238-239, 245, 264-275, 295, 338, 348->357, 361, 373, 397->426, 413->426
+app/services/demo.py                                   77      8     26      4    88%   34, 39, 45-46, 133-136, 157, 159
+app/services/directory.py                             125     13     40      7    87%   60-61, 63, 73, 100, 106, 109, 136-142, 155-156
+app/services/foundry_datasets.py                       67     11     18      8    78%   27, 29, 54-55, 57, 60, 69, 83-84, 86, 93, 115->117
+app/services/guardrail_schema.py                       10      1      2      1    83%   26
+app/services/invitations.py                            77     12     20      6    81%   37-38, 108, 130-131, 153, 162, 176-177, 193-195
+app/services/links.py                                   7      0      0      0   100%
+app/services/mailer.py                                173     19     38     11    85%   65, 69-72, 112, 143-144, 152, 169-170, 193-194, 198, 256->258, 259, 284, 291-302, 312->321
+app/services/password_reset.py                         68      7     14      4    87%   33-34, 94, 102, 109, 126-127
+app/services/pipeline_metadata.py                      26      0      8      0   100%
+app/services/pipeline_runs.py                         520     64    162     39    85%   87, 136, 140, 142, 193, 197, 233-234, 236, 264-265, 267, 271-272, 274, 306, 308, 310, 370, 391, 394-395, 397, 411, 430->429, 474, 523, 530-541, 563->565, 594, 595->604, 598, 602, 632-653, 697->699, 758-759, 761, 991, 1140, 1157, 1176-1177, 1204, 1209, 1211, 1213, 1217, 1226-1227, 1261, 1310-1311, 1318, 1324
+app/services/pipeline_state.py                         59      4     16      5    88%   114, 119, 120->122, 126-127, 156->exit
+app/services/pipeline_tasks.py                        530     88    192     44    79%   68->71, 153-154, 166, 170, 202, 207, 211, 213, 215, 217, 227, 253-254, 271, 295-296, 304-309, 367, 375, 420, 424, 430, 457, 459, 461, 465-466, 475-484, 513->exit, 526, 540-547, 550->552, 552->555, 562->566, 567-569, 571-572, 582, 627, 638-641, 669, 672, 686-689, 719, 723, 734-736, 762, 766, 773-774, 786-788, 799-801, 813-815, 828-830, 863, 868, 870, 872, 891, 900->905
+app/services/pipelines.py                             184     28     78     23    81%   120-121, 131, 139, 161, 175, 179-180, 191, 206, 213, 216, 251, 260, 273, 276, 290, 314, 336, 361, 370-371, 379, 387, 411, 429, 431, 433
+app/services/rate_limit.py                             50      1     12      1    97%   85
+app/services/registration.py                          100     13     26      7    84%   43-44, 71->99, 94-96, 181-182, 217, 231-232, 264, 274-275
+app/services/secret_catalog.py                          5      0      0      0   100%
+app/services/secret_crypto.py                          60      5      6      3    88%   81, 100-102, 104, 109
+app/services/secret_validation.py                      97     14     40     10    81%   28, 38, 59-60, 73, 76, 81-87, 94, 96, 134, 140, 158
+app/services/secrets.py                               269     33     72     12    86%   94, 114-116, 126-128, 168, 220-221, 236, 269-270, 350, 361-379, 397-416, 479-486, 547, 606, 617-618, 626, 658, 760
+app/services/secrets_types.py                           3      0      0      0   100%
+app/services/sessions.py                              173     29     46     12    81%   50-52, 61-62, 67-70, 127, 134-136, 139, 151, 165-167, 173-176, 181-189, 223, 235, 340-341, 374->376
+app/services/transfer_engine.py                       531     89    238     53    79%   169, 176, 192-193, 196, 205, 243, 246, 287, 312, 332, 341, 350-351, 373->372, 472, 577-586, 593-596, 704, 706-707, 732, 742, 752, 758, 760-761, 845, 847-848, 850, 856, 861, 879, 892, 898, 914-920, 923->925, 927, 929-930, 941, 960, 999, 1022-1025, 1027-1030, 1032-1035, 1070-1081, 1115, 1117-1118, 1141, 1143-1146, 1148, 1156, 1162, 1210, 1212-1215, 1225, 1227-1230, 1259-1269, 1341-1344, 1354
+app/ui/__init__.py                                      1      0      0      0   100%
+app/ui/design_system.py                                36      0      0      0   100%
+app/ui/forms.py                                        43      2      8      2    92%   145, 152
+app/ui/hedron_styles.py                                62      6     28      4    87%   30-32, 35, 37, 42
+app/ui/http.py                                         44      0      8      0   100%
+app/ui/icons.py                                        11      0      4      0   100%
+app/ui/interactions.py                                 44      0      0      0   100%
+app/ui/layout.py                                      137      3     22      3    96%   181, 393, 410
+app/ui/params.py                                       60      0      0      0   100%
+app/ui/partials/__init__.py                             8      0      0      0   100%
+app/ui/partials/admin_audit.py                         84     12     22      3    84%   48-49, 51, 59-60, 81, 388-410
+app/ui/partials/admin_users.py                         63      2     20      2    95%   43, 308
+app/ui/partials/auth.py                               107      4     42      4    93%   213, 216->224, 519, 674-675
+app/ui/partials/feedback.py                            34      1     10      1    95%   46
+app/ui/partials/profile.py                             26      0      0      0   100%
+app/ui/partials/security.py                           166     11     58      7    91%   238, 467, 520, 702, 718, 758, 773-788, 926->957
+app/ui/partials/shared.py                              19      0      4      0   100%
+app/ui/presenters/__init__.py                           1      0      0      0   100%
+app/ui/presenters/feedback.py                          88     23     44      9    70%   39, 57, 75-76, 80-82, 84-85, 86->92, 94, 99-105, 175, 185-187, 193-194
+app/ui/presenters/pipeline.py                          41      3     10      1    92%   16-17, 23
+app/ui/presenters/run_status.py                        90      7     32      5    90%   74, 78, 80, 97, 102, 226-227
+app/ui/regions.py                                      54      0      0      0   100%
+app/ui/routes/__init__.py                              39      0      0      0   100%
+app/ui/routes/admin.py                                171     18     44     11    87%   82->84, 243-245, 252, 298-299, 314, 322, 333-334, 351->357, 359->372, 364->370, 366-367, 499, 509-510, 655, 684-685
+app/ui/routes/auth/__init__.py                         11      0      0      0   100%
+app/ui/routes/auth/invitations.py                      45      5      2      0    89%   43-47
+app/ui/routes/auth/login.py                            92      2      8      2    96%   105, 126
+app/ui/routes/auth/password.py                         67      8     10      3    86%   56, 83, 88-92, 121
+app/ui/routes/auth/registration.py                     67      5      2      0    93%   137-141
+app/ui/routes/pipeline.py                            1184    122    446     54    88%   296-297, 709, 800-801, 816, 821, 888->887, 1062-1070, 1085, 1092-1094, 1107, 1124, 1133, 1385-1386, 1391-1392, 1396, 1397->1400, 1402-1403, 1410->1414, 1426-1432, 1618, 1637, 1716-1722, 1760-1761, 1762->1794, 1793, 1923->1927, 1925-1926, 1973, 2021, 2097, 2348, 2429->2428, 2620-2626, 2652-2664, 2693->2692, 2746-2752, 2760->2762, 2763, 2772, 3133, 3137, 3330, 3332, 3710->3715, 3715->3717, 3765, 3767-3771, 3833-3834, 3836, 3837->3839, 3843->3849, 3847-3848, 3887, 3893, 3895, 3899, 4641, 4649-4651, 4655-4656, 4730, 4890-4891, 5014-5052, 5074, 5269, 5534->5537, 5545, 5554->5556
+app/ui/routes/pipeline_context.py                      35      2      8      4    86%   30, 35->exit, 44->exit, 71
+app/ui/routes/pipeline_csv.py                          27      0      2      1    97%   70->72
+app/ui/routes/pipeline_datasets.py                     44      1     10      5    89%   38->exit, 51->exit, 57->exit, 130, 133->135
+app/ui/routes/pipeline_preview.py                     194     29     76     17    79%   96->exit, 99->exit, 103->exit, 120->exit, 145->exit, 159->exit, 169->exit, 196->exit, 209->exit, 314-315, 324-333, 342->348, 345-347, 395, 421, 426, 505-506, 512-514, 528, 536-565, 608
+app/ui/routes/pipeline_runs.py                        235     79     82     26    61%   68->exit, 80->exit, 86->exit, 107-118, 128->127, 129->127, 161, 209, 210->212, 226, 309-331, 360-361, 404-405, 448-456, 480, 487, 491, 496-497, 501, 513-514, 534, 541, 546, 554-580, 598-603, 606, 615-616, 618-619, 621-622, 628-632, 638-641, 643-647
+app/ui/routes/pipeline_save.py                         40      5      8      3    83%   137, 140->142, 146-157
+app/ui/routes/profile.py                               28      0      0      0   100%
+app/ui/routes/security.py                             280     93     64     11    63%   102-107, 188, 200-206, 228, 366-417, 485-493, 563, 576-577, 586-598, 618-627, 641, 682, 693-706, 772-773, 777, 853, 923, 942-1085
+app/ui/security_policy.py                               5      0      0      0   100%
+app/ui/tabs.py                                         10      0      0      0   100%
+app/ui/urls.py                                        106     10     54      9    87%   18, 80, 96, 151->153, 164-167, 173, 175, 177, 186
+app/worker.py                                         184     53     64     14    68%   61->exit, 75-101, 122, 135-142, 144-145, 173-190, 218-235, 241, 249-261, 306, 309-323, 337-338, 342-343, 365->380, 374-375, 387, 398, 404, 450
+-----------------------------------------------------------------------------------------------
+TOTAL                                               15856   2247   4806   1041    82%
+Required test coverage of 80% reached. Total coverage: 82.00%
+890 passed in 53.16s
+/Library/Developer/CommandLineTools/usr/bin/make demo-check
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -m pytest demo-app/tests
+.........................                                                [100%]
+25 passed in 0.53s

@@ -17,7 +17,6 @@ from hedron import (
     Avatar,
     Badge,
     Button,
-    CircularProgress,
     ConnectorFlow,
     ConnectorNode,
     ConnectorTrack,
@@ -29,8 +28,11 @@ from hedron import (
     FormField,
     FormGrid,
     Grid,
+    GridItem,
     Hedron,
     HedronRouter,
+    Icon,
+    Identity,
     Inline,
     Metric,
     ProcessFlow,
@@ -120,6 +122,7 @@ from app.ui.design_system import (
 )
 from app.ui.forms import csrf_hidden
 from app.ui.http import render_authenticated_view
+from app.ui.icons import TRANSFER_ICONS
 from app.ui.interactions import ok_fragment
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.params import NoticeQuery
@@ -5351,6 +5354,159 @@ def _run_recovery_surface(request: Request, run, *, csrf_token: str):
     )
 
 
+def _run_transfer_route(
+    run,
+    snapshot,
+    *,
+    source_detail: str,
+    source_label: str,
+    target_label: str,
+    active: bool,
+    status_label: str,
+    tone,
+    progress: int,
+) -> NodeLike:
+    """Compose the live route with native surfaces, typography, and one progress meter."""
+    outcome = run_outcome(run)
+    impact = outcome.data_impact if outcome is not None else DataImpact.NOT_APPLICABLE
+    impact_copy = {
+        DataImpact.UNCHANGED: "Destination unchanged",
+        DataImpact.ROLLED_BACK: "Changes rolled back",
+        DataImpact.UNCERTAIN: "Review destination",
+        DataImpact.CHANGED: "Transfer complete",
+        DataImpact.VERIFIED: "Destination verified",
+    }.get(impact, "Progress by stage")
+
+    def endpoint(provider, label, locator, detail, *, destination=False):
+        object_name = (
+            getattr(locator, "table", None) or getattr(locator, "file_name", None) or detail
+        )
+        namespace = (
+            f"{locator.catalog} / {locator.schema_name}"
+            if isinstance(locator, DatabricksTableLocator)
+            else locator.schema_name
+            if isinstance(locator, PostgresTableLocator)
+            else f"{locator.dataset_rid} / {locator.branch}"
+            if isinstance(locator, (FoundryDatasetFilesLocator, FoundryUploadLocator))
+            else "Uploaded from your device"
+        )
+        try:
+            technology = require_catalog_provider(provider).technology
+        except ValueError:
+            # Historical runs remain readable after an operator disables a provider.
+            technology = "Saved connection"
+        measured = run.loaded_rows_measured if destination else run.source_rows_measured
+        rows = run.loaded_rows if destination else run.source_rows
+        if measured:
+            count = f"{rows:,} rows {'written' if destination else 'read'}"
+        elif active:
+            count = "Write count pending" if destination else "Read count pending"
+        elif destination and impact == DataImpact.UNCHANGED:
+            count = "No destination writes"
+        else:
+            count = "Count unavailable"
+        return GridItem(
+            Surface(
+                Stack(
+                    Text("Destination" if destination else "Source", role="eyebrow"),
+                    Identity(
+                        label,
+                        detail=technology,
+                        avatar=Icon(TRANSFER_ICONS[provider], size="lg", decorative=True),
+                    ),
+                    Stack(
+                        html.div(
+                            Text(object_name, role="body", as_="strong", overflow="truncate"),
+                            title=detail,
+                        ),
+                        html.div(
+                            Text(namespace, role="caption", overflow="truncate"), title=namespace
+                        ),
+                        gap="xs",
+                    ),
+                    Text(count, role="caption"),
+                    gap="md",
+                ),
+                appearance="raised",
+                padding="md",
+                elevation="none",
+            ),
+            span=2,
+            mark="transfer-target" if destination else "transfer-source",
+        )
+
+    return html.section(
+        Surface(
+            Grid(
+                endpoint(snapshot.source_provider, source_label, snapshot.source, source_detail),
+                GridItem(
+                    Stack(
+                        html.div(
+                            html.div(
+                                *(html.span(class_="data-mover-transfer-packet") for _ in range(3)),
+                                class_="data-mover-transfer-stream",
+                            ),
+                            html.div(
+                                *(
+                                    Icon(
+                                        f"data-mover-transfer-{name}",
+                                        size="lg",
+                                        decorative=True,
+                                        class_=f"data-mover-transfer-{name}",
+                                    )
+                                    for name in ("arrow", "check", "pause", "attention")
+                                ),
+                                class_="data-mover-transfer-hub",
+                            ),
+                            id=f"pipeline-transfer-signal-{run.id}",
+                            class_="data-mover-transfer-signal",
+                            aria={"hidden": True},
+                            **{"hx-preserve": "true"},
+                        ),
+                        ActionGroup(
+                            Badge(status_label, tone=tone, appearance="soft"),
+                            align="center",
+                            collapse="never",
+                        ),
+                        Progress(progress, label=f"Transfer progress: {progress}%")
+                        if active or run.status == "succeeded"
+                        else None,
+                        ActionGroup(
+                            Text(
+                                f"{progress}% · Stage progress" if active else impact_copy,
+                                role="caption",
+                            ),
+                            align="center",
+                            collapse="never",
+                        ),
+                        gap="md",
+                    ),
+                    align="center",
+                    class_="data-mover-transfer-status",
+                ),
+                endpoint(
+                    snapshot.destination_provider,
+                    target_label,
+                    snapshot.destination,
+                    _run_locator_label(snapshot.destination),
+                    destination=True,
+                ),
+                columns=5,
+                gap="md",
+            ),
+            appearance="plain",
+            padding="sm",
+            elevation="none",
+        ),
+        aria={"label": f"Transfer from {source_label} to {target_label}"},
+        data={
+            "transfer-route": "true",
+            "transfer-active": str(active).lower(),
+            "transfer-state": run.status,
+        },
+    )
+
+
 def _run_status_fragment(
     request: Request,
     db,
@@ -5379,6 +5535,7 @@ def _run_status_fragment(
     run_badge_tone = "info"
     if run_status == "succeeded":
         run_badge_text = "Succeeded"
+        run_badge_tone = "success"
     elif run_status == "blocked":
         run_badge_text = "Blocked"
         run_badge_tone = "warning"
@@ -5421,24 +5578,6 @@ def _run_status_fragment(
     target_label = _provider_label(snapshot.destination_provider)
     failed = run_status in {"failed", "failed_needs_reconciliation"}
     blocked = run_status == "blocked"
-    source_state = (
-        "failed"
-        if failed or blocked
-        else "succeeded"
-        if run_status in {"loading", "verifying", "succeeded"}
-        else "running"
-        if monitor_active
-        else "ready"
-    )
-    target_state = (
-        "failed"
-        if failed
-        else "succeeded"
-        if run_status == "succeeded"
-        else "running"
-        if run_status in {"loading", "verifying"}
-        else "ready"
-    )
     hx_poll = hx_attrs(
         request,
         path=f"/pipeline/runs/{run.id}/status",
@@ -5558,56 +5697,16 @@ def _run_status_fragment(
     return html.div(
         workflow_update,
         status_bar,
-        ConnectorFlow(
-            ConnectorNode(
-                source_label,
-                leading=Avatar(source_label, size="md", appearance="soft", shape="rounded"),
-                state=source_state,
-                kind="source",
-                detail="Source",
-                runtime=source_detail,
-            ),
-            ConnectorTrack(
-                Inline(
-                    CircularProgress(
-                        None if monitor_active else progress_value,
-                        indeterminate=monitor_active,
-                        label=f"Transfer {progress_value}% complete",
-                    ),
-                    Status(
-                        f"{progress_value}% · {stage_label}",
-                        tone=run_badge_tone,
-                        live=False,
-                        variant="activity" if monitor_active else "compact",
-                    ),
-                    gap="sm",
-                ),
-                Progress(
-                    progress_value,
-                    label=f"Transfer progress: {progress_value}%",
-                ),
-                active=monitor_active,
-                label=(
-                    f"Data moving from {source_label} to {target_label}"
-                    if monitor_active
-                    else f"Transfer from {source_label} to {target_label}"
-                ),
-            ),
-            ConnectorNode(
-                target_label,
-                leading=Avatar(target_label, size="md", appearance="soft", shape="rounded"),
-                state=target_state,
-                kind="target",
-                detail="Destination",
-                runtime=_run_locator_label(snapshot.destination),
-            ),
-            direction="horizontal",
-            collapse="never",
-            appearance="soft",
-            density="compact",
-            background="dots",
-            overflow="auto",
-            min_size="sm",
+        _run_transfer_route(
+            run,
+            snapshot,
+            source_detail=source_detail,
+            source_label=source_label,
+            target_label=target_label,
+            active=monitor_active,
+            status_label=run_badge_text,
+            tone=run_badge_tone,
+            progress=progress_value,
         ),
         ProcessFlow(
             *run_flow_steps(flow_statuses),

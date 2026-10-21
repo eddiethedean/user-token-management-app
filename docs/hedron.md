@@ -18,7 +18,7 @@ subsystems.
 | Public rendering APIs | Pages use `render_component_response` and declare application JavaScript through `Page.scripts`; interactions use `render_interaction`. |
 | Typed response behavior | Redirects, retargets, reswaps, cache policy, and approved extra headers are carried by `InteractionResult`; exception rendering uses a dedicated policy for Hedron's reserved toast sink. |
 | Security policy integration | Hedron is told that Data Mover owns CSRF and response headers; fragment targets still fail closed. |
-| Production assets | Connect ships Hedron's complete native stylesheet directly; `.hedron/build` is excluded. No application stylesheet is loaded. |
+| Production assets | Connect ships Hedron's complete native stylesheet directly; `.hedron/build` is excluded. Scoped transfer alignment and directional motion are appended pending upstream support. |
 | Diagnostics | `make hedron-check` fails on Hedron warnings or errors, and `python -m hedron --app app.main:app routes` exposes the registered UI contract. |
 | 0.56 security plane | Data Mover publishes the `hedron-security-1` control-plane profile, bounded request budgets, and deny-by-default egress posture while retaining ownership of CSRF and response headers. |
 | Security posture | `make hedron-security-check` produces a strict SARIF posture report for CI/security review. |
@@ -125,7 +125,17 @@ behavior, and focus/accessibility states through `AppShellChrome`.
 
 Production always serves Hedron's complete native stylesheet at the mount-aware,
 versioned `/app-assets/hedron-desktop.css` endpoint. Native component assets are
-also managed by Hedron. No custom workflow stylesheet or build directory is required.
+also managed by Hedron. No separate workflow stylesheet or build directory is required.
+The live-transfer status cell adds `align-self: center` and `text-align: center` to
+this stylesheet. These compensate for missing native alignment behavior documented in
+[Hedron #979](https://github.com/eddiethedean/hedron/issues/979) and
+[Hedron #980](https://github.com/eddiethedean/hedron/issues/980). Cards, grid spans,
+icons, typography, truncation, badges, and progress use native components. A scoped decorative
+signal adds directional packet motion during loading, stopping in all other stages. It uses
+Hedron's theme tokens and honors reduced motion, forced colors, and print. A stable HTMX
+preserved node keeps motion continuous through monitor refreshes; the enclosing server state
+controls its glyph and animation. Native support is requested in
+[Hedron #981](https://github.com/eddiethedean/hedron/issues/981).
 
 Desktop QA targets 1120px, 1440px, and 1920px, including dark/light presentation,
 navigation collapse, and long-page scrolling. Mobile is not an art-direction target
@@ -183,8 +193,8 @@ Run the full demo with Hedron's native stylesheet and shell controls:
 make demo
 ```
 
-Hedron's bundled Folio and component styles remain active for every surface; no application CSS
-is loaded.
+Hedron's bundled Folio and component styles remain active for every surface. The only
+application CSS is the scoped transfer alignment and decorative motion described above.
 
 The 0.60 migration now uses Hedron's first-class skip link, request indicator, application shell,
 page header, cards, grids, action groups, buttons, process flow, and statuses. These replace the

@@ -339,9 +339,18 @@ For mount-path, login, email, CSV, and transfer failures, use the detailed [trou
 ## Local seeded demo
 
 Operators can run `make demo` to create the printed demo account, seed fake encrypted bundles for
-MSS, MCS-COP, and PostgreSQL, and serve on port 8765. The seed uses `.demo.invalid` endpoints and
+MSS, MCS-COP, PostgreSQL, and Databricks, and serve on port 8765. The seed uses `.demo.invalid` endpoints and
 conspicuously fake secrets. Demo seeding is blocked when `APP_ENV=production` or
 `DATA_MOVER_MODE=real`.
+
+The Databricks demo provides a simulated running SQL warehouse and Delta tables in
+`demo.analytics` and `demo.staging`. Browse these tables, use them as sources, or create,
+append to, and replace demo destinations. All operations stay local; no Databricks account,
+API token, or paid compute is needed. Table changes last until the app process stops.
+Built-in table identities stay stable across restarts so saved routes remain usable. Routes
+saved before this identity fix need their Databricks table reselected and saved once.
+Set `PIPELINE_ENABLE_DATABRICKS=false` before `make demo` to omit this connection. Direct
+`seed-demo-connections` calls include Databricks when `PIPELINE_ENABLE_DATABRICKS=true`.
 
 ## Account and administrator pages
 

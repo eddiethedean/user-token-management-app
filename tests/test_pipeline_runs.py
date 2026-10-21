@@ -109,7 +109,10 @@ def test_queued_pipeline_run_executes_through_fake_connectors(client, demo_conne
     assert "The worker will stop at its next safe checkpoint." in queued.text
     assert "succeeded" in queued.text or "queued" in queued.text or "extracting" in queued.text
     assert "Succeeded" in queued.text
-    assert 'data-hedron-connector-active="false"' in queued.text
+    assert 'data-transfer-active="false"' in queued.text
+    assert 'data-transfer-state="succeeded"' in queued.text
+    assert 'hx-preserve="true"' in queued.text
+    assert queued.text.count("<progress") == 1
     assert 'aria-label="Live transfer stages"' in queued.text
     assert 'aria-label="Event feed for Worker handshake"' in queued.text
     assert "Transfer succeeded." in queued.text
@@ -977,6 +980,19 @@ def test_cancel_before_claim_marks_run_cancelled(client, demo_connections) -> No
         assert cancelled.reconciliation_required is False
         assert json.loads(cancelled.verification_json or "{}")["data_impact"] == "unchanged"
         assert _run_requires_reconciliation_review(cancelled) is False
+        run_id = run.id
+
+    monitor = client.get(
+        f"/pipeline/runs/{run_id}/status",
+        headers={"HX-Request": "true", "HX-Target": "pipeline-run-monitor"},
+    )
+    assert monitor.status_code == 200
+    assert "Destination unchanged" in monitor.text
+    assert "No destination writes" in monitor.text
+    assert 'data-transfer-state="cancelled"' in monitor.text
+    assert f'id="pipeline-transfer-signal-{run_id}"' in monitor.text
+    assert "<progress" not in monitor.text
+    assert "0% complete" not in monitor.text
 
 
 def test_worker_cancellation_check_reads_changes_from_another_session(access_app) -> None:
@@ -1093,6 +1109,7 @@ def test_active_run_monitor_exposes_cancel_control(client, demo_connections, mon
     assert 'data-hedron-dialog-open="#pipeline-run-cancel-confirmation"' in response.text
     assert "hx-confirm=" not in response.text
     assert 'data-hedron-action-phase="pending"' in response.text
+    assert response.text.count("<progress") == 1
     assert f'hx-get="/pipeline/runs/{run_id}/status"' in response.text
     assert event_queries == [0]
 

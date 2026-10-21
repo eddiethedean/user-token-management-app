@@ -84,7 +84,7 @@ def test_login_page_document(access_app) -> None:
         assert response.body.count(f'src="/hedron-static/ext/{extension}.js"') == 1
     assert_html_contains(
         response,
-        'href="/app-assets/hedron-desktop.css?v=211026.0&amp;shell=5"',
+        'href="/app-assets/hedron-desktop.css?v=211026.0&amp;shell=7"',
     )
     assert "/assets/theme.css" not in response.body
     assert "/app-assets/data-mover-components.css" not in response.body

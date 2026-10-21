@@ -1087,3 +1087,8 @@ def register() -> None:
         )
     )
     register_connector(FakeCsvConnector)
+    if connector_settings().pipeline_enable_databricks:
+        from app.connectors.fake_databricks import DemoDatabricksBackend, FakeDatabricksConnector
+
+        delta_backend = DemoDatabricksBackend()
+        register_connector(lambda: FakeDatabricksConnector(delta_backend))

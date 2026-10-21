@@ -65,6 +65,8 @@ DEMO_PUBLIC_URL="${DEMO_PUBLIC_URL:-http://127.0.0.1:${DEMO_PORT}}"
 DEMO_PUBLIC_URL="${DEMO_PUBLIC_URL%/}"
 
 export APP_ENV="development"
+export DATA_MOVER_MODE="demo"
+export PIPELINE_ENABLE_DATABRICKS="${PIPELINE_ENABLE_DATABRICKS:-true}"
 export APP_NAME="Data Mover"
 export PUBLIC_BASE_URL="${DEMO_PUBLIC_URL}"
 export DATABASE_URL="${DEMO_DATABASE_URL:-sqlite:///./data-mover-demo.db}"

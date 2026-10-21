@@ -1,0 +1,7 @@
+.venv/bin/python -m hedron build
+{
+  "build_dir": "/Volumes/SAN-DRIVE/coding/user-token-management-app/.hedron/build",
+  "digest": "5c41647b2ecd9416f2b1f863909ae30ff5e2d9e05349ed7d1626496fbabd486d",
+  "theme": "folio",
+  "assets": 2
+}

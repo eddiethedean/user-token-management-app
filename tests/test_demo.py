@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 
 from app.config import get_settings
@@ -16,13 +17,17 @@ from app.services.secret_crypto import CredentialEnvelope
 from app.services.secrets import store_user_credentials
 
 
-def test_demo_connection_seed_is_fake_connected_and_idempotent(access_app) -> None:
+@pytest.mark.parametrize("databricks_enabled", [False, True])
+def test_demo_connection_seed_is_fake_connected_and_idempotent(
+    access_app, databricks_enabled
+) -> None:
+    settings = get_settings().model_copy(update={"pipeline_enable_databricks": databricks_enabled})
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.email == "admin@example.gov"))
         assert user is not None
 
-        first = seed_demo_connections(db, get_settings(), user=user)
-        second = seed_demo_connections(db, get_settings(), user=user)
+        first = seed_demo_connections(db, settings, user=user)
+        second = seed_demo_connections(db, settings, user=user)
         stored = list(
             db.scalars(
                 select(UserSecret)
@@ -31,13 +36,14 @@ def test_demo_connection_seed_is_fake_connected_and_idempotent(access_app) -> No
             ).all()
         )
 
-    assert set(first.seeded) == set(DEMO_CONNECTION_CREDENTIALS)
+    expected = set(DEMO_CONNECTION_CREDENTIALS) - (set() if databricks_enabled else {"databricks"})
+    assert set(first.seeded) == expected
     assert first.skipped == ()
     assert second.seeded == ()
     assert second.refreshed == ()
     assert second.revalidated == ()
-    assert set(second.skipped) == set(DEMO_CONNECTION_CREDENTIALS)
-    assert {secret.provider for secret in stored} == set(DEMO_CONNECTION_CREDENTIALS)
+    assert set(second.skipped) == expected
+    assert {secret.provider for secret in stored} == expected
     assert all(secret.validation_status == "connected" for secret in stored)
     assert all("fake-" not in secret.ciphertext for secret in stored)
 

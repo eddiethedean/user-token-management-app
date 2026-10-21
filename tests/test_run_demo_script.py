@@ -37,6 +37,8 @@ with open(os.environ["DEMO_TEST_CALLS"], "a", encoding="utf-8") as stream:
     stream.write(json.dumps({
         "argv": sys.argv[1:],
         "public_base_url": os.environ.get("PUBLIC_BASE_URL"),
+        "data_mover_mode": os.environ.get("DATA_MOVER_MODE"),
+        "databricks_enabled": os.environ.get("PIPELINE_ENABLE_DATABRICKS"),
         "workbench_public_base_url": os.environ.get("HEDRON_WORKBENCH_PUBLIC_BASE_URL"),
         "uvicorn_root_path": os.environ.get("UVICORN_ROOT_PATH"),
         "hedron_workbench_mount": os.environ.get("HEDRON_WORKBENCH_MOUNT"),
@@ -64,6 +66,7 @@ printf '%s\n' "$DEMO_TEST_DISCOVERED_URL"
         "HEDRON_WORKBENCH_RESOLVED_PUBLIC_BASE",
         "FASTAPI_WORKBENCH_RESOLVED_PUBLIC_BASE",
         "DEMO_RSERVER_URL_BIN",
+        "PIPELINE_ENABLE_DATABRICKS",
     ):
         env.pop(name, None)
     env.update(
@@ -110,6 +113,8 @@ def test_demo_launcher_uses_discovered_workbench_url_for_bound_port(tmp_path: Pa
     ]
     assert calls[-1]["public_base_url"] == expected
     assert calls[-1]["workbench_public_base_url"] == expected
+    assert calls[-1]["data_mover_mode"] == "demo"
+    assert calls[-1]["databricks_enabled"] == "true"
 
 
 def test_demo_launcher_uses_rserver_url_outside_path(tmp_path: Path) -> None:

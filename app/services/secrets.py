@@ -751,7 +751,10 @@ def _validate_credentials(
         parsed = urlsplit(normalized["workspace_url"])
         host = (parsed.hostname or "").casefold().rstrip(".")
         allowed_hosts = settings.allowed_https_hosts if settings is not None else set()
-        if not allowed_hosts or host not in allowed_hosts:
+        demo_host = (
+            settings is not None and settings.is_demo_mode and host == "databricks.demo.invalid"
+        )
+        if not demo_host and (not allowed_hosts or host not in allowed_hosts):
             raise ValueError("Workspace host is not approved by the operator.")
         if parsed.port not in {None, 443}:
             raise ValueError("Workspace URL must use the approved HTTPS port.")

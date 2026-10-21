@@ -1,5 +1,22 @@
 # Hedron Enhancement Issues (Data Mover App)
 
+## Live transfer alignment and motion — 2026-10-21
+
+Verified against installed Hedron/core 1.1.3 and upstream main. The transfer panel uses native
+Grid/GridItem, Surface, Identity, Icon, Text, Badge, ActionGroup, and Progress components.
+Scoped CSS supplies status alignment (`align-self: center` and `text-align: center`) and
+directional motion, which the native connector's opacity pulse cannot express. The motion
+uses theme tokens, transform/opacity animation, and reduced-motion/forced-colors fallbacks.
+It runs only during the server-authored loading stage. A stable, aria-hidden signal uses
+HTMX preservation so polling does not restart the animation or retain stale status icons.
+
+- [#979 GridItem alignment markers lack native alignment rules](https://github.com/eddiethedean/hedron/issues/979)
+- [#980 Bounded logical text alignment for Text and typography scopes](https://github.com/eddiethedean/hedron/issues/980)
+- [#981 Directional ConnectorTrack flow with reduced-motion support](https://github.com/eddiethedean/hedron/issues/981)
+
+Remove each fallback when its capability is available natively. The stylesheet cache
+revision was incremented so existing browsers receive the presentation changes on reload.
+
 ## Native Folio desktop follow-ups — 2026-09-18
 
 The native-first visual pass verified these presentation gaps against installed Hedron 1.1.0

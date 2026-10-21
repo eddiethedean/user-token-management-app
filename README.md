@@ -186,7 +186,7 @@ requeues dead letters.
 
 ## Explore the demo
 
-For a one-command local demo with a dedicated account and fake credentials for the three provider
+For a one-command local demo with a dedicated account and fake credentials for four provider
 connections:
 
 ```bash
@@ -202,7 +202,7 @@ fake and the seeding command refuses to run in production.
 
 After signing in:
 
-1. Open **Connections → Credentials** and review the seeded MSS, MCS-COP, and PostgreSQL
+1. Open **Connections → Credentials** and review the seeded MSS, MCS-COP, PostgreSQL, and Databricks
    connections. Every value is encrypted, and the saved plaintext is never displayed again.
 2. Open **Connections → Status** and review the automatic checks from the saved connections. Use
    **Test connection** to repeat a check without changing credentials.
@@ -218,6 +218,12 @@ connection only** and cannot validate a hostname or credential. The process-loca
 exercise branch-aware catalogs, bounded batches, transactional write modes, uniqueness conflicts,
 abort behavior, and cross-instance destination state. Use only non-sensitive test values and data.
 The complete workflow is in the [Data Mover user guide](docs/user-guide.md).
+
+The Databricks demo includes an always-ready simulated SQL warehouse, `demo.analytics` and
+`demo.staging` schemas, and synthetic Delta tables. Use it as either a source or destination;
+create, append, and replace run locally without a Databricks account or compute costs. Emulator
+table changes last for the app process. `make demo` enables this provider by default; set
+`PIPELINE_ENABLE_DATABRICKS=false` to omit it. Real-mode Databricks writer approval gates are unchanged.
 
 ## CLI reference
 
@@ -245,7 +251,7 @@ Schema must be current before `create-admin` or `serve` (startup checks).
 | `make migrate` | `python -m app migrate` |
 | `make schema-status` | Show Alembic revisions |
 | `make serve` | `python -m app serve --reload` |
-| `make demo` | Create/refresh a local demo account, seed three fake provider connections, and serve on port 8765 |
+| `make demo` | Create/refresh a local demo account, seed four fake provider connections, and serve on port 8765 |
 | `make create-admin` | Uses `ADMIN_EMAIL` (default `admin@example.gov`); set `ADMIN_BOOTSTRAP_PASSWORD` for non-interactive local mode |
 | `make lint` | Run Ruff lint checks only |
 | `make format` | Reformat Python files with Ruff |

@@ -73,6 +73,14 @@ DEMO_CONNECTION_CREDENTIALS: dict[str, dict[str, str]] = {
         "connect_timeout": "10",
         "application_name": "data-mover",
     },
+    "databricks": {
+        "workspace_url": "https://databricks.demo.invalid",
+        "token": "fake-databricks-token-for-demo-only",
+        "compute_kind": "warehouse",
+        "compute_id": "demo-warehouse",
+        "http_path": "sql/1.0/warehouses/demo-warehouse",
+        "startup_policy": "manual",
+    },
 }
 
 # Credential payloads from demo databases created before structured provider
@@ -144,7 +152,7 @@ def seed_demo_connections(
     """Seed fake bundles and repair only recognizable legacy demo credentials."""
     from app.connectors.registry import load_builtin_connectors
 
-    load_builtin_connectors(demo=settings.is_demo_mode)
+    load_builtin_connectors(demo=settings.is_demo_mode, settings=settings)
     if settings.is_production:
         raise ValueError("Fake demo credentials cannot be seeded in production.")
     if not settings.is_demo_mode:
@@ -159,6 +167,8 @@ def seed_demo_connections(
     refreshed: list[str] = []
     revalidated: list[str] = []
     for provider, credentials in DEMO_CONNECTION_CREDENTIALS.items():
+        if provider == "databricks" and not settings.pipeline_enable_databricks:
+            continue
         stored = existing.get(provider)
         if stored is not None and not replace:
             classification = _classify_demo_credentials(settings, stored, credentials)
