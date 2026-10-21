@@ -10,9 +10,10 @@ from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from email_validator import EmailNotValidError, validate_email
-from pydantic import AliasChoices, Field, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -71,6 +72,7 @@ class ConfigDefaults:
     email_from: str = "Data Mover <no-reply@example.gov>"
     log_format: Literal["text", "json"] = "text"
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"] = "INFO"
+    scheduled_event_timezone: str = "America/New_York"
     smtp_port: int = 25
     smtp_allow_legacy_port25_fallback: bool = False
     password_hash_scheme: Literal["argon2", "pbkdf2_sha256"] = "argon2"
@@ -225,6 +227,7 @@ class Settings(BaseSettings):
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"] = (
         CONFIG_DEFAULTS.log_level
     )
+    scheduled_event_timezone: str = CONFIG_DEFAULTS.scheduled_event_timezone
     smtp_host: str = ""
     smtp_port: int = Field(default=CONFIG_DEFAULTS.smtp_port, ge=1, le=65535)
     smtp_allow_legacy_port25_fallback: bool = CONFIG_DEFAULTS.smtp_allow_legacy_port25_fallback
@@ -365,6 +368,17 @@ class Settings(BaseSettings):
                 )
             keys[key_id] = decoded
         return keys
+
+    @field_validator("scheduled_event_timezone")
+    @classmethod
+    def validate_scheduled_event_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                "SCHEDULED_EVENT_TIMEZONE must name an installed IANA timezone"
+            ) from exc
+        return value
 
     @model_validator(mode="after")
     def validate_production_settings(self) -> Settings:

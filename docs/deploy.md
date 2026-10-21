@@ -266,6 +266,34 @@ No separate worker, email service, janitor, cookie proxy, or Nginx rule is requi
 content process owns the UI, email delivery, pipeline execution, lease recovery, and retention
 cleanup.
 
+### Midnight event during inactive hours
+
+The FastAPI lifespan starts a request-independent timer in each app process. At midnight in
+`SCHEDULED_EVENT_TIMEZONE` (default `America/New_York`, including daylight saving changes), it logs
+`app.scheduled_event.ran` with the message `The app ran the scheduled event.` The message includes
+`scheduled_at`, `executed_at`, timezone, and process ID. Startup logs `app.scheduled_event.started`
+with `next_run`. Keep `LOG_LEVEL=INFO` (or lower) to see both messages in Connect's content logs.
+Set `SCHEDULED_EVENT_TIMEZONE=UTC` in Connect's environment settings if midnight UTC is preferred.
+
+Set **Runtime → Min processes** to **1**, then open the content URL once and confirm the startup
+message. Posit documents that a worker required by `MinProcesses=1` remains alive beyond its
+idle timeout; therefore an already-running process can execute this timer overnight without an
+rsconnect schedule or HTTP keepalive. See the
+[Connect scheduler lifecycle rules](https://docs.posit.co/connect/admin/appendix/configuration/#runtime-scheduler).
+
+To verify this deployment, close all app tabs before midnight and leave external health checks
+or other callers disabled for the test. The next morning, inspect the content logs and confirm
+`app.scheduled_event.ran` has an `executed_at` near midnight, before any morning request or new
+startup message. A startup message alone does not demonstrate an unattended midnight execution.
+
+This is a process-local log probe: every running worker or Connect node can log its own event.
+For one probe per night on a single node, use **Max processes=1** as well. Multiple nodes still
+need coordination for a single global execution. Restarts, redeployments, crashes, host downtime,
+or a blocked event loop can miss or delay the event; missed events while stopped are not replayed.
+`MinProcesses` preserves idle workers; it is not a durable scheduler or an execution guarantee.
+After a server restart, verify that a worker has started again. Work requiring guaranteed recovery
+needs durable scheduling, persisted run state, and coordination across workers.
+
 ## Related documentation
 
 - [Data Mover configuration](configuration.md)

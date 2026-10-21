@@ -118,6 +118,11 @@ operations require them:
   **Connected** result. Retest a connection explicitly after credential or network changes.
 - Retention, source, run, and spool settings control cleanup and resource ceilings.
 - `LOG_FORMAT` defaults to `text`; set it to `json` when the deployment collects structured logs.
+- `SCHEDULED_EVENT_TIMEZONE` defaults to `America/New_York` and must be an installed IANA timezone
+  name. Each FastAPI process logs `app.scheduled_event.ran` at local midnight without an HTTP
+  request. `LOG_LEVEL=INFO` or lower is required to see the probe. See the
+  [Connect midnight event verification](deploy.md#midnight-event-during-inactive-hours) for process
+  settings, the overnight check, and restart limitations.
 - `LOG_LEVEL` defaults to `INFO`; `WARNING` suppresses normal success/polling events while retaining
   failure, rejection, rate-limit, and uncertain-destination diagnostics. Use `DEBUG` only during a
   bounded troubleshooting window.
@@ -145,7 +150,7 @@ The inventory below is intentionally complete so this page and `.env.example` ca
 | Rate limits | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_WINDOW_SECONDS`, `RATE_LIMIT_LOGIN_PER_SOURCE`, `RATE_LIMIT_LOGIN_PER_ACCOUNT`, `RATE_LIMIT_REGISTRATION_PER_SOURCE`, `RATE_LIMIT_REGISTRATION_PER_ACCOUNT`, `RATE_LIMIT_RESET_PER_SOURCE`, `RATE_LIMIT_RESET_PER_ACCOUNT` |
 | Directory eligibility | `DIRECTORY_LOOKUP_URL`, `DIRECTORY_LOOKUP_TIMEOUT_SECONDS`, `DIRECTORY_LOOKUP_VERIFY_TLS`, `DIRECTORY_LOOKUP_CA_BUNDLE`, `DIRECTORY_LOOKUP_REQUIRED`, `DIRECTORY_LOOKUP_BEARER_TOKEN` |
 | Email and SMTP | `EMAIL_BACKEND`, `EMAIL_REDACT_SENT_BODIES`, `EMAIL_MAX_ATTEMPTS`, `EMAIL_RETRY_BASE_SECONDS`, `EMAIL_RETRY_MAX_SECONDS`, `EMAIL_CLAIM_TIMEOUT_SECONDS`, `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_ALLOW_LEGACY_PORT25_FALLBACK`, `SMTP_USERNAME`, `SMTP_PASSWORD` |
-| Diagnostics | `LOG_FORMAT`, `LOG_LEVEL` |
+| Diagnostics | `LOG_FORMAT`, `LOG_LEVEL`, `SCHEDULED_EVENT_TIMEZONE` |
 | Password hashing and policy | `PASSWORD_HASH_SCHEME`, `PBKDF2_ITERATIONS`, `PASSWORD_BLOCKLIST_PATH` |
 | Pipeline runtime and limits | `DATA_MOVER_MODE`, `PIPELINE_WORKER_ID`, `PIPELINE_BACKGROUND_POLL_SECONDS`, `PIPELINE_JANITOR_INTERVAL_SECONDS`, `PIPELINE_LEASE_SECONDS`, `PIPELINE_BATCH_ROWS`, `PIPELINE_BATCH_TARGET_BYTES`, `PIPELINE_MAX_RUN_SECONDS`, `PIPELINE_MAX_SOURCE_BYTES`, `PIPELINE_MAX_SPOOL_BYTES`, `PIPELINE_SPOOL_ROOT`, `PIPELINE_SENSITIVE_METADATA_MARKERS` |
 | Provider HTTP and catalog policy | `PIPELINE_HTTP_CONNECT_SECONDS`, `PIPELINE_HTTP_READ_SECONDS`, `PIPELINE_HTTP_WRITE_SECONDS`, `PIPELINE_HTTP_RETRY_ATTEMPTS`, `PIPELINE_CATALOG_TTL_SECONDS`, `PIPELINE_CONNECTION_MAX_AGE_SECONDS`, `PIPELINE_ALLOWED_HTTPS_HOSTS`, `PIPELINE_CA_BUNDLE` |

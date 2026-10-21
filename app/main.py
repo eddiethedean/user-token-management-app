@@ -44,6 +44,7 @@ from app.logging_config import (
     log_event,
     safe_exception_traceback,
 )
+from app.scheduled_events import midnight_event_scheduler
 from app.schema import assert_schema_current
 from app.security.cookies import APPLICATION_COOKIE_NAMES
 from app.services.auth import ensure_default_roles
@@ -213,7 +214,8 @@ async def lifespan(app: HedronPosit) -> AsyncIterator[None]:
         raise
     body_error: BaseException | None = None
     try:
-        yield
+        async with midnight_event_scheduler(cfg.scheduled_event_timezone):
+            yield
     except BaseException as exc:
         body_error = exc
     finally:
