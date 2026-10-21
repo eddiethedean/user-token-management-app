@@ -11,10 +11,10 @@ are for local development and tests only.
 Before deploying, review the [production security gate](../SECURITY.md#production-security-gate) and
 [configuration reference](configuration.md).
 
-Databricks in `make demo` is an offline simulation. Live deployments keep it disabled unless the
-[Databricks operator guide](providers/databricks.md) and acceptance ledger approve the exact
-workspace, compute family, metadata policy, and write modes. Pass every approved setting explicitly
-to the deployment; a successful local demo does not satisfy those gates.
+Live Databricks remains disabled unless the [Databricks operator guide](providers/databricks.md) and
+acceptance ledger approve the exact workspace, compute family, metadata policy, and write modes.
+Pass every approved setting explicitly to the deployment; a successful local simulation does not
+satisfy those gates.
 
 ## Workbench
 

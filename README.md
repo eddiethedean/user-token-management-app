@@ -109,9 +109,10 @@ Each provider shows its latest check and an on-demand **Test connection** action
 providers appear in Pipeline selectors; an untested MSS or MCS-COP connection may also appear as a
 destination so you can create its first Foundry dataset.
 
-MSS, MCS-COP, and PostgreSQL support both directions, and their writers default to enabled. The
-Databricks demo also supports both directions and local Delta create, append, and replace. Live
-Databricks remains gated; the demo is not evidence of live workspace acceptance. CSV is source-only.
+MSS, MCS-COP, and PostgreSQL can each be used as a source or destination. Their writers default to
+enabled. The Databricks demo also supports both directions and local Delta create, append, and
+replace. Live Databricks remains gated; the demo is not evidence of live workspace acceptance. CSV
+is source-only.
 [Light-mode status](docs/screenshots/connections-status-light.jpg).
 
 ### Audit activity
