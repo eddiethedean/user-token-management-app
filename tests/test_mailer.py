@@ -171,7 +171,6 @@ def test_smtp_delivery_is_multipart_with_branded_html(access_app, monkeypatch):
             "user@example.gov",
             "Invitation to Data Mover",
             "Accept your invitation:\nhttp://testserver/invitations/accept?token=secret",
-            bcc_recipient="admin@example.gov",
         )
         db.commit()
         with patch("app.services.mailer.smtplib.SMTP", _FakeSmtp):
@@ -180,7 +179,7 @@ def test_smtp_delivery_is_multipart_with_branded_html(access_app, monkeypatch):
     assert len(_FakeSmtp.sent) == 1
     message = _FakeSmtp.sent[0]
     assert message["Cc"] is None
-    assert message["Bcc"] == "admin@example.gov"
+    assert message["Bcc"] is None
     assert message.get_content_type() == "multipart/alternative"
     alternatives = list(message.iter_parts())
     assert [part.get_content_type() for part in alternatives] == ["text/plain", "text/html"]

@@ -370,7 +370,7 @@ def test_password_recovery_flow(client) -> None:
     assert "Request a new reset link" in replay.text
 
 
-def test_password_reset_bccs_inviter_for_invited_account(client) -> None:
+def test_password_reset_email_goes_only_to_account_holder(client) -> None:
     from app.models import EmailOutbox
     from app.services.auth import accept_invitation, create_invitation
 
@@ -386,7 +386,6 @@ def test_password_reset_bccs_inviter_for_invited_account(client) -> None:
             role_name="user",
             inviter=admin,
         )
-        inviter_email = admin.email
         accept_invitation(
             db,
             settings,
@@ -398,9 +397,32 @@ def test_password_reset_bccs_inviter_for_invited_account(client) -> None:
     requested = preauth_post(client, "/password/forgot", {"email": invited_email})
     assert requested.status_code == 200
     with SessionLocal() as db:
-        email = db.scalar(select(EmailOutbox).where(EmailOutbox.recipient == invited_email))
+        email = db.scalar(
+            select(EmailOutbox)
+            .where(
+                EmailOutbox.recipient == invited_email,
+                EmailOutbox.subject.like("Reset your%password"),
+            )
+            .order_by(EmailOutbox.created_at.desc())
+        )
         assert email is not None
-        assert email.bcc_recipient == inviter_email
+        assert "token=" in email.body_text
+    token = latest_email_token(invited_email, subject_like="Reset your%password")
+    completed = client.post(
+        "/password/reset",
+        data={"token": token, "password": NEW_PASSWORD, "password_confirm": NEW_PASSWORD},
+    )
+    assert completed.status_code in {200, 303}
+    with SessionLocal() as db:
+        reset_emails = list(
+            db.scalars(
+                select(EmailOutbox).where(
+                    EmailOutbox.subject.like("Reset your%password"),
+                )
+            )
+        )
+        assert reset_emails
+        assert all(message.recipient == invited_email for message in reset_emails)
 
 
 def test_password_change_signs_out(client) -> None:

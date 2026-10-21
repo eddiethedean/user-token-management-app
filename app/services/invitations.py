@@ -71,8 +71,16 @@ def create_invitation(
         "You have been invited to an approved government application.\n\n"
         f"Open this link on the approved network to continue:\n{accept_url}\n\n"
         "This invitation expires in 48 hours. If you did not expect it, contact the service desk.",
-        bcc_recipient=inviter.email or None,
     )
+    if inviter.email:
+        queue_email(
+            db,
+            inviter.email,
+            f"Invitation sent: {settings.app_name}",
+            f"An invitation for {original} ({role_name}) was sent from your account. "
+            "The recipient will receive a separate email with the invitation link. "
+            "For security, this confirmation does not include that link.",
+        )
     record_event(
         db,
         "invitation.created",

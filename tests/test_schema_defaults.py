@@ -83,6 +83,32 @@ def test_dark_default_migration_preserves_existing_user_choice(tmp_path) -> None
     assert str(color_column["default"]).strip("()'\"") == "dark"
 
 
+def test_email_bcc_migration_removes_unused_column(tmp_path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'email-bcc.db'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "0024_email_bcc")
+    engine = create_engine(database_url)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO email_outbox "
+                "(id, recipient, subject, body_text, bcc_recipient, created_at, attempts, last_error) "
+                "VALUES ('message-1', 'invitee@example.gov', 'Invite', 'Body', "
+                "'inviter@example.gov', '2026-10-21 00:00:00', 0, '')"
+            )
+        )
+
+    command.upgrade(config, "head")
+    columns = {column["name"] for column in inspect(engine).get_columns("email_outbox")}
+    assert "bcc_recipient" not in columns
+    command.downgrade(config, "0024_email_bcc")
+    assert "bcc_recipient" in {
+        column["name"] for column in inspect(engine).get_columns("email_outbox")
+    }
+    engine.dispose()
+
+
 def test_event_sequence_migration_backfills_existing_runs(tmp_path) -> None:
     database_url = f"sqlite:///{tmp_path / 'pipeline-events.db'}"
     config = alembic_config(database_url)

@@ -77,8 +77,6 @@ def queue_email(
     recipient: str,
     subject: str,
     body_text: str,
-    *,
-    bcc_recipient: str | None = None,
 ) -> EmailOutbox:
     message_id = new_id()
     message = EmailOutbox(
@@ -86,7 +84,6 @@ def queue_email(
         recipient=recipient,
         subject=subject,
         body_text=body_text,
-        bcc_recipient=bcc_recipient,
         delivery_state=EmailDeliveryState(message_id=message_id, next_attempt_at=utcnow()),
     )
     db.add(message)
@@ -157,7 +154,6 @@ def _deliver_claim(
                     recipient=message.recipient,
                     subject=message.subject,
                     body_text=message.body_text,
-                    bcc_recipient=message.bcc_recipient,
                 )
             )
         elif settings.email_backend == "console":
@@ -279,8 +275,6 @@ def _send_smtp(message: EmailOutbox, settings: Settings) -> None:
     email = EmailMessage()
     email["From"] = settings.email_from
     email["To"] = message.recipient
-    if message.bcc_recipient:
-        email["Bcc"] = message.bcc_recipient
     email["Subject"] = message.subject
     email.set_content(message.body_text)
     email.add_alternative(_html_body(message, settings), subtype="html")

@@ -218,7 +218,17 @@ def test_invitation_accept_and_revoke(client) -> None:
             select(EmailOutbox).where(EmailOutbox.recipient == "invitee@example.gov")
         )
         assert email_message is not None
-        assert email_message.bcc_recipient == ADMIN_EMAIL
+        assert "token=" in email_message.body_text
+        confirmation = db.scalar(
+            select(EmailOutbox).where(
+                EmailOutbox.recipient == ADMIN_EMAIL,
+                EmailOutbox.subject.like("Invitation sent:%"),
+            )
+        )
+        assert confirmation is not None
+        assert "invitee@example.gov" in confirmation.body_text
+        assert "token=" not in confirmation.body_text
+        assert "/invitations/accept" not in confirmation.body_text
 
     page = client.get(f"/invitations/accept?token={raw_token}")
     assert page.status_code == 200
@@ -279,7 +289,7 @@ def test_invitation_accept_and_revoke(client) -> None:
         assert invitation is not None and invitation.revoked_at is not None
 
 
-def test_invitation_skips_bcc_when_inviter_has_no_email(client) -> None:
+def test_invitation_skips_sender_confirmation_when_inviter_has_no_email(client) -> None:
     settings = get_settings()
     with SessionLocal() as db:
         admin = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
@@ -296,7 +306,7 @@ def test_invitation_skips_bcc_when_inviter_has_no_email(client) -> None:
             select(EmailOutbox).where(EmailOutbox.recipient == "no.bcc.invitee@example.gov")
         )
         assert message is not None
-        assert message.bcc_recipient is None
+        assert message.subject.startswith("Invitation to")
 
 
 def test_expired_and_forged_registration_links_do_not_set_credentials(client) -> None:
