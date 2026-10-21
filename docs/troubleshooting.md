@@ -105,7 +105,7 @@ requests. Do not copy cookie values into support records.
 | Status says `Not configured` | No encrypted credential bundle exists for that user/provider | Save the connection under **Connections → Credentials**; connections are owner-scoped |
 | Status says `Untested` | The automatic check needs more provider setup, such as a default Foundry dataset RID, or a legacy bundle predates automatic checks | Complete the missing setup and save the changed bundle, or use **Test connection** under **Connections → Status** to retry without a change |
 | Status says `Connected`, but the real service is unavailable | Demo emulation, stale real check, or network change | In demo mode this is expected and does not prove remote reachability. In real mode run **Test connection** again and inspect app/connector logs |
-| I need a fully populated local demo | The normal app starts without user-owned connections | Run `make demo`; it creates the printed local account and seeds fake `.demo.invalid` credentials for MSS, MCS-COP, and PostgreSQL |
+| I need a fully populated local demo | The normal app starts without user-owned connections | Run `make demo`; it creates the printed local account and seeds fake `.demo.invalid` credentials for MSS, MCS-COP, PostgreSQL, and Databricks |
 | A repeated demo run shows fewer than 3/3 connections ready | A reused database contains a recognized legacy bundle, a stale current fake bundle, or an intentionally preserved unknown/real bundle | Run the current `make demo` again. Recognized legacy bundles are refreshed and stale current demo bundles are revalidated. Unknown or real bundles are preserved; use `seed-demo-connections --replace` only for a disposable demo database |
 
 Connection test references are persistent in **Connections → Status**. Known failure categories are
@@ -172,3 +172,18 @@ review `RATE_LIMIT_*` windows or add ingress throttling rather than disabling li
 
 See the [diagnostic event dictionary](diagnostics-event-dictionary.md) for fields and example
 searches.
+
+## Databricks demo and transfer display
+
+- If Databricks is missing from `make demo`, check `PIPELINE_ENABLE_DATABRICKS`; the launcher
+  defaults it to true, while ordinary application startup defaults it to false. Stop and restart
+  the demo after changing it. A live deployment still requires the independent operator gates in
+  the [Databricks guide](providers/databricks.md).
+- If a demo table disappeared after restart, recreate it or select a built-in seed table. Emulator
+  table contents are process-local; persisted pipeline definitions and run history are durable.
+  Older routes saved before stable seed IDs need their Delta table reselected and saved once.
+- If a transfer signal is static, check the recorded stage and the browser's reduced-motion or
+  forced-colors preference. Packet motion is decorative and runs only during loading. A completed,
+  cancelled, or failed run is intentionally still; its persisted status and impact are authoritative.
+- A cancelled or failed transfer has no completion meter. Read **Destination unchanged**,
+  **Destination updated**, or the uncertain-impact message before deciding whether to run again.

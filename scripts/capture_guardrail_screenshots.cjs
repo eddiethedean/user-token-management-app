@@ -51,6 +51,11 @@ async function main() {
       console.log(filename);
     };
     const guardrail = () => page.locator('.hedron-surface').filter({ has: page.getByRole('heading', { name: 'Sensitive-data guardrails', exact: true }) }).last();
+    const openRun = async id => {
+      await page.goto(`${base}/pipeline?pipeline_id=${id}`);
+      await page.getByRole('tab', { name: 'Live transfer', exact: true }).click();
+      await guardrail().waitFor({ state: 'visible' });
+    };
     const openRoute = async id => {
       await page.goto(`${base}/pipeline?pipeline_id=${id}&notice=saved`);
       await page.getByRole('tab', { name: 'Target schema & creator', exact: true }).click();
@@ -69,7 +74,7 @@ async function main() {
     await openRoute(tableId);
     await capture('CDO-4556-table-block.jpg', guardrail(), 'Pre-run table-level marking with disabled scan control');
     await post('/pipeline/runs', { pipeline_id: tableId });
-    await page.goto(`${base}/pipeline?pipeline_id=${tableId}`);
+    await openRun(tableId);
     await capture('CDO-4556-blocked-run.jpg', guardrail(), 'Persisted table block: zero rows scanned, execution not started, destination unchanged');
     const rows = ['1,,public', ...Array.from({ length: 999 }, (_, i) => `${i + 2},ordinary,public`), '1001,123-45-6789,234-56-7890', '1002,123-45-6789,'];
     const csv = Buffer.from('id,ssn,alternate\n' + rows.join('\n') + '\n');
@@ -83,7 +88,7 @@ async function main() {
     await guardrail().getByText('SSN scan complete', { exact: true }).waitFor();
     await capture('CDO-4563-content-scan.jpg', guardrail(), 'Completed preview scan: ssn 2 rows, alternate 1 row, no decisions');
     await post('/pipeline/runs', { pipeline_id: contentId });
-    await page.goto(`${base}/pipeline?pipeline_id=${contentId}`);
+    await openRun(contentId);
     await capture('CDO-4567-unresolved-run.jpg', guardrail(), 'Unresolved findings block after the full scan: no actions, review required, destination unchanged');
     const contentKey = sourceKey('csv', '', '', uploadId);
     const contentActions = [['ssn', 'ssn', 'hash', contentKey], ['ssn', 'alternate', 'remove', contentKey]];
@@ -93,14 +98,14 @@ async function main() {
     await guardrail().getByText('SSN scan complete', { exact: true }).waitFor();
     await capture('CDO-4567-content-actions.jpg', guardrail(), 'Saved choices after another preview scan: ssn Hash, alternate Remove');
     await post('/pipeline/runs', { pipeline_id: contentId });
-    await page.goto(`${base}/pipeline?pipeline_id=${contentId}`);
+    await openRun(contentId);
     await capture('CDO-4571-transformed-run.jpg', guardrail(), 'Successful worker run: 1002 scanned rows, two applied actions, destination committed');
     const manifests = page.locator('details').filter({ has: page.locator('summary').getByText('Source and destination manifests', { exact: true }) });
     await manifests.locator('summary').click();
     await capture('CDO-4571-destination-schema.jpg', manifests, 'Persisted source has id, ssn, alternate; destination has id and ssn with alternate removed');
     const failedId = await save({ ...contentForm, pipeline_name: 'Failed preparation example', destination_table: 'guardrail_failed' }, contentActions);
     await post('/pipeline/runs', { pipeline_id: failedId });
-    await page.goto(`${base}/pipeline?pipeline_id=${failedId}`);
+    await openRun(failedId);
     await capture('CDO-4575-failed-run.jpg', guardrail(), 'Destination preparation failure: decisions selected, transformation not started, destination unchanged');
     await page.goto(`${base}/admin/audit?event_type=pipeline.run.completed&outcome=success`);
     await page.getByText('View details', { exact: true }).first().click();

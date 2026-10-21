@@ -15,7 +15,7 @@ app/application Pipeline use cases, DTOs, ports, and explicit route/writer polic
     │
 app/services    Accounts, auth, catalogs, CSV inspection, pipelines, pipeline runs, transfer engine, secrets, audit, mailer
     │
-app/connectors  Postgres, Foundry (MSS/MCS-COP), CSV source, fake demo adapters
+app/connectors  Postgres, Foundry (MSS/MCS-COP), gated Databricks, CSV source, fake demo adapters
     │
 app/security    Passwords, tokens, CSRF, email normalize, client trust
     │
@@ -73,7 +73,7 @@ There is **no public REST API**. Mutations are form/HTMX POSTs; GETs render HTML
 
 ## Connection credentials
 
-MSS, MCS-COP, and PostgreSQL credential bundles are stored encrypted at rest under an
+MSS, MCS-COP, PostgreSQL, and enabled Databricks credential bundles are stored encrypted at rest under an
 application-managed key ring (`API_TOKEN_ENCRYPTION_KEYS`; the name is retained for configuration
 compatibility). The UI is write/replace oriented after save. Treat decrypted values as high-value
 credentials; lifecycle and revocation at the remote provider remain operator responsibility.
@@ -82,8 +82,8 @@ Saving a new or changed credential bundle stores it as `untested`, then immediat
 connector and persists the resulting status. An identical normalized bundle is neither re-encrypted
 nor retested. **Test connection** remains available for an explicit retry without a credential
 change. Demo mode uses a process-local emulator on reserved `.demo.invalid` hosts; its result is
-explicitly labeled as emulated, reports zero network latency, and is not evidence that a remote
-host or credential is valid. In real mode,
+explicitly labeled as emulated and is not evidence that a remote host or credential is valid.
+Any Databricks status-check duration measures local emulator work, not network latency. In real mode,
 credential decryption is limited to an owner-authorized catalog browse or connection test in the
 request process and to the bundles required by a claimed transfer. Plaintext is request/run scoped
 and is never stored in catalog cache rows, definitions, run snapshots, or events.
@@ -96,6 +96,18 @@ schema/row-count limitations as live mode. Its state lasts only for the current 
 registry load; startup clears demo catalog-cache rows so stale emulated uploads cannot survive that
 reset in the UI. CSV processing uses the real local adapter and never substitutes sample rows for a
 missing upload.
+
+`app/connectors/fake_databricks.py` adds a shared process-local Unity Catalog/Delta backend with
+workspace-scoped catalogs, deterministic built-in table IDs, bounded extraction, and staged atomic
+create/append/replace. The demo launcher admits this adapter by default. Newly created tables and
+all table mutations disappear with the backend generation; saved run records remain durable.
+The [live Databricks adapter](providers/databricks.md) has separate operator gates, owner-bound
+metadata reviews, durable compute readiness attempts, target fences, and publication recovery.
+
+The live monitor renders native Hedron endpoint cards and persisted stage/count facts. A small
+scoped decorative signal animates only during loading and survives HTMX refreshes through a
+run-specific preserved node. It is not an additional progress or execution authority; reduced
+motion and forced-colors preferences disable packet motion.
 
 ## Pipeline definitions and runs
 
@@ -120,7 +132,7 @@ app/ui routes ──► pipeline + catalog services ──► application DB
    └─ in-process task ───────┘ claims lease and decrypts required bundle(s) only
                               │
                               ▼
-                 connector registry ──► postgres / foundry / csv
+                 connector registry ──► postgres / foundry / gated databricks / csv
                               │
                               ▼
                  Polars batches / Parquet spool ──► destination write + verification

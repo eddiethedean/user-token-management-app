@@ -18,8 +18,8 @@ see [Data pipeline lifecycle](data-pipelines.md).
 
 Data Mover stores each user's connection credentials encrypted, browses provider catalogs, and runs
 durable transfers between MSS, MCS-COP, PostgreSQL, and local CSV files. Demo mode (`DATA_MOVER_MODE=demo`)
-uses fake connectors on this host. Real mode uses the app's in-process background runtime against
-live systems.
+also includes an offline Databricks connector and uses fake connectors on this host. Real mode
+uses the app's in-process background runtime against live systems.
 
 ## Start here
 
@@ -53,8 +53,9 @@ card; pipeline references are the durable run IDs. Never paste credentials or a 
 support request.
 
 In demo mode, connectors never contact the hostnames you type. A demo health result says
-**Emulated connection only**, reports no network latency, and proves only that the saved fields can
-exercise the local emulator—not that the hostname is reachable or the credential is valid. In real
+**Emulated connection only** and proves only that the saved fields can exercise the local emulator.
+A displayed Databricks check duration measures local emulation, not remote network latency; it
+does not prove that the hostname is reachable or the credential is valid. In real
 mode, the app decrypts only the signed-in owner's selected bundle while browsing a catalog or
 testing a connection, and only the route's required bundles after a background task claims a run.
 Plaintext credentials are not stored in pipeline definitions, run snapshots, catalog caches, or
@@ -81,8 +82,10 @@ cannot reveal another user's saved values.
 | PostgreSQL | Host, port, database, username, password, SSL mode | Connect timeout, application name |
 | Databricks | Workspace URL, personal access token, compute type and ID, SQL HTTP path | Startup policy (manual by default; opted-in only after operator acceptance) |
 
-Databricks is implemented behind a default-off operator gate and is not a released or supported
-connection yet. Do not enable it until the [Databricks operator guide](providers/databricks.md) and
+The offline `make demo` launcher enables Databricks with synthetic credentials; see
+[Local seeded demo](#local-seeded-demo). Live Databricks is implemented behind a default-off
+operator gate and is not released or supported yet. For live use, do not enable it until the
+[Databricks operator guide](providers/databricks.md) and
 [acceptance ledger](plans/databricks-acceptance.md) show approved live evidence for the deployment,
 compute, metadata, and route you intend to use. When the operator gate is off, the connection form
 is unavailable. The API token is encrypted with the same owner-scoped storage
@@ -157,9 +160,10 @@ end. If no remote connection is ready, the source menu offers CSV only.
 
 ### Choose the source
 
-Remote sources are MSS, MCS-COP, and PostgreSQL. Databricks routes remain unavailable until their
-operator and live-acceptance gates are satisfied. After choosing PostgreSQL, select an existing
-schema and table. For a Foundry source, enter the source dataset RID directly and enter one or more supported
+Remote sources are MSS, MCS-COP, and PostgreSQL. In the offline demo, Databricks also appears:
+choose a catalog/schema such as `demo.analytics` and an existing Delta table. Live Databricks
+routes require their operator and live-acceptance gates to be satisfied. After choosing PostgreSQL,
+select an existing schema and table. For a Foundry source, enter the source dataset RID directly and enter one or more supported
 file paths, separated by commas or new lines; the RID does not have to be the default RID saved with
 the connection. Known datasets and files are offered as suggestions, but custom paths remain
 available. Use **Swap direction** to exchange a compatible source and destination route. The
@@ -179,6 +183,11 @@ dataset RID, branch, and a destination file name (Snappy Parquet). New PostgreSQ
 - contain 1–63 characters;
 - start with a letter; and
 - use only letters, numbers, and underscores.
+
+For an offline Databricks destination, select `demo.analytics` or `demo.staging`, then choose an
+existing Delta table or **Create a new table**. Name the new table under **Target schema & creator**.
+Use **create** for a new table, **append** to add rows, or **replace** to replace its contents;
+Databricks does not offer upsert. These demo operations do not enable live writers.
 
 The builder rejects a route whose destination is the same object as its source. This is especially
 important for PostgreSQL append, which would otherwise duplicate the source table on every run.
@@ -285,6 +294,13 @@ At the end of **Route setup**, the **Route capabilities** panel explains what th
 can expose before and after a run. For example, a catalog estimate is different from an exact
 destination count, and Foundry file routes may only provide a local manifest after the transfer.
 
+The live transfer panel uses separate source and destination cards and one progress meter.
+Active percentages describe stage progress, not an exact percentage of bytes or rows copied.
+Directional packets move only during loading. The final state shows a success check, cancellation
+pause, or failure indicator; cancelled and failed runs report destination impact instead of a
+completion meter. Motion stops when loading ends and respects reduced-motion preferences.
+See matching [light/dark screenshots and animations](screenshots/README.md).
+
 Use **Cancel run** in the live monitor to request a safe stop. The monitor stays active until the
 background task records a terminal state. Retry is shown only for failures marked safe to retry. If a
 task loses its lease after destination work begins, a Foundry upload outcome is uncertain, or final
@@ -328,7 +344,7 @@ navigation or a wider desktop viewport; server-side validation remains the same.
 | Symptom | What to check first |
 |---|---|
 | A provider is missing from Pipeline | Confirm it is saved under **Connections → Credentials** and **Connected** under **Status**. |
-| Save or Run is disabled | Scan the CSV, choose different remote source/destination systems, and resolve every readiness message. |
+| Save or Run is disabled | Scan the CSV, choose distinct source/destination objects, save route edits, and resolve every readiness message. |
 | A run stays queued | Check the app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; the in-process runtime recovers queued runs automatically. |
 | A connection says Untested | Complete missing provider setup, such as a default Foundry dataset RID, then save the changed bundle or select **Test connection** to retry. |
 | A saved pipeline says Connection required | The owner deleted or replaced a required connection; restore and test it, then reload the pipeline. |
@@ -373,7 +389,8 @@ the identity-proxy administrator according to your organization's incident proce
 ## Safety and limitations
 
 - Demo mode does not contact remote APIs.
-- Real mode contacts only allowlisted Foundry hosts and the PostgreSQL servers you configure.
+- Real mode contacts allowlisted Foundry hosts, configured PostgreSQL servers, and approved
+  Databricks workspaces only when their operator gates are enabled.
 - Saved credentials are encrypted at rest, but a demo deployment is not an approved secret manager.
 - CSV content, spool files, and saved pipelines are real application data.
 - Data Mover does not itself provide an ATO, FedRAMP package, FIPS validation, identity proofing, or

@@ -17,7 +17,7 @@ make serve
 ```
 
 Default `make create-admin` uses `ADMIN_EMAIL=admin@example.gov` unless you override it.
-For an explorable local instance with all three fake provider connections already validated, run
+For an explorable local instance with all four fake provider connections (MSS, MCS-COP, PostgreSQL, and Databricks) already validated, run
 `make demo`.
 The helper seeds only development environments. It refreshes recognized legacy demo bundles and
 revalidates stale current demo bundles while preserving unknown or real bundles; use `--replace`
@@ -38,6 +38,9 @@ For faster feedback while iterating, use `make lint`, `make format-check`, `make
 `make test-file FILE=tests/test_example.py`. `make docs-check` catches broken local Markdown link
 targets.
 The [documentation guide](docs/README.md) maps common changes to their owning modules and tests.
+When UI changes affect the guides, refresh the [desktop screenshots](docs/screenshots/README.md#reproduce)
+and relevant [guardrail story captures](docs/screenshots/stories/README.md#reproduce). Capture the
+actual rendered UI with synthetic data; keep matching light/dark views and update their manifests.
 
 ## Architecture for contributors
 

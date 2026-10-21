@@ -18,7 +18,7 @@ NIST and OWASP references here support engineering reasoning but do not decide t
 boundary.
 
 **Operator surface:** Data Mover is a **browser HTMX UI** with cookie sessions — not a public
-REST/OpenAPI resource API. MSS, MCS-COP, and PostgreSQL credential bundles are stored
+REST/OpenAPI resource API. MSS, MCS-COP, PostgreSQL, and enabled Databricks credential bundles are stored
 encrypted for authorized users; they are not how the application authenticates HTTP callers.
 Demo mode uses fake connectors. In real mode, owner-authorized catalog browsing and connection tests
 (both automatic after saving changed credentials and explicit **Test connection** actions)
@@ -34,7 +34,9 @@ decisions before destination staging (SD-27). The gated Databricks connector add
 Unity Catalog metadata review, durable compute startup, and staged Delta publication with recovery.
 Its [provider controls](docs/providers/databricks.md) and
 [live acceptance requirements](docs/plans/databricks-acceptance.md) apply independently of local
-simulation results. This does not attest an Advana deployment. MongoDB remains outside the
+simulation results. The local `make demo` launcher enables an offline Databricks adapter and fake
+credentials; no remote calls or compute startup occur, and real-mode gates remain unchanged.
+Its process-local table state is disposable; saved runs remain application data. This does not attest an Advana deployment. MongoDB remains outside the
 implemented connector surface; proposed or archived integrations do not extend this boundary.
 
 ## Reporting a vulnerability
@@ -1052,7 +1054,7 @@ suites as penetration testing.
 isolation remains intentionally unsupported and is a deployment/integration gap if introduced later.
 
 **Decision:** Authenticated users may store at most one credential bundle for each explicitly
-supported provider: MSS, MCS-COP, and PostgreSQL. Provider names and target
+registered provider: MSS, MCS-COP, PostgreSQL, and Databricks when its provider gate is enabled. Provider names and target
 environment-variable names are application constants, not user-controlled inputs. The UI and
 server routes expose configuration metadata but no plaintext retrieval operation. Replacing a
 bundle encrypts a complete new value in the same provider slot; deleting it removes the ciphertext.
@@ -1062,8 +1064,10 @@ Storage and connector health checks do not prove that a credential is minimally 
 unexpired, or unrevoked at its provider.
 
 MSS, MCS-COP, and PostgreSQL are registered for both source and destination roles; CSV is registered
-only as a source. Remote writers default to enabled, but an operator can disable an individual
-destination writer without disabling that provider's source role.
+only as a source. Those three remote writers default to enabled, but an operator can disable an
+individual destination writer without disabling its source role. Databricks is also registered in
+both directions when enabled: the offline demo admits its emulator, while live use requires the
+separate metadata, startup, and writer attestations in the [provider guide](docs/providers/databricks.md).
 
 Pipeline catalogs expose the current user's stored bundles whose validation status is `connected`;
 an MSS/MCS-COP bundle without a default dataset RID may appear as an explicitly provisionable

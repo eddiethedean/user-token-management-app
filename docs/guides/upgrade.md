@@ -38,5 +38,15 @@ git diff --check
 For a Python-version change, run the full gate on every supported version or rely on the CI matrix.
 For a live provider or licensed deployment change, use the opt-in checks in the [maintainer guide](../maintainer-guide.md#testing-and-ci).
 
+For visible UI changes, refresh the [desktop light/dark gallery](../screenshots/README.md#reproduce)
+and affected [guardrail story panels](../screenshots/stories/README.md#reproduce), then run
+`make docs-check`. Inspect loading and terminal transfer states in both modes. Preserve the
+application's reduced-motion and forced-colors behavior when replacing CSS with native Hedron features.
+
+When upgrading an older Databricks demo database, reselect and save any Delta table in routes
+created before stable seed identities were introduced. Built-in table IDs now survive process
+reconstruction; session-created tables and mutations still need to be recreated after restart.
+This does not migrate or enable a live Databricks workspace.
+
 Record the final versions, validation commands, migration or rollback notes, and any required
 operator action in `CHANGELOG.md` or the relevant release note.

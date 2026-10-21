@@ -11,8 +11,9 @@ definitions are always real data in Data Mover's database.
 
 **Which systems can be sources and destinations?**
 Route compatibility comes from connector capabilities: MSS, MCS-COP, PostgreSQL, and CSV can feed
-any configured destination they support, including same-system copies. CSV is source-only. All
-remote writers are enabled by default and can be disabled by an operator deployment setting.
+any configured destination they support, including same-system copies. CSV is source-only.
+MSS, MCS-COP, and PostgreSQL writers are enabled by default and can be disabled by operator
+settings. The offline demo adds Databricks in both directions; live Databricks has separate gates.
 
 **Can a pipeline write back to its source?**
 Same-system copies are supported when the source and destination objects differ. Data Mover rejects
@@ -35,6 +36,7 @@ in that folder. This creates a dataset, not an Ontology object type.
 **What credentials does each connection need?**
 MSS and MCS-COP require an HTTPS endpoint and API token, and optionally a default dataset RID,
 branch, and CA profile. PostgreSQL uses host, port, database, username, password, and SSL mode.
+When enabled, Databricks uses a workspace URL, PAT, compute type/ID, SQL HTTP path, and startup policy.
 See the [user guide](user-guide.md#connections).
 
 **Are saved credentials displayed again?**
@@ -48,9 +50,13 @@ network request occurred. Demo status never proves that a hostname is reachable 
 valid. Foundry without a default dataset RID remains **Untested**.
 
 **Is Databricks supported?**
-A Databricks connector is implemented behind a default-off operator gate, but it is not released or
-supported yet. Isolated workspace acceptance, the provider contract, and release evidence remain
-open; the connection will not appear unless an operator enables it. Track progress in the
+`make demo` includes an offline Databricks connection with a simulated running warehouse,
+Unity Catalog browsing, and Delta create, append, and replace. No cloud account or paid compute is
+required. Tables created or changed in the emulator last only for that process; built-in table
+identities remain stable across restarts. Set `PIPELINE_ENABLE_DATABRICKS=false` to omit it.
+
+Live Databricks remains unreleased and default-off. Isolated workspace acceptance, the provider
+contract, and release evidence remain open. Read the [operator guide](providers/databricks.md) and
 [Databricks acceptance ledger](plans/databricks-acceptance.md). Advana and MongoDB are not current
 product connections; archived transfer notes describe legacy integrations.
 
@@ -75,7 +81,7 @@ Yes. Name the configured route and select **Save pipeline**. Saved definitions a
 owner. **Run transfer** enqueues a durable run; retry creates a new run from the saved definition.
 
 **How do I start a demo with every connection ready?**
-Run `make demo`. It creates the printed local administrator, seeds three encrypted but deliberately
+Run `make demo`. It creates the printed local administrator, seeds four encrypted but deliberately
 fake `.demo.invalid` connection bundles, and serves Data Mover on port 8765. The seed command is
 refused in production and in real mode.
 

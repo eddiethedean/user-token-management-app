@@ -44,6 +44,10 @@ The committed defaults plus the development-only secret placeholders in
 - The example secrets and encryption key are for local work only. Generate new,
   independent values before sharing a database or deploying anywhere.
 
+The `make demo` launcher explicitly selects demo mode and enables Databricks by default, seeding
+four fake provider bundles. Set `PIPELINE_ENABLE_DATABRICKS=false` to omit it. This launcher override
+does not enable live Databricks publication or change the committed defaults.
+
 ### Production
 
 Set or confirm all of the following:
@@ -154,12 +158,17 @@ The inventory below is intentionally complete so this page and `.env.example` ca
 | Password hashing and policy | `PASSWORD_HASH_SCHEME`, `PBKDF2_ITERATIONS`, `PASSWORD_BLOCKLIST_PATH` |
 | Pipeline runtime and limits | `DATA_MOVER_MODE`, `PIPELINE_WORKER_ID`, `PIPELINE_BACKGROUND_POLL_SECONDS`, `PIPELINE_JANITOR_INTERVAL_SECONDS`, `PIPELINE_LEASE_SECONDS`, `PIPELINE_BATCH_ROWS`, `PIPELINE_BATCH_TARGET_BYTES`, `PIPELINE_MAX_RUN_SECONDS`, `PIPELINE_MAX_SOURCE_BYTES`, `PIPELINE_MAX_SPOOL_BYTES`, `PIPELINE_SPOOL_ROOT`, `PIPELINE_SENSITIVE_METADATA_MARKERS` |
 | Provider HTTP and catalog policy | `PIPELINE_HTTP_CONNECT_SECONDS`, `PIPELINE_HTTP_READ_SECONDS`, `PIPELINE_HTTP_WRITE_SECONDS`, `PIPELINE_HTTP_RETRY_ATTEMPTS`, `PIPELINE_CATALOG_TTL_SECONDS`, `PIPELINE_CONNECTION_MAX_AGE_SECONDS`, `PIPELINE_ALLOWED_HTTPS_HOSTS`, `PIPELINE_CA_BUNDLE` |
+| Databricks provider, writer, and acceptance | `PIPELINE_ENABLE_DATABRICKS`, `PIPELINE_ENABLE_DATABRICKS_WRITER`, `PIPELINE_DATABRICKS_STAGING_SCHEMA`, `PIPELINE_DATABRICKS_METADATA_VISIBILITY_VERIFIED`, `PIPELINE_DATABRICKS_STARTUP_CONTRACT_VERIFIED`, `PIPELINE_DATABRICKS_WRITER_LIVE_ACCEPTANCE_VERIFIED`, `PIPELINE_DATABRICKS_SENSITIVE_TAG_RULES`, `PIPELINE_DATABRICKS_METADATA_POLICY_VERSION`, `PIPELINE_DATABRICKS_STARTUP_TIMEOUT_SECONDS`, `PIPELINE_DATABRICKS_STARTUP_POLL_SECONDS`, `PIPELINE_DATABRICKS_STARTUP_MAX_POLL_SECONDS` |
 | Pipeline retention and writers | `PIPELINE_RUN_RETENTION_DAYS`, `PIPELINE_EVENT_RETENTION_DAYS`, `PIPELINE_ENABLE_POSTGRES_WRITER`, `PIPELINE_ENABLE_MSS_WRITER`, `PIPELINE_ENABLE_MCSCOP_WRITER`, `PIPELINE_APPLY_INTERNAL_CA_FIX` |
 
 These settings are deployment overrides, not user-editable application fields. Their defaults,
 allowed ranges, production restrictions, and compatibility aliases remain authoritative in
 `app/config.py`. `EMAIL_FROM` also accepts the legacy `SMTP_FROM_EMAIL` name, and the two directory
 aliases documented below remain supported for existing deployments.
+
+Live Databricks defaults to disabled and requires separate provider, metadata, startup, and writer
+acceptance. See the [Databricks operator guide](providers/databricks.md#operator-gates) for the gate
+relationships and staging requirements. Never infer live readiness from a successful demo run.
 
 ## Naming and precedence notes
 

@@ -6,6 +6,7 @@ tags, so entries below describe repository milestones rather than asserting exte
 
 | Release note | Status | Scope |
 |---|---|---|
+| [Unreleased changes](../../CHANGELOG.md#unreleased) | Current working-tree additions | Four-provider offline demo, transfer presentation/animation, stable Delta seed identities, and refreshed documentation |
 | [Data Mover 211026.0](../../CHANGELOG.md#2110260) | Current repository release | Version bump |
 | [Data Mover 102126.0](../../CHANGELOG.md#1021260) | Historical repository release | Version bump |
 | [Data Mover 071026.0](../../CHANGELOG.md#0710260) | Historical repository release | Version bump |

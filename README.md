@@ -3,6 +3,8 @@
 Data Mover is a self-hosted data-movement application for organizations that want to
 configure connections, browse remote objects, save pipelines, and run durable transfers
 between MSS, MCS-COP, PostgreSQL, and local CSV files using each user's encrypted credentials.
+The offline demo also includes Databricks; live Databricks use remains subject to separate
+operator and acceptance gates.
 
 It is a **browser UI** (FastAPI + [Hedron](https://github.com/eddiethedean/hedron) + HTMX),
 **not a public REST API**. Auth is either local passwords or a trusted identity header behind
@@ -27,13 +29,14 @@ See [SECURITY.md](SECURITY.md).
 - Saved, user-owned pipelines with provider-accurate locators (schema/table or dataset/branch/file)
 - MSS, MCS-COP, and PostgreSQL connections in either source or destination roles; CSV uploads are
   source-only
+- Offline Databricks demo with Unity Catalog browsing and Delta create, append, and replace
 - In-app Foundry dataset creation for MSS and MCS-COP destination folders
 - Owner-scoped CSV sources with header discovery and inferred column data types
 - Durable pipeline runs with enqueue, cancel, and HTMX polling against persisted events
 - Self-registration (email verify → admin approve) or admin invitations
 - Local password sign-in **or** trusted-header federated sign-in
 - User profile, session list/revoke, and password change
-- Encrypted, provider-specific credentials for MSS, MCS-COP, and PostgreSQL
+- Encrypted, provider-specific credentials for MSS, MCS-COP, PostgreSQL, and enabled Databricks
 - Connector health checks (fake in demo mode; live in real mode)
 - Admin user directory, invitations, approve/deny/disable, audit log
 - Asynchronous email delivery built into the web app
@@ -61,55 +64,62 @@ configured providers.
 
 ## Screenshots
 
-These desktop screenshots were captured from the local `make demo` environment. Demo connectors
-are simulated, remote endpoints are not contacted, and the images contain no real credentials. The
-images were refreshed on September 22, 2026 from the current Folio shell. They use fixed desktop
-viewports and include the updated compact navigation, header spacing, status lines, and footer.
+Captured October 21, 2026 from the current Folio desktop UI in an isolated local demo. All four
+connections use synthetic credentials and local emulators; no remote endpoints were contacted.
+The [screenshot gallery](docs/screenshots/README.md) includes matching light and dark views,
+focused transfer panels, and capture/reproduction details.
 
 ### Sign in
 
-![Full-page Data Mover sign-in screen showing the dark desktop theme, Data Mover and CDAO branding, demo protections, and account access form](docs/screenshots/login.jpg)
+![Dark Data Mover sign-in screen with Data Mover and CDAO branding, demo notice, and account access form](docs/screenshots/login.jpg)
 
-The sign-in screen introduces the secure transfer workspace before requesting credentials. It keeps
-the Data Mover and CDAO identities visible, explains the protections applied to transfers, and
-clearly identifies the local environment as a controlled demo.
+The sign-in screen introduces the transfer workspace, identifies the demo environment, and keeps
+account access and recovery actions together. [Light-mode view](docs/screenshots/login-light.jpg).
 
 ### Pipeline workspace
 
-![Data Mover Pipeline workspace showing a succeeded live transfer, source and destination, progress, and Run again action](docs/screenshots/pipeline-live.jpg)
+![Dark Pipeline workspace with a succeeded PostgreSQL-to-Databricks transfer, endpoint cards, a single progress meter, stage outcomes, and persisted counters](docs/screenshots/pipeline-live.jpg)
 
-The Pipeline workspace combines route setup, saved routes, and live transfer monitoring. The live
-view shows the source and destination, transfer progress, stage completion, row/byte counters, and
-the persisted event feed that operators can use to understand what happened during a run.
+The live monitor shows the source and destination objects, row counts, stage progress, destination
+impact, and persisted worker events. Directional packets animate during loading; success settles
+into a check mark. Cancelled and failed runs show their recorded destination impact without a
+misleading completion meter. Animation honors reduced-motion and forced-colors preferences.
+
+### Live transfer · light
+
+![Light Pipeline workspace showing the completed PostgreSQL-to-Databricks transfer and its persisted outcome](docs/screenshots/pipeline-live-light.jpg)
+
+Both modes use Hedron's built-in Folio theme and native cards, icons, typography, badges, and
+progress. See the [transfer recordings](docs/screenshots/README.md#transfer-animation) for the
+lifecycle in both modes.
 
 ### Expanded navigation
 
-![Data Mover Pipeline workspace with the expanded desktop navigation for Pipeline, Connections, Account, Team, and Audit log](docs/screenshots/navigation-expanded.jpg)
+![Dark Pipeline route setup with expanded desktop navigation and PostgreSQL-to-Databricks selectors](docs/screenshots/navigation-expanded.jpg)
 
-The desktop navigation is currently shown in its stable expanded state so route labels remain visible
-and users do not lose context. The collapse control is intentionally hidden while its layout treatment
-is being revisited.
+The desktop navigation gives access to Pipeline, Connections, Account, Team, and Audit log.
+Hedron owns its collapse behavior. Pipeline tabs separate route setup, live monitoring, and saved
+routes; the schema tab previews the target before a transfer creates or changes it.
 
 ### Connection status
 
-![Full-page Data Mover Connection status screen showing connected MSS, MCS-COP, and PostgreSQL checks](docs/screenshots/connections-status.jpg)
+![Dark Connection status screen showing four emulated providers: MSS, MCS-COP, PostgreSQL, and Databricks](docs/screenshots/connections-status.jpg)
 
-The Connection status screen makes readiness explicit. Each provider shows its latest health-check
-result and offers an on-demand **Test connection** action. Saved, connected connections appear in
-Pipeline selectors; an untested MSS or MCS-COP connection may also appear as a destination so you
-can create its first Foundry dataset.
+Each provider shows its latest check and an on-demand **Test connection** action. Saved, connected
+providers appear in Pipeline selectors; an untested MSS or MCS-COP connection may also appear as a
+destination so you can create its first Foundry dataset.
 
-MSS, MCS-COP, and PostgreSQL can each be used as a source or destination. CSV uploads can only be
-used as sources. All three remote destination writers are enabled by default; an operator can
-disable an individual writer with its `PIPELINE_ENABLE_*_WRITER` deployment setting.
+MSS, MCS-COP, and PostgreSQL support both directions, and their writers default to enabled. The
+Databricks demo also supports both directions and local Delta create, append, and replace. Live
+Databricks remains gated; the demo is not evidence of live workspace acceptance. CSV is source-only.
+[Light-mode status](docs/screenshots/connections-status-light.jpg).
 
 ### Audit activity
 
-![Full-page Data Mover Audit activity screen showing filtered pipeline events, outcomes, sources, and redacted details](docs/screenshots/audit-activity.jpg)
+![Dark Audit activity screen filtered to successful pipeline completion events from synthetic demo transfers](docs/screenshots/audit-activity.jpg)
 
-The administrator Audit activity screen records security-relevant application events with timestamps,
-event types, outcomes, sources, and redacted details. Filters make it possible to narrow the event
-log during routine review or incident investigation.
+Administrators can filter security-relevant events by type and outcome and expand redacted details.
+[Light-mode audit view](docs/screenshots/audit-activity-light.jpg).
 
 ## Non-goals
 
@@ -140,6 +150,8 @@ log during routine review or incident investigation.
 | [docs/providers/mss.md](docs/providers/mss.md) | Frozen MSS/Foundry protocol notes |
 | [docs/providers/mcscop.md](docs/providers/mcscop.md) | Frozen MCS-COP/Foundry protocol notes |
 | [docs/providers/postgres.md](docs/providers/postgres.md) | PostgreSQL connector and transactional load semantics |
+| [docs/providers/databricks.md](docs/providers/databricks.md) | Offline demo, live operator gates, and Delta acceptance/recovery |
+| [docs/screenshots/README.md](docs/screenshots/README.md) | Current desktop gallery and screenshot reproduction |
 | [docs/hedron.md](docs/hedron.md) | Hedron integration and feature coverage |
 | [docs/plans/README.md](docs/plans/README.md) | Roadmap artifacts, ETL/security contracts, ADE learning path, and delivery evidence |
 | [examples/no_node_data_app/README.md](examples/no_node_data_app/README.md) | Runnable FastAPI + Hedron + HTMX example without Node.js or Streamlit |
@@ -222,7 +234,9 @@ The complete workflow is in the [Data Mover user guide](docs/user-guide.md).
 The Databricks demo includes an always-ready simulated SQL warehouse, `demo.analytics` and
 `demo.staging` schemas, and synthetic Delta tables. Use it as either a source or destination;
 create, append, and replace run locally without a Databricks account or compute costs. Emulator
-table changes last for the app process. `make demo` enables this provider by default; set
+table changes last for the app process. Built-in table IDs remain stable across restarts so
+saved routes to unchanged seed tables still work; tables created during a session must be recreated
+after restart. `make demo` enables this provider by default; set
 `PIPELINE_ENABLE_DATABRICKS=false` to omit it. Real-mode Databricks writer approval gates are unchanged.
 
 ## CLI reference

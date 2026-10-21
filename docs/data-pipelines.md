@@ -47,6 +47,11 @@ credentials are resolved only within an explicit owner-authorized connector acti
 an immutable snapshot, and the application persists status and sanitized evidence for monitoring
 and review.
 
+The local demo includes Databricks in both directions with simulated Unity Catalog and Delta
+publication. Live Databricks remains independently gated; see the [operator guide](providers/databricks.md).
+The live panel visualizes persisted stages and counts; its loading animation is decorative and
+does not replace run events, schema evidence, or destination-impact reporting.
+
 ## What a pipeline means today
 
 A current Data Mover pipeline is a reusable, owner-scoped **extract-and-load route**. It identifies
@@ -59,8 +64,9 @@ The saved definition contains:
 - a display name and owner;
 - source and destination provider IDs;
 - versioned, provider-specific locators, such as a PostgreSQL table, Foundry dataset file, or CSV
-  upload and checksum;
-- a typed write policy, such as PostgreSQL append, upsert, or replace, or Foundry file replace; and
+  upload and checksum, or a gated Databricks qualified Delta identity;
+- a typed write policy, such as PostgreSQL append/upsert/replace, Foundry file replace, or
+  Databricks create/append/replace when enabled; and
 - saved Hash or Remove decisions for detected sensitive columns.
 
 Credentials are deliberately absent. The definition refers to the owner's provider slots, and the

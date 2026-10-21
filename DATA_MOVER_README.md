@@ -6,7 +6,8 @@ It brings connection setup, reusable transfer routes, run monitoring, and audit 
 place while keeping access tied to each user's own permissions.
 
 The project is designed for teams that need a repeatable, reviewable way to move operational data
-between MSS, MCS-COP, PostgreSQL, and local CSV files.
+between MSS, MCS-COP, PostgreSQL, and local CSV files. The offline demo also includes
+Databricks Unity Catalog and Delta tables; live Databricks remains subject to separate acceptance.
 
 > [!IMPORTANT]
 > Data Mover supports an organization's security and operational controls, but it does not by
@@ -54,6 +55,8 @@ capability-driven rather than a fixed pair-by-pair allowlist:
 | MCS-COP | MSS, PostgreSQL, MCS-COP | Supported when the destination writer is enabled |
 | PostgreSQL | PostgreSQL, MSS, MCS-COP | Supported when the destination writer is enabled |
 | CSV upload | PostgreSQL, MSS, MCS-COP | Supported when the destination writer is enabled |
+| MSS, MCS-COP, PostgreSQL, CSV upload (offline demo) | Databricks | Simulated Delta create, append, and replace |
+| Databricks (offline demo) | MSS, MCS-COP, PostgreSQL, Databricks | Simulated local source; same-system copies require distinct objects |
 
 CSV is source-only. Same-system routes must use different objects; the builder rejects a PostgreSQL
 table-to-itself route and Foundry outputs that overlap their source files. A route is shown only when
@@ -63,6 +66,13 @@ destination writer is enabled.
 “Supported” describes an implemented route, not its deployment state. PostgreSQL, MSS, and MCS-COP
 writing are enabled by default; operators can disable a writer through its
 `PIPELINE_ENABLE_*_WRITER` setting.
+
+The local `make demo` launcher seeds four connections and enables the Databricks emulator with
+create, append, and replace. No remote calls or compute charges occur. Demo table changes last for
+the app process; built-in table identities remain stable across restarts. Set
+`PIPELINE_ENABLE_DATABRICKS=false` to omit it. The [Databricks operator guide](docs/providers/databricks.md)
+records the independent live metadata, startup, writer, and recovery gates. Live Databricks remains
+unreleased and disabled by default.
 
 Advana, MongoDB, and arbitrary custom workloads are outside the current project scope.
 
@@ -79,6 +89,9 @@ Advana, MongoDB, and arbitrary custom workloads are outside the current project 
 5. **Save the route.** The completed definition becomes a reusable, user-owned pipeline.
 6. **Run and monitor.** Data Mover records the run, reports progress and outcomes, and preserves the
    operational events needed for review.
+   The live panel shows endpoint objects, persisted row counts, and one stage-progress meter.
+   Loading uses a directional packet animation; success, cancellation, and failure use static
+   outcomes with recorded destination impact. Both light and dark modes honor reduced motion.
 7. **Review or reconcile.** Successful runs retain their results and metrics. Ambiguous or
    interrupted writes are surfaced for human review instead of being reported as successful.
 
@@ -123,8 +136,15 @@ Choose the path that matches your role:
 | Maintainers and contributors | [Maintainer guide](docs/maintainer-guide.md) |
 
 For evaluation, begin with the demonstration environment. It uses simulated connectors and does
-not contact MSS, MCS-COP, or PostgreSQL endpoints. Do not use real credentials or sensitive data in
-a disposable demonstration deployment.
+not contact MSS, MCS-COP, PostgreSQL, or Databricks endpoints. Do not use real credentials or
+sensitive data in a disposable demonstration deployment.
+
+## Current desktop UI
+
+The [README screenshots](README.md#screenshots) and [light/dark gallery](docs/screenshots/README.md)
+show the October 21, 2026 UI, including four-provider status, route and schema setup, completed
+Delta transfers, account administration, and audit history. Screenshots use synthetic data from an
+isolated demo.
 
 ## Project status
 

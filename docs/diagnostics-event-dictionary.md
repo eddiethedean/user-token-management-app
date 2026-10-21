@@ -62,3 +62,14 @@ Terminal pipeline audit entries include the account ID, run and pipeline IDs, at
 duration, stage, source and destination provider names, row and byte totals, verification counts,
 data impact, retry and reconciliation state, and redacted failure diagnostics. They omit connection
 locators, schemas, row contents, and credentials.
+
+## Transfer presentation and demo evidence
+
+The live monitor's source/destination cards, stage percentage, loading packets, and terminal icons
+project persisted run facts. Packet movement does not emit a separate transfer event or prove
+that a remote destination committed. Use `pipeline.run.completed`, `pipeline.run.failed`,
+`pipeline.run.cancelled`, the run review, and `data_impact` for operational evidence.
+
+The [desktop screenshots](screenshots/README.md) use synthetic local providers, including Databricks.
+A successful demo run or its audit event proves the local workflow only. Live Databricks startup,
+metadata visibility, and publication/recovery require the separate [provider acceptance evidence](providers/databricks.md).

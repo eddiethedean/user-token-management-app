@@ -39,6 +39,19 @@ The spool directory must exist before startup and be writable by the app process
 staging area, not a shared data store. Use the same application database and encryption key ring
 across app restarts.
 
+## Databricks and demo boundaries
+
+`make demo` enables an offline Databricks warehouse and local Delta source/destination routes.
+Emulator table contents last only for the process; built-in seed identities remain stable across
+restarts. The application database retains saved routes and run history. The live panel's stage
+progress and packet motion are presentation only; use persisted status, counts, and impact for
+operational decisions. Motion stops outside loading and for reduced-motion preferences.
+
+Live Databricks is default-off. Before enabling it, complete the [provider acceptance gates](../providers/databricks.md).
+An uncertain Delta publication retains its target fence and may retain a staging table. Inspect
+**Databricks publication** in the run review and follow the provider's compute-family recovery
+procedure. A reconciliation review does not prove commit or authorize dropping an unresolved stage.
+
 ## Crash and lease recovery
 
 Each task renews its lease about every one-third of `PIPELINE_LEASE_SECONDS` from an independent

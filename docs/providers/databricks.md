@@ -1,14 +1,35 @@
 # Databricks connector: operator and acceptance guide
 
-**Release status:** Not released. The connector and local integration are present, but every
-Databricks feature flag defaults to off. Keep it off until the acceptance ledger links an approved
-provider contract and live evidence for the exact workspace, compute family, routes, and write modes
+**Live release status:** Not released. The connector and local integration are present, but the
+committed Databricks feature flags default to off. The local `make demo` launcher enables an
+offline emulator explicitly; this does not change live defaults or attest acceptance. Keep live
+Databricks off until the acceptance ledger links an approved provider contract and live evidence for the exact workspace, compute family, routes, and write modes
 being enabled.
 
 This guide records the current implementation contract so an operator can prepare an isolated
 acceptance environment. It is not approval to connect a production workspace.
 
-## Current scope
+## Offline demo
+
+Run `make demo` to seed MSS, MCS-COP, PostgreSQL, and Databricks with fake encrypted credentials.
+Databricks is simulated at the reserved `databricks.demo.invalid` hostname, with a running SQL
+warehouse, `demo.analytics` and `demo.staging` schemas, and synthetic Delta tables. Browse tables,
+inspect schema, extract to another provider, or create/append/replace a Delta destination. CSV can
+also feed a Delta destination. No network request, real PAT, or compute charge is involved.
+
+The local writer uses staged, atomic in-memory publication. Table changes last for the current
+process/registry generation. Built-in table identities are deterministic across restarts, so saved
+routes to unchanged seeded objects remain valid; newly created tables must be recreated. Routes
+saved before the identity fix need their Delta table reselected and saved once. Persisted run
+history remains in the application database.
+
+Set `PIPELINE_ENABLE_DATABRICKS=false` before `make demo` to omit the provider. Direct
+`seed-demo-connections` calls include it only when the provider flag is true. The reserved demo
+hostname is accepted only in demo mode. Real-mode HTTPS allowlisting and all metadata, startup,
+and writer attestations still apply. See the [user guide](../user-guide.md#local-seeded-demo) and
+[current screenshots](../screenshots/README.md).
+
+## Current live scope
 
 The code uses a workspace personal access token (PAT) with existing SQL warehouses or supported
 all-purpose classic clusters. Object support is Unity Catalog base Delta tables with scalar columns.
@@ -74,7 +95,8 @@ polling against the original deadline. A timeout does not stop compute either.
 
 ## Operator gates
 
-All gates are deployment settings; none should be turned on by copying a sample configuration.
+All live gates are deployment settings; none should be turned on by copying a sample configuration.
+The defaults below are the committed settings, not the offline `make demo` launcher overrides.
 The exact runtime settings and safety checks are defined in `app/config.py` and the connector
 registry.
 
@@ -231,5 +253,5 @@ and live Delta publication acceptance remain outside these tools' coverage.
    Engineering. Keep flags off for every unresolved gate.
 
 The accepted feature must also be documented in the [user guide](../user-guide.md), including its
-actual support matrix and any exclusions. Until then, Data Mover does not make a Databricks support
-claim.
+actual support matrix and any exclusions. Until then, Data Mover does not make a live Databricks support
+claim; the offline demo remains available for evaluation.

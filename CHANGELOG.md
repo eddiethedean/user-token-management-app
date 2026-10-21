@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Added
+
+- Offline Databricks demo connection with a simulated running warehouse, Unity Catalog browsing,
+  Delta sources, and atomic create/append/replace destinations. `make demo` seeds four providers;
+  live Databricks operator and acceptance gates remain unchanged.
+- Recorded transfer lifecycle animations in light and dark modes, with loading-only packet motion,
+  terminal state glyphs, reduced-motion and forced-colors support, and continuity across HTMX polls.
+
+### Changed
+
+- Rebuilt the live transfer panel around native Hedron endpoint cards, provider icons, bounded
+  object names, persisted row counts, one stage-progress meter, and explicit terminal impact.
+- Refreshed active user, operator, developer, and security documentation plus README and guardrail
+  screenshots for the October 21 desktop UI. Added a reproducible light/dark screenshot gallery.
+
+### Fixed
+
+- Keep built-in Databricks demo table identities stable across restarts so saved source, append,
+  and replace routes can resolve unchanged seeded tables.
+- Cancelled and failed runs no longer present a misleading completion meter; destination impact
+  remains visible from persisted run facts.
+
 ## [211026.0] — 2026-10-21
 
 ### Changed

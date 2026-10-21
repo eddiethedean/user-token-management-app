@@ -141,6 +141,10 @@ Desktop QA targets 1120px, 1440px, and 1920px, including dark/light presentation
 navigation collapse, and long-page scrolling. Mobile is not an art-direction target
 for this pass.
 
+The [current desktop gallery](screenshots/README.md) shows both Folio color modes and recorded
+transfer motion. Its [capture script](../scripts/capture_docs_screenshots.cjs) exercises the real
+UI without DOM or stylesheet overrides.
+
 See [hedron-enhancement-issues.md](hedron-enhancement-issues.md) for the upstream
 capability gaps and earlier styling migration issues. Arbitrary gap lengths remain
 unsupported under strict CSP: use named `xs`/`sm`/`md`/`lg`/`xl` values.

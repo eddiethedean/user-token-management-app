@@ -97,12 +97,17 @@ prefer `.venv/bin/python` when that repository virtual environment exists, and o
 
 ### Emulator fidelity rules
 
-`app/connectors/fake.py` is a behavioral emulator, not a mock health service. Keep these invariants:
+`app/connectors/fake.py` and `app/connectors/fake_databricks.py` are behavioral emulators, not mock health services. Keep these invariants:
 
-- health text must identify emulation, report zero network latency, and never claim remote
-  authentication or reachability;
+- health text must identify emulation and never claim remote authentication or reachability;
+  connector network latency is zero, and any displayed Databricks check duration must be understood
+  as local emulator work;
 - provider capabilities and metadata limitations must match the live adapters; MSS, MCS-COP, and
   PostgreSQL are source- and destination-capable, while CSV is source-only;
+- Databricks demo supports both directions with create/append/replace; the live adapter retains its
+  independent provider, metadata, compute-startup, and writer acceptance gates;
+- built-in Delta table identities remain stable across backend reconstruction, while session-created
+  tables and mutations last only for that backend generation;
 - catalogs and frozen locators use the saved endpoint/database identity and Foundry branch;
 - credential saves compare normalized bundles, automatically test only new or changed values, and
   preserve encryption, cache, timestamps, and health status for identical submissions;
@@ -233,7 +238,9 @@ Provider work spans several contracts. Complete all of these before calling the 
 
 The built-in baseline is symmetric for remote providers: MSS, MCS-COP, and PostgreSQL each support
 source and destination roles, and all three writers default to enabled. CSV is the sole source-only
-provider. Preserve that matrix unless a provider's tested protocol changes.
+provider. The offline demo also enables Databricks in both directions, with create/append/replace.
+Live Databricks defaults off and requires the [operator acceptance gates](providers/databricks.md).
+Preserve those boundaries unless a provider's tested protocol changes.
 
 1. Add framework-neutral credential value types in `app/domain/credentials.py` when needed and
    register provider fields in `app/services/secret_catalog.py`. The compatibility exports in
@@ -451,3 +458,14 @@ Every operationally meaningful change should leave behind:
 - [Hedron integration](hedron.md)
 - [Contributing](../CONTRIBUTING.md)
 - [Security decision register](../SECURITY.md)
+
+## Documentation screenshots
+
+The [current desktop gallery](screenshots/README.md) contains the README images, both Folio color
+modes, transfer-panel details, and capture metadata. Use its reproduction commands after changing
+visible UI. The capture script checks the demo boundary, terminal run outcome, four-provider status,
+page overflow, and asset hashes. Inspect the rendered files before updating their captions.
+
+Guardrail story screenshots have a separate isolated fixture and [reproduction guide](screenshots/stories/README.md).
+Refresh them when the corresponding UI or workflow changes. Keep release notes, historical QA logs,
+and archived plans dated to their original evidence rather than rewriting past results.

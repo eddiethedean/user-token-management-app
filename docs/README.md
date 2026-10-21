@@ -10,11 +10,12 @@ the work you need to do, then use the maintainer guide for the detailed rules.
 | Run the application locally | [Root README](../README.md) | [User guide](user-guide.md), [FAQ](faq.md) |
 | Understand the system before changing it | [Architecture](architecture.md) | [Data pipeline lifecycle](data-pipelines.md), [Maintainer guide](maintainer-guide.md) |
 | Fix a bug or add a feature | [Contributing guide](../CONTRIBUTING.md) | [Maintainer guide](maintainer-guide.md), [Troubleshooting](troubleshooting.md) |
-| Add or change a provider | [Provider checklist](../CONTRIBUTING.md#data-movement-feature-checklist) | [Provider notes](providers/mss.md), [MCS-COP notes](providers/mcscop.md), [PostgreSQL notes](providers/postgres.md) |
+| Add or change a provider | [Provider checklist](../CONTRIBUTING.md#data-movement-feature-checklist) | [Provider notes](providers/mss.md), [MCS-COP notes](providers/mcscop.md), [PostgreSQL notes](providers/postgres.md), [Databricks demo and operator gates](providers/databricks.md) |
 | Change authentication or secrets | [Authentication modes](auth-modes.md) | [Security gate](../SECURITY.md), [Configuration reference](configuration.md) |
 | Change the database schema | [Migration guide](../migrations/README.md) | [Deployment guide](deploy.md), [Troubleshooting](troubleshooting.md) |
 | Operate or recover transfers | [Pipeline runbook](runbooks/pipeline-worker.md) | [Data pipeline lifecycle](data-pipelines.md), [Troubleshooting](troubleshooting.md) |
 | Understand the Hedron integration | [Hedron guide](hedron.md) | [Stability contract](api/STABILITY.md), [Upgrade guide](guides/upgrade.md) |
+| Review the current desktop UI | [Screenshot gallery](screenshots/README.md) | [User guide](user-guide.md), [Guardrail screenshots](screenshots/stories/README.md) |
 | Review roadmap or release history | [Plans index](plans/README.md) | [Release index](releases/README.md), [Changelog](../CHANGELOG.md) |
 
 ## Code map
@@ -77,6 +78,14 @@ are documented in the [maintainer guide](maintainer-guide.md#testing-and-ci).
 - **Schema change:** add one Alembic revision, review its SQL, run `make migrate` and `make schema-status`, and document rollout or recovery notes.
 - **Security-sensitive change:** read the [security decision register](../SECURITY.md), add an owner-scoped regression test, and check logs and redaction behavior.
 - **Runtime change:** preserve durable run state, lease ownership, cancellation, restart recovery, and the in-process worker model described in the [pipeline runbook](runbooks/pipeline-worker.md).
+
+## Current UI and provider baseline
+
+The October 21, 2026 documentation refresh covers the four-provider offline demo, the native
+Hedron transfer panel, loading-only packet motion, light/dark desktop views, and stable built-in
+Delta demo identities across restarts. Live Databricks remains default-off and subject to the
+[operator acceptance contract](providers/databricks.md). Historical release and QA evidence keeps
+its original dates and test results.
 
 ## Documentation rules
 

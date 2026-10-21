@@ -1,0 +1,145 @@
+{
+  "capturedAt": "2026-10-21T19:05:55.071Z",
+  "appVersion": "211026.0",
+  "mode": "isolated synthetic demo",
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "captures": [
+    {
+      "filename": "login.jpg",
+      "state": "dark sign in; synthetic offline demo",
+      "sha256": "39ab308ae5533fd53afbcc84c86ec1c541286135ce951660cc6fd522c2c2094a"
+    },
+    {
+      "filename": "login-light.jpg",
+      "state": "light sign in; synthetic offline demo",
+      "sha256": "cbaace4f36a4fd77ccd6a15dc77dfb84e8520ad75fe50fe3d7af39d103177211"
+    },
+    {
+      "filename": "transfer-lifecycle-dark.gif",
+      "state": "dark; actual demo lifecycle through loading to success",
+      "observedStates": [
+        "validating",
+        "loading",
+        "verifying",
+        "succeeded"
+      ],
+      "frames": 40,
+      "sha256": "06eacd1b26679ff9deacee5fdf655782a501725cabf75ab8f6aae75f3318bbc6"
+    },
+    {
+      "filename": "pipeline-live.jpg",
+      "state": "dark; succeeded PostgreSQL to Delta replace, 3 rows",
+      "sha256": "7c4406ba94a5a5597cd6e3533873344603a2488db5c24c37d20db5064cc87be7"
+    },
+    {
+      "filename": "transfer-complete-dark.jpg",
+      "state": "dark; persisted completed transfer panel",
+      "sha256": "94e473d6740160ff97f0ab3a2d41388cd1ffffc54cdbb71bc9a267f79ba01ad8"
+    },
+    {
+      "filename": "navigation-expanded.jpg",
+      "state": "dark; saved PostgreSQL to Delta route, expanded navigation",
+      "sha256": "b085de9b4b1049b3144dbd91638a53f88ed3c59f33fcf7e3c3a905fff159eb28"
+    },
+    {
+      "filename": "schema-preview.jpg",
+      "state": "dark; target schema preview for saved Delta route",
+      "sha256": "e20d4c96f3a8b49bebcc6036ea8a95132225ccfddfdc5650b535fdbc1cf403a2"
+    },
+    {
+      "filename": "saved-routes.jpg",
+      "state": "dark; reusable demo routes",
+      "sha256": "dd17ecb9c1aa1164b1c42960101313795ddf5af3bca6bc80b6cb599d0cc6b50d"
+    },
+    {
+      "filename": "connection-credentials.jpg",
+      "state": "dark; encrypted credential forms, no saved plaintext",
+      "sha256": "0bde743d172284395e7463fb9be7fd2654f45f8a2e5b8785a07339ea5c9dbe11"
+    },
+    {
+      "filename": "connections-status.jpg",
+      "state": "dark; all four emulated providers, Databricks ready",
+      "sha256": "155007e8ddc755b44554c6d95e8e376c6f37fa8d3802036895e778d203d98796"
+    },
+    {
+      "filename": "account.jpg",
+      "state": "dark; synthetic administrator profile",
+      "sha256": "da608f17140d875ad1085cd6269d897e4425372971ec36eb40ba64a7bb40d32a"
+    },
+    {
+      "filename": "team.jpg",
+      "state": "dark; isolated demo user directory",
+      "sha256": "06d34e39aff47cc979c33b548fc922f8d3b0eab3ea9317253702c3f0ef32fbf7"
+    },
+    {
+      "filename": "audit-activity.jpg",
+      "state": "dark; filtered successful pipeline completion audit",
+      "sha256": "d7f7f60eebab229891f640f05f436a9ab520f7b78808db57a8cbd28df117e13d"
+    },
+    {
+      "filename": "transfer-lifecycle-light.gif",
+      "state": "light; actual demo lifecycle through loading to success",
+      "observedStates": [
+        "validating",
+        "loading",
+        "verifying",
+        "succeeded"
+      ],
+      "frames": 40,
+      "sha256": "d6eed95cb49237b2e716f4ad79246a097fa6263d3f38dcbe0740a23763bb4484"
+    },
+    {
+      "filename": "pipeline-live-light.jpg",
+      "state": "light; succeeded PostgreSQL to Delta replace, 3 rows",
+      "sha256": "8db075be780368ded8c0edd3c721517fbef60a262d875fb6fa0878ea2c3e9ce3"
+    },
+    {
+      "filename": "transfer-complete-light.jpg",
+      "state": "light; persisted completed transfer panel",
+      "sha256": "9f80d99e1d65f66995cc7c8994175a0c4bb1c0953cd5ad2b1f9908458f5acdf5"
+    },
+    {
+      "filename": "navigation-expanded-light.jpg",
+      "state": "light; saved PostgreSQL to Delta route, expanded navigation",
+      "sha256": "d2bc4cf5dc8cec5f67ef9338fdb507f5c05eb8e9f4930e7e8d91a899b70de327"
+    },
+    {
+      "filename": "schema-preview-light.jpg",
+      "state": "light; target schema preview for saved Delta route",
+      "sha256": "11796482e8824f14c9d17a5ba4701c0242fe10c13016ef7aca973e66815f1ba5"
+    },
+    {
+      "filename": "saved-routes-light.jpg",
+      "state": "light; reusable demo routes",
+      "sha256": "39fcb08a97c70beff1d09b448ae5f3654bd0fbc160f67de5586eab4aaad93854"
+    },
+    {
+      "filename": "connection-credentials-light.jpg",
+      "state": "light; encrypted credential forms, no saved plaintext",
+      "sha256": "3ea52b828a7304cb7c33de888438e8e1f5b00127c4c0814a55b9b0b5afe7d67a"
+    },
+    {
+      "filename": "connections-status-light.jpg",
+      "state": "light; all four emulated providers, Databricks ready",
+      "sha256": "1872a6cd039073a489302bf863722cb4c9ab36de02012a291d63afa59122116b"
+    },
+    {
+      "filename": "account-light.jpg",
+      "state": "light; synthetic administrator profile",
+      "sha256": "b0e862f74cb4d3e507e722ec3120c1cee91d5c3d7f953a6c9517fc14ec0bbf82"
+    },
+    {
+      "filename": "team-light.jpg",
+      "state": "light; isolated demo user directory",
+      "sha256": "fb365397175adee60175637d3e63a860222001bba4237ae36d90ef1e889b0f16"
+    },
+    {
+      "filename": "audit-activity-light.jpg",
+      "state": "light; filtered successful pipeline completion audit",
+      "sha256": "622d8a11f72ef67fd6cc72b7ae3759239808731b4a0de782563e3cac6a269ada"
+    }
+  ]
+}

@@ -22,6 +22,12 @@ Hedron decorators, route metadata, fragment regions, and interaction contracts a
 surfaces: they are not a general-purpose API, but changes must pass `make hedron-check` and the
 relevant UI tests.
 
+The offline Databricks demo is an evaluation surface. It does not extend the supported live
+provider matrix or bypass the [Databricks acceptance gates](../providers/databricks.md). Built-in
+demo table identities remain stable across process restarts; session-created table contents do not.
+Transfer animation and screenshot fixtures are presentation/documentation tools, not progress APIs
+or alternate execution authorities.
+
 ## Upgrade rule
 
 Review dependency release notes and the [upgrade guide](../guides/upgrade.md), update the lockfile
