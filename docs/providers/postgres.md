@@ -46,6 +46,9 @@ Read namespaces and tables from `information_schema` / `pg_catalog`. Inspect col
 - The snapshot covers row extraction only. Schema inspection occurs before extraction on a separate
   connection, and destination verification uses the extracted totals and committed load manifest
   rather than issuing a second source read.
+- Numeric values that exceed Polars' 38-digit decimal capacity are extracted as exact text, with
+  the original numeric schema retained for destination loading. Precision and scale are never
+  reduced to fit a Polars decimal.
 
 ## Destination load
 

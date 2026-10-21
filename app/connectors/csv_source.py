@@ -143,6 +143,12 @@ class CsvSourceConnector:
         payload = content.encode("utf-8") if isinstance(content, str) else content
         separator = str((credentials or {}).get("delimiter") or ",")[:1]
         quote_char = str((credentials or {}).get("quote_char") or '"')[:1]
+        skip_initial_space_value = (credentials or {}).get("skip_initial_space", False)
+        skip_initial_space = (
+            skip_initial_space_value
+            if isinstance(skip_initial_space_value, bool)
+            else str(skip_initial_space_value).casefold() in {"1", "true", "yes"}
+        )
         columns = _metadata_list((credentials or {}).get("columns"))
         column_types = _metadata_list((credentials or {}).get("column_types"))
         column_timezones = _metadata_bool_list((credentials or {}).get("column_timezones"))
@@ -178,13 +184,14 @@ class CsvSourceConnector:
                 if schema_overrides is not None
                 else {}
             )
-            if typed_columns:
-                payload = _normalize_profiled_cells(payload, separator, quote_char, typed_columns)
+            payload = _normalize_profiled_cells(
+                payload, separator, quote_char, typed_columns, skip_initial_space=skip_initial_space
+            )
             return pl.read_csv(
                 BytesIO(payload),
                 infer_schema_length=None,
                 separator=separator,
-                quote_char='"' if typed_columns else quote_char,
+                quote_char=quote_char,
                 new_columns=columns or None,
                 schema_overrides=schema_overrides,
                 try_parse_dates=True,
@@ -223,15 +230,27 @@ def _metadata_bool_list(value) -> list[bool]:
 
 
 def _normalize_profiled_cells(
-    payload: bytes, separator: str, quote_char: str, typed_columns: dict[int, str]
+    payload: bytes,
+    separator: str,
+    quote_char: str,
+    typed_columns: dict[int, str],
+    *,
+    skip_initial_space: bool = False,
 ) -> bytes:
     """Keep parser input consistent with the profiler's whitespace rules."""
 
     text = payload.decode("utf-8-sig")
-    reader = csv.reader(StringIO(text, newline=""), delimiter=separator, quotechar=quote_char)
+    reader = csv.reader(
+        StringIO(text, newline=""),
+        delimiter=separator,
+        quotechar=quote_char,
+        skipinitialspace=skip_initial_space,
+    )
     output = StringIO(newline="")
-    writer = csv.writer(output, delimiter=separator, lineterminator="\n")
+    writer = csv.writer(output, delimiter=separator, quotechar=quote_char, lineterminator="\n")
     for row in reader:
+        if not row or all(not value.strip() for value in row):
+            continue
         for index, inferred_type in typed_columns.items():
             if index < len(row):
                 value = row[index].strip()

@@ -357,6 +357,7 @@ class UserCatalog:
                 "content": content.decode("utf-8") if isinstance(content, bytes) else "",
                 "delimiter": inspection.delimiter,
                 "quote_char": inspection.quote_char,
+                "skip_initial_space": str(inspection.skip_initial_space).lower(),
                 "columns": json.dumps([column.name for column in inspection.columns]),
                 "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
                 "column_timezones": json.dumps(

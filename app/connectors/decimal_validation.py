@@ -28,6 +28,8 @@ def decimal_shape(data_type: str) -> tuple[int, int] | None:
 
 
 def _has_unbounded_decimal_shape(data_type: str) -> bool:
+    if data_type.casefold() in {"numeric", "decimal"}:
+        return True
     match = _DECIMAL.fullmatch(data_type.casefold())
     return match is not None and (
         match.group("precision").casefold() == "none" or match.group("scale").casefold() == "none"

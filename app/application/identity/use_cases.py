@@ -18,6 +18,7 @@ class LoginInput:
 class LoginResult:
     user_id: str
     preferred_color_mode: str = "dark"
+    security_version: int = 1
     access_token: str = ""
     refresh_token: str = ""
 

@@ -50,7 +50,7 @@ def authenticate_user(
     except EmailPolicyError:
         password_service.verify(password, None)
         raise AuthenticationError(_GENERIC_AUTH_FAILURE) from None
-    user = db.scalar(select(User).where(User.email == canonical))
+    user = db.scalar(select(User).where(User.email == canonical).with_for_update())
     now = utcnow()
     valid = password_service.verify(password, user.password_hash if user else None)
     if user and user.locked_until is not None and user.locked_until > now:
@@ -77,7 +77,12 @@ def authenticate_user(
         if user and user.is_active and user.email_verified_at:
             increment = (
                 update(User)
-                .where(User.id == user.id, User.failed_login_attempts < _LOGIN_LOCKOUT_ATTEMPTS)
+                .where(
+                    User.id == user.id,
+                    User.failed_login_attempts < _LOGIN_LOCKOUT_ATTEMPTS,
+                    User.password_hash == user.password_hash,
+                    User.security_version == user.security_version,
+                )
                 .values(
                     failed_login_attempts=User.failed_login_attempts + 1,
                     locked_until=None,
@@ -102,13 +107,29 @@ def authenticate_user(
         if outcome == "locked":
             raise AccountLockedError(_GENERIC_AUTH_FAILURE, reason="locked")
         raise AuthenticationError(_GENERIC_AUTH_FAILURE)
+    verified_hash = user.password_hash
+    verified_version = user.security_version
     clear_failures = (
         update(User)
-        .where(User.id == user.id, User.failed_login_attempts < _LOGIN_LOCKOUT_ATTEMPTS)
+        .where(
+            User.id == user.id,
+            User.failed_login_attempts < _LOGIN_LOCKOUT_ATTEMPTS,
+            User.password_hash == verified_hash,
+            User.security_version == verified_version,
+        )
         .values(failed_login_attempts=0, locked_until=None, last_login_at=now)
         .execution_options(synchronize_session=False)
     )
-    authenticated_user_id = scalar_returning(db, clear_failures, User.id, fallback=lambda: user.id)
+
+    def _read_authenticated_user_id() -> str | None:
+        db.refresh(user)
+        if user.password_hash != verified_hash or user.security_version != verified_version:
+            return None
+        return user.id
+
+    authenticated_user_id = scalar_returning(
+        db, clear_failures, User.id, fallback=_read_authenticated_user_id
+    )
     if not authenticated_user_id:
         record_event(db, "auth.login", request=request, target=user, outcome="locked")
         db.commit()
@@ -175,8 +196,44 @@ def authenticate_trusted_identity(
 
 
 def create_session(
-    db: Session, settings: Settings, user: User, request: Request | None = None
+    db: Session,
+    settings: Settings,
+    user: User,
+    request: Request | None = None,
+    *,
+    expected_security_version: int | None = None,
 ) -> SessionTokens:
+    expected_version = (
+        user.security_version if expected_security_version is None else expected_security_version
+    )
+    # This conditional no-op update acquires a write lock on SQLite as well as
+    # PostgreSQL. Hold it until the session is committed so a password reset
+    # either wins first (and makes this check fail) or revokes the new session.
+    lock_user = execute_dml(
+        db,
+        update(User)
+        .where(
+            User.id == user.id,
+            User.status == UserStatus.ACTIVE.value,
+            User.security_version == expected_version,
+        )
+        .values(security_version=User.security_version),
+    )
+    if lock_user.rowcount != 1:
+        raise AuthenticationError(_GENERIC_AUTH_FAILURE)
+    current_user = db.scalar(
+        select(User)
+        .where(User.id == user.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        current_user is None
+        or not current_user.is_active
+        or current_user.security_version != expected_version
+    ):
+        raise AuthenticationError(_GENERIC_AUTH_FAILURE)
+    user = current_user
     now = utcnow()
     raw_refresh = random_token()
     session = RefreshSession(

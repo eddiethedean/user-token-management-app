@@ -124,6 +124,13 @@ def register_login_routes(app: Hedron) -> None:
             user = db.get(User, identity.user_id)
             if user is None:
                 raise AuthenticationError("Unable to sign in with those credentials.")
+            tokens = create_session(
+                db,
+                settings,
+                user,
+                request,
+                expected_security_version=identity.security_version,
+            )
         except AccountLockedError as exc:
             reference_id = getattr(request.state, "support_reference", "")
             # Keep the lockout response indistinguishable from an ordinary
@@ -185,7 +192,6 @@ def register_login_routes(app: Hedron) -> None:
             user_id=user.id,
             operation="password_login",
         )
-        tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
             redirect_path(request, safe_next(next)),
             status_code=status.HTTP_303_SEE_OTHER,
@@ -218,6 +224,9 @@ def register_login_routes(app: Hedron) -> None:
         )
         try:
             user = authenticate_trusted_identity(db, settings, request)
+            tokens = create_session(
+                db, settings, user, request, expected_security_version=user.security_version
+            )
         except AuthenticationError as exc:
             reference_id = getattr(request.state, "support_reference", "")
             outcome = auth_failure(reason="trusted_identity", reference_id=reference_id)
@@ -247,7 +256,6 @@ def register_login_routes(app: Hedron) -> None:
             user_id=user.id,
             operation="federated_login",
         )
-        tokens = create_session(db, settings, user, request)
         response = RedirectResponse(
             redirect_path(request, safe_next(next)),
             status_code=status.HTTP_303_SEE_OTHER,

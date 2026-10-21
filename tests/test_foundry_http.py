@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+from datetime import time
 from pathlib import Path
 
 import httpx2
@@ -17,6 +18,7 @@ from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.foundry import (
     FoundryClient,
     FoundryConnector,
+    _csv_file_scan,
     normalize_foundry_base,
     supported_files,
 )
@@ -34,6 +36,41 @@ from tests.simulators.links import FIXTURES
 
 DATASET = FOUNDRY_DATASET
 TOKEN = FOUNDRY_TOKEN
+
+
+def test_foundry_csv_scan_parses_boolean_values(tmp_path: Path) -> None:
+    path = tmp_path / "booleans.csv"
+    path.write_text("id,ready\n1,true\n2,FALSE\n3,\n", encoding="utf-8")
+
+    scan, profiles = _csv_file_scan(path)
+
+    assert (
+        next(profile for profile in profiles if profile.name == "ready").inferred_type == "boolean"
+    )
+    assert scan.collect().to_dict(as_series=False) == {
+        "id": [1, 2, 3],
+        "ready": [True, False, None],
+    }
+
+
+def test_foundry_csv_scan_parses_time_values(tmp_path: Path) -> None:
+    path = tmp_path / "times.csv"
+    path.write_text("id,shift_time\n1,12:34:56\n2,08:30:15.125\n3,\n", encoding="utf-8")
+
+    scan, profiles = _csv_file_scan(path)
+
+    assert (
+        next(profile for profile in profiles if profile.name == "shift_time").inferred_type
+        == "time"
+    )
+    assert scan.collect().to_dict(as_series=False) == {
+        "id": [1, 2, 3],
+        "shift_time": [
+            time(12, 34, 56),
+            time(8, 30, 15, 125000),
+            None,
+        ],
+    }
 
 
 @pytest.fixture()

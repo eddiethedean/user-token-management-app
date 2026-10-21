@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+from datetime import date, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -29,8 +31,12 @@ from app.connectors.locators import (
     DatabricksTableLocator,
     PostgresTableLocator,
     databricks_workspace_id,
+    postgres_table,
 )
+from app.connectors.postgres import PostgresConnector
+from app.connectors.postgres import connect as connect_postgres
 from app.domain.catalogs import ColumnSchema, ObjectSchema
+from tests.postgres_support import connector_settings
 
 HOST = "dbc-12345678.cloud.databricks.com"
 WORKSPACE_URL = f"https://{HOST}"
@@ -124,6 +130,18 @@ def test_sql_readiness_is_gated_by_live_startup_contract() -> None:
 
     assert failure.value.code is TransferErrorCode.COMPUTE_NOT_READY
     assert sql_calls == []
+
+
+def test_databricks_inspection_uses_full_decimal_declaration() -> None:
+    harness = _SQLHarness(
+        exists=True,
+        columns=[("amount", "decimal", "DECIMAL(10,2)", "YES")],
+    )
+    connector, credentials = _sql_connector(harness)
+
+    schema = connector.inspect_object(credentials, _table_locator())
+
+    assert schema.columns[0].data_type == "Decimal(precision=10, scale=2)"
 
 
 def test_direct_databricks_writer_requires_durable_worker_coordinator() -> None:
@@ -277,7 +295,10 @@ class _SQLHarness:
         self.tags = tags or {}
         self.table_type = table_type
         self.data_format = data_format
-        self.columns = columns or [("id", "bigint", "NO"), ("ssn", "string", "YES")]
+        self.columns = columns or [
+            ("id", "bigint", "BIGINT", "NO"),
+            ("ssn", "string", "STRING", "YES"),
+        ]
         self.object_id = object_id
         self.detail_format = detail_format
         self.history_marker = history_marker
@@ -429,6 +450,114 @@ def test_staged_delta_publication_records_transformed_batches_and_cleans_up(
         "cleanup_confirmed",
     ]
     assert events[2][1]["rows"] == 2
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize(
+    ("policy", "exists"),
+    [
+        (DatabricksCreatePolicy(), False),
+        (DatabricksAppendPolicy(), True),
+        (DatabricksReplacePolicy(), True),
+    ],
+)
+def test_postgres_source_types_publish_to_databricks(postgres_credentials, policy, exists) -> None:
+    values = (
+        7,
+        "example",
+        True,
+        1.5,
+        2.5,
+        date(2026, 10, 21),
+        datetime(2026, 10, 21, 12, 30),
+        b"payload",
+        Decimal("123.45"),
+    )
+    conn = connect_postgres(postgres_credentials, connector_settings())
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "CREATE TABLE public.databricks_source ("
+                "id INTEGER, label TEXT, ready BOOLEAN, score REAL, weight DOUBLE PRECISION, "
+                "day DATE, occurred TIMESTAMP WITHOUT TIME ZONE, payload BYTEA, amount NUMERIC(10,2))"
+            )
+            cursor.execute(
+                "INSERT INTO public.databricks_source VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                values,
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    source = PostgresConnector(connector_settings())
+    source_locator = postgres_table("public", "databricks_source")
+    schema = source.inspect_object(postgres_credentials, source_locator)
+    harness = _SQLHarness(
+        exists=exists,
+        columns=[
+            ("id", "int", "INT", "YES"),
+            ("label", "string", "STRING", "YES"),
+            ("ready", "boolean", "BOOLEAN", "YES"),
+            ("score", "float", "FLOAT", "YES"),
+            ("weight", "double", "DOUBLE", "YES"),
+            ("day", "date", "DATE", "YES"),
+            ("occurred", "timestamp", "TIMESTAMP", "YES"),
+            ("payload", "binary", "BINARY", "YES"),
+            ("amount", "decimal", "DECIMAL(10,2)", "YES"),
+        ],
+    )
+    destination, credentials = _sql_connector(harness)
+    credentials["_publication_event"] = lambda *_args, **_kwargs: None
+    session = destination.prepare_destination(
+        credentials,
+        _table_locator(),
+        schema,
+        policy,
+        run_id="11111111-1111-4111-8111-111111111111",
+    )
+    for batch in source.extract(
+        postgres_credentials, source_locator, batch_rows=100, batch_bytes=10_000
+    ):
+        destination.write_batch(session, batch)
+    manifest = destination.finalize(session)
+
+    declarations = next(
+        statement
+        for statement, _ in harness.statements
+        if statement.startswith("CREATE TABLE `private`.`staging`")
+    )
+    assert (
+        "`id` INT, `label` STRING, `ready` BOOLEAN, `score` FLOAT, `weight` DOUBLE" in declarations
+    )
+    assert (
+        "`day` DATE, `occurred` TIMESTAMP, `payload` BINARY, `amount` DECIMAL(10,2)" in declarations
+    )
+    written_rows = [
+        row
+        for statement, parameters in harness.statements
+        if statement.startswith("INSERT INTO `private`.`staging`")
+        for row in parameters
+    ]
+    assert written_rows == [values]
+    assert manifest.rows == 1
+
+
+def test_postgres_type_normalization_retains_databricks_append_schema_check() -> None:
+    destination, credentials = _sql_connector(_SQLHarness(exists=True))
+    credentials["_publication_event"] = lambda *_args, **_kwargs: None
+    schema = ObjectSchema(
+        locator=postgres_table("public", "source"),
+        columns=(ColumnSchema("id", "integer"), ColumnSchema("ssn", "text")),
+    )
+    with pytest.raises(ConnectorError) as failure:
+        destination.prepare_destination(
+            credentials,
+            _table_locator(),
+            schema,
+            DatabricksAppendPolicy(),
+            run_id="11111111-1111-4111-8111-111111111111",
+        )
+    assert failure.value.code is TransferErrorCode.SCHEMA_DRIFT
 
 
 def test_abort_and_recovery_helpers_fail_closed_for_unknown_sessions(monkeypatch) -> None:
@@ -1099,7 +1228,7 @@ def test_destination_changes_after_staging_prevent_publication(
     if change == "identity":
         harness.object_id = "recreated-table"
     elif change == "columns":
-        harness.columns = [*harness.columns, ("new_column", "string", "YES")]
+        harness.columns = [*harness.columns, ("new_column", "string", "STRING", "YES")]
     elif change == "sensitivity":
         harness.tags["table_tags"] = [("classification", "sensitive")]
     else:

@@ -28,4 +28,5 @@ class SqlAlchemyPasswordGateway:
         return LoginResult(
             user_id=user.id,
             preferred_color_mode=user.preferred_color_mode,
+            security_version=user.security_version,
         )

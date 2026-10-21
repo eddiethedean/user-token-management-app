@@ -658,8 +658,20 @@ class PostgresConnector:
                 TransferErrorCode.SOURCE_NOT_FOUND, "PostgreSQL locator is invalid."
             )
         schema = self.inspect_object(credentials, locator)
-        names = [column.name for column in schema.columns]
         polars_schema = {column.name: _polars_type(column.data_type) for column in schema.columns}
+        # Convert values without a lossless Polars dtype on the server before
+        # psycopg or Polars can coerce them into a narrower representation.
+        selections = [
+            sql.SQL("{}::text").format(sql.Identifier(column.name))
+            if polars_schema[column.name] == pl.String
+            and (
+                column.data_type.casefold().startswith(("decimal", "numeric"))
+                or column.data_type.casefold() == "time with time zone"
+                or column.data_type.casefold() == "interval"
+            )
+            else sql.Identifier(column.name)
+            for column in schema.columns
+        ]
         conn = connect(credentials, self.settings)
         try:
             conn.autocommit = False
@@ -667,9 +679,13 @@ class PostgresConnector:
             # cursor; psycopg cannot execute SET through that cursor.
             with conn.cursor() as transaction_cursor:
                 transaction_cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                # PostgreSQL's default interval text depends on IntervalStyle.
+                # ISO 8601 preserves component signs when another server parses
+                # the extracted value under a different setting.
+                transaction_cursor.execute("SET LOCAL intervalstyle = 'iso_8601'")
             with conn.cursor(name=f"dm_{uuid4().hex}") as cursor:
                 query = sql.SQL("SELECT {} FROM {}").format(
-                    sql.SQL(", ").join(sql.Identifier(name) for name in names),
+                    sql.SQL(", ").join(selections),
                     sql.Identifier(locator.schema_name, locator.table),
                 )
                 cursor.execute(query)
@@ -762,7 +778,6 @@ class PostgresConnector:
                     and write_policy.schema_policy == "recreate"
                 )
                 if not recreates_schema:
-                    _validate_existing_decimal_columns(cursor, locator, schema)
                     cursor.execute(
                         """
                         SELECT column_name, is_generated, is_identity, identity_generation
@@ -789,6 +804,18 @@ class PostgresConnector:
                                 generated_columns.add(name)
                         elif is_generated == "ALWAYS":
                             generated_columns.add(name)
+                    transferable_schema = ObjectSchema(
+                        locator=schema.locator,
+                        columns=tuple(
+                            column
+                            for column in schema.columns
+                            if column.name not in generated_columns
+                        ),
+                        primary_key=schema.primary_key,
+                        unique_constraints=schema.unique_constraints,
+                        estimated_rows=schema.estimated_rows,
+                    )
+                    _validate_existing_decimal_columns(cursor, locator, transferable_schema)
                     if isinstance(write_policy, PostgresUpsertPolicy):
                         _validate_upsert_policy(cursor, locator, schema, write_policy)
                     for column_name in supplied_identity_columns:
@@ -808,17 +835,6 @@ class PostgresConnector:
                             )
                         destination_exists = bool(destination_row[0])
                         if destination_exists:
-                            transferable_schema = ObjectSchema(
-                                locator=schema.locator,
-                                columns=tuple(
-                                    column
-                                    for column in schema.columns
-                                    if column.name not in generated_columns
-                                ),
-                                primary_key=schema.primary_key,
-                                unique_constraints=schema.unique_constraints,
-                                estimated_rows=schema.estimated_rows,
-                            )
                             _validate_destination_column_casts(cursor, locator, transferable_schema)
                 cursor.execute(
                     sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
@@ -1345,6 +1361,8 @@ def _pg_type(data_type: str) -> str:
         )
     if folded.startswith("timestamp"):
         return "TIMESTAMPTZ" if "with time zone" in folded else "TIMESTAMP"
+    if folded == "time with time zone":
+        return "TIMETZ"
     for dtype, mapped in _POLARS_TO_PG.items():
         if str(dtype).casefold() == folded:
             return mapped
@@ -1352,6 +1370,8 @@ def _pg_type(data_type: str) -> str:
         return "BIGINT"
     if "float" in folded or "double" in folded:
         return "DOUBLE PRECISION"
+    if folded in {"real", "float4"}:
+        return "REAL"
     if "decimal" in folded or folded == "numeric":
         return "NUMERIC"
     if "bool" in folded:
@@ -1368,7 +1388,11 @@ def _validate_existing_decimal_columns(
 ) -> None:
     """Reject existing destination columns that would round CSV decimals."""
 
-    if not any("decimal" in column.data_type.casefold() for column in schema.columns):
+    if not any(
+        "decimal" in column.data_type.casefold()
+        or column.data_type.casefold() in {"numeric", "decimal"}
+        for column in schema.columns
+    ):
         return
     cursor.execute(
         """
@@ -1504,6 +1528,28 @@ def _validate_destination_column_casts(
     )
     if not cast_columns:
         return
+    timetz_columns = tuple(
+        column.name for column in cast_columns if _pg_type(column.data_type) == "TIMETZ"
+    )
+    if timetz_columns:
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+              AND column_name = ANY(%s) AND data_type = 'time without time zone'
+            """,
+            (locator.schema_name, locator.table, list(timetz_columns)),
+        )
+        lossy_time_columns = [str(row[0]) for row in cursor.fetchall()]
+        if lossy_time_columns:
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "Destination TIME columns cannot preserve the source time zone for: "
+                + ", ".join(lossy_time_columns)
+                + ".",
+                retryable=False,
+            )
     target = sql.Identifier(locator.schema_name, locator.table)
     columns = sql.SQL(", ").join(sql.Identifier(column.name) for column in cast_columns)
     values = sql.SQL(", ").join(
@@ -1652,10 +1698,14 @@ def _polars_type(data_type: str):
         return (
             pl.Datetime("us", time_zone="UTC") if "with time zone" in folded else pl.Datetime("us")
         )
+    if folded == "time with time zone":
+        return pl.String
     if folded.startswith("time"):
         return pl.Time
     if folded == "interval":
-        return pl.Duration("us")
+        # A fixed duration cannot preserve PostgreSQL calendar months/years.
+        # Extract the server's interval text so staging can parse it natively.
+        return pl.String
     if folded == "bytea":
         return pl.Binary
     decimal = _DECIMAL.fullmatch(folded)
@@ -1666,9 +1716,13 @@ def _polars_type(data_type: str):
             # PostgreSQL's unconstrained NUMERIC permits scales beyond the
             # fixed-scale Decimal representation Polars can hold.
             return pl.String
-        precision = min(38, int(precision_text))
-        if scale_text.casefold() != "none":
-            return pl.Decimal(precision=precision, scale=min(precision, int(scale_text)))
+        precision = int(precision_text)
+        scale = int(scale_text)
+        if not 1 <= precision <= 38 or not 0 <= scale <= precision:
+            # PostgreSQL NUMERIC can exceed Decimal128's precision and scale.
+            # Keep exact text rather than rounding values to fit Polars.
+            return pl.String
+        return pl.Decimal(precision=precision, scale=scale)
     if folded in {"numeric", "decimal"}:
         # PostgreSQL permits unconstrained NUMERIC columns. Preserve their full
         # value in text because Polars Decimal requires one fixed scale.

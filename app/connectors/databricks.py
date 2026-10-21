@@ -315,7 +315,7 @@ class DatabricksConnector:
         try:
             with self._sql_cursor(credentials) as cursor:
                 cursor.execute(
-                    f"SELECT column_name, data_type, is_nullable "
+                    f"SELECT column_name, data_type, full_data_type, is_nullable "
                     f"FROM {_quote(selected.catalog)}.information_schema.columns "
                     "WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position",
                     [selected.schema_name, selected.table],
@@ -338,11 +338,11 @@ class DatabricksConnector:
         columns = tuple(
             ColumnSchema(
                 name=str(name),
-                data_type=_polars_type(str(data_type)),
+                data_type=_polars_type(str(full_data_type or data_type)),
                 nullable=str(is_nullable).upper() == "YES",
                 sensitivity_markers=tuple(tags.column_markers.get(str(name), ())),
             )
-            for name, data_type, is_nullable in raw_columns
+            for name, data_type, full_data_type, is_nullable in raw_columns
         )
         selected = selected.model_copy(update={"object_id": object_id})
         schema_facts = [(column.name, column.data_type, column.nullable) for column in columns]
@@ -775,8 +775,12 @@ class DatabricksConnector:
                 retryable=False,
             )
         if isinstance(policy, DatabricksAppendPolicy) and output_schema.columns:
-            current_columns = tuple((item.name, item.data_type) for item in current.columns)
-            output_columns = tuple((item.name, item.data_type) for item in output_schema.columns)
+            current_columns = tuple(
+                (item.name, _sql_type(item.data_type)) for item in current.columns
+            )
+            output_columns = tuple(
+                (item.name, _sql_type(item.data_type)) for item in output_schema.columns
+            )
             if current_columns != output_columns:
                 raise ConnectorError(
                     TransferErrorCode.SCHEMA_DRIFT,
@@ -1290,27 +1294,44 @@ def _polars_dtype(data_type: str) -> pl.DataType:
 
 
 def _sql_type(data_type: str) -> str:
+    """Map source schema types to the same Delta types used for append checks."""
+
     if data_type.startswith("Decimal("):
         match = re.fullmatch(r"Decimal\(precision=(\d+), scale=(\d+)\)", data_type)
         if not match:
             raise _unsupported_type(data_type)
         precision, scale = map(int, match.groups())
+        if not 1 <= precision <= 38 or not 0 <= scale <= precision:
+            raise _unsupported_type(data_type)
         return f"DECIMAL({precision},{scale})"
     types = {
-        "String": "STRING",
-        "Boolean": "BOOLEAN",
-        "Int8": "TINYINT",
-        "Int16": "SMALLINT",
-        "Int32": "INT",
-        "Int64": "BIGINT",
-        "Float32": "FLOAT",
-        "Float64": "DOUBLE",
-        "Date": "DATE",
-        "Datetime(time_unit='us')": "TIMESTAMP",
-        "Binary": "BINARY",
+        "string": "STRING",
+        "utf8": "STRING",
+        "boolean": "BOOLEAN",
+        "int8": "TINYINT",
+        "int16": "SMALLINT",
+        "int32": "INT",
+        "int64": "BIGINT",
+        "float32": "FLOAT",
+        "float64": "DOUBLE",
+        "date": "DATE",
+        "datetime(time_unit='us')": "TIMESTAMP",
+        "binary": "BINARY",
+        # PostgreSQL inspection exposes native SQL names rather than Polars names.
+        "text": "STRING",
+        "character varying": "STRING",
+        "character": "STRING",
+        "smallint": "SMALLINT",
+        "integer": "INT",
+        "bigint": "BIGINT",
+        "real": "FLOAT",
+        "double precision": "DOUBLE",
+        "timestamp without time zone": "TIMESTAMP",
+        "timestamp with time zone": "TIMESTAMP",
+        "bytea": "BINARY",
     }
     try:
-        return types[data_type]
+        return types[" ".join(data_type.casefold().split())]
     except KeyError:
         raise _unsupported_type(data_type) from None
 

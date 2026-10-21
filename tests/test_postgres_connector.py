@@ -254,6 +254,80 @@ def test_postgres_extract_preserves_special_text_values(postgres_credentials) ->
     assert pl.concat([batch.frame for batch in batches])["value"].to_list() == values
 
 
+def test_postgres_extract_preserves_calendar_intervals_as_text(postgres_credentials) -> None:
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.calendar_intervals (value INTERVAL)",
+    )
+    _execute(
+        postgres_credentials,
+        "INSERT INTO public.calendar_intervals VALUES (INTERVAL '1 month'), (INTERVAL '2 days')",
+    )
+
+    connector = PostgresConnector(connector_settings())
+    locator = postgres_table("public", "calendar_intervals")
+    schema = connector.inspect_object(postgres_credentials, locator)
+    batches = list(
+        connector.extract(postgres_credentials, locator, batch_rows=10, batch_bytes=1024)
+    )
+
+    assert schema.columns[0].data_type == "interval"
+    assert batches[0].frame.schema["value"] == pl.String
+    assert batches[0].frame["value"].to_list() == ["P1M", "P2D"]
+
+
+@pytest.mark.parametrize(
+    ("precision", "scale", "value"),
+    [
+        (40, 39, Decimal("1e-39")),
+        (50, 10, Decimal("1234567890123456789012345678901234567890.1234567890")),
+        (38, 38, Decimal("1e-38")),
+    ],
+)
+def test_postgres_decimal_round_trip_preserves_values(
+    postgres_credentials, precision: int, scale: int, value: Decimal
+) -> None:
+    conn = connect(postgres_credentials, connector_settings())
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                sql.SQL("CREATE TABLE public.decimal_source (amount NUMERIC({}, {}))").format(
+                    sql.Literal(precision), sql.Literal(scale)
+                )
+            )
+            cursor.executemany("INSERT INTO public.decimal_source VALUES (%s)", [(value,), (None,)])
+        conn.commit()
+    finally:
+        conn.close()
+
+    source = PostgresConnector(connector_settings())
+    locator = postgres_table("public", "decimal_source")
+    schema = source.inspect_object(postgres_credentials, locator)
+    batches = list(source.extract(postgres_credentials, locator, batch_rows=1, batch_bytes=10_000))
+    frame = pl.concat([batch.frame for batch in batches])
+    assert frame["amount"].dtype == (
+        pl.String if precision > 38 else pl.Decimal(precision=precision, scale=scale)
+    )
+    assert [Decimal(item) if item is not None else None for item in frame["amount"]] == [
+        value,
+        None,
+    ]
+
+    manifest = _load(
+        postgres_credentials,
+        postgres_table("public", "decimal_destination"),
+        PostgresAppendPolicy(),
+        frame,
+        "decimal-round-trip",
+        schema=schema,
+    )
+    assert manifest.rows == 2
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT amount FROM public.decimal_destination ORDER BY amount NULLS LAST",
+    ) == [(value,), (None,)]
+
+
 def test_postgres_creates_timestamp_for_parameterized_polars_datetime(
     postgres_credentials,
 ) -> None:
@@ -326,30 +400,85 @@ def test_postgres_preserves_timezone_aware_timestamps(postgres_credentials) -> N
     assert batch.frame.schema["occurred"] == pl.Datetime("us", time_zone="UTC")
     assert _fetchall(
         postgres_credentials,
-        """
-        SELECT data_type
-        FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'timezone_destination'
-        """,
+        "SELECT data_type FROM information_schema.columns "
+        "WHERE table_schema = 'public' AND table_name = 'timezone_destination'",
     ) == [("timestamp with time zone",)]
     assert (
         _fetchall(
             postgres_credentials,
-            """
-            SELECT EXTRACT(EPOCH FROM destination.occurred),
-                   EXTRACT(EPOCH FROM source.occurred)
-            FROM public.timezone_destination AS destination,
-                 public.timezone_source AS source
-            """,
+            "SELECT EXTRACT(EPOCH FROM destination.occurred), "
+            "EXTRACT(EPOCH FROM source.occurred) "
+            "FROM public.timezone_destination AS destination, "
+            "public.timezone_source AS source",
         )[0][0]
         == _fetchall(
             postgres_credentials,
-            """
-            SELECT EXTRACT(EPOCH FROM source.occurred)
-            FROM public.timezone_source AS source
-            """,
+            "SELECT EXTRACT(EPOCH FROM source.occurred) FROM public.timezone_source AS source",
         )[0][0]
     )
+
+
+def test_postgres_real_source_creates_real_destination(postgres_credentials) -> None:
+    _execute(postgres_credentials, "CREATE TABLE public.real_source (score REAL)")
+    _execute(postgres_credentials, "INSERT INTO public.real_source VALUES (1.25)")
+    connector = PostgresConnector(connector_settings())
+    source_locator = postgres_table("public", "real_source")
+    source_schema = connector.inspect_object(postgres_credentials, source_locator)
+    destination_locator = postgres_table("public", "real_destination")
+    session = connector.prepare_destination(
+        postgres_credentials,
+        destination_locator,
+        source_schema,
+        PostgresAppendPolicy(),
+        run_id="real-destination",
+    )
+    for batch in connector.extract(
+        postgres_credentials, source_locator, batch_rows=100, batch_bytes=10_000
+    ):
+        connector.write_batch(session, batch)
+    connector.finalize(session)
+
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT pg_typeof(score)::text, score FROM public.real_destination",
+    ) == [("real", 1.25)]
+
+
+def test_postgres_rejects_timetz_into_existing_time(postgres_credentials) -> None:
+    _execute(postgres_credentials, "CREATE TABLE public.timezone_source_for_time (value TIMETZ)")
+    _execute(postgres_credentials, "CREATE TABLE public.time_without_zone_target (value TIME)")
+    connector = PostgresConnector(connector_settings())
+    source_schema = connector.inspect_object(
+        postgres_credentials, postgres_table("public", "timezone_source_for_time")
+    )
+
+    with pytest.raises(ConnectorError, match="cannot preserve the source time zone"):
+        connector.preflight_destination(
+            postgres_credentials,
+            postgres_table("public", "time_without_zone_target"),
+            source_schema,
+            PostgresAppendPolicy(),
+        )
+
+
+def test_postgres_rejects_unbounded_numeric_into_bounded_destination(postgres_credentials) -> None:
+    _execute(postgres_credentials, "CREATE TABLE public.numeric_source_for_scale (value NUMERIC)")
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.numeric_bounded_target (value NUMERIC(10, 2))",
+    )
+    connector = PostgresConnector(connector_settings())
+    source_schema = connector.inspect_object(
+        postgres_credentials, postgres_table("public", "numeric_source_for_scale")
+    )
+
+    with pytest.raises(ConnectorError, match="cannot safely store"):
+        connector.preflight_destination(
+            postgres_credentials,
+            postgres_table("public", "numeric_bounded_target"),
+            source_schema,
+            PostgresAppendPolicy(),
+        )
 
 
 def test_postgres_bytea_source_round_trips_into_a_new_destination(postgres_credentials) -> None:
@@ -446,6 +575,49 @@ def test_postgres_skips_generated_destination_columns(postgres_credentials) -> N
         postgres_credentials,
         "SELECT id, doubled FROM public.generated_destination",
     ) == [(3, 6)]
+
+
+def test_postgres_skips_generated_numeric_columns_during_decimal_validation(
+    postgres_credentials,
+) -> None:
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.generated_numeric_source (id INTEGER, amount NUMERIC)",
+    )
+    _execute(
+        postgres_credentials,
+        "INSERT INTO public.generated_numeric_source VALUES (3, 6)",
+    )
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.generated_numeric_target ("
+        "id INTEGER, amount NUMERIC(10, 2) GENERATED ALWAYS AS (id * 2) STORED)",
+    )
+    connector = PostgresConnector(connector_settings())
+    source_locator = postgres_table("public", "generated_numeric_source")
+    target_locator = postgres_table("public", "generated_numeric_target")
+    source_schema = connector.inspect_object(postgres_credentials, source_locator)
+
+    connector.preflight_destination(
+        postgres_credentials, target_locator, source_schema, PostgresAppendPolicy()
+    )
+    session = connector.prepare_destination(
+        postgres_credentials,
+        target_locator,
+        source_schema,
+        PostgresAppendPolicy(),
+        run_id="generated-numeric-destination",
+    )
+    for batch in connector.extract(
+        postgres_credentials, source_locator, batch_rows=100, batch_bytes=10_000
+    ):
+        connector.write_batch(session, batch)
+    connector.finalize(session)
+
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT id, amount FROM public.generated_numeric_target",
+    ) == [(3, Decimal("6.00"))]
 
 
 def test_csv_decimal_values_round_trip_to_postgres_numeric(postgres_credentials) -> None:

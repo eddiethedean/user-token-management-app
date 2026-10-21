@@ -89,6 +89,29 @@ def test_csv_header_validation_preserves_tab_delimiters_and_multiline_cells() ->
     assert batches[0].frame["note"].to_list() == ["line one\nline two", "plain"]
 
 
+def test_csv_source_preserves_sniffer_skip_initial_space() -> None:
+    content = b'id, note\n1, "Alpha,Beta"\n2, "Gamma,Delta"\n'
+    inspection = inspect_csv("quoted.csv", content)
+    assert inspection.skip_initial_space is True
+    credentials = {
+        "content": content.decode(),
+        "delimiter": inspection.delimiter,
+        "quote_char": inspection.quote_char,
+        "skip_initial_space": str(inspection.skip_initial_space).lower(),
+        "columns": json.dumps([column.name for column in inspection.columns]),
+        "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
+    }
+    locator = CsvUploadLocator(
+        upload_id="11111111-1111-1111-1111-111111111111", checksum_sha256="e" * 64
+    )
+
+    batches = list(
+        CsvSourceConnector().extract(credentials, locator, batch_rows=100, batch_bytes=10_000)
+    )
+
+    assert batches[0].frame["note"].to_list() == ["Alpha,Beta", "Gamma,Delta"]
+
+
 def test_csv_source_uses_profiled_types_instead_of_reinferring_them() -> None:
     content = (
         b"ready,service_date,observed_at,shift_time,amount,code\n"

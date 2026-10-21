@@ -80,12 +80,14 @@ def profile_csv_rows(
     row_count = 0
     try:
         for row in rows:
-            if not row or all(not value.strip() for value in row):
+            if not row:
                 continue
             if len(row) != len(headers):
                 raise ValueError(
                     f"Row {row_count + 2} has {len(row)} values; expected {len(headers)}."
                 )
+            if all(not value.strip() for value in row):
+                continue
             row_count += 1
             for index, raw_value in enumerate(row):
                 value = raw_value.strip()

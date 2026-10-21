@@ -871,6 +871,54 @@ def _csv_file_scan(path: Path) -> tuple[pl.LazyFrame, tuple[CsvColumnProfile, ..
             value = pl.col(column.name).str.strip_chars()
             if column.inferred_type == "boolean":
                 value = value.str.to_lowercase()
+                parsed = (
+                    pl.when(value == "")
+                    .then(None)
+                    .otherwise(value)
+                    .replace_strict(
+                        {"true": True, "false": False},
+                        return_dtype=pl.Boolean,
+                    )
+                )
+                casts.append(parsed.alias(column.name))
+                continue
+            if column.inferred_type == "time":
+                # Polars' inferred time parser chooses one format for the
+                # column. Normalize Python's accepted T prefix, comma
+                # fractions, and minute-only precision to one seconds format.
+                normalized_time = (
+                    pl.when(value.str.contains(r"^[Tt]\d"))
+                    .then(value.str.slice(1))
+                    .otherwise(value)
+                )
+                normalized_time = normalized_time.str.replace_all(",", ".", literal=True)
+                has_minute_fraction = normalized_time.str.contains(r"^\d{2}:\d{2}\.\d+$")
+                minute_fraction_time = pl.concat_str(
+                    [
+                        normalized_time.str.slice(0, 5),
+                        pl.lit(":00."),
+                        normalized_time.str.slice(6),
+                    ]
+                )
+                normalized_time = (
+                    pl.when(has_minute_fraction)
+                    .then(minute_fraction_time)
+                    .otherwise(normalized_time)
+                )
+                has_minutes_only = normalized_time.str.contains(r"^\d{2}:\d{2}$")
+                normalized_time = (
+                    pl.when(has_minutes_only)
+                    .then(pl.concat_str([normalized_time, pl.lit(":00")]))
+                    .otherwise(normalized_time)
+                )
+                casts.append(
+                    pl.when(normalized_time == "")
+                    .then(None)
+                    .otherwise(normalized_time)
+                    .str.to_time(strict=True)
+                    .alias(column.name)
+                )
+                continue
             casts.append(
                 pl.when(value == "")
                 .then(None)

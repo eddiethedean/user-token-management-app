@@ -35,6 +35,7 @@ class CsvInspection:
     columns: tuple[CsvColumnProfile, ...]
     delimiter: str = ","
     quote_char: str = '"'
+    skip_initial_space: bool = False
 
 
 def inspect_csv(filename: str, content: bytes) -> CsvInspection:
@@ -70,6 +71,7 @@ def inspect_csv(filename: str, content: bytes) -> CsvInspection:
         columns=columns,
         delimiter=dialect.delimiter,
         quote_char=dialect.quotechar or '"',
+        skip_initial_space=bool(dialect.skipinitialspace),
     )
 
 
@@ -95,6 +97,7 @@ def store_csv_upload(
             {
                 "delimiter": inspection.delimiter,
                 "quote_char": inspection.quote_char,
+                "skip_initial_space": inspection.skip_initial_space,
                 "columns": [asdict(column) for column in inspection.columns],
             },
             separators=(",", ":"),
@@ -126,18 +129,22 @@ def inspection_from_upload(upload: PipelineUpload) -> CsvInspection:
     try:
         raw_columns = json.loads(upload.columns_json)
         if isinstance(raw_columns, dict):
-            legacy_quote_char = "quote_char" not in raw_columns
+            incomplete_dialect = not {"delimiter", "quote_char", "skip_initial_space"}.issubset(
+                raw_columns
+            )
             delimiter = str(raw_columns.get("delimiter") or ",")
             quote_char = str(raw_columns.get("quote_char") or '"')
+            skip_initial_space = bool(raw_columns.get("skip_initial_space", False))
             raw_columns = raw_columns.get("columns", [])
         else:
-            legacy_quote_char = True
+            incomplete_dialect = True
             delimiter = ","
             quote_char = '"'
+            skip_initial_space = False
         columns = tuple(CsvColumnProfile(**column) for column in raw_columns)
     except (json.JSONDecodeError, TypeError, KeyError) as exc:
         raise ValueError("The stored CSV profile is invalid.") from exc
-    if legacy_quote_char:
+    if incomplete_dialect:
         content = upload.content
         if isinstance(content, str):
             content = content.encode("utf-8")
@@ -177,6 +184,7 @@ def inspection_from_upload(upload: PipelineUpload) -> CsvInspection:
         columns=columns,
         delimiter=delimiter,
         quote_char=quote_char,
+        skip_initial_space=skip_initial_space,
     )
 
 

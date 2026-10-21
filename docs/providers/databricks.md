@@ -123,6 +123,11 @@ committed, unchanged, uncertain, and cleanup-pending outcomes. A target fence pr
 Mover writer from racing while the outcome is unresolved. Run review exposes the persisted
 publication state.
 
+PostgreSQL source scalar types are mapped to their Delta equivalents for staging declarations and
+append compatibility checks. Append still requires matching column names, order, and mapped types.
+PostgreSQL numeric precision above 38 is unsupported by the Delta writer and is rejected rather
+than reduced.
+
 Live probes still need to prove atomicity, governance preservation, Query History visibility and
 marker retention on serverless, Delta History visibility on classic compute, interaction with
 external writers, and each failure window for every claimed compute family. Serverless Query

@@ -7,6 +7,7 @@ import hmac
 import io
 import logging
 import os
+import re
 import struct
 import tempfile
 from collections.abc import Callable
@@ -37,6 +38,7 @@ from app.connectors.locators import (
     FoundryUploadLocator,
     PostgresAppendPolicy,
     PostgresReplacePolicy,
+    PostgresTableLocator,
     PostgresUpsertPolicy,
 )
 from app.connectors.registry import (
@@ -226,6 +228,64 @@ def _schema_manifest(schema: ObjectSchema) -> dict:
         "primary_key": list(schema.primary_key),
         "unique_constraints": [list(item) for item in schema.unique_constraints],
     }
+
+
+def _normalized_source_type(data_type: object) -> str:
+    """Normalize provider and Polars type labels for scan-time drift checks."""
+    value = str(data_type).casefold().strip()
+    decimal = re.fullmatch(
+        r"(?:decimal|numeric)(?:\(precision=(\d+),\s*scale=(\d+)\)|\s*\((\d+)\s*,\s*(\d+)\))", value
+    )
+    if decimal:
+        precision = decimal.group(1) or decimal.group(3)
+        scale = decimal.group(2) or decimal.group(4)
+        if int(precision) > 38 or int(scale) > int(precision):
+            return "string"
+        return f"decimal({precision},{scale})"
+    if value in {"numeric", "decimal"}:
+        return "string"
+    aliases = {
+        "string": "string",
+        "str": "string",
+        "utf8": "string",
+        "text": "string",
+        "character varying": "string",
+        "varchar": "string",
+        "char": "string",
+        "varchar(100)": "string",
+        "character": "string",
+        "boolean": "boolean",
+        "bool": "boolean",
+        "smallint": "int16",
+        "int16": "int16",
+        "integer": "int32",
+        "int": "int32",
+        "int32": "int32",
+        "bigint": "int64",
+        "int64": "int64",
+        "real": "float32",
+        "float32": "float32",
+        "double precision": "float64",
+        "float64": "float64",
+        "date": "date",
+        "time": "time",
+        "time without time zone": "time",
+        # PostgreSQL transports TIME WITH TIME ZONE as exact text because
+        # Polars has no time dtype that can retain the offset.
+        "time with time zone": "string",
+        "binary": "binary",
+        "bytea": "binary",
+        "timestamp": "timestamp",
+        "timestamp without time zone": "timestamp",
+        "datetime(time_unit='us')": "timestamp",
+        "timestamp with time zone": "timestamptz",
+        "datetime(time_unit='us', time_zone='utc')": "timestamptz",
+        "interval": "string",
+        "duration(time_unit='us')": "duration(time_unit='us')",
+    }
+    if value.startswith(("varchar(", "character varying(", "char(", "character(")):
+        return "string"
+    return aliases.get(value, value)
 
 
 class _EncryptedBatchSpool:
@@ -815,7 +875,20 @@ def execute_transfer(
                 )
             expected = tuple(column.name for column in schema.columns)
             actual = tuple(str(name) for name in extracted_batch.frame.columns)
-            if set(actual) != set(expected):
+            if set(actual) != set(expected) or len(actual) != len(expected):
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "The source schema changed during extraction.",
+                    retryable=False,
+                )
+            schema_types = {
+                column.name: _normalized_source_type(column.data_type) for column in schema.columns
+            }
+            batch_types = {
+                str(name): _normalized_source_type(dtype)
+                for name, dtype in extracted_batch.frame.schema.items()
+            }
+            if any(schema_types[name] != batch_types[name] for name in expected):
                 raise ConnectorError(
                     TransferErrorCode.SCHEMA_DRIFT,
                     "The source schema changed during extraction.",
@@ -868,6 +941,25 @@ def execute_transfer(
                 raise ConnectorError(
                     TransferErrorCode.SCHEMA_DRIFT,
                     "Databricks source identity, schema, or sensitivity policy changed during the scan. Review the route before retrying.",
+                    retryable=False,
+                )
+        if isinstance(snapshot.source, PostgresTableLocator):
+            refreshed_schema = source.inspect_object(source_credentials, snapshot.source)
+            initial_columns = tuple(
+                (column.name, column.data_type, column.nullable) for column in source_schema.columns
+            )
+            refreshed_columns = tuple(
+                (column.name, column.data_type, column.nullable)
+                for column in refreshed_schema.columns
+            )
+            if (
+                initial_columns != refreshed_columns
+                or source_schema.primary_key != refreshed_schema.primary_key
+                or source_schema.unique_constraints != refreshed_schema.unique_constraints
+            ):
+                raise ConnectorError(
+                    TransferErrorCode.SCHEMA_DRIFT,
+                    "PostgreSQL source schema changed during the scan. Review the route before retrying.",
                     retryable=False,
                 )
 
