@@ -11,7 +11,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.models import PasswordReset, User, utcnow
+from app.models import Invitation, PasswordReset, User, utcnow
 from app.security.email import normalize_email
 from app.security.passwords import PasswordService, validate_password
 from app.security.tokens import hash_token, random_token
@@ -35,6 +35,12 @@ def request_password_reset(
     user = db.scalar(select(User).where(User.email == canonical).with_for_update())
     if not user or not user.is_active:
         return
+    invitation = db.scalar(
+        select(Invitation)
+        .where(Invitation.email == canonical, Invitation.accepted_at.is_not(None))
+        .order_by(Invitation.accepted_at.desc())
+    )
+    inviter_email = invitation.invited_by.email if invitation else None
     now = utcnow()
     for prior in db.scalars(
         select(PasswordReset).where(
@@ -64,6 +70,7 @@ def request_password_reset(
         f"Open this link on the approved network to continue:\n{reset_url}\n\n"
         "The link expires in 30 minutes. Opening it does not change your password. "
         "If you did not request this, contact the service desk.",
+        bcc_recipient=inviter_email or None,
     )
     record_event(db, "password.reset.requested", request=request, target=user)
     db.commit()

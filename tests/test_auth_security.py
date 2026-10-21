@@ -370,6 +370,39 @@ def test_password_recovery_flow(client) -> None:
     assert "Request a new reset link" in replay.text
 
 
+def test_password_reset_bccs_inviter_for_invited_account(client) -> None:
+    from app.models import EmailOutbox
+    from app.services.auth import accept_invitation, create_invitation
+
+    settings = get_settings()
+    invited_email = "invited.reset@example.gov"
+    with SessionLocal() as db:
+        admin = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert admin is not None
+        invitation, raw_token = create_invitation(
+            db,
+            settings,
+            email=invited_email,
+            role_name="user",
+            inviter=admin,
+        )
+        inviter_email = admin.email
+        accept_invitation(
+            db,
+            settings,
+            raw_token=raw_token,
+            password=USER_PASSWORD,
+            full_name="Invited Reset User",
+        )
+
+    requested = preauth_post(client, "/password/forgot", {"email": invited_email})
+    assert requested.status_code == 200
+    with SessionLocal() as db:
+        email = db.scalar(select(EmailOutbox).where(EmailOutbox.recipient == invited_email))
+        assert email is not None
+        assert email.bcc_recipient == inviter_email
+
+
 def test_password_change_signs_out(client) -> None:
     web_login(client)
     account = client.get("/profile")

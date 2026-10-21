@@ -11,7 +11,7 @@ class OutboundEmail:
     recipient: str
     subject: str
     body_text: str
-    cc_recipient: str | None = None
+    bcc_recipient: str | None = None
 
 
 class EmailTransport(Protocol):
