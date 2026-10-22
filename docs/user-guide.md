@@ -240,10 +240,10 @@ upload transaction. When creating a PostgreSQL table, you can select source colu
 or add a generated `BIGINT` identity key; a source primary key is kept when available and no override
 is selected. After an append route creates its table, its primary key is fixed; choose replace to
 rebuild the table with a different key. When loading source-supplied values into an existing identity
-column, a sequence with `CACHE 1` is required. If the sequence needs advancing, the PostgreSQL
-connection must own it so the restart can block concurrent generated keys. Foundry source and
-destination locators inherit the default branch from the validated
-connection when the pipeline is saved, except newly provisioned datasets, which use their default
+or `SERIAL`/`BIGSERIAL` column, a sequence with `CACHE 1` is required. If the sequence needs
+advancing, the PostgreSQL connection must own it so the restart can block concurrent generated keys.
+Foundry source and destination locators inherit the default branch from the validated connection
+when the pipeline is saved, except newly provisioned datasets, which use their default
 `master` branch. The saved branch and `UPDATE` transaction type are sent explicitly on upload. Older
 NIPR deployments that reject that request with HTTP 400 receive one compatibility retry using the
 legacy `preview=true` parameter. If a v2 dataset route is unavailable, Data Mover tries the matching
