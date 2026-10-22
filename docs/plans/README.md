@@ -25,6 +25,7 @@ record the released code-to-copy-to-log and operator lookup contracts.
 
 | Plan items | Artifact | State |
 |---|---|---|
+| Pipeline scheduling | [Research and proposed design](pipeline-scheduling-research.md), [epic and nine stories](../stories/pipeline-scheduling-epic.md), and [issue CSV](../../artifacts/jira/data-mover-pipeline-scheduling-issues.csv) | Proposed October 22, 2026; PostgreSQL-backed dispatch with APScheduler 3.x recurrence calculations; implementation and sizing pending |
 | HED-1 | [HTMX Framework 0.16 release pack](hedron-0.16-release-pack.md) | Release-ready checklist; publishing is an external action |
 | HED-2 | [ADE migration one-pager](ade-migration-one-pager.md) and [learning path](ade-learning-path.md) | Ready for internal review |
 | HED-3 | [Data Mover shell patterns](data-mover-shell-patterns.md) | Implemented and test-backed |

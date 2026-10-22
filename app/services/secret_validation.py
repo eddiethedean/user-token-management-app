@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from urllib.parse import urlsplit
 
+from app.domain.token_expiry import parse_expiry_input
 from app.services.secrets_types import SecretProvider
 
 FIELD_MAX_BYTES = 8192
@@ -44,6 +45,10 @@ class CredentialValidator:
         self._validate_host(normalized)
         self._validate_port(normalized)
         self._validate_connect_timeout(normalized)
+        if expiry := normalized.get("token_expires_at"):
+            normalized["token_expires_at"] = parse_expiry_input(expiry).isoformat(
+                timespec="seconds"
+            )
         self._validate_choice(specification, normalized, "sslmode", "PostgreSQL SSL mode")
         self._validate_choice(specification, normalized, "tlsmode", "MongoDB TLS mode")
         if specification.name == "databricks":

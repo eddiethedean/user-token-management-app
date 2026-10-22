@@ -263,6 +263,10 @@ class UserSecret(Base):
     validation_message: Mapped[str] = mapped_column(String(240), default="")
     runtime_status: Mapped[str] = mapped_column(String(20), default="")
     runtime_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    token_expiry_source: Mapped[str] = mapped_column(
+        String(24), default="unknown", server_default="unknown"
+    )
 
     user: Mapped[User] = relationship()
 

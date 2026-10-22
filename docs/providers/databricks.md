@@ -16,6 +16,8 @@ The local `make demo` launcher uses an offline emulator.
 This guide records the current implementation contract so an operator can prepare an isolated
 acceptance environment. It is not approval to connect a production workspace.
 
+For the values to enter in **Connections → Credentials**, see the [Databricks credential guide](databricks-credentials.md).
+
 ## Offline demo
 
 Run `make demo` to seed MSS, MCS-COP, PostgreSQL, and Databricks with fake encrypted credentials.

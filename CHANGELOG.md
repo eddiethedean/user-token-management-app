@@ -4,6 +4,10 @@
 
 ### Added
 
+- Owner-visible token expiry dates and sources for Foundry and Databricks connections, including
+  optional UTC entry, advisory JWT claims, best-effort Databricks metadata, and seven-day/past-date
+  warnings. Migration `0026_token_expiry` preserves existing credentials with unknown expiry.
+
 - Offline Databricks demo connection with a simulated running warehouse, Unity Catalog browsing,
   Delta sources, and atomic create/append/replace destinations. `make demo` seeds four providers;
   live Databricks operator and acceptance gates remain unchanged.
@@ -19,10 +23,19 @@
 
 ### Fixed
 
+- Databricks expiry metadata uses a separate HTTP request with short network timeouts and no
+  retries, so unavailable or throttled metadata does not stall a successful connection check.
+
 - Keep built-in Databricks demo table identities stable across restarts so saved source, append,
   and replace routes can resolve unchanged seeded tables.
 - Cancelled and failed runs no longer present a misleading completion meter; destination impact
   remains visible from persisted run facts.
+
+## [221026.0] — 2026-10-22
+
+### Changed
+
+- Bumped the application version to `221026.0`.
 
 ## [211026.1] — 2026-10-21
 

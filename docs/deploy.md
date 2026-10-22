@@ -250,6 +250,12 @@ Replace `YOUR_EXISTING_CONTENT_GUID` with the GUID copied from Connect. Add `--n
 the publishing host cannot reach the deployed URL. Run any required database migrations separately
 using the existing database credentials; redeployment does not require creating another admin.
 
+The token-expiry UI requires migration `0026_token_expiry`. Run `make migrate` against the
+deployment database before starting the updated application. It adds nullable expiry dates and
+an `unknown` source for existing connections, preserving encrypted credentials. Users can then
+retest their connections to detect available expiry metadata, or enter a date with a complete
+replacement credential bundle. No additional environment variable is required.
+
 #### Explicitly replace an environment value
 
 Change a saved value only when the user explicitly intends to replace it. Either edit that variable

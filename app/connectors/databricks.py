@@ -15,11 +15,12 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 from urllib.parse import urlsplit
 
+import httpx2
 import polars as pl
 from databricks import sql
 from databricks.sdk import WorkspaceClient
@@ -53,6 +54,7 @@ from app.connectors.locators import (
 )
 from app.connectors.registry import connector_settings, register_connector
 from app.domain.catalogs import CatalogPage, ColumnSchema
+from app.domain.token_expiry import TokenExpiry
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +62,8 @@ _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _SAFE_MARKER = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 _BATCH_INSERT_ROWS = 500
 _MAX_CATALOG_ENTRIES = 10_000
+_TOKEN_METADATA_TIMEOUT_SECONDS = 2.0
+_MAX_TOKEN_METADATA_BYTES = 1024 * 1024
 _SQL_TYPES: dict[str, str] = {
     "string": "String",
     "varchar": "String",
@@ -127,12 +131,14 @@ class DatabricksConnector:
         settings: Settings | None = None,
         *,
         workspace_client_factory: Callable[..., Any] = WorkspaceClient,
+        token_metadata_transport: httpx2.BaseTransport | None = None,
         sql_connect: Callable[..., Any] = sql.connect,
         clock: Callable[[], float] = time.monotonic,
         sleeper: Callable[[float], None] = time.sleep,
     ) -> None:
         self.settings = settings or connector_settings()
         self._workspace_client_factory = workspace_client_factory
+        self._token_metadata_transport = token_metadata_transport
         self._sql_connect = sql_connect
         self._clock = clock
         self._sleep = sleeper
@@ -150,6 +156,9 @@ class DatabricksConnector:
         except Exception as exc:
             raise _provider_error(exc, "connection validation") from None
         sql_ready = state in {"RUNNING", "RESIZING"}
+        expiry = self._token_expiry(
+            workspace, str(credentials["token"]), transport=self._token_metadata_transport
+        )
         return ConnectionHealth(
             status="connected",
             message=(
@@ -159,7 +168,66 @@ class DatabricksConnector:
             latency_ms=max(0, int((self._clock() - started) * 1000)),
             server_identity=databricks_workspace_id(str(credentials["workspace_url"])),
             runtime_status=state,
+            token_expiry=expiry,
         )
+
+    @staticmethod
+    def _token_expiry(
+        workspace: Any, token: str, *, transport: httpx2.BaseTransport | None = None
+    ) -> TokenExpiry:
+        """Read own-token metadata when already permitted; never require broader token scopes."""
+
+        token_id = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        try:
+            # Use the already authenticated client's host, but an independent HTTP client:
+            # SDK retries (including Retry-After sleeps) must not delay optional metadata.
+            config = workspace.config
+            headers = {"Authorization": f"Bearer {token}"}
+            if config.workspace_id:
+                headers["X-Databricks-Workspace-Id"] = str(config.workspace_id)
+            deadline = time.monotonic() + _TOKEN_METADATA_TIMEOUT_SECONDS
+            with httpx2.Client(
+                timeout=httpx2.Timeout(_TOKEN_METADATA_TIMEOUT_SECONDS),
+                follow_redirects=False,
+                transport=transport,
+            ) as client:
+                with client.stream(
+                    "GET", f"{config.host.rstrip('/')}/api/2.0/token/list", headers=headers
+                ) as response:
+                    if response.status_code != 200:
+                        return TokenExpiry()
+                    body = bytearray()
+                    for chunk in response.iter_bytes():
+                        if (
+                            time.monotonic() >= deadline
+                            or len(body) + len(chunk) > _MAX_TOKEN_METADATA_BYTES
+                        ):
+                            return TokenExpiry()
+                        body.extend(chunk)
+            payload = json.loads(body)
+            records = payload.get("token_infos") if isinstance(payload, dict) else None
+            if not isinstance(records, list):
+                return TokenExpiry()
+            for index, info in enumerate(records):
+                if index >= 600:
+                    break
+                if not isinstance(info, dict) or info.get("token_id") != token_id:
+                    continue
+                expiry = info.get("expiry_time")
+                if type(expiry) is not int:
+                    return TokenExpiry()
+                if expiry == -1:
+                    return TokenExpiry(source="provider_no_expiry")
+                if expiry > 0:
+                    return TokenExpiry(
+                        datetime.fromtimestamp(expiry / 1000, UTC).replace(tzinfo=None), "provider"
+                    )
+                return TokenExpiry()
+        except Exception:
+            # Metadata permissions/availability must not turn working credentials into a failure.
+            # Never log this exception: SDK errors can contain credential or token-list details.
+            return TokenExpiry()
+        return TokenExpiry()
 
     def compute_status(self, credentials: Mapping[str, str]) -> dict[str, str]:
         """Return a safe snapshot; this method never submits SQL or starts compute."""

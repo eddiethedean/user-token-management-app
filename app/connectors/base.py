@@ -17,6 +17,7 @@ from app.domain.catalogs import (
     RemoteNamespace,
     RemoteObject,
 )
+from app.domain.token_expiry import TokenExpiry
 
 Credentials = Mapping[str, str]
 
@@ -69,6 +70,7 @@ class ConnectionHealth:
     latency_ms: int
     server_identity: str = ""
     runtime_status: str = ""
+    token_expiry: TokenExpiry = field(default_factory=TokenExpiry)
 
 
 @dataclass(frozen=True)

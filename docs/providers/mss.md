@@ -7,9 +7,14 @@ operator-confirmed non-production checks
 
 Secrets: none. Dataset RIDs, tokens, and operational hostnames from reference scripts are omitted.
 
+For field locations, screenshots, authentication limitations, and connection-check interpretation,
+see the [MSS and MCS-COP credential guide](foundry-credentials.md).
+
 ## Endpoint and authentication
 
-- Base URL comes from the user credential `endpoint` field. Strip a leading `https://` and trailing `/`, then rebuild as `https://{host}`.
+- Base URL comes from the user credential `endpoint` field. The adapter removes a trailing `/`
+  and preserves any path prefix before appending the API route. Use the approved HTTPS origin,
+  or an operator-supplied gateway base; do not paste a dataset page or full API request URL.
 - Production requires HTTPS. Redirects are disabled unless an operator later records an exact approved host pair.
 - Authentication header: `Authorization: Bearer <token>`. The token is never placed in the URL or query string.
 - Connect timeout: 10 seconds. Read/write timeout: 120 seconds.

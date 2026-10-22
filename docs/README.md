@@ -8,6 +8,9 @@ the work you need to do, then use the maintainer guide for the detailed rules.
 | You need to… | Start here | Then read |
 |---|---|---|
 | Run the application locally | [Root README](../README.md) | [User guide](user-guide.md), [FAQ](faq.md) |
+| Connect to PostgreSQL | [Find connection details in pgAdmin](providers/postgres-credentials.md) | [PostgreSQL connector notes](providers/postgres.md) |
+| Connect to MSS or MCS-COP | [Foundry credential guide with screenshots](providers/foundry-credentials.md) | [MSS notes](providers/mss.md), [MCS-COP notes](providers/mcscop.md) |
+| Connect to Databricks | [Credential guide with screenshots](providers/databricks-credentials.md) | [Databricks operator gates](providers/databricks.md) |
 | Understand the system before changing it | [Architecture](architecture.md) | [Data pipeline lifecycle](data-pipelines.md), [Maintainer guide](maintainer-guide.md) |
 | Fix a bug or add a feature | [Contributing guide](../CONTRIBUTING.md) | [Maintainer guide](maintainer-guide.md), [Troubleshooting](troubleshooting.md) |
 | Add or change a provider | [Provider checklist](../CONTRIBUTING.md#data-movement-feature-checklist) | [Provider notes](providers/mss.md), [MCS-COP notes](providers/mcscop.md), [PostgreSQL notes](providers/postgres.md), [Databricks demo and operator gates](providers/databricks.md) |

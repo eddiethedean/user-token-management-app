@@ -1,0 +1,139 @@
+"date","type","issue_id","summary","linked_to","description","acceptance_criteria","hrs"
+"2026-10-22","Epic","PS-EPIC","Data Mover: Durable pipeline run scheduling","","As a pipeline owner, I want to schedule saved pipelines and inspect each occurrence so unattended transfers remain predictable, traceable and subject to manual-run safeguards.
+
+Status: Proposed / not started
+Owner roles: Product / Engineering / Operations
+Design: docs/plans/pipeline-scheduling-research.md
+Backlog: docs/stories/pipeline-scheduling-epic.md
+Architecture: APScheduler 3.x recurrence adapter; PostgreSQL schedule and occurrence storage; atomic enqueue; existing pipeline execution runtime. Nine stories; estimates and task breakdown deferred.","1. Owners can manage and preview one-time, daily, selected-weekday, and weekly schedules with explicit timezone and missed-run/overlap behavior.
+2. Schedule state survives restart, and eligible occurrences create one committed queued run through atomic PostgreSQL dispatch, with retry-safe occurrence identity and no reliance on a single Connect worker.
+3. Scheduled and manual starts enforce shared admission and existing readiness, ownership, credential, content, provider and destination-reconciliation safeguards.
+4. Dispatch remains independent of HTTP traffic and long transfers, participates in application shutdown/drain, and has tested database recovery and deployment-ownership controls.
+5. Missed, expired, coalesced, overlapping and blocked occurrences have retained, owner-visible outcomes; dispatch success is distinguished from transfer success.
+6. Schedule revision changes, pause/retirement races, run retention and migration/deactivation behavior have explicit, tested contracts.
+7. The app exposes schedule/occurrence/run correlation and actionable dispatcher health without leaking credentials, provider bodies or data values.
+8. Automated PostgreSQL concurrency/failure tests and documented Connect acceptance demonstrate the planned behavior; all nine stories have named evidence.
+9. User/operator/security documentation and release instructions agree with the selected PS-1 policies and describe limits during complete Connect downtime.",""
+"2026-10-22","Story","PS-1","Define recurrence policies and preview upcoming runs","PS-EPIC","As a pipeline owner, I want to choose a recurrence and see upcoming local run times so I can understand when my pipeline will run before enabling it.
+
+Scope: Introduce a recurrence adapter using a tested stable APScheduler 3.x release and explicit application policies for late, repeated, and nonexistent local times.
+Depends on: None
+Owner roles: Product / Engineering
+Status: Proposed / not started
+Verification evidence: Focused recurrence/policy tests cover month-end, leap day, year boundaries, DST gaps/folds, once-only completion, and agreement between preview and generated occurrences.
+Backlog: docs/stories/pipeline-scheduling-epic.md#ps-1","1. Once, daily, selected weekdays, and weekly schedules accept a validated IANA timezone; invalid dates, zones, and recurrence fields receive field-specific feedback.
+2. A server-side preview shows at least five upcoming recurring occurrences, or the single one-time occurrence, with timezone and UTC offset; dispatch uses the same recurrence adapter as preview.
+3. Daily wall-clock schedules stay at the selected local time across 23-hour and 25-hour days; weekday names avoid APScheduler 3.x numeric weekday ambiguity.
+4. Document and resolve the proposed DST policy before implementation: skip nonexistent local times and use only the earlier instant for a repeated local time. Preview, cursor advancement, and dispatch must agree.
+5. Confirm the initial lateness, catch-up, overlap, edit/resume, and definition-snapshot contracts in the epic's policy table; make the chosen policies typed and independently testable.
+6. Select and lock a tested stable 3.x dependency and update pyproject.toml, requirements.txt, and uv.lock consistently; the implementation must not depend on 4.x APIs or a shared persistent APScheduler 3.x job store.",""
+"2026-10-22","Story","PS-2","Persist schedules and occurrence identity across restarts","PS-EPIC","As a pipeline owner, I want my schedules and their history to survive app restarts so that downtime does not erase when a run was due or what happened to it.
+
+Scope: Add Alembic migrations and application persistence for owner-scoped schedules, revisions, occurrence records, and pipeline-run provenance.
+Depends on: PS-1
+Owner roles: Engineering
+Status: Proposed / not started
+Verification evidence: Migration and persistence tests demonstrate round trips, unique-key enforcement, provenance, run retention, retirement, and upgrade with pre-existing manual runs.
+Backlog: docs/stories/pipeline-scheduling-epic.md#ps-2","1. Schedule records persist pipeline/owner identity, validated recurrence data, timezone, enabled state, revision, next due UTC instant, policy settings, and audit timestamps.
+2. Occurrence records persist intended UTC time, schedule revision, dispatch outcome and reason, dispatch timestamp, and optional run reference; a database unique constraint enforces schedule ID plus intended UTC time.
+3. Stable idempotency tokens fit the existing run-token limit and identify the same occurrence across retries, workers, and restarts.
+4. Deleting or expiring an ordinary run does not erase occurrence identity or permit that occurrence to be dispatched again; retention rules preserve required reconciliation and deduplication evidence.
+5. Existing manual runs remain valid without schedule provenance. Pipeline/schedule retirement retains necessary occurrence evidence and uses explicit foreign-key behavior.
+6. Upgrade and rollback/deactivation procedures account for existing active runs and application compatibility; PostgreSQL migrations are rehearsed and local SQLite development/test behavior is defined.",""
+"2026-10-22","Story","PS-3","Atomically enqueue each scheduled occurrence once","PS-EPIC","As a pipeline owner, I want a due occurrence to create one traceable queued run even when requests race or a dispatcher restarts.
+
+Scope: Introduce caller-owned enqueue transactions and a PostgreSQL dispatcher that coordinates workers with row locks and occurrence uniqueness.
+Depends on: PS-2
+Owner roles: Engineering
+Status: Proposed / not started
+Verification evidence: Real PostgreSQL, separate-session tests inject failures around commit and race multiple dispatchers; each eligible occurrence has at most one committed queued run and no lost due state.
+Backlog: docs/stories/pipeline-scheduling-epic.md#ps-3","1. Extract a transaction-aware enqueue operation that does not commit internally; preserve existing manual-run behavior through a compatible transaction owner or wrapper.
+2. Within one database transaction, dispatch inserts the occurrence, creates its eligible queued run with an immutable current-definition snapshot, and advances the schedule cursor.
+3. Due schedule selection uses bounded batches and FOR UPDATE SKIP LOCKED with enabled/revision/due-time rechecks, consistent database time, and a documented lock order.
+4. Concurrent dispatchers and repeated delivery of the same occurrence resolve to the existing occurrence/run without creating additional queue or audit events.
+5. A crash before commit leaves the due occurrence recoverable; a crash after commit but before worker notification leaves a queued run discoverable by normal runtime polling.
+6. A lost commit acknowledgement is resolved by the stable occurrence key after reconnecting; no path advances a schedule separately from persisting its dispatch outcome.
+7. Database locks are not held during provider network calls or transfer execution, and successful-dispatch logs are emitted only after commit.",""
+"2026-10-22","Story","PS-4","Handle missed runs and overlapping transfers predictably","PS-EPIC","As a pipeline owner, I want explicit behavior when the app was offline or my pipeline is still running so that scheduling does not create an unexpected backlog or competing transfers.
+
+Scope: Implement persisted late/skip/coalesce outcomes and database-enforced per-pipeline admission across scheduled and manual start paths.
+Depends on: PS-1, PS-3
+Owner roles: Product / Engineering
+Status: Proposed / not started
+Verification evidence: Policy and real PostgreSQL concurrency tests cover multiple missed times, lateness boundaries, long outages, deferred/nonterminal runs, manual-versus-scheduled races, and bounded catch-up.
+Backlog: docs/stories/pipeline-scheduling-epic.md#ps-4","1. On recovery, the proposed default dispatches only the latest missed occurrence within the configured lateness window, initially one hour; older or expired times receive auditable coalesced/skipped outcomes.
+2. Catch-up enumeration and transaction sizes are bounded. Long outages and dense recurrences use recorded skipped ranges/counts with clear coverage instead of unbounded occurrence creation.
+3. A scheduled occurrence is skipped with a visible overlap reason when the same pipeline already has a queued or nonterminal run, including a deferred compute-start run.
+4. The pipeline admission lock is shared by manual and scheduled starts; concurrent starts cannot bypass the overlap rule, while repeated submission of the same valid intent resolves idempotently.
+5. Busy-pipeline occurrences advance according to policy without silently becoming automatic retries or accumulating a hidden backlog.
+6. Per-pipeline admission is not presented as protection for different pipelines or external writers sharing a target; existing provider fences remain authoritative and supported target conflicts have tested blocking behavior.
+7. One-time schedules complete or expire visibly after their sole occurrence and are not recreated on restart.",""
+"2026-10-22","Story","PS-5","Apply current ownership, readiness, and transfer safeguards","PS-EPIC","As a pipeline owner, I want scheduled runs to use my current access and the same safeguards as manual runs so that unattended execution cannot bypass a required check.
+
+Scope: Extract request-independent readiness behavior and reuse existing credentials, pipeline policy, content guardrails, and destination reconciliation checks.
+Depends on: PS-3, PS-4
+Owner roles: Engineering / Security
+Status: Proposed / not started
+Verification evidence: Cross-layer tests compare manual and scheduled safety behavior, exercise revocation/credential changes and readiness failures, and verify zero destination writes when admission or pre-write checks fail.
+Backlog: docs/stories/pipeline-scheduling-epic.md#ps-5","1. Dispatch and execution validate current ownership and active account state; disabled/deleted owners or inaccessible pipelines produce a persisted safe outcome and cannot trigger provider writes.
+2. Scheduled runs resolve the owner's current encrypted credentials without requiring an active browser session, copied bearer/session tokens, or a fabricated HTTP request.
+3. Remote readiness checks currently embedded in the manual HTTP route are available through shared application/worker behavior before destination changes, outside the dispatch transaction.
+4. Scheduled execution retains route/writer policy, source availability, column actions, full-source content scans, provider compute-start authorization, and destination publication controls.
+5. Credential, definition, and schedule revision changes are rechecked at their relevant boundaries; a run records the exact definition snapshot admitted for that occurrence.
+6. Unresolved or uncertain prior destination writes remain blocked pending existing reconciliation; scheduler catch-up cannot create an automatic retry around that block.
+7. Unavailable CSV uploads, unsupported routes, expired credentials, sensitive-data blocks, and provider readiness failures produce safe linked outcomes without exposing secrets or row values.",""
+"2026-10-22","Story","PS-6","Dispatch without browser traffic or long-transfer delays","PS-EPIC","As a deployment operator, I want scheduling to remain responsive during idle hours and long transfers so that due work is discovered reliably while the app is running.
+
+Scope: Integrate a separate bounded dispatcher task with FastAPI startup, runtime ownership, shutdown/drain, database recovery, and deployment ownership.
+Depends on: PS-3, PS-5
+Owner roles: Engineering / Operations
+Status: Proposed / not started
+Verification evidence: Lifecycle tests cover failed startup, cancellation, drain, long transfers, multiple dispatchers, database loss/recovery, and disabled/draft deployments without requiring HTTP traffic.
+Backlog: docs/stories/pipeline-scheduling-epic.md#ps-6","1. A dedicated dispatcher starts only after the application runtime is ready and polls persisted due state at a bounded configurable interval, initially five seconds.
+2. The dispatch tick does not wait behind a full transfer in the existing supervisor loop; provider work and blocking database operations do not block the ASGI event loop.
+3. Dispatcher database work participates in runtime admission and drain. Shutdown stops new dispatch work and waits for admitted transactions before engine disposal.
+4. Database outages leave schedules due, expose degraded dispatcher health, and retry with bounded backoff; recovery processes due work through the same lateness policy.
+5. Multiple Connect workers or nodes can contend safely through PostgreSQL without sharing an APScheduler 3.x persistent job store.
+6. Drafts, staging content, and deployments sharing the production database have an explicit dispatch-disable or deployment-ownership configuration, documented and tested before enabling dispatch.
+7. Dispatch is opt-in for the owning deployment and defaults off until explicitly enabled there; the existing midnight probe remains independent. Documentation explains Min processes=1, startup, total-downtime limits, and scheduling latency.",""
+"2026-10-22","Story","PS-7","Create, edit, pause, and retire schedules in the app","PS-EPIC","As a pipeline owner, I want to manage schedules next to my saved pipeline so that I can automate runs and understand the effect of every change.
+
+Scope: Add owner-scoped schedule services, endpoints, and Hedron/HTMX controls with preview, optimistic concurrency, lifecycle actions, and mounted-path support.
+Depends on: PS-1, PS-2, PS-4, PS-5, PS-6
+Owner roles: Engineering / Product
+Status: Proposed / not started
+Verification evidence: Service/API tests cover owner isolation, CSRF, revision races, pause-versus-dispatch, edit/resume semantics and retirement; UI checks cover previews, mounted routes, keyboard flows, and form fallbacks.
+Backlog: docs/stories/pipeline-scheduling-epic.md#ps-7","1. Owners can create and list schedules for an eligible saved pipeline, preview upcoming times, and explicitly enable dispatch with clear timezone, catch-up, and overlap copy.
+2. Create/edit/enable operations validate server-side permissions and recurrence; one-time schedules require a future time at creation, and recurring enablement begins with the next future occurrence.
+3. Editing a recurrence or resuming recalculates the next future occurrence; due times bypassed by the action have explicit audited disposition. Changes use an expected revision and stale edits are rejected safely.
+4. Pause prevents future dispatch once it wins the schedule lock; a run already committed by dispatch continues unless cancelled through the existing run action. The UI explains this boundary.
+5. Retirement removes future dispatch eligibility without deleting required occurrence, run, or reconciliation evidence. Pipeline deletion/deactivation has defined schedule behavior.
+6. Every state-changing route enforces ownership, CSRF, and allowed methods, and supports root, Connect, and Workbench mounts with ordinary form/navigation fallbacks.
+7. Keyboard operation, field errors, focus retention, narrow layouts, and polling do not lose unsaved schedule edits or silently enable a schedule.",""
+"2026-10-22","Story","PS-8","Show schedule outcomes, run links, and dispatcher health","PS-EPIC","As a pipeline owner and operator, I want to distinguish due, dispatched, skipped, blocked, and completed work so I can tell whether scheduling and transfer execution are functioning.
+
+Scope: Expose occurrence history and operational diagnostics with safe correlation, linked run outcomes, and schedule/dispatcher health.
+Depends on: PS-2, PS-3, PS-6
+Owner roles: Engineering / Product / Operations
+Status: Proposed / not started
+Verification evidence: Presentation, authorization, audit/log schema, redaction, pagination, retention and health tests use synthetic data; example history demonstrates each occurrence outcome and linked transfer state.
+Backlog: docs/stories/pipeline-scheduling-epic.md#ps-8","1. Schedule views show next intended run, timezone/offset, enabled state, recent occurrence outcomes, intended versus actual dispatch time, and a link to any created pipeline run.
+2. Dispatch outcome and pipeline outcome remain separate: queued is never displayed as transfer success, and blocked/skipped/coalesced outcomes include a safe actionable reason.
+3. Create/edit/enable/pause/resume/retire actions are audited with actor and schedule revision; dispatch records schedule, occurrence, and run correlation without impersonating a browser request.
+4. Add allowlisted diagnostic events and measurements for dispatcher heartbeat, lag, due backlog, dispatch failures, and skipped/blocked counts; health distinguishes disabled dispatch from failed dispatch.
+5. Occurrence/history access is owner-scoped and paginated, with safe retained-record behavior after linked runs are deleted; logs and UI exclude credentials, raw provider bodies, and source cell values.
+6. The operator runbook explains lookup by schedule/occurrence/run ID, recovery after database failures, and how to identify a missed or delayed dispatch without treating the midnight probe as proof of pipeline completion.",""
+"2026-10-22","Story","PS-9","Verify restart recovery and release on Posit Connect","PS-EPIC","As a deployment operator, I want migration and failure scenarios demonstrated on Connect so that scheduled pipelines can be enabled with clear evidence and recovery instructions.
+
+Scope: Run cross-layer acceptance, rehearse deployment/migration and disablement, record evidence, and update user/operator documentation.
+Depends on: PS-4, PS-5, PS-6, PS-7, PS-8
+Owner roles: Engineering / Quality / Operations
+Status: Proposed / not started
+Verification evidence: A release acceptance ledger records automated results, synthetic screenshots, Connect content/process configuration, deployment version, expected/actual UTC and local times, failure-injection outcomes, and remaining external checks.
+Backlog: docs/stories/pipeline-scheduling-epic.md#ps-9","1. Acceptance demonstrates unattended pipeline dispatch and execution with closed app tabs and no keepalive traffic on a Min processes=1 Connect deployment using non-sensitive test data.
+2. Restart before a due time, downtime spanning several times, crash before/after dispatch commit, database interruption, and recovery after committed enqueue all produce the documented outcomes.
+3. Separate-process PostgreSQL tests demonstrate duplicate prevention and overlap admission; deployment acceptance covers competing dispatchers or an overlapping redeployment and draft ownership.
+4. Demonstrate schedule edits, pause/resume, owner disablement, credential replacement, long-running transfers, blocked guardrails, and uncertain destination reconciliation without bypasses or leaked data.
+5. Migration/deactivation/rollback guidance prevents old and new application versions from dispatching incompatible state and preserves already committed runs and occurrence evidence; re-enabling dispatch has a rehearsed procedure.
+6. Record appropriate lint, format, types, migration, unit/integration, UI/Hedron, documentation and security checks with named evidence; skipped, licensed, or live-provider checks remain explicitly identified.
+7. The release documents the selected policy defaults, dispatch latency, retention, permissions, deployment ownership and complete-Connect-outage limitations. All earlier story acceptance has implementation/evidence links.",""

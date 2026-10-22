@@ -77,10 +77,13 @@ cannot reveal another user's saved values.
 
 | Connection | Required fields | Optional fields |
 |---|---|---|
-| MSS (Palantir Foundry) | API endpoint, API token | Default dataset RID, branch, TLS CA profile |
-| MCS-COP (Palantir Foundry) | API endpoint, API token | Default dataset RID, branch, TLS CA profile |
+| MSS (Palantir Foundry) | API endpoint, API token | Default dataset RID, branch, TLS CA profile, token expiry (UTC) |
+| MCS-COP (Palantir Foundry) | API endpoint, API token | Default dataset RID, branch, TLS CA profile, token expiry (UTC) |
 | PostgreSQL | Host, port, database, username, password, SSL mode | Connect timeout, application name |
-| Databricks | Workspace URL, personal access token, compute type and ID, SQL HTTP path | Startup policy (manual by default; automatic startup requires owner consent) |
+| Databricks | Workspace URL, personal access token, compute type and ID, SQL HTTP path | Token expiry (UTC), startup policy (manual by default; automatic startup requires owner consent) |
+
+For step-by-step Databricks setup, see [Find and enter your Databricks connection details](providers/databricks-credentials.md),
+including screenshots, token creation, and matching compute IDs to HTTP paths.
 
 The offline `make demo` launcher enables Databricks with synthetic credentials; see
 [Local seeded demo](#local-seeded-demo). Databricks connections, catalog browsing, and compute
@@ -95,16 +98,16 @@ encrypted with the same owner-scoped storage as other connections.
 
 ### Finding connection values
 
-For PostgreSQL, pgAdmin can provide most of the connection details. Right-click the server and
-open **Properties → Connection** for the host and port; expand the server's **Databases** list for
-the database name; and check **Login/Group Roles** for the username. pgAdmin does not display an
-existing role password, so obtain that value from your database administrator. Select the SSL mode
-required by your database policy; `verify-ca` and `verify-full` also require trusted CA
-configuration.
+For PostgreSQL, use the [pgAdmin credential guide](providers/postgres-credentials.md) for
+screenshots and steps to find the host, port, login username, target database, and SSL settings.
+Obtain the database password from its issuer or approved secret manager. The guide distinguishes
+the target database from pgAdmin's maintenance database and explains runtime certificate and
+network requirements for Posit Connect.
 
-For MSS and MCS-COP, ask your platform administrator for the HTTPS API endpoint and a
-least-privileged API token. In Foundry, open the dataset details to find its dataset RID and
-available branches.
+For MSS and MCS-COP, follow the [Foundry credential guide](providers/foundry-credentials.md)
+for screenshots and steps to find the approved API base, development token, dataset RID, branch,
+and TLS profile. It also explains Palantir's production OAuth requirements and the limits of
+Data Mover's current token-based connection checks.
 
 Saving a new or changed connection validates its field shape, stores the encrypted bundle, and runs
 the provider health check automatically. Submitting the same normalized bundle leaves its encrypted
@@ -138,6 +141,31 @@ provider or network failures without changing the bundle. Data Mover does not re
 value was previously entered. For a production credential rotation, replace the bundle in Data
 Mover and rotate or revoke the old credential at the remote provider according to that provider's
 process.
+
+### Token expiry
+
+For MSS, MCS-COP, and Databricks, **Credentials** and **Status** show the saved token's expiry
+date in UTC and its source. Dates within seven days show **Expires within 7 days**; dates that
+have passed show **Expiry date passed**. The warning is recalculated when the page or fragment
+renders; it is not a background notification or an automatic credential refresh.
+
+The app uses matching Databricks token metadata from a live connection check when available.
+Otherwise, it uses the optional **Token expires at (UTC)** value entered with the complete
+credential bundle, then an `exp` claim if the token is a readable JWT. JWT signatures are not
+verified for this display: these dates are labeled **unverified token claim**. Opaque tokens
+without a supplied date show **Unknown**. A Databricks response with no scheduled expiry says
+so explicitly; it does not mean the token cannot be revoked or invalidated.
+
+These dates are advisory. A future date does not establish that a token is valid, and an unknown
+date does not fail a connection. Use **Test connection** for a current connectivity check.
+The app does not renew or revoke tokens. Replacement credentials clear the old expiry metadata;
+existing saved connections initially show **Unknown** until retested or replaced. PostgreSQL
+uses a password and has no API-token expiry display.
+
+![Actual demo connection status with approaching and passed expiry warnings](screenshots/token-expiry-status.png)
+
+*October 22, 2026 capture with synthetic credentials and user-supplied dates. The health checks
+are emulated; the warnings illustrate saved dates and do not verify real token validity.*
 
 ## Build a pipeline
 

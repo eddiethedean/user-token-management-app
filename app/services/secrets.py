@@ -18,6 +18,7 @@ from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.redaction import redact_text
 from app.connectors.registry import connection_tester_for
 from app.db_compat import execute_dml, insert_for, supports_returning
+from app.domain.token_expiry import TokenExpiry, expiry_from_credentials
 from app.logging_config import log_event, safe_exception_traceback
 from app.models import (
     ApiTokenKeyUsage,
@@ -241,6 +242,7 @@ def store_user_credentials_if_changed(
         user=user,
         specification=specification,
         encoded_value=encoded_token,
+        expiry=expiry_from_credentials(normalized),
         request=request,
     )
 
@@ -252,6 +254,7 @@ def _store_encrypted_value(
     user: User,
     specification: SecretProvider,
     encoded_value: bytes,
+    expiry: TokenExpiry,
     request: Request | RequestMetadata | None,
 ) -> StoredCredentials:
     # The user row is a stable lock target even when this provider has no secret yet.
@@ -294,6 +297,8 @@ def _store_encrypted_value(
     stored.encrypted_data_key = envelope.encrypted_data_key
     stored.key_nonce = envelope.key_nonce
     stored.master_key_id = envelope.master_key_id
+    stored.token_expires_at = expiry.expires_at
+    stored.token_expiry_source = expiry.source
     stored.updated_at = utcnow()
     stored.validation_status = "untested"
     stored.validated_at = None
@@ -428,6 +433,7 @@ def test_user_connection(
         reference_id=reference_id,
     ).message[:240]
     runtime_status = ""
+    provider_expiry = None
     completed_outcome: str | None = None
     try:
         resolver = connector_resolver or connection_tester_for
@@ -439,6 +445,11 @@ def test_user_connection(
             if settings.is_demo_mode or "emulator" in str(health.server_identity or "").casefold()
             else "live"
         )
+        if validation_mode == "live" and health.token_expiry.source in {
+            "provider",
+            "provider_no_expiry",
+        }:
+            provider_expiry = health.token_expiry
         validation_scope = (
             "Emulated provider configuration"
             if validation_mode == "emulated"
@@ -498,8 +509,20 @@ def test_user_connection(
             traceback=safe_exception_traceback((type(exc), exc, exc.__traceback__)),
         )
     latency_ms = int((time.perf_counter() - started) * 1000)
+    if provider_expiry is None and stored.token_expiry_source == "unknown":
+        candidate = expiry_from_credentials(credentials)
+        if candidate.source != "unknown":
+            provider_expiry = candidate
     if validation_status == "connected" and latency_ms:
         validation_message = f"{validation_message} · {latency_ms} ms"[:240]
+    expiry_values = (
+        {
+            "token_expires_at": provider_expiry.expires_at,
+            "token_expiry_source": provider_expiry.source,
+        }
+        if provider_expiry is not None
+        else {}
+    )
     update_result = execute_dml(
         db,
         update(UserSecret)
@@ -522,6 +545,7 @@ def test_user_connection(
             validation_message=validation_message,
             runtime_status=runtime_status,
             runtime_updated_at=utcnow() if runtime_status else None,
+            **expiry_values,
         ),
     )
     db.commit()

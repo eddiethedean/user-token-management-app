@@ -51,6 +51,15 @@ There is **no public REST API**. Mutations are form/HTMX POSTs; GETs render HTML
 | Authorized connector actions / in-process background runtime | The FastAPI process decrypts only the current user's selected credentials for a catalog browse, connection test, or claimed transfer; plaintext never enters browser responses, run snapshots, or catalog-cache rows |
 | Downstream “run” workloads | Must not inherit master-key env; receive only explicitly granted provider tokens (deployment control) |
 
+## Connection token expiry
+
+Connection rows also store non-secret advisory token expiry dates and their source alongside
+the encrypted credential bundle. Provider-reported dates, user-entered dates, and unverified
+JWT `exp` claims are distinguished in the owner-only UI. Expiry metadata does not authorize
+requests, change connection readiness, or replace live provider authentication. Connection-test
+updates use the credential revision and check ID so stale checks cannot overwrite a replacement
+token's expiry. The optional entered date remains inside the encrypted credential bundle too.
+
 ## Sessions
 
 - Short-lived access JWT in an HTTP-only cookie; longer-lived refresh token with server-side session

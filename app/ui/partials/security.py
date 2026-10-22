@@ -50,6 +50,7 @@ from app.ui.design_system import apply_design_recipe, stacked_surface, surface_c
 from app.ui.forms import compact_password_input, csrf_hidden, submit_button
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.presenters.feedback import connection_outcome
+from app.ui.presenters.token_expiry import token_expiry_view
 from app.ui.regions import SECURITY_ACTIVITY
 from app.ui.tabs import NavigationTabs
 from app.ui.urls import form_action, hx_attrs, mounted_path, page_href
@@ -134,6 +135,18 @@ def password_form(
     )
 
 
+def _token_expiry_notice(provider: SecretProvider, secret: Any) -> NodeLike:
+    if secret is None or not any(field.name == "token" for field in provider.fields):
+        return None
+    expiry = token_expiry_view(secret)
+    if expiry.badge:
+        return Alert(
+            f"{expiry.badge}. {expiry.summary} Review or replace this token.",
+            tone="danger" if expiry.tone == "danger" else "warning",
+        )
+    return Text(expiry.summary, role="caption", overflow="wrap", effect="none")
+
+
 def secret_slot(
     request: Request,
     provider: SecretProvider,
@@ -177,6 +190,14 @@ def secret_slot(
                 placeholder=field.placeholder,
                 value=field.default,
             )
+        elif field.input_type == "datetime-local":
+            control = html.input(
+                name=field.name,
+                id=field_id,
+                type="datetime-local",
+                value=field.default,
+                class_="hedron-text-input",
+            )
         else:
             control = TextInput(
                 field.name,
@@ -196,7 +217,13 @@ def secret_slot(
             id=field_id,
             required=field.required,
             error=field_errors.get(field.name) or None,
-            help="Optional" if not field.required else None,
+            help=(
+                "Optional. UTC date/time from the token page; used when expiry cannot be detected."
+                if field.name == "token_expires_at"
+                else "Optional"
+                if not field.required
+                else None
+            ),
             control=control,
         )
 
@@ -277,6 +304,7 @@ def secret_slot(
             if provider.setup_hint
             else None,
             Text(metadata, role="caption", overflow="wrap", effect="none"),
+            _token_expiry_notice(provider, secret),
             Form(
                 csrf_hidden(csrf_token),
                 credential_layout,
@@ -499,12 +527,23 @@ def connection_status_list(
         if outcome is not None and outcome.reference_id:
             actions.append(ClipboardCopy(outcome.reference_id, label="Copy reference"))
 
+        expiry = (
+            token_expiry_view(secret)
+            if configured and any(field.name == "token" for field in provider.fields)
+            else None
+        )
+        if expiry is not None:
+            detail = f"{detail} · {expiry.summary}"
         rows.append(
             ResourceRow(
                 provider.label,
                 description=f"{catalog.technology} · {detail}",
                 mark=provider.mark,
-                meta=Badge(status_label, tone=status_tone),
+                meta=Inline(
+                    Badge(status_label, tone=status_tone),
+                    Badge(expiry.badge, tone=expiry.tone) if expiry and expiry.badge else None,
+                    gap="xs",
+                ),
                 actions=ActionGroup(
                     *actions,
                     align="end",
@@ -856,8 +895,8 @@ def security_tabs(
                     "Remote connections",
                     eyebrow="Encrypted credentials",
                     description=(
-                        "Add each system once. Every field stays encrypted at rest and saved "
-                        "plaintext is never displayed."
+                        "Add each system once. Connection credentials stay encrypted at rest. "
+                        "Saved tokens and passwords are never displayed."
                     ),
                     level=2,
                     density="compact",

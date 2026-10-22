@@ -6,6 +6,10 @@ Evidence: the current [`app/connectors/postgres.py`](../../app/connectors/postgr
 [`tests/test_postgres_connector.py`](../../tests/test_postgres_connector.py); archived transfer
 snippets are historical context only.
 
+For screenshots and steps to find connection settings in pgAdmin, see the
+[PostgreSQL credential guide](postgres-credentials.md). It covers the target database, login,
+password source, SSL requirements, and differences between pgAdmin and a Posit Connect runtime.
+
 ## Driver and identifiers
 
 - Use psycopg 3 (`psycopg`), not `psycopg2`.

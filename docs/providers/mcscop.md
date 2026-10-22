@@ -6,15 +6,21 @@ Evidence: `docs/archive/transfer_code/pg_mcs.py` and operator-confirmed non-prod
 
 Secrets: none. Dataset RIDs, tokens, and operational hostnames from reference scripts are omitted.
 
+For field locations, screenshots, authentication limitations, and connection-check interpretation,
+see the [MSS and MCS-COP credential guide](foundry-credentials.md).
+
 ## Role in this release
 
-MCS-COP supports both Foundry file extraction and destination uploads. Health checks and catalog
-inspection use authenticated metadata or a default-RID file list so a user can confirm the token
-and dataset before transferring data.
+MCS-COP supports both Foundry file extraction and destination uploads. Health checks list files
+using the default dataset RID; without one, the connection remains untested. Read the full result
+message: a not-found response can currently produce a connected status without verifying dataset
+access. Catalog inspection lists the configured dataset and branch.
 
 ## Endpoint and authentication
 
-- Base URL comes from the user credential `endpoint` field. Strip a leading `https://` and trailing `/`, then rebuild as `https://{host}`.
+- Base URL comes from the user credential `endpoint` field. The adapter removes a trailing `/`
+  and preserves any path prefix before appending the API route. Use the approved HTTPS origin,
+  or an operator-supplied gateway base; do not paste a dataset page or full API request URL.
 - Production requires HTTPS. Redirects are disabled.
 - Authentication header: `Authorization: Bearer <token>`.
 - Connect timeout: 10 seconds. Read/write timeout: 120 seconds.

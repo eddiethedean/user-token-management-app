@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
@@ -120,6 +121,29 @@ def test_scripted_lifecycle_uses_real_sdk_without_starting_from_health(wiremock:
     assert states == ["STOPPED", "STARTING", "RUNNING"]
     assert len(wiremock.requests("GET", WAREHOUSE)) == 3
     assert wiremock.requests("POST", WAREHOUSE + "/start") == []
+
+
+@pytest.mark.parametrize("failure", ["throttled", "unavailable", "stalled"])
+def test_optional_expiry_failure_does_not_delay_successful_health_check(
+    wiremock: WireMock, failure
+) -> None:
+    wiremock.stub("GET", WAREHOUSE, _warehouse("RUNNING"))
+    response = _json({"error_code": "TEMPORARILY_UNAVAILABLE"}, 503)
+    response["headers"]["Retry-After"] = "600"
+    if failure == "throttled":
+        response["status"] = 429
+    if failure == "stalled":
+        response["fixedDelayMilliseconds"] = 10000
+    wiremock.stub("GET", "/api/2.0/token/list", response)
+    connector = _connector(_client(wiremock.endpoint, retry_seconds=300))
+    started = time.monotonic()
+    health = connector.test_connection(CREDENTIALS)
+    elapsed = time.monotonic() - started
+    assert health.status == "connected"
+    assert health.runtime_status == "RUNNING"
+    assert health.token_expiry.source == "unknown"
+    assert elapsed < 5
+    assert len(wiremock.requests("GET", "/api/2.0/token/list")) == 1
 
 
 @pytest.mark.parametrize(

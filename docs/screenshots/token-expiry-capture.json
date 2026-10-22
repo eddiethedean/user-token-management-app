@@ -1,0 +1,13 @@
+{
+  "captured_at": "2026-10-22T13:58:47+00:00",
+  "version": "211026.1",
+  "image": "token-expiry-status.png",
+  "sha256": "bd953c171d7e498f39b77040256c4340350411914211613bf1aa4f908940bc48",
+  "viewport": {
+    "width": 65536,
+    "height": 4292542531
+  },
+  "fixture": "Isolated loopback demo with synthetic credentials; no remote systems contacted.",
+  "state": "Connections / Status; MSS expiry 2026-10-25T12:00Z and MCS-COP expiry 2026-10-20T12:00Z, both user supplied.",
+  "capture_method": "CUA browser screenshot, scrolled to the connection status heading and warning rows."
+}

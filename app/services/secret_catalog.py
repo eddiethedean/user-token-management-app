@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from app.domain.credentials import CredentialField, SecretCatalog, SecretProvider
 
+TOKEN_EXPIRY_FIELD = CredentialField(
+    "token_expires_at",
+    "Token expires at (UTC)",
+    "Optional expiry from the provider's token page",
+    input_type="datetime-local",
+)
+
 SECRET_PROVIDERS = (
     SecretProvider(
         "mss",
@@ -31,6 +38,7 @@ SECRET_PROVIDERS = (
                 default="system",
                 options=("system", "nipr"),
             ),
+            TOKEN_EXPIRY_FIELD,
         ),
         setup_hint=(
             "Need help finding these values? Your platform administrator can provide the MSS "
@@ -68,6 +76,7 @@ SECRET_PROVIDERS = (
                 default="system",
                 options=("system", "nipr"),
             ),
+            TOKEN_EXPIRY_FIELD,
         ),
         setup_hint=(
             "Need help finding these values? Your platform administrator can provide the "
@@ -172,6 +181,7 @@ SECRET_PROVIDERS = (
                     ("allow_start", "Allow automatic startup"),
                 ),
             ),
+            TOKEN_EXPIRY_FIELD,
         ),
         setup_hint=(
             "Use a workspace personal access token and an existing SQL warehouse or compatible "

@@ -7,6 +7,18 @@ current documentation working tree. These are actual Chromium captures of the Fo
 
 ## Gallery
 
+The [token-expiry status capture](token-expiry-status.png) was added October 22, 2026, version
+`211026.1`, at 1280 × 720. It shows the current **Status** tab with user-supplied synthetic
+expiry dates: MSS on October 25 at 12:00 UTC and MCS-COP on October 20 at 12:00 UTC. The
+warnings are relative to the capture date. These are emulated health checks, not live token
+validation. Its separate [capture metadata](token-expiry-capture.json) records the image hash
+and fixture details; the October 21 gallery and manifest below retain their original captures.
+
+To reproduce this focused view, start an isolated demo as described below, use the ordinary
+MSS and MCS-COP credential forms to re-enter their synthetic demo bundles with the optional
+UTC expiry dates above, then open **Status**. Choose dates relative to your capture day when
+checking the warning thresholds rather than reproducing these historical dates.
+
 | Screen | Dark | Light |
 | --- | --- | --- |
 | Sign in | [View](login.jpg) | [View](login-light.jpg) |

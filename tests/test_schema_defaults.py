@@ -25,6 +25,39 @@ def test_alembic_revision_ids_fit_version_table_limit() -> None:
         assert len(match.group(1)) <= 32, migration
 
 
+def test_token_expiry_migration_preserves_credentials_and_defaults_to_unknown(tmp_path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'token-expiry.db'}"
+    config = alembic_config(database_url)
+    command.upgrade(config, "0004_user_api_secrets")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        _insert_user(
+            connection, user_id="expiry-user", email="expiry@example.gov", include_color_mode=False
+        )
+        connection.execute(
+            text(
+                "INSERT INTO user_secrets (id, user_id, provider, ciphertext, nonce, "
+                "encrypted_data_key, key_nonce, master_key_id, created_at, updated_at) "
+                "VALUES ('expiry-secret', 'expiry-user', 'mss', 'encrypted-value', 'nonce', "
+                "'encrypted-key', 'key-nonce', 'key-id', '2026-10-22', '2026-10-22')"
+            )
+        )
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        row = connection.execute(
+            text("SELECT ciphertext, token_expires_at, token_expiry_source FROM user_secrets")
+        ).one()
+        assert tuple(row) == ("encrypted-value", None, "unknown")
+    command.downgrade(config, "0025_remove_email_bcc")
+    assert "token_expiry_source" not in {
+        column["name"] for column in inspect(engine).get_columns("user_secrets")
+    }
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT ciphertext FROM user_secrets")) == "encrypted-value"
+    command.upgrade(config, "head")
+    engine.dispose()
+
+
 def _insert_user(connection, *, user_id: str, email: str, include_color_mode: bool) -> None:
     columns = (
         "id, email, email_original, full_name, organization, job_title, phone, status, "

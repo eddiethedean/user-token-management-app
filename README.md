@@ -153,8 +153,11 @@ Administrators can filter security-relevant events by type and outcome and expan
 | [docs/runbooks/pipeline-worker.md](docs/runbooks/pipeline-worker.md) | In-process transfer runtime operations |
 | [docs/providers/mss.md](docs/providers/mss.md) | Frozen MSS/Foundry protocol notes |
 | [docs/providers/mcscop.md](docs/providers/mcscop.md) | Frozen MCS-COP/Foundry protocol notes |
+| [docs/providers/foundry-credentials.md](docs/providers/foundry-credentials.md) | Where to find MSS and MCS-COP endpoint, token, dataset, branch, and TLS settings |
 | [docs/providers/postgres.md](docs/providers/postgres.md) | PostgreSQL connector and transactional load semantics |
+| [docs/providers/postgres-credentials.md](docs/providers/postgres-credentials.md) | Find host, database, login, and SSL settings in pgAdmin and obtain the database password |
 | [docs/providers/databricks.md](docs/providers/databricks.md) | Offline demo, live operator gates, and Delta acceptance/recovery |
+| [docs/providers/databricks-credentials.md](docs/providers/databricks-credentials.md) | Where to find workspace, token, and compute connection details |
 | [docs/screenshots/README.md](docs/screenshots/README.md) | Current desktop gallery and screenshot reproduction |
 | [docs/hedron.md](docs/hedron.md) | Hedron integration and feature coverage |
 | [docs/plans/README.md](docs/plans/README.md) | Roadmap artifacts, ETL/security contracts, ADE learning path, and delivery evidence |
