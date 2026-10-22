@@ -577,6 +577,54 @@ def test_postgres_skips_generated_destination_columns(postgres_credentials) -> N
     ) == [(3, 6)]
 
 
+@pytest.mark.parametrize(
+    ("column_definition", "sequence_kind"),
+    [
+        ("SERIAL", "serial"),
+        ("BIGSERIAL", "bigserial"),
+        ("INTEGER GENERATED ALWAYS AS IDENTITY", "identity-always"),
+    ],
+)
+def test_postgres_advances_owned_sequences_after_explicit_import(
+    postgres_credentials, column_definition: LiteralString, sequence_kind: str
+) -> None:
+    locator = postgres_table("public", "serial_sequence_destination")
+    _execute(
+        postgres_credentials,
+        f"CREATE TABLE public.serial_sequence_destination ("
+        f"id {column_definition} PRIMARY KEY, label TEXT)",
+    )
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(
+            ColumnSchema(name="id", data_type="Int64"),
+            ColumnSchema(name="label", data_type="Utf8"),
+        ),
+    )
+    frame = pl.DataFrame({"id": [41, 42], "label": ["first", "second"]})
+    connector = PostgresConnector(connector_settings())
+
+    connector.preflight_destination(postgres_credentials, locator, schema, PostgresAppendPolicy())
+    manifest = _load(
+        postgres_credentials,
+        locator,
+        PostgresAppendPolicy(),
+        frame,
+        run_id=f"sequence-{sequence_kind}",
+        schema=schema,
+    )
+    _execute(
+        postgres_credentials,
+        "INSERT INTO public.serial_sequence_destination (label) VALUES ('generated')",
+    )
+
+    assert manifest.rows == 2
+    assert _fetchall(
+        postgres_credentials,
+        "SELECT id, label FROM public.serial_sequence_destination ORDER BY id",
+    ) == [(41, "first"), (42, "second"), (43, "generated")]
+
+
 def test_postgres_skips_generated_numeric_columns_during_decimal_validation(
     postgres_credentials,
 ) -> None:

@@ -471,7 +471,11 @@ class PostgresConnector:
                 cursor.execute(
                     """
                     SELECT column_name, data_type, is_nullable, numeric_precision, numeric_scale,
-                           is_generated, is_identity, identity_generation, column_default
+                           is_generated, is_identity, identity_generation, column_default,
+                           pg_get_serial_sequence(
+                               quote_ident(table_schema) || '.' || quote_ident(table_name),
+                               column_name
+                           )
                     FROM information_schema.columns
                     WHERE table_schema = %s AND table_name = %s
                     ORDER BY ordinal_position
@@ -481,8 +485,8 @@ class PostgresConnector:
                 destination_rows = cursor.fetchall()
                 source_names = {column.name for column in source_schema.columns}
                 for row in destination_rows:
-                    if row[6] == "YES" and row[0] in source_names:
-                        _identity_sequence_settings(cursor, locator, str(row[0]))
+                    if row[0] in source_names and row[9]:
+                        _owned_sequence_settings(cursor, locator, str(row[0]))
                 cursor.execute(
                     """
                     SELECT a.attname
@@ -550,6 +554,7 @@ class PostgresConnector:
                     identity,
                     _generation,
                     default,
+                    _owned_sequence,
                 ) = row
                 if (
                     source_names
@@ -749,7 +754,7 @@ class PostgresConnector:
         conn = connect(credentials, self.settings)
         staging_sequence = ""
         override_identity = False
-        supplied_identity_columns: list[str] = []
+        supplied_sequence_columns: list[str] = []
         definitions = [
             sql.SQL("{} {}").format(
                 sql.Identifier(column.name),
@@ -780,11 +785,14 @@ class PostgresConnector:
                 if not recreates_schema:
                     cursor.execute(
                         """
-                        SELECT column_name, is_generated, is_identity, identity_generation
+                        SELECT column_name, is_generated, is_identity, identity_generation,
+                               pg_get_serial_sequence(
+                                   quote_ident(table_schema) || '.' || quote_ident(table_name),
+                                   column_name
+                               )
                         FROM information_schema.columns
                         WHERE table_schema = %s
                           AND table_name = %s
-                          AND (is_generated = 'ALWAYS' OR is_identity = 'YES')
                         """,
                         (locator.schema_name, locator.table),
                     )
@@ -793,17 +801,19 @@ class PostgresConnector:
                         is_generated,
                         is_identity,
                         identity_generation,
+                        sequence_name,
                     ) in cursor.fetchall():
                         name = str(column_name)
                         if is_identity == "YES":
                             if name in columns:
-                                supplied_identity_columns.append(name)
                                 if identity_generation == "ALWAYS":
                                     override_identity = True
                             else:
                                 generated_columns.add(name)
                         elif is_generated == "ALWAYS":
                             generated_columns.add(name)
+                        if name in columns and sequence_name:
+                            supplied_sequence_columns.append(name)
                     transferable_schema = ObjectSchema(
                         locator=schema.locator,
                         columns=tuple(
@@ -818,8 +828,8 @@ class PostgresConnector:
                     _validate_existing_decimal_columns(cursor, locator, transferable_schema)
                     if isinstance(write_policy, PostgresUpsertPolicy):
                         _validate_upsert_policy(cursor, locator, schema, write_policy)
-                    for column_name in supplied_identity_columns:
-                        _identity_sequence_settings(cursor, locator, column_name)
+                    for column_name in supplied_sequence_columns:
+                        _owned_sequence_settings(cursor, locator, column_name)
                     if not recreates_schema:
                         cursor.execute(
                             "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
@@ -942,7 +952,7 @@ class PostgresConnector:
             metadata={
                 "staging_sequence": staging_sequence,
                 "override_identity": "true" if override_identity else "",
-                "supplied_identity_columns": json.dumps(supplied_identity_columns),
+                "supplied_sequence_columns": json.dumps(supplied_sequence_columns),
             },
         )
 
@@ -1000,15 +1010,15 @@ class PostgresConnector:
             if load_session.metadata.get("override_identity")
             else sql.SQL("")
         )
-        supplied_identity_columns = json.loads(
-            load_session.metadata.get("supplied_identity_columns", "[]")
+        supplied_sequence_columns = json.loads(
+            load_session.metadata.get("supplied_sequence_columns", "[]")
         )
         upsert_expected_rows: int | None = None
         try:
             with conn.cursor() as cursor:
-                if supplied_identity_columns:
-                    _advance_identity_sequences(
-                        cursor, locator, load_session.staging_name, supplied_identity_columns
+                if supplied_sequence_columns:
+                    _advance_owned_sequences(
+                        cursor, locator, load_session.staging_name, supplied_sequence_columns
                     )
                 if isinstance(policy, PostgresAppendPolicy):
                     cursor.execute(
@@ -1202,7 +1212,7 @@ def _upsert_source_row_count(
     return int(row[0]) if row else 0
 
 
-def _identity_sequence_settings(
+def _owned_sequence_settings(
     cursor, locator: PostgresTableLocator, column_name: str
 ) -> tuple[str, int]:
     cursor.execute(
@@ -1214,7 +1224,7 @@ def _identity_sequence_settings(
     if not sequence_name:
         raise ConnectorError(
             TransferErrorCode.SCHEMA_DRIFT,
-            "The destination identity sequence could not be found.",
+            "The destination sequence for this generated key could not be found.",
             retryable=False,
         )
     cursor.execute(
@@ -1226,27 +1236,27 @@ def _identity_sequence_settings(
     if not row:
         raise ConnectorError(
             TransferErrorCode.SCHEMA_DRIFT,
-            "The destination identity sequence settings could not be read.",
+            "The destination sequence settings could not be read.",
             retryable=False,
         )
     if int(row[1]) != 1:
         raise ConnectorError(
             TransferErrorCode.SCHEMA_DRIFT,
-            "Explicit identity values require a sequence with CACHE 1. Change the sequence "
+            "Explicit sequence-backed key values require a sequence with CACHE 1. Change the sequence "
             "cache and reconnect sessions holding cached values before running this route.",
             retryable=False,
         )
     if not row[2]:
         raise ConnectorError(
             TransferErrorCode.PERMISSION_DENIED,
-            "Writing explicit identity values requires UPDATE permission on the destination "
+            "Writing explicit sequence-backed key values requires UPDATE permission on the destination "
             "sequence.",
             retryable=False,
         )
     return sequence_name, int(row[0])
 
 
-def _identity_boundary(
+def _sequence_boundary(
     cursor,
     aggregate: sql.SQL,
     column_name: str,
@@ -1256,30 +1266,30 @@ def _identity_boundary(
     column = sql.Identifier(column_name)
     cursor.execute(
         sql.SQL(
-            "SELECT {}(dm_identity_value) FROM ("
-            "SELECT {} AS dm_identity_value FROM {} UNION ALL "
-            "SELECT {} AS dm_identity_value FROM {}"
-            ") AS dm_identity_values"
+            "SELECT {}(dm_sequence_value) FROM ("
+            "SELECT {} AS dm_sequence_value FROM {} UNION ALL "
+            "SELECT {} AS dm_sequence_value FROM {}"
+            ") AS dm_sequence_values"
         ).format(aggregate, column, destination, column, staging)
     )
     row = cursor.fetchone()
     return int(row[0]) if row and row[0] is not None else None
 
 
-def _advance_identity_sequences(
+def _advance_owned_sequences(
     cursor,
     locator: PostgresTableLocator,
     staging_name: str,
-    identity_columns: list[str],
+    sequence_columns: list[str],
 ) -> None:
-    """Reserve keys for explicitly loaded identities before inserting rows."""
+    """Reserve keys for explicitly loaded sequence-backed columns."""
 
     destination = sql.Identifier(locator.schema_name, locator.table)
     staging = sql.Identifier(locator.schema_name, staging_name)
-    for column_name in identity_columns:
-        sequence_name, increment = _identity_sequence_settings(cursor, locator, column_name)
+    for column_name in sequence_columns:
+        sequence_name, increment = _owned_sequence_settings(cursor, locator, column_name)
         aggregate = sql.SQL("MAX") if increment > 0 else sql.SQL("MIN")
-        loaded_boundary = _identity_boundary(cursor, aggregate, column_name, destination, staging)
+        loaded_boundary = _sequence_boundary(cursor, aggregate, column_name, destination, staging)
         if loaded_boundary is None:
             continue
         cursor.execute("SELECT nextval(%s::regclass)", (sequence_name,))
@@ -1299,7 +1309,7 @@ def _advance_identity_sequences(
         if not sequence_row or not sequence_row[2]:
             raise ConnectorError(
                 TransferErrorCode.PERMISSION_DENIED,
-                "Advancing this identity sequence safely requires sequence ownership. "
+                "Advancing this destination sequence safely requires sequence ownership. "
                 "Ask its owner to run the transfer or choose a generated destination key.",
                 retryable=False,
             )
@@ -1313,13 +1323,13 @@ def _advance_identity_sequences(
         if sequence_state is None:
             raise ConnectorError(
                 TransferErrorCode.SCHEMA_DRIFT,
-                "The destination identity sequence state could not be read.",
+                "The destination sequence state could not be read.",
                 retryable=False,
             )
         next_available = int(sequence_state[0]) + (increment if sequence_state[1] else 0)
         # A writer may have completed while the lock was pending. Include its
         # row as well as any values reserved by nextval but not inserted yet.
-        latest_boundary = _identity_boundary(cursor, aggregate, column_name, destination, staging)
+        latest_boundary = _sequence_boundary(cursor, aggregate, column_name, destination, staging)
         if latest_boundary is None:
             latest_boundary = loaded_boundary
         restart_value = (
