@@ -375,7 +375,7 @@ navigation or a wider desktop viewport; server-side validation remains the same.
 |---|---|
 | A provider is missing from Pipeline | Confirm it is saved under **Connections → Credentials** and **Connected** under **Status**. |
 | Save or Run is disabled | Scan the CSV, choose distinct source/destination objects, save route edits, and resolve every readiness message. |
-| A run stays queued | Check the app logs and `PIPELINE_BACKGROUND_POLL_SECONDS`; the in-process runtime recovers queued runs automatically. |
+| A run stays queued | Check the app logs, retry/lease deadlines, and notification health. PostgreSQL wakes recovery on queue changes; `PIPELINE_BACKGROUND_POLL_SECONDS` controls fallback if notifications are unavailable. |
 | A connection says Untested | Complete missing provider setup, such as a default Foundry dataset RID, then save the changed bundle or select **Test connection** to retry. |
 | A saved pipeline says Connection required | The owner deleted or replaced a required connection; restore and test it, then reload the pipeline. |
 | An email link never arrives | Local deployments print links in the app log; production email is delivered by the app's in-process background task, so operators should check the app logs, `email_outbox`, and SMTP relay. |

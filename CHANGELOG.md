@@ -23,6 +23,12 @@
 
 ### Fixed
 
+- PostgreSQL supervisors now wait for committed queue notifications and known work deadlines
+  instead of repeatedly querying empty queues. Migration `0027_queue_notifications` installs the
+  notification triggers; each process owns one listener connection and recovers durable state on
+  startup/reconnect. SQLite and unavailable/disabled notifications use a 60-second polling
+  fallback. Both connection failures and later disconnects enforce the configured retry delay.
+  Existing short fallback environment overrides must be changed separately.
 - Databricks expiry metadata uses a separate HTTP request with short network timeouts and no
   retries, so unavailable or throttled metadata does not stall a successful connection check.
 

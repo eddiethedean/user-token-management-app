@@ -402,6 +402,51 @@ def test_background_runtime_processes_then_runs_janitor_before_stopping(monkeypa
     assert janitors == [True]
 
 
+def test_long_recovery_wait_stops_promptly_without_another_queue_scan(monkeypatch) -> None:
+    settings = get_settings().model_copy(update={"pipeline_background_poll_seconds": 60.0})
+    runtime = ExecutionRuntime(settings, SessionLocal, current_registry())
+    waiting = threading.Event()
+    original_wait = runtime.stop_event.wait
+    intervals: list[float | None] = []
+    pipeline = Mock(return_value=False)
+    compute = Mock(return_value=False)
+    publication = Mock(return_value=False)
+    janitor = Mock()
+
+    def wait_for_shutdown(timeout: float | None = None) -> bool:
+        intervals.append(timeout)
+        waiting.set()
+        return original_wait(timeout)
+
+    monkeypatch.setattr(pipeline_tasks, "process_pending_pipeline_run_background", pipeline)
+    monkeypatch.setattr(
+        pipeline_tasks, "process_pending_databricks_compute_attempt_background", compute
+    )
+    monkeypatch.setattr(
+        pipeline_tasks, "process_pending_databricks_publication_recovery_background", publication
+    )
+    monkeypatch.setattr(pipeline_tasks, "run_pipeline_janitor_background", janitor)
+    monkeypatch.setattr(runtime.stop_event, "wait", wait_for_shutdown)
+
+    async def scenario() -> None:
+        task = asyncio.create_task(pipeline_tasks.run_background_runtime(runtime=runtime))
+        try:
+            assert await asyncio.to_thread(waiting.wait, 2)
+            assert not task.done()
+            assert intervals == [60.0]
+        finally:
+            runtime.begin_shutdown()
+            await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(scenario())
+
+    pipeline.assert_called_once_with(runtime)
+    compute.assert_called_once_with(runtime)
+    publication.assert_called_once_with(runtime)
+    janitor.assert_called_once_with(runtime)
+    assert runtime.lifetime.is_idle()
+
+
 def test_cancellation_after_thread_completion_still_signals_shutdown() -> None:
     runtime = ExecutionRuntime(get_settings(), SessionLocal, current_registry())
 

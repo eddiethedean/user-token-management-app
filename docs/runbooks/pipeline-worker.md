@@ -18,6 +18,64 @@ There is no standalone pipeline-worker or pipeline-janitor service. Restart the 
 correcting an operational failure; its lifecycle supervisor recovers queued work and performs
 retention cleanup.
 
+## Database audit volume
+
+PostgreSQL deployments use `LISTEN/NOTIFY` by default. After the initial recovery inspection,
+empty queues have no periodic queue-check queries. Database triggers notify each process when
+committed changes affect `pipeline_runs`, `databricks_compute_attempts`, or Databricks publication
+recovery. Owner activation also wakes queued-run recovery. Notifications carry an empty payload
+and are delivered only on commit. Ordinary row counters and run-lease heartbeats do not notify.
+
+Before deploying this behavior, run `make migrate` to apply `0027_queue_notifications`, then
+restart all Data Mover content processes. The migration adds PostgreSQL functions/triggers; it
+does not modify saved runs or credentials. Each process uses one additional persistent autocommit
+database connection, outside the application's SQLAlchemy pool. The database endpoint must
+support session-level `LISTEN` (a direct connection or session pooling, not transaction pooling).
+The normal migration role needs permission to create the function and triggers.
+
+The listener is established before inspecting durable queue state, both on startup and reconnect.
+This prevents work committed during a restart/disconnection from being missed. Known future
+retries, compute observations, and lease expirations set local timers; these continue recovery
+without a new notification. Heartbeat extensions are rechecked at the previously known lease
+deadline. The listener checks its socket/shutdown flag locally without issuing SQL. TCP keepalives
+help detect broken connections; they are network traffic rather than queue queries.
+
+If notifications cannot connect or the connection fails, the app logs a warning and falls back to
+recovery polling while reconnecting. Both initial connection failures and established-listener
+disconnects enforce the fallback interval before another connection attempt, so a flapping
+listener cannot trigger rapid reconnects and repeated recovery scans.
+SQLite and `PIPELINE_QUEUE_NOTIFICATIONS_ENABLED=false`
+also use this fallback. Its default interval is 60 seconds. Earlier releases defaulted to two
+seconds, producing about 43,200 idle cycles per continuously running process per day. A 60-second
+fallback delay reduces that to about 1,440, roughly 97% fewer. Multiple processes multiply totals;
+actual log bytes also depend on auditing and other application activity.
+
+For immediate mitigation on an older deployment, or to keep fallback queries infrequent, set:
+
+```dotenv
+PIPELINE_BACKGROUND_POLL_SECONDS=60
+```
+
+Restart the content processes so all pick up the setting, coordinating with active transfers.
+This interval override works with earlier app versions without a migration; eliminating idle
+polling requires the new code and notification migration. Change or remove any existing `=2`
+override so it cannot reintroduce rapid polling during fallback.
+See Posit's [content environment-variable settings](https://docs.posit.co/connect/user/content-settings/#setting-environment-variables).
+
+Run submissions still trigger their own immediate response background task. The supervisor
+recovers work when the local execution lock was busy. Active transfer heartbeats renew leases
+at roughly one-third of `PIPELINE_LEASE_SECONDS` (40 seconds by default). The retention janitor
+still performs maintenance at `PIPELINE_JANITOR_INTERVAL_SECONDS` (one hour by default), even
+with empty queues. Browser activity and active work also produce database queries.
+
+`LOG_LEVEL` only controls application output; it does not suppress PostgreSQL's security auditing.
+Keep the database audit policy in place. After restart, check for
+`Queue notifications connected; idle queue polling suspended`, and ask the administrators to
+confirm queue-check statements stop while idle. A notification-unavailable warning means polling
+is active. Check for extra/older content processes still polling, and verify a new run and a
+Databricks startup observation. Notifications are wakeup hints; existing database claims, leases,
+and destination fences remain authoritative across processes.
+
 ## Real mode requirements
 
 - `DATA_MOVER_MODE=real`

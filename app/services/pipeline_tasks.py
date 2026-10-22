@@ -874,26 +874,53 @@ async def run_background_runtime(
             _LEGACY_SUPERVISOR_TASK = current_task
     settings = active_runtime.execution_settings
     stop_event = active_runtime.stop_event
+    from app.infrastructure.queue_notifications import QueueListener
+    from app.services.pipeline_wakeups import next_background_work_delay
+
+    listener = (
+        QueueListener(
+            settings.database_url,
+            stop_event,
+            retry_seconds=settings.pipeline_background_poll_seconds,
+        )
+        if settings.pipeline_queue_notifications_enabled
+        and make_url(settings.database_url).get_backend_name() == "postgresql"
+        else None
+    )
+    inspect_queues = True
+    next_work: float | None = None
     body_error: BaseException | None = None
     try:
         while not stop_event.is_set():
-            await _drainable_thread_call(
-                active_runtime, process_pending_pipeline_run_background, active_runtime
-            )
-            if stop_event.is_set():
-                break
-            await _drainable_thread_call(
-                active_runtime,
-                process_pending_databricks_compute_attempt_background,
-                active_runtime,
-            )
-            if stop_event.is_set():
-                break
-            await _drainable_thread_call(
-                active_runtime,
-                process_pending_databricks_publication_recovery_background,
-                active_runtime,
-            )
+            listening = False
+            if listener is not None:
+                was_connected = listener.connected
+                listening = bool(await _drainable_thread_call(active_runtime, listener.connect))
+                # LISTEN must commit before inspecting state, including after a
+                # reconnect: notifications aren't a durable queue themselves.
+                if listening and not was_connected:
+                    inspect_queues = True
+            if inspect_queues:
+                for process in (
+                    process_pending_pipeline_run_background,
+                    process_pending_databricks_compute_attempt_background,
+                    process_pending_databricks_publication_recovery_background,
+                ):
+                    if stop_event.is_set():
+                        break
+                    await _drainable_thread_call(active_runtime, process, active_runtime)
+                if not stop_event.is_set() and listening:
+                    try:
+                        delay = cast(
+                            float | None,
+                            await _drainable_thread_call(
+                                active_runtime, next_background_work_delay, active_runtime
+                            ),
+                        )
+                        next_work = None if delay is None else time.monotonic() + delay
+                    except Exception:
+                        log.exception("Background work deadline inspection failed")
+                        next_work = time.monotonic() + settings.pipeline_background_poll_seconds
             if stop_event.is_set():
                 break
             now = time.monotonic()
@@ -901,15 +928,29 @@ async def run_background_runtime(
                 await _drainable_thread_call(
                     active_runtime, run_pipeline_janitor_background, active_runtime
                 )
-                next_janitor = now + settings.pipeline_janitor_interval_seconds
-            await _drainable_thread_call(
-                active_runtime, stop_event.wait, settings.pipeline_background_poll_seconds
+                next_janitor = time.monotonic() + settings.pipeline_janitor_interval_seconds
+            now = time.monotonic()
+            delay = max(0.0, next_janitor - now)
+            if listening:
+                if next_work is not None:
+                    delay = min(delay, max(0.0, next_work - now))
+            else:
+                delay = min(delay, settings.pipeline_background_poll_seconds)
+            notified = await _drainable_thread_call(
+                active_runtime, listener.wait if listener is not None else stop_event.wait, delay
+            )
+            inspect_queues = (
+                not listening
+                or bool(notified)
+                or (next_work is not None and time.monotonic() >= next_work)
             )
     except BaseException as exc:
         body_error = exc
         raise
     finally:
         active_runtime.begin_shutdown()
+        if listener is not None:
+            listener.close()
         if standalone:
             idle_outcome = await _wait_for_runtime_idle(active_runtime)
             drain_outcome = RuntimeDrainOutcome(

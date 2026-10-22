@@ -129,7 +129,13 @@ credential bundles required by the route, streams row- and byte-bounded Polars b
 status and events. The worker rechecks connector capabilities and destination writer policy before
 connector access. Lease-guarded mutations refresh ownership from the database so a stale task cannot
 continue from its SQLAlchemy identity map. A lightweight in-process supervisor also recovers queued
-or expired runs after restart and runs retention cleanup. CSV sources do not require a source
+or expired runs after restart and runs retention cleanup. PostgreSQL supervisors establish
+`LISTEN` before the startup inspection, then wait for committed queue notifications or known
+retry/lease/compute deadlines. Empty queues have no repeating query timer. Each process owns
+one autocommit notification connection; notification failure falls back to 60-second recovery
+polling and reconnect attempts. SQLite uses that polling fallback. Retention maintenance retains
+its independent hourly timer. Migration `0027_queue_notifications` supplies the PostgreSQL triggers.
+Normal Run submissions trigger immediate response background tasks. CSV sources do not require a source
 credential. The browser polls HTMX fragments that render only those persisted facts.
 
 ```text

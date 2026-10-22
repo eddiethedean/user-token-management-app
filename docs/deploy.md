@@ -23,6 +23,17 @@ Configure the workspace host allowlist and an existing private `PIPELINE_DATABRI
 for writes (default: `main.data_mover_staging`). See the [Databricks operator guide](providers/databricks.md)
 for permissions, startup consent, and the live acceptance record.
 
+PostgreSQL background recovery uses committed notifications and known work deadlines instead of
+polling empty queues. Apply migration `0027_queue_notifications` before startup and allow one
+additional persistent database connection per app process. Use a direct or session-pooled endpoint;
+transaction pooling is incompatible with the listener. Disabled notifications use polling;
+unavailable notifications log a warning and fall back to `PIPELINE_BACKGROUND_POLL_SECONDS`
+(default: 60 seconds).
+Setting that override to `60` and restarting the content also reduces query volume on earlier
+versions. Change or remove any old `=2` override; redeployment preserves environment settings.
+See the [runtime runbook](runbooks/pipeline-worker.md#database-audit-volume) for rollout and verification.
+Application `LOG_LEVEL` does not control database auditing.
+
 ## Workbench
 
 Use this path for a live, single-session Workbench deployment. Create the environment file and
@@ -255,6 +266,12 @@ deployment database before starting the updated application. It adds nullable ex
 an `unknown` source for existing connections, preserving encrypted credentials. Users can then
 retest their connections to detect available expiry metadata, or enter a date with a complete
 replacement credential bundle. No additional environment variable is required.
+
+Migration `0027_queue_notifications` adds PostgreSQL queue-change triggers and their notification
+function. Apply it before starting the new app; otherwise startup rejects the older schema. It is
+a no-op for SQLite apart from advancing the migration revision. Leave
+`PIPELINE_QUEUE_NOTIFICATIONS_ENABLED=true` for PostgreSQL's idle wait behavior. The fallback
+interval does not become an idle polling timer while the notification connection is healthy.
 
 #### Explicitly replace an environment value
 

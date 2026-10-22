@@ -79,7 +79,9 @@ class ConfigDefaults:
     pbkdf2_iterations: int = 600_000
     data_mover_mode: Literal["demo", "real"] = "demo"
     pipeline_worker_id: str = ""
-    pipeline_background_poll_seconds: float = 2.0
+    pipeline_queue_notifications_enabled: bool = True
+    # Fallback for SQLite or unavailable/disabled PostgreSQL notifications.
+    pipeline_background_poll_seconds: float = 60.0
     pipeline_janitor_interval_seconds: int = 3_600
     pipeline_lease_seconds: int = 120
     pipeline_batch_rows: int = 25_000
@@ -240,6 +242,9 @@ class Settings(BaseSettings):
 
     data_mover_mode: Literal["demo", "real"] = CONFIG_DEFAULTS.data_mover_mode
     pipeline_worker_id: str = CONFIG_DEFAULTS.pipeline_worker_id
+    pipeline_queue_notifications_enabled: bool = (
+        CONFIG_DEFAULTS.pipeline_queue_notifications_enabled
+    )
     pipeline_background_poll_seconds: float = Field(
         default=CONFIG_DEFAULTS.pipeline_background_poll_seconds, ge=0.5, le=60
     )

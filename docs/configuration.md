@@ -98,8 +98,21 @@ operations require them:
   recovery and `retry-email` requeues dead-lettered messages.
 - `ACCESS_TOKEN_MINUTES`, `REFRESH_TOKEN_HOURS`, and
   `SESSION_IDLE_MINUTES` control session lifetime.
-- `PIPELINE_BACKGROUND_POLL_SECONDS` controls how often the in-process runtime looks for queued or
-  expired runs. `PIPELINE_JANITOR_INTERVAL_SECONDS` controls retention cleanup frequency.
+- `PIPELINE_QUEUE_NOTIFICATIONS_ENABLED` defaults to `true`. After migration
+  `0027_queue_notifications`, PostgreSQL processes use one dedicated `LISTEN` connection each.
+  They inspect queues at startup/reconnect, on a committed queue-state notification, or when a
+  known work deadline arrives. Empty queues have no repeating query timer. SQLite uses polling.
+  Notification payloads contain no IDs, credentials, or data. Use direct or session-pooled database
+  connections; transaction pooling does not support the listener's persistent session.
+- `PIPELINE_BACKGROUND_POLL_SECONDS` sets the fallback recovery delay (default: 60 seconds;
+  accepted range: 0.5–60). It applies to SQLite and to disabled/unavailable PostgreSQL notifications;
+  a failed listener logs a warning and enforces this interval before reconnecting, including
+  disconnects after a successful `LISTEN`. Normal Run
+  submissions still trigger immediate execution after the response. Pending retries, compute
+  observations, and expired-lease recovery have timers derived from their durable state.
+  `PIPELINE_JANITOR_INTERVAL_SECONDS` independently controls retention cleanup, including while
+  idle. See the [runtime runbook](runbooks/pipeline-worker.md#database-audit-volume) for deployment
+  and verification. Existing environment overrides take precedence over defaults.
 - `PIPELINE_BATCH_ROWS` and `PIPELINE_BATCH_TARGET_BYTES` bound emitted real-connector batches by
   rows and estimated in-memory bytes (defaults: 25,000 rows and 64 MiB). A single indivisible row
   above the byte ceiling fails the run.
@@ -132,6 +145,9 @@ operations require them:
   bounded troubleshooting window.
   Both formats include the request reference and allowlisted operation fields. Credentials, tokens,
   raw form values, provider response bodies, and SQL parameters are redacted or excluded.
+  This setting controls application logs; PostgreSQL server and security-audit logs are controlled
+  by the database administrators. Reduce unnecessary queue queries with the background interval
+  rather than lowering the application's log level.
 
 Leave these at their defaults unless measurements or an approved operational
 requirement justify a change.
@@ -156,7 +172,7 @@ The inventory below is intentionally complete so this page and `.env.example` ca
 | Email and SMTP | `EMAIL_BACKEND`, `EMAIL_REDACT_SENT_BODIES`, `EMAIL_MAX_ATTEMPTS`, `EMAIL_RETRY_BASE_SECONDS`, `EMAIL_RETRY_MAX_SECONDS`, `EMAIL_CLAIM_TIMEOUT_SECONDS`, `EMAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_ALLOW_LEGACY_PORT25_FALLBACK`, `SMTP_USERNAME`, `SMTP_PASSWORD` |
 | Diagnostics | `LOG_FORMAT`, `LOG_LEVEL`, `SCHEDULED_EVENT_TIMEZONE` |
 | Password hashing and policy | `PASSWORD_HASH_SCHEME`, `PBKDF2_ITERATIONS`, `PASSWORD_BLOCKLIST_PATH` |
-| Pipeline runtime and limits | `DATA_MOVER_MODE`, `PIPELINE_WORKER_ID`, `PIPELINE_BACKGROUND_POLL_SECONDS`, `PIPELINE_JANITOR_INTERVAL_SECONDS`, `PIPELINE_LEASE_SECONDS`, `PIPELINE_BATCH_ROWS`, `PIPELINE_BATCH_TARGET_BYTES`, `PIPELINE_MAX_RUN_SECONDS`, `PIPELINE_MAX_SOURCE_BYTES`, `PIPELINE_MAX_SPOOL_BYTES`, `PIPELINE_SPOOL_ROOT`, `PIPELINE_SENSITIVE_METADATA_MARKERS` |
+| Pipeline runtime and limits | `DATA_MOVER_MODE`, `PIPELINE_WORKER_ID`, `PIPELINE_QUEUE_NOTIFICATIONS_ENABLED`, `PIPELINE_BACKGROUND_POLL_SECONDS`, `PIPELINE_JANITOR_INTERVAL_SECONDS`, `PIPELINE_LEASE_SECONDS`, `PIPELINE_BATCH_ROWS`, `PIPELINE_BATCH_TARGET_BYTES`, `PIPELINE_MAX_RUN_SECONDS`, `PIPELINE_MAX_SOURCE_BYTES`, `PIPELINE_MAX_SPOOL_BYTES`, `PIPELINE_SPOOL_ROOT`, `PIPELINE_SENSITIVE_METADATA_MARKERS` |
 | Provider HTTP and catalog policy | `PIPELINE_HTTP_CONNECT_SECONDS`, `PIPELINE_HTTP_READ_SECONDS`, `PIPELINE_HTTP_WRITE_SECONDS`, `PIPELINE_HTTP_RETRY_ATTEMPTS`, `PIPELINE_CATALOG_TTL_SECONDS`, `PIPELINE_CONNECTION_MAX_AGE_SECONDS`, `PIPELINE_ALLOWED_HTTPS_HOSTS`, `PIPELINE_CA_BUNDLE` |
 | Databricks provider, writer, and acceptance | `PIPELINE_ENABLE_DATABRICKS`, `PIPELINE_ENABLE_DATABRICKS_WRITER`, `PIPELINE_DATABRICKS_STAGING_SCHEMA`, `PIPELINE_DATABRICKS_METADATA_VISIBILITY_VERIFIED`, `PIPELINE_DATABRICKS_STARTUP_CONTRACT_VERIFIED`, `PIPELINE_DATABRICKS_WRITER_LIVE_ACCEPTANCE_VERIFIED`, `PIPELINE_DATABRICKS_SENSITIVE_TAG_RULES`, `PIPELINE_DATABRICKS_METADATA_POLICY_VERSION`, `PIPELINE_DATABRICKS_STARTUP_TIMEOUT_SECONDS`, `PIPELINE_DATABRICKS_STARTUP_POLL_SECONDS`, `PIPELINE_DATABRICKS_STARTUP_MAX_POLL_SECONDS` |
 | Pipeline retention and writers | `PIPELINE_RUN_RETENTION_DAYS`, `PIPELINE_EVENT_RETENTION_DAYS`, `PIPELINE_ENABLE_POSTGRES_WRITER`, `PIPELINE_ENABLE_MSS_WRITER`, `PIPELINE_ENABLE_MCSCOP_WRITER`, `PIPELINE_APPLY_INTERNAL_CA_FIX` |
