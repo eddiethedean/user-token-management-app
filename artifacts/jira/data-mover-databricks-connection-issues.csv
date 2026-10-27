@@ -26,7 +26,7 @@ Task backlog: [Databricks implementation tasks](../../docs/stories/databricks-co
 - Hash transforms incoming values with the existing scoped HMAC; Remove omits current output values/schema while preserving target governance and disclosing Delta history/physical-retention limits.
 - Delta publication uses private transformed staging and proven atomic operations; conflicts, uncertain commits and cleanup failures have truthful outcomes without blind uncertain-append replay.
 - Run review and compute audits retain safe identities, counts, actions, scan coverage and outcomes without source values, raw tags, secrets, tokens or fetch links.
-- Default-off connector and independent writer gates remain closed until documented automated, isolated live, operational and annotated-screenshot acceptance evidence is complete.",""
+- Provider and compute controls default to enabled; live transfers require explicit metadata visibility verification and writer prerequisites. Flag values do not replace automated, isolated live, operational, annotated-screenshot, or release acceptance evidence.",""
 "2026-10-09","Story","DBX-01","Data Mover: Databricks - Validate the provider contract","DBX-EPIC","As an operator, I need a verified support matrix before the connector is advertised.
 
 Prerequisites: None
@@ -80,10 +80,10 @@ Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/st
 "2026-10-09","Story","DBX-02","Data Mover: Databricks - Save and validate a workspace connection","DBX-EPIC","As a pipeline owner, I can manage my own Databricks credentials and see what validation proves.
 
 Prerequisites: DBX-01.
-Required evidence: Ownership, secret rotation, token refresh and migration tests.
+Required evidence: Ownership, token encryption and replacement, revoked-token handling, connection/consent invalidation, and migration tests.
 Story and epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)
 Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)","- Save workspace URL, personal access token, compute type/ID, and startup policy with existing encrypted replace/delete behavior. Derive or verify the SQL HTTP path against that compute. Validate allowed HTTPS endpoints, TLS, and redirect behavior before sending credentials.
-- Refresh access tokens through the supported SDK; reject expired/revoked credentials safely. Secrets are absent from pipeline definitions, URLs, logs, and diagnostics.
+- Send PATs only as bearer authentication to approved endpoints; reject expired or revoked tokens with bounded diagnostics. Tokens are absent from pipeline definitions, URLs, logs, and diagnostics.
 - Add provider capabilities, typed locators/write policies, serialization and UI support. Extend the guardrail detector model for `databricks_metadata`; keep existing Foundry/SSN records valid. Revalidation/review invalidation follows principal or connection changes.",""
 "2026-10-09","Task","DBX-02-T01","Data Mover: Databricks - Add Databricks domain and provider contracts","DBX-02","Define credential fields, typed locators/write policies, stable identities, provider capabilities, serialization, and the databricks_metadata detector without permissive provider-ID fallbacks.
 
@@ -108,7 +108,9 @@ Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/st
 Owner role: Engineering
 Depends on: DBX-02-T02, DBX-02-T03
 Task guide: [DBX-02 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-02-tasks)
-Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- Failure paths retain safe diagnostics; failure paths retain safe diagnostics and never expose client secrets or tokens.",""
+Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- SDK management and SQL requests use the configured PAT as bearer authentication without an OAuth token exchange.
+- Invalid, expired, and revoked PAT failures are safely classified and never expose the token.
+- Replacing a PAT updates its encrypted bundle and invalidates connection-bound consent and reviews.",""
 "2026-10-09","Task","DBX-02-T05","Data Mover: Databricks - Implement management-only connection validation","DBX-02","Check authentication and selected compute visibility/state through management requests; separate authenticated, visible, stopped, stale, and SQL-ready information.
 
 Owner role: Engineering
@@ -403,7 +405,7 @@ Owner role: Engineering
 Depends on: DBX-03-T08
 Task guide: [DBX-08 tasks](../../docs/stories/databricks-connection-tasks.md#dbx-08-tasks)
 Epic guide: [Databricks connections and sensitive-data guardrails](../../docs/stories/databricks-connection-epic.md)","- An operator can explain why startup occurred; concurrent owners cannot read another owner's private attempt details and audits contain no secret/provider payloads.",""
-"2026-10-09","Task","DBX-08-T03","Data Mover: Databricks - Implement operator and writer rollout gates","DBX-08","Add default-off connector enablement and independent writer gating to registration, UI, save/enqueue and direct use-case entry points.
+"2026-10-09","Task","DBX-08-T03","Data Mover: Databricks - Implement operator and writer rollout gates","DBX-08","Enforce provider and independent writer gates in registration, UI, save/enqueue and direct use-case entry points. Current provider/compute defaults are enabled; live transfers require explicit metadata visibility verification and writer prerequisites.
 
 Owner role: Engineering
 Depends on: DBX-02-T07, DBX-07-T08

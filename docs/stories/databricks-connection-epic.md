@@ -1,7 +1,7 @@
 # Proposed Epic: Databricks connections and sensitive-data guardrails
 
-**Status:** Local implementation underway; provider acceptance and release remain open. No external epic issue has been assigned.
-**Reviewed:** October 15, 2026.
+**Status:** Local implementation and user/operator guides are present; provider acceptance and release remain open. No external epic issue has been assigned.
+**Reviewed:** October 27, 2026 against `dfb6cd7`; live evidence retains its original dates.
 **Depends on:** [Sensitive-data guardrails](CDO-4551-sensitive-data-guardrails-epic.md).
 
 **October 21, 2026 runtime update:** This backlog records the original default-off rollout proposal.
@@ -189,7 +189,7 @@ recoverable.
 DBX labels below are local planning references, not assigned tracker IDs. Each story includes its
 acceptance criteria, prerequisites, and linked implementation tasks. The [task backlog](databricks-connection-tasks.md)
 contains 57 proposed tasks with owner roles, dependencies, and completion evidence. Local connector
-work is underway; see the [acceptance ledger](../plans/databricks-acceptance.md) for implementation
+code is implemented; see the [acceptance ledger](../plans/databricks-acceptance.md) for implementation
 evidence and the live acceptance gates that remain.
 
 ### DBX-01 — Validate the provider contract
@@ -221,7 +221,7 @@ evidence and the live acceptance gates that remain.
   the guardrail detector model for `databricks_metadata`; keep existing Foundry/SSN records valid.
   Revalidation/review invalidation follows principal or connection changes.
 
-**Prerequisite:** DBX-01. **Evidence:** Ownership, secret rotation, token refresh and migration tests.
+**Prerequisite:** DBX-01. **Evidence:** Ownership, encrypted PAT replacement/revocation handling, connection/consent invalidation, and migration tests.
 
 **Tasks:** [Seven connection-lifecycle tasks](databricks-connection-tasks.md#dbx-02-tasks).
 
@@ -334,7 +334,7 @@ operator setup walkthrough and release acceptance record.
       no secret/value logging, and no unapproved compute startup.
 - [ ] Ambiguous commit, concurrent write, worker restart and staging cleanup outcomes are verified.
 - [ ] Documentation and annotated screenshots match implemented behavior and disclose costs/retention.
-- [ ] Operator enablement and writer flags default off until the supported matrix is accepted.
+- [ ] Operator configuration matches the current provider/compute defaults and explicit metadata-visibility gate; only approved transfer/write combinations are enabled. Enabling a flag does not complete live acceptance.
 
 Product owns scope and guardrail policy decisions; engineering owns adapter/recovery evidence; the
 deployment operator owns workspace permissions, private staging, networking, and live validation.

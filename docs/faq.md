@@ -2,7 +2,7 @@
 
 **What is Data Mover?**
 A self-hosted data-movement application with reusable pipelines, durable in-process runs, and
-encrypted per-user credentials for MSS, MCS-COP, and PostgreSQL.
+encrypted per-user credentials for MSS, MCS-COP, PostgreSQL, and enabled Databricks connections.
 
 **Does Data Mover move real data today?**
 In `DATA_MOVER_MODE=demo`, connectors are fake and stay on this host. In `DATA_MOVER_MODE=real`, the
@@ -34,6 +34,8 @@ Yes. Choose MSS or MCS-COP as the pipeline destination and expand **Create Found
 an authorized parent folder RID and a name; Data Mover calls Foundry's dataset-create API, retains
 the returned RID for your account, and selects it for the pipeline. The token needs create permission
 in that folder. This creates a dataset, not an Ontology object type.
+If the connection is replaced or deleted during the request, its old result is discarded locally.
+The remote dataset may already exist, so check Foundry before retrying.
 
 **What credentials does each connection need?**
 MSS and MCS-COP require an HTTPS endpoint and API token, and optionally a default dataset RID,
@@ -49,7 +51,9 @@ plaintext reveal. Deleting Data Mover's copy does not revoke the credential at i
 In real mode, the latest live PostgreSQL or Foundry health check succeeded. In demo mode it means
 only that the saved fields are ready for the process-local emulator; the message explicitly says no
 network request occurred. Demo status never proves that a hostname is reachable or a credential is
-valid. Foundry without a default dataset RID remains **Untested**.
+valid. A Foundry health check without a default dataset RID remains **Untested**; a successful
+dataset creation can establish authentication/authorization and set **Connected**. Neither result
+grants access beyond the token's provider permissions.
 
 **Is Databricks supported?**
 `make demo` includes an offline Databricks connection with a simulated running warehouse,

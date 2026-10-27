@@ -70,6 +70,19 @@ Read namespaces and tables from `information_schema` / `pg_catalog`. Inspect col
 - The maintenance helper `drop_abandoned_staging` can remove legacy `dm_stage_*` tables manually;
   current loads do not commit intermediate staging or depend on the periodic app janitor for cleanup.
 
+## Type and value preservation
+
+Timezone-aware PostgreSQL sources are extracted as UTC-aware Polars datetimes and create
+`TIMESTAMPTZ` destinations. Naive timestamps remain naive. Preflight and destination preparation
+reject existing timestamp columns whose timezone semantics differ from the source, for append,
+upsert, and compatible replace. Schema recreation builds a new table from the source schema.
+An explicit reviewed cast can change the outgoing type; it does not alter an existing column.
+
+Integer batches destined for existing `REAL` or `DOUBLE PRECISION` columns are checked for exact
+representability. A value that would round raises `schema_drift` and rolls back the transaction;
+choose an exact integer/numeric destination or an intentional explicit cast. Decimal destination
+precision/scale checks also reject implicit rounding. Counts cannot detect these value changes.
+
 ## Verification
 
 Compare committed row effects (`loaded_rows`) against extracted totals from the repeatable-read

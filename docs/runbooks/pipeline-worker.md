@@ -176,7 +176,14 @@ encrypted scan spool. See [SD-27](../../SECURITY.md#sd-27--enforce-sensitive-dat
 and the [production security gate](../../SECURITY.md#production-security-gate)
 for detector scope, marker configuration, key scope, and deployment controls.
 
-The in-process janitor drops expired events, terminal runs, catalog cache rows, and old spool files.
+The in-process janitor drops eligible expired events, terminal runs, catalog cache rows, and old spool files.
+Unreviewed reconciliation runs retain their evidence. Runs/events with a Databricks publication
+outside `complete`/`unchanged`, or with an active target fence, are retained even beyond
+`PIPELINE_RUN_RETENTION_DAYS` / `PIPELINE_EVENT_RETENTION_DAYS`. This includes confirmed commits
+whose staging cleanup is pending; recording reconciliation review does not remove that hold.
+Inspect the run's publication state, resolve provider recovery/cleanup through the normal worker,
+and approve longer retention of protected staging data. Do not delete publication rows or manually
+clear a fence to force expiry. Other independently eligible local cache/spool cleanup still runs.
 Restart the app after correcting a runtime failure so the lifecycle supervisor can resume recovery
 and cleanup. See the [diagnostic event dictionary](../diagnostics-event-dictionary.md) for the
 allowlisted schema and permitted traceback behavior.

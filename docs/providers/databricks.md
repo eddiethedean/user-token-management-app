@@ -173,6 +173,9 @@ PostgreSQL source scalar types are mapped to their Delta equivalents for staging
 append compatibility checks. Append still requires matching column names, order, and mapped types.
 PostgreSQL numeric precision above 38 is unsupported by the Delta writer and is rejected rather
 than reduced.
+Timestamp mapping preserves instant semantics: Databricks `TIMESTAMP`/`TIMESTAMP_LTZ` use UTC-aware
+Polars datetimes, while `TIMESTAMP_NTZ` remains naive. PostgreSQL aware/naive timestamp sources map
+to `TIMESTAMP`/`TIMESTAMP_NTZ` respectively, including parameterized precision declarations.
 
 Live probes still need to prove atomicity, governance preservation, Query History visibility and
 marker retention on serverless, Delta History visibility on classic compute, interaction with
@@ -183,6 +186,11 @@ manually drop its staging table until recovery determines the commit outcome. Th
 uses the saved connection generation and a deterministic run-owned stage name.
 If credentials were rotated, recovery retains a safe operator-visible unresolved state rather than
 using new credentials to mutate a stage created with the old connection.
+Normal run/event retention preserves the publication ledger and its associated run/events while
+the publication is not `complete`/`unchanged` or a target fence remains active. This includes
+confirmed commits awaiting staging cleanup. A reconciliation review does not release that
+retention hold. Inspect pending cleanup and coordinate longer-lived stage/evidence retention
+with the operator; do not delete database publication rows to bypass a fence.
 
 Before retrying after any uncertain outcome, inspect the destination and use the run's
 **Databricks publication** section. Recording a reconciliation review does not prove an uncertain

@@ -6,19 +6,19 @@ writer follows all prerequisites. The default-off rollout described below record
 plan. This configuration change does not add live acceptance evidence;
 see the [operator guide](../providers/databricks.md).
 
-**Status:** Local connector implementation underway; live acceptance and release remain blocked.\
+**Status:** Local connector and user/operator guides implemented; live acceptance and release remain blocked. Status reviewed October 27, 2026 at `dfb6cd7`.\
 **Prepared:** October 15, 2026.\
 **Baseline:** `c5a52f4` on `main`; `git pull --ff-only` reported already up to date.\
 **Scope authority:** [Databricks epic](../stories/databricks-connection-epic.md),
 [57 tasks across eight stories](../stories/databricks-connection-tasks.md), and
 [issue CSV](../../artifacts/jira/data-mover-databricks-connection-issues.csv).
 
-This plan turns the existing backlog into ordered, reviewable implementation slices. The local
+This plan records the ordered implementation slices from the existing backlog. The local
 connector, encrypted connection flow, review bindings, rollout gates, durable compute attempts,
-and publication recovery have now been implemented in this working tree. Tasks remain open until
+and publication recovery are implemented in the repository. Tasks remain open until
 their specified evidence is recorded; this plan does not assign external tracker IDs or claim live
 Databricks acceptance.
-Existing local pipeline-remediation planning changes are independent work and remain intact.
+The pipeline-remediation roadmap remains a separate proposed scope.
 
 ## Delivery outcome
 

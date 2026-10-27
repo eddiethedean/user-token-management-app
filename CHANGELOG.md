@@ -23,6 +23,17 @@
 
 ### Fixed
 
+- Bound Foundry dataset creation results to the credential ID/revision used for the request.
+  Replacement or deletion cannot overwrite current health or register an old connection's dataset;
+  overlapping creates preserve the revision and can both complete with unchanged credentials.
+- Reject timezone mismatches for existing PostgreSQL timestamp columns before staging and reject
+  source integers that would round in existing REAL/DOUBLE PRECISION columns.
+- Preserve Databricks TIMESTAMP/TIMESTAMP_LTZ versus TIMESTAMP_NTZ semantics, including parameterized
+  timestamp declarations and PostgreSQL source mappings.
+- Normalize supported CSV time spellings consistently during upload extraction, preserve exact
+  Foundry Decimal scales across batches/files, and accept schema-bearing empty Foundry files.
+- Retain runs/events and Databricks publication evidence while publication, stage cleanup, or a
+  target fence remains unresolved, including after reconciliation review.
 - PostgreSQL supervisors now wait for committed queue notifications and known work deadlines
   instead of repeatedly querying empty queues. Migration `0027_queue_notifications` installs the
   notification triggers; each process owns one listener connection and recovers durable state on

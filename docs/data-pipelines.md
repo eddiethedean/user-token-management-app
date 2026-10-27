@@ -260,6 +260,14 @@ timestamps,” “amount must be non-negative,” or “quarantine invalid rows.
 also must not be interpreted as a universal row-by-row reconciliation guarantee; connector
 capabilities determine what can be observed.
 
+Data-integrity checks additionally preserve aware versus naive timestamp semantics and reject
+implicit value loss. PostgreSQL preflight/preparation reject existing timestamp columns with
+different timezone semantics; integer-to-float loading stops and rolls back if a value would round.
+Databricks `TIMESTAMP`/`TIMESTAMP_LTZ` retain instants through UTC-aware datetimes, while
+`TIMESTAMP_NTZ` remains naive. CSV profile/extraction use the same supported time normalization,
+and Foundry Decimal batches/files are reconciled exactly within 38 digits. Schema-bearing empty
+Foundry files are valid sources; a route selecting no supported files still fails.
+
 Sensitive-data findings are the exception to the otherwise future-facing transformation roadmap.
 For Foundry, Data Mover reads dataset schema metadata and resource markings. Operators configure
 marker names with `PIPELINE_SENSITIVE_METADATA_MARKERS`; matching is case-insensitive and ignores

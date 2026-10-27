@@ -6,9 +6,15 @@ writer follows all prerequisites. Live source and write operations remain gated 
 attestation, and release acceptance remains open.
 
 **Status:** In progress. No DBX task is complete.
-**Updated:** October 21, 2026.
+**Updated:** October 27, 2026 for local code/documentation evidence; live evidence retains its original dates.
 
-The pull was fast-forward-only and already current at `c5a52f4`. This ledger tracks local implementation separately from provider acceptance. The repository now contains the Databricks connector, owner-scoped credential path, default-enabled provider and compute controls, review-bound metadata/guardrail paths, durable explicit and consented startup coordination, deferred opted-in runs, and publication/cleanup records. The run monitor renders the startup wait and owner-scoped publication outcome, and connection status includes the signed-in owner's startup history. Revisions `0022` and `0023` add durable compute/publication records and startup run deferral.
+The initial ledger baseline was `c5a52f4`; the current documentation review uses `dfb6cd7`. This ledger tracks local implementation separately from provider acceptance. The repository now contains the Databricks connector, owner-scoped credential path, default-enabled provider and compute controls, review-bound metadata/guardrail paths, durable explicit and consented startup coordination, deferred opted-in runs, and publication/cleanup records. The run monitor renders the startup wait and owner-scoped publication outcome, and connection status includes the signed-in owner's startup history. Revisions `0022` and `0023` add durable compute/publication records and startup run deferral.
+
+The October 27 local changes preserve TIMESTAMP/TIMESTAMP_LTZ versus TIMESTAMP_NTZ semantics,
+including parameterized declarations and PostgreSQL source mappings (`tests/test_databricks_connector.py`).
+Run/event retention preserves unresolved publication and pending-cleanup evidence, even after a
+reconciliation review (`tests/test_pipeline_runs.py`). These local fixes add no live workspace
+acceptance or new supported compute family.
 
 A live acceptance pass on October 20, 2026 used the configured PAT against one serverless SQL warehouse. It verified connection validation, start/stop, SQL Thrift, namespace and Delta table discovery, schema/tag inspection, bounded extraction, scanning, transformations, and raw SQL Delta create/append/replace. The sanitized evidence is in [the live workspace record](../../artifacts/databricks/pat-auth-probe-2026-10-20.md). The first permission-denied result was a local feature gate in the probe setup; the corrected in-memory setup passed. That live pass predates the new compute-aware writer marker: its serverless Data Mover publication failed when `SET spark.databricks.delta.commitInfo.userMetadata` was rejected. The writer now uses per-statement query tags and Query History on serverless and Delta History markers on classic compute. New local acceptance covers both paths; live writer revalidation remains open. This workspace has no classic cluster. DBX-01's reviewed support decision, permission-denied profile, complete failure-window acceptance, and release sign-off remain open.
 

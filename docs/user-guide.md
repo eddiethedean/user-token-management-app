@@ -126,7 +126,7 @@ Open **Connections → Status** to see every provider in one place.
 - **Not configured** means no credential bundle is stored for that connection.
 - **Untested** means the automatic check could not establish readiness, such as a Foundry connection
   without a default dataset RID.
-- **Connected** means the latest connector health check succeeded.
+- **Connected** means the latest connector health check or authorized dataset creation succeeded.
 - **Test connection** repeats the health check without changing credentials.
 
 In demo mode the check is local emulation, not a network check. PostgreSQL requires a complete bundle;
@@ -228,6 +228,11 @@ that folder (and OAuth clients need `api:datasets-write`). Data Mover saves the 
 signed-in user, selects the new dataset, and prompts for the first destination file name. This creates
 a Foundry dataset—a place for files—not an Ontology object type.
 
+If the saved connection is replaced or deleted while creation is in progress, Data Mover preserves
+the current connection status and does not add the old operation's dataset to the saved list.
+The remote dataset may already exist: check Foundry before retrying. Overlapping creates with
+unchanged credentials can both complete normally.
+
 ### Choose a write mode
 
 PostgreSQL supports **append**, **upsert** on a selected destination primary or unique key, and
@@ -271,6 +276,13 @@ uses the selected type; casts do not change an existing table's column definitio
 Foundry file up to 2 MB, Data Mover reads the file for a column preview and caches that preview
 briefly. Larger and multi-file sources still offer the name-based cast control; the worker checks
 their actual schema during the run.
+
+PostgreSQL timestamp columns must agree about timezone semantics. An aware source cannot silently
+load into an existing naive `TIMESTAMP`, or vice versa; choose a compatible destination or review an
+explicit supported conversion. New tables preserve aware timestamps as `TIMESTAMPTZ`. Loading into
+an existing `REAL` or `DOUBLE PRECISION` column also stops if a source integer would be rounded;
+the transaction rolls back. Row-count verification alone cannot prove value equality.
+
 CSV profiling preserves leading-zero identifiers as text, keeps large integers and scientific
 notation as exact decimals when they fit within 38 digits, and distinguishes dates, times, and
 time-zone-aware timestamps. A Foundry CSV is profiled across the whole file at run time, including
@@ -295,7 +307,11 @@ Limits and validation rules:
 
 Data Mover recognizes comma, semicolon, tab, and pipe delimiters. Inferred types are `boolean`, `integer`,
 `decimal`, `date`, `time`, `datetime`, `text`, and `empty`. Scientific notation is treated as decimal.
-Time-zone-aware timestamps retain their offset when sent to a destination. Type detection is
+Time-zone-aware timestamps retain the represented instant with UTC-aware extraction; the original
+offset spelling is not retained. Supported time spellings include `12:34`, `T12:34:56`,
+`12:34:56,123` (quoted in comma-delimited CSV), and `12:34.5` (12:34:00.5). Extraction normalizes
+those forms without dropping nanosecond digits. Unicode numeric spellings and ISO week dates
+outside the parser's grammar remain text. Type detection is
 conservative: mixed values fall back to `text`, while integers mixed with decimals become `decimal`.
 The run uses the scanned types, so the preview and transfer agree on dates, times, and numbers.
 If a header contains unsupported characters, rename the column and upload the file again. An older
@@ -331,8 +347,9 @@ pause, or failure indicator; cancelled and failed runs report destination impact
 completion meter. Motion stops when loading ends and respects reduced-motion preferences.
 See matching [light/dark screenshots and animations](screenshots/README.md).
 
-Use **Cancel run** in the live monitor to request a safe stop. The monitor stays active until the
-background task records a terminal state. Retry is shown only for failures marked safe to retry. If a
+Use **Cancel run** in the live monitor, then confirm in the dialog. The worker stops at its next
+safe checkpoint, and the monitor stays active until the background task records a terminal state.
+Retry is shown only for failures marked safe to retry. If a
 task loses its lease after destination work begins, a Foundry upload outcome is uncertain, or final
 run-state persistence fails after the destination commits, the run enters **Failed / reconciliation
 needed** and the monitor provides **Record reconciliation review**. Inspect the destination first;

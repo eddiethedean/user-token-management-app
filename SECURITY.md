@@ -6,7 +6,7 @@ support design review and preparation of an organization-specific system securit
 
 It is **not** an authorization to operate, a claim of FedRAMP or DoD compliance, or a substitute for
 the system owner's risk assessment. Repository implementation facts and deployment instructions were
-last reviewed on 2026-10-13 against release `071026.0` at `849a583` on `main`;
+last reviewed on 2026-10-27 against package version `271026.0` at `dfb6cd7` on `main`;
 the linked standards and guidance remain reference material and must be
 rechecked when a release or authorization baseline changes. Standards use their own normative terms
 (`SHALL`, `SHOULD`, and so on); an application decision citing a standard does not by itself establish
@@ -23,7 +23,9 @@ encrypted for authorized users; they are not how the application authenticates H
 Demo mode uses fake connectors. In real mode, owner-authorized catalog browsing and connection tests
 (both automatic after saving changed credentials and explicit **Test connection** actions)
 decrypt only the current user's selected bundle in the web process, while
-transfer execution decrypts only the bundles required by a claimed in-process pipeline run. Foundry
+dataset creation decrypts the selected owner/provider bundle, and transfer execution decrypts only
+the bundles required by a claimed in-process pipeline run. Databricks compute actions and publication
+recovery use owner- and connection-generation-bound credentials. Foundry
 outbound hosts are allowlisted, source and staging data are bounded, and persisted run facts are
 redaction-filtered while catalog-cache payloads exclude credential fields. CSV uploads and saved
 pipeline definitions are real owner-scoped database content. Day-to-day setup lives in the
@@ -124,6 +126,13 @@ authorization evidence.
       allowlists, CA verification, source/spool quotas, staging cleanup, and PostgreSQL TLS mode are
       tested with production-equivalent configuration. The production allowlist must not include a
       loopback host, because loopback HTTP is reserved for local development.
+- [ ] Credential replacement/deletion during connection checks and Foundry dataset creation is
+      exercised. A superseded creation must not overwrite current health or register the old
+      connection's dataset; operators check Foundry before retrying because the remote side effect
+      may already have occurred.
+- [ ] Unresolved Databricks publication records, target fences, cleanup work, and their run/events
+      have an approved retention and reconciliation procedure. Ordinary run/event expiry does not
+      remove these records while recovery work remains, even after a reconciliation review.
 - [ ] `PIPELINE_SENSITIVE_METADATA_MARKERS` matches the organization's approved Foundry marker
       vocabulary. Fresh metadata retrieval, all marking pages, table blocks, late-batch SSN
       findings, unresolved choices, and Hash/Remove enforcement are tested with provider permissions
@@ -197,7 +206,22 @@ or relied upon. The application treats stored values as opaque high-value creden
 is an engineering evidence check, not a penetration test,
 cryptographic-module validation, SSP assessment, or authorization to operate.
 
-The 2026-10-13 review checked the `071026.0` / `849a583` implementation baseline, including
+The 2026-10-27 documentation review checked the current authentication, credential, migration,
+configuration, transfer-integrity, and retention contracts against source and regression tests.
+It includes credential-generation guards for Foundry dataset creation, revision-preserving health
+updates, PostgreSQL timestamp/precision checks, CSV parser parity, and retained Databricks recovery
+evidence. See the [documentation review scope](docs/README.md#current-documentation-baseline).
+This refresh does not establish a new full release gate or deployment security assessment.
+
+A reference spot check on 2026-10-27 confirmed the linked
+[SP 800-63B-4](https://pages.nist.gov/800-63-4/sp800-63b.html),
+[SP 800-53 Rev. 5 / Release 5.2.0 notice](https://csrc.nist.gov/pubs/sp/800/53/r5/upd1/final),
+[SP 800-38D](https://csrc.nist.gov/pubs/sp/800/38/d/final), and
+[OWASP Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html)
+sources. NIST's SP 800-38D page still identifies a planned revision; this record cites the published
+final guidance. Other references retain their individually recorded review scope.
+
+The earlier 2026-10-13 review checked the `071026.0` / `849a583` implementation baseline, including
 guardrail enforcement and disclosure boundaries, current migrations, password/reset invalidation,
 production configuration, and SMTP transport. The focused verification run passed **233 tests**
 across documentation/deployment guidance, guardrail domain and HTTP acceptance, transfer/run
@@ -522,8 +546,8 @@ the active family. Invalid refresh attempts clear browser cookies.
 refresh token, and limits the usefulness of a database-only token-table disclosure. Rotation makes a
 previous values unusable after the short overlap window.
 
-**Concurrency control:** Rotation is a conditional `UPDATE ... RETURNING`; invitation acceptance
-and password-reset completion likewise consume their capability with a conditional update before
+**Concurrency control:** Rotation uses a conditional update with dialect-appropriate result
+handling; invitation acceptance and password-reset completion likewise consume their capability with a conditional update before
 changing account state. PostgreSQL race tests require exactly one rotation winner; a simultaneous
 duplicate may receive the same successor. Refresh-token history retains keyed digests, not raw
 tokens. The short overlap window and companion proof cookie prevent parallel browser requests from
@@ -556,9 +580,10 @@ recognizes password change and logout as refresh-token revocation events.
 
 **Status:** Implemented, with a proxy deployment dependency.
 
-**Decision:** The browser receives access, refresh, pre-authentication CSRF, theme, and color-mode
-credentials/preferences in `HttpOnly`, `SameSite=Lax` cookies with no `Domain` attribute. Production
-refuses to start unless `Secure=true`. All five application cookie names are declared to `HedronPosit`
+**Decision:** The browser receives access, refresh, refresh-overlap proof, pre-authentication CSRF,
+theme, and color-mode credentials/preferences in `HttpOnly`, `SameSite=Lax` cookies with no
+`Domain` attribute. Production
+refuses to start unless `Secure=true`. All six application cookie names are declared to `HedronPosit`
 through `ConnectConfig.owned_cookie_names`; when `COOKIE_PATH=auto`, application set and delete
 operations use the Posit cookie registry so its deployment-aware path is used for Workbench session
 mounts and Connect handoff. Explicit `COOKIE_PATH` remains an operator override. Cookie `Path` is
@@ -577,8 +602,9 @@ therefore cannot use the `__Host-` prefix. This makes trusted proxy isolation an
 mandatory.
 
 The access cookie is also a signed JWT rather than the opaque cookie value NIST recommends. This is
-required by the decision to return and use the same short-lived JWT for API access. Its payload omits
-direct profile data, and every request is still bound to live server-side state, but anyone who
+the implementation's short-lived access-token format for the browser session; it does not expose a
+public bearer-token resource API. Its payload omits direct profile data, and every request is still
+bound to live server-side state, but anyone who
 obtains the cookie can decode its UUIDs and role names and use it as a bearer credential until it is
 expired or revoked.
 
@@ -929,14 +955,16 @@ eavesdropping, injection, and replay.
   proxies, and notes that even an allowlist cannot make the earlier chain trustworthy or replace a
   protected proxy-to-origin link.
 
-### SD-21 — Use SQLite only for session-scoped Workbench and an approved service for production
+### SD-21 — Use SQLite only for session-scoped Workbench and PostgreSQL for production
 
 **Status:** Versioned schema control implemented; production operation is a deployment control.
 
-**Decision:** Twenty-one ordered Alembic revisions, through `0021_sensitive_data_guardrails`,
+**Decision:** Twenty-seven ordered Alembic revisions, through `0027_queue_notifications`,
 create the account/session/credential baseline and the current catalog, connection-readiness,
-pipeline, reconciliation, metric-provenance, and sensitive-data review schemas. Migration 0021
-adds saved guardrail actions and run findings and strips legacy cell examples from recognized
+pipeline, reconciliation, metric-provenance, and sensitive-data review schemas. Revisions 0022–0023
+add durable Databricks compute/publication and startup-deferral state; 0024–0025 add then remove BCC
+storage; 0026 adds advisory token-expiry metadata; 0027 adds PostgreSQL queue notifications.
+Migration 0021 adds saved guardrail actions and run findings and strips legacy cell examples from recognized
 persisted run-schema manifests and schema-cache payloads. This scrub does not sanitize historical
 backups, raw CSV uploads, or external logs; their retention and disposal remain deployment controls.
 Application startup verifies the current revision and refuses to serve a stale or unversioned schema;
@@ -944,14 +972,14 @@ Application startup verifies the current revision and refuses to serve a stale o
 explicit `--adopt-existing` path, which verifies known table/column shapes before stamping and
 upgrading. Administrator bootstrap is a separate `create-admin` command and is never migration
 data. The production core dependency set includes the `psycopg` PostgreSQL driver; deployment still
-requires an approved managed or operated database, backup, migration, encryption, access-control,
+requires an approved managed or operated PostgreSQL database, backup, migration, encryption, access-control,
 monitoring, and recovery process.
 
 **Rationale:** A single-operator Workbench session may use SQLite for live connector checks,
 transfers, and email delivery when exactly one Hedron app process is run. Credential, session, outbox,
 profile, role, and audit data require concurrent access, durability, backup, operational monitoring,
 and controlled schema change for multi-user, multi-replica, or always-on production operation; those
-deployments require PostgreSQL or another approved service.
+deployments require PostgreSQL with the installed `psycopg` driver.
 
 **Deployment control:** prove encryption in transit and at rest, least-privilege service credentials,
 backup confidentiality and restore tests, patching, high availability as required, migration review,
@@ -1081,9 +1109,18 @@ directly. A new or changed bundle is tested automatically after its encrypted va
 identical normalized submission is neither re-encrypted nor retested. The explicit **Test
 connection** action repeats that check without changing the bundle. Both check paths decrypt only
 the selected owner's bundle in the web process and close the provider client after the health check.
+Connection-test results are conditional on the credential revision and check ID, so replacement,
+deletion, or a newer check supersedes an older result. Foundry dataset creation captures the secret
+ID and revision used for its provider request, then conditionally writes health and owner/provider
+dataset metadata in one transaction under the same user lock used by replacement/deletion.
+Health updates explicitly preserve the credential revision, allowing overlapping creations with
+unchanged credentials. A stale completion reports that the remote dataset may exist but does not
+register it or overwrite replacement health. It cannot undo a successful remote create or revoke a
+provider token. See `tests/test_foundry_datasets.py` and `tests/test_token_expiry.py`.
+
 Real transfers are enqueued and run by the Hedron app's in-process background runtime; after claiming
 a lease, the task decrypts only the credential bundles required by the saved snapshot (none for a CSV
-source, one for a CSV-to-provider run, or two for a provider-to-provider run). Built-in connectors
+source, one for a CSV-to-provider run, or up to two for distinct provider slots). Built-in connectors
 receive those values as in-process mappings; this is trusted application code, not an arbitrary-code
 sandbox. Foundry hosts must be on the operator allowlist, registered source/destination capabilities
 must permit the route, same-system source/destination objects must not overlap, and real-mode writers
@@ -1114,6 +1151,18 @@ through `psycopg.sql.Identifier`, provider values use parameterized queries/COPY
 preparation, staging, and final application stay in one transaction; abort or connection loss rolls
 back staging, and replace/recreate changes the live table only immediately before the final commit.
 
+Source timestamps preserve whether they represent an instant: PostgreSQL aware values use UTC
+Polars datetimes and TIMESTAMPTZ destinations; Databricks TIMESTAMP/TIMESTAMP_LTZ remain distinct
+from TIMESTAMP_NTZ. Existing PostgreSQL timestamp columns with different timezone semantics are
+rejected before staging. Source integers that would round in an existing REAL/DOUBLE PRECISION
+column are rejected during batch loading; the load transaction is rolled back. These checks
+protect data integrity and do not replace classification or destination authorization.
+
+The retention janitor preserves runs and events referenced by any Databricks publication not in
+`complete`/`unchanged`, or with an active target fence. This includes confirmed publications whose
+stage cleanup is pending. A recorded reconciliation review alone does not release that evidence.
+Operators must approve potentially longer retention of recovery metadata and protected staging data.
+
 Each credential bundle is encrypted with a random 256-bit data-encryption key using AES-256-GCM and fresh nonces.
 The data key is independently wrapped with the active key from `API_TOKEN_ENCRYPTION_KEYS`. Additional
 authenticated data binds both ciphertexts to the environment-independent format version, owner,
@@ -1132,19 +1181,19 @@ operators must configure a fresh active key after upgrade.
 | Design choice | Security justification | Residual boundary |
 | --- | --- | --- |
 | Treat saved values as high-value capabilities | [RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html#section-5) explains that any party possessing a bearer token can use it and identifies disclosure and replay as threats. This directly applies to MSS/MCS-COP tokens and supports the same conservative handling for database passwords: TLS, encrypted storage, non-reveal responses, and never placing values in URLs. | These controls do not narrow the privileges encoded by a token or database account. Users must issue the least-privileged credential at the provider. |
-| Three encrypted credential slots, fixed environment-variable names, and owner-scoped queries | [OWASP Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#enforce-least-privileges) recommends least privilege, deny-by-default behavior, and permission checks on every request. An allowlist prevents users from inventing environment-variable names that could alter runner behavior; owner predicates prevent cross-user object access. CSV is a separate local source type and is not an encrypted provider credential slot. | A compromised owner account can replace or delete that owner's credentials. The current AAL1-style authentication boundary may be insufficient for high-value credentials. |
+| Registered provider credential slots, fixed environment-variable names, and owner-scoped queries | [OWASP Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#enforce-least-privileges) recommends least privilege, deny-by-default behavior, and permission checks on every request. An allowlist prevents users from inventing environment-variable names that could alter runner behavior; owner predicates prevent cross-user object access. CSV is a separate local source type and is not an encrypted provider credential slot. | A compromised owner account can replace or delete that owner's credentials. The current AAL1-style authentication boundary may be insufficient for high-value credentials. |
 | Per-record AES-256-GCM with fresh 96-bit nonces and context-bound AAD | [NIST SP 800-38D](https://doi.org/10.6028/NIST.SP.800-38D) specifies GCM as authenticated encryption with associated data, and the [`cryptography` AES-GCM API](https://cryptography.io/en/stable/hazmat/primitives/aead/#cryptography.hazmat.primitives.ciphers.aead.AESGCM) requires a nonce never be reused with a key. Random per-record data keys and fresh nonces protect confidentiality and detect modification; AAD causes decryption to fail if ciphertext is moved to a different owner, record, provider, or purpose. | Randomness depends on the operating-system CSPRNG. An atomic aggregate counter fails closed at a conservative configured wrap limit, but the organization must approve that ceiling, monitor it, and rotate early. The deployed module and environment still need required FIPS evidence. |
 | Envelope encryption and a versioned key ring separate from the database and auth keys | [NIST SP 800-57 Part 1 Rev. 5](https://doi.org/10.6028/NIST.SP.800-57pt1r5) covers protection, lifecycle, cryptoperiods, backup, and recovery of keying material. [OWASP Cryptographic Storage](https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html#key-management) recommends storing keys separately from encrypted data and designing for rotation. The active key protects new data while retained key identifiers permit controlled migration and recovery. | The key ring is available to the FastAPI process. Database-only theft does not disclose plaintext, but application-host or key-ring compromise can. Loss of an old referenced key permanently loses the associated tokens. |
 | No plaintext read endpoint or UI reveal | GitHub's [Actions secrets REST API](https://docs.github.com/en/rest/actions/secrets) lists secret metadata without returning encrypted values. Following that pattern reduces routine exposure in browsers, support workflows, and admin tooling. | This is product-level non-disclosure, not end-to-end encryption. Privileged host operators and trusted application code remain in the security boundary. |
 | Metadata-only audit events and no-store responses | [OWASP Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#23-logging) says secrets must not be logged and recommends auditing who requested or used them. GitHub warns that [automatic redaction is not guaranteed](https://docs.github.com/en/actions/reference/security/secure-use#using-secrets), so correctness cannot depend on a masking heuristic. | Application, proxy, runner, artifact, exception, and crash-dump paths all require deployment testing. `no-store` controls caching; it cannot prevent a compromised browser or endpoint from reading a token while it is entered. |
 | Explicit delivery only at an authorized action or run boundary | OWASP describes controlled [secret consumption](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#25-secret-consumption) and warns that environment variables may leak through logs or dumps. The web process decrypts for the user's selected catalog action or connection test, including the automatic test after saving changed credentials; the in-process runtime decrypts only after it claims the corresponding run lease. Posit documents that local content processes [inherit Connect server environment variables by default](https://docs.posit.co/connect/admin/appendix/configuration/#inherit-system-env-vars). | The Hedron process is a trusted application-code boundary and receives the master-key ring. `Applications.InheritSystemEnvVars=false` does not sanitize subprocesses created by the application. If arbitrary code is ever granted a bearer value, it can copy or transmit it; an explicit child environment and process/filesystem/network isolation must then be added. |
-| Prefer short-lived credentials when providers support them | OWASP recommends limiting secret lifetime and automating rotation. GitHub's [OIDC guidance](https://docs.github.com/en/actions/concepts/security/openid-connect) uses short-lived, job-specific credentials instead of stored long-lived secrets; Posit similarly documents [process-lifetime API keys](https://docs.posit.co/connect/admin/content-management/api-keys/#automatic-provisioning). | Data Mover currently accepts static user-supplied connection bundles. Provider-side OAuth, federation, scope, expiration, and revocation remain future integration work. |
+| Prefer short-lived credentials when providers support them | OWASP recommends limiting secret lifetime and automating rotation. GitHub's [OIDC guidance](https://docs.github.com/en/actions/concepts/security/openid-connect) uses short-lived, job-specific credentials instead of stored long-lived secrets; Posit similarly documents [process-lifetime API keys](https://docs.posit.co/connect/admin/content-management/api-keys/#automatic-provisioning). | Data Mover accepts user-supplied connection bundles and displays advisory expiry metadata when available; it does not renew or revoke provider credentials. Automated issuance, OAuth/federation, and provider-side lifecycle enforcement remain outside this implementation. |
 
 **Limitations and deployment controls:** The FastAPI process receives the master-key ring and can
 therefore decrypt all stored credential bundles; encryption primarily separates a database-only
 compromise from the key material. The current production path is a real transfer path, not a browser
 simulation: the Hedron app enqueues and its in-process background runtime contacts the built-in
-Foundry/PostgreSQL connectors. The task passes credentials in memory to trusted connector methods and
+Foundry/PostgreSQL and metadata-gated Databricks connectors. The task passes credentials in memory to trusted connector methods and
 does not launch arbitrary user code or provide a child-process sandbox. Credential
 references are released at the end of the action/run, but the application does not promise secure
 memory wiping. Catalog browsing and the explicit connection-test action are additional, intentional
@@ -1195,7 +1244,10 @@ and malware/content inspection are deployment controls or future work.
 **Decision:** CSV is accepted only as a pipeline source for the authenticated owner. The server
 requires a `.csv` filename, limits the body to 5 MB, rejects NUL/non-UTF-8 content, allows at most 200
 unique non-empty headers, limits header and cell sizes, and requires consistent row widths. Parsing
-uses Python's data-only CSV reader; inferred values are never evaluated as code. Hedron escapes
+uses Python's data-only CSV reader; inferred values are never evaluated as code. Extraction uses the
+reviewed types and normalizes supported time spellings (T prefixes, comma fractions, and fractional
+minutes) while preserving nanosecond precision. Unicode numeric spellings and ISO week dates
+outside the extraction grammar remain text. Mixed unsafe types also remain text. Hedron escapes
 column names and examples when rendering the inspection result. A pipeline may reference an upload
 only when both rows belong to the same authenticated user.
 
@@ -1271,6 +1323,13 @@ are the implementation evidence for this decision.
 
 **Status:** Implemented for configured Foundry metadata and supported SSN patterns; broader
 classification, release approval, and production-provider verification remain deployment controls.
+
+The Databricks implementation adds fail-closed catalog/schema/table/column/tag coverage and
+connection/object/policy-bound source and destination reviews. Its metadata-visibility attestation
+defaults to false; live transfer and writer prerequisites are independent of local test success.
+See the [provider guide](docs/providers/databricks.md#metadata-policy-and-review) and
+[acceptance ledger](docs/plans/databricks-acceptance.md) for the current scope and remaining live
+evidence. This extends the implemented guardrail paths without establishing a live support claim.
 
 **Decision:** MSS/MCS-COP source inspection reads Foundry schema custom metadata and paginated
 resource markings using `PIPELINE_SENSITIVE_METADATA_MARKERS`. Matching ignores case and punctuation;

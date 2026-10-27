@@ -37,6 +37,9 @@ MCS-COP uses the same branch-aware file listing and download contract documented
 [mss.md](mss.md#read-contract). Source routes accept CSV and Parquet files, apply the same bounded
 streaming and source-size limits, and report a local schema/count manifest when Foundry does not
 provide portable remote metadata.
+The shared adapter also preserves exact Decimal scales and normalized ISO time values, accepts
+schema-bearing empty files, and rejects selections with no supported files. Dataset creation uses
+the credential-generation checks described in [MSS notes](mss.md#write-contract).
 
 ## Write contract
 
