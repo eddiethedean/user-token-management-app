@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, cast
@@ -10,6 +10,9 @@ from typing import Any, cast
 import polars as pl
 import pytest
 from databricks.sdk.service import compute
+from databricks.sql.parameters import (
+    TimestampNTZParameter,  # pyright: ignore[reportPrivateImportUsage]
+)
 
 from app.config import Settings, get_settings
 from app.connectors.base import AbortResult, TransferBatch
@@ -149,6 +152,166 @@ def test_databricks_inspection_uses_full_decimal_declaration() -> None:
     assert schema.columns[0].data_type == "Decimal(precision=10, scale=2)"
 
 
+def test_databricks_timestamp_families_have_distinct_schemas_and_fingerprints() -> None:
+    timestamp_harness = _SQLHarness(
+        exists=True,
+        columns=[("occurred", "timestamp", "TIMESTAMP", "YES")],
+    )
+    ntz_harness = _SQLHarness(
+        exists=True,
+        columns=[("occurred", "timestamp_ntz", "TIMESTAMP_NTZ", "YES")],
+    )
+    timestamp_connector, timestamp_credentials = _sql_connector(timestamp_harness)
+    ntz_connector, ntz_credentials = _sql_connector(ntz_harness)
+
+    timestamp_schema = timestamp_connector.inspect_object(timestamp_credentials, _table_locator())
+    ntz_schema = ntz_connector.inspect_object(ntz_credentials, _table_locator())
+
+    assert timestamp_schema.columns[0].data_type == "Datetime(time_unit='us', time_zone='UTC')"
+    assert ntz_schema.columns[0].data_type == "Datetime(time_unit='us', time_zone=None)"
+    assert timestamp_schema.schema_fingerprint != ntz_schema.schema_fingerprint
+
+
+@pytest.mark.parametrize(
+    ("native_type", "full_data_type", "value", "expected_type"),
+    [
+        (
+            "timestamp",
+            "TIMESTAMP",
+            datetime(2026, 10, 27, 12, 0, tzinfo=UTC),
+            "Datetime(time_unit='us', time_zone='UTC')",
+        ),
+        (
+            "timestamp_ntz",
+            "TIMESTAMP_NTZ",
+            datetime(2026, 10, 27, 12, 0),
+            "Datetime(time_unit='us', time_zone=None)",
+        ),
+    ],
+    ids=["instant-timestamp", "wall-clock-timestamp"],
+)
+def test_databricks_extract_preserves_timestamp_timezone_semantics(
+    native_type, full_data_type, value, expected_type
+) -> None:
+    harness = _SQLHarness(
+        exists=True,
+        columns=[("occurred", native_type, full_data_type, "YES")],
+        extract_rows=[(value,)],
+    )
+    connector, credentials = _sql_connector(harness)
+
+    batches = list(
+        connector.extract(credentials, _table_locator(), batch_rows=10, batch_bytes=10_000)
+    )
+
+    assert len(batches) == 1
+    column = batches[0].frame.get_column("occurred")
+    assert column.dtype == _polars_dtype(expected_type)
+    assert column.to_list() == [value]
+
+
+@pytest.mark.parametrize(
+    ("data_type", "expected_delta_type"),
+    [
+        ("Datetime(time_unit='us', time_zone='UTC')", "TIMESTAMP"),
+        ("Datetime(time_unit='us', time_zone=None)", "TIMESTAMP_NTZ"),
+    ],
+    ids=["instant-timestamp", "wall-clock-timestamp"],
+)
+def test_databricks_writer_creates_matching_timestamp_delta_types(
+    data_type, expected_delta_type
+) -> None:
+    harness = _SQLHarness()
+    connector, credentials = _sql_connector(harness)
+    credentials["_publication_event"] = lambda *_args, **_details: None
+    schema = ObjectSchema(
+        locator=_table_locator(),
+        columns=(ColumnSchema("occurred", data_type),),
+    )
+
+    connector.prepare_destination(
+        credentials,
+        schema.locator,
+        schema,
+        DatabricksCreatePolicy(),
+        run_id="11111111-1111-4111-8111-111111111111",
+    )
+
+    create_statement = next(
+        statement
+        for statement, _parameters in harness.statements
+        if statement.startswith("CREATE TABLE `private`.`staging`")
+    )
+    assert f"`occurred` {expected_delta_type}" in create_statement
+
+
+def test_databricks_writer_binds_ntz_values_as_ntz_parameters() -> None:
+    harness = _SQLHarness()
+    connector, credentials = _sql_connector(harness)
+    credentials["_publication_event"] = lambda *_args, **_details: None
+    schema = ObjectSchema(
+        locator=_table_locator(),
+        columns=(ColumnSchema("occurred", "Datetime(time_unit='us', time_zone=None)"),),
+    )
+    session = connector.prepare_destination(
+        credentials,
+        schema.locator,
+        schema,
+        DatabricksCreatePolicy(),
+        run_id="33333333-3333-4333-8333-333333333333",
+    )
+    value = datetime(2026, 10, 27, 12, 0)
+    frame = pl.DataFrame({"occurred": [value]}, schema={"occurred": pl.Datetime("us")})
+
+    connector.write_batch(
+        session,
+        TransferBatch(frame=frame, row_count=1, byte_count=int(frame.estimated_size()), sequence=1),
+    )
+
+    parameters = next(
+        parameters
+        for statement, parameters in harness.statements
+        if statement.startswith("INSERT INTO `private`.`staging`")
+    )
+    bound_value = parameters[0][0]
+    assert isinstance(bound_value, TimestampNTZParameter)
+    assert bound_value.value == value
+
+
+@pytest.mark.parametrize(
+    ("target_type", "output_type"),
+    [
+        ("timestamp_ntz", "Datetime(time_unit='us', time_zone='UTC')"),
+        ("timestamp", "Datetime(time_unit='us', time_zone=None)"),
+    ],
+    ids=["ntz-target-vs-instant-output", "instant-target-vs-ntz-output"],
+)
+def test_databricks_append_rejects_timestamp_semantic_mismatch(target_type, output_type) -> None:
+    target_full_type = "TIMESTAMP_NTZ" if target_type == "timestamp_ntz" else "TIMESTAMP"
+    harness = _SQLHarness(
+        exists=True,
+        columns=[("occurred", target_type, target_full_type, "YES")],
+    )
+    connector, credentials = _sql_connector(harness)
+    credentials["_publication_event"] = lambda *_args, **_details: None
+    target = connector.inspect_object(credentials, _table_locator())
+    output_schema = ObjectSchema(
+        locator=target.locator,
+        columns=(ColumnSchema("occurred", output_type),),
+    )
+
+    with pytest.raises(ConnectorError) as mismatch:
+        connector.prepare_destination(
+            credentials,
+            target.locator,
+            output_schema,
+            DatabricksAppendPolicy(),
+            run_id="22222222-2222-4222-8222-222222222222",
+        )
+
+    assert mismatch.value.code is TransferErrorCode.SCHEMA_DRIFT
+
+
 def test_direct_databricks_writer_requires_durable_worker_coordinator() -> None:
     sql_calls = []
     connector = DatabricksConnector(
@@ -242,8 +405,12 @@ class _SQLCursor:
         elif "select count(*)" in lowered:
             self.rows = [(3,)]
         elif lowered.startswith("select * from"):
-            self.rows = [(1, "111-22-3333"), (2, "222-33-4444"), (3, "333-44-5555")]
-            self.description = [("id",), ("ssn",)]
+            self.rows = (
+                self.harness.extract_rows
+                if self.harness.extract_rows is not None
+                else [(1, "111-22-3333"), (2, "222-33-4444"), (3, "333-44-5555")]
+            )
+            self.description = [(str(column[0]),) for column in self.harness.columns]
 
     def fetchall(self):
         return self.rows
@@ -294,6 +461,7 @@ class _SQLHarness:
         detail_format: str = "delta",
         history_marker: str = "",
         fail_on: str = "",
+        extract_rows: list[tuple[Any, ...]] | None = None,
     ) -> None:
         self.exists = exists
         self.paginate = paginate
@@ -308,6 +476,7 @@ class _SQLHarness:
         self.detail_format = detail_format
         self.history_marker = history_marker
         self.fail_on = fail_on
+        self.extract_rows = extract_rows
         self.statements: list[tuple[str, Any]] = []
         self.connections: list[_SQLConnection] = []
         self.connection_options: list[dict[str, Any]] = []
@@ -316,6 +485,7 @@ class _SQLHarness:
         assert kwargs["server_hostname"] == HOST
         assert kwargs["access_token"] == "synthetic-api-token"
         assert kwargs["use_cloud_fetch"] is False
+        assert kwargs["session_configuration"] == {"TIMEZONE": "UTC"}
         self.connection_options.append(kwargs)
         connection = _SQLConnection(self)
         self.connections.append(connection)
@@ -506,7 +676,7 @@ def test_postgres_source_types_publish_to_databricks(postgres_credentials, polic
             ("score", "float", "FLOAT", "YES"),
             ("weight", "double", "DOUBLE", "YES"),
             ("day", "date", "DATE", "YES"),
-            ("occurred", "timestamp", "TIMESTAMP", "YES"),
+            ("occurred", "timestamp_ntz", "TIMESTAMP_NTZ", "YES"),
             ("payload", "binary", "BINARY", "YES"),
             ("amount", "decimal", "DECIMAL(10,2)", "YES"),
         ],
@@ -535,7 +705,8 @@ def test_postgres_source_types_publish_to_databricks(postgres_credentials, polic
         "`id` INT, `label` STRING, `ready` BOOLEAN, `score` FLOAT, `weight` DOUBLE" in declarations
     )
     assert (
-        "`day` DATE, `occurred` TIMESTAMP, `payload` BINARY, `amount` DECIMAL(10,2)" in declarations
+        "`day` DATE, `occurred` TIMESTAMP_NTZ, `payload` BINARY, `amount` DECIMAL(10,2)"
+        in declarations
     )
     written_rows = [
         row
@@ -1164,13 +1335,17 @@ def test_provider_flag_and_manual_or_unsafe_compute_states_block_sql(monkeypatch
 
 def test_scalar_type_and_metadata_helpers_cover_invalid_values() -> None:
     assert _polars_type("varchar(100)") == "String"
+    assert _polars_type("TIMESTAMP") == "Datetime(time_unit='us', time_zone='UTC')"
+    assert _polars_type("TIMESTAMP_NTZ") == "Datetime(time_unit='us', time_zone=None)"
     assert _sql_type("Date") == "DATE"
     assert _polars_dtype("Datetime(time_unit='us', time_zone=None)") == pl.Datetime("us")
     assert _polars_dtype("Datetime(time_unit='us', time_zone='UTC')") == pl.Datetime(
         "us", time_zone="UTC"
     )
-    assert _sql_type("Datetime(time_unit='us', time_zone=None)") == "TIMESTAMP"
+    assert _sql_type("Datetime(time_unit='us', time_zone=None)") == "TIMESTAMP_NTZ"
     assert _sql_type("Datetime(time_unit='us', time_zone='UTC')") == "TIMESTAMP"
+    assert _sql_type("timestamp without time zone") == "TIMESTAMP_NTZ"
+    assert _sql_type("timestamp with time zone") == "TIMESTAMP"
     assert _tag_marker("classification", "sensitive", []) is None
     with pytest.raises(ConnectorError) as invalid_decimal:
         _polars_type("decimal(2, 4)")
@@ -1217,7 +1392,7 @@ def test_csv_datetime_schema_creates_databricks_staging_table(monkeypatch) -> No
 
     statements = [statement for statement, _ in harness.statements]
     assert any(
-        "CREATE TABLE `private`.`staging`" in statement and "`occurred` TIMESTAMP" in statement
+        "CREATE TABLE `private`.`staging`" in statement and "`occurred` TIMESTAMP_NTZ" in statement
         for statement in statements
     )
 
