@@ -24,6 +24,7 @@ from app.domain.feedback import DataImpact
 from app.logging_config import log_event
 from app.models import (
     DatabricksComputeAttempt,
+    DatabricksPublication,
     PipelineDefinition,
     PipelineRun,
     PipelineRunEvent,
@@ -1275,6 +1276,16 @@ def janitor(db: Session, settings) -> dict[str, int]:
     event_cutoff = now - timedelta(days=settings.pipeline_event_retention_days)
     run_cutoff = now - timedelta(days=settings.pipeline_run_retention_days)
     events_deleted = 0
+    protected_publication_run_ids = set(
+        db.scalars(
+            select(DatabricksPublication.run_id).where(
+                or_(
+                    DatabricksPublication.state.not_in(("complete", "unchanged")),
+                    DatabricksPublication.active_target_key.is_not(None),
+                )
+            )
+        ).all()
+    )
     protected_event_run_ids = {
         run.id
         for run in db.scalars(
@@ -1282,6 +1293,7 @@ def janitor(db: Session, settings) -> dict[str, int]:
         ).all()
         if _run_requires_reconciliation_review(run) and not _reconciliation_reviewed(run)
     }
+    protected_event_run_ids.update(protected_publication_run_ids)
     for event in db.scalars(
         select(PipelineRunEvent).where(PipelineRunEvent.occurred_at < event_cutoff)
     ).all():
@@ -1297,6 +1309,10 @@ def janitor(db: Session, settings) -> dict[str, int]:
             PipelineRun.finished_at < run_cutoff,
         )
     ).all():
+        # Deleting a run cascades to its publication record. Keep both while
+        # provider reconciliation or staging cleanup still has work to do.
+        if run.id in protected_publication_run_ids:
+            continue
         if _run_requires_reconciliation_review(run) and not _reconciliation_reviewed(run):
             continue
         db.delete(run)
