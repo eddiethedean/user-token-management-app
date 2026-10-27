@@ -201,7 +201,14 @@ def process_pending_publication_recovery(
             .join(PipelineRun, PipelineRun.id == DatabricksPublication.run_id)
             .where(
                 DatabricksPublication.state.in_(
-                    ("preparing", "staging", "cleanup_pending", "publishing", "uncertain")
+                    (
+                        "preparing",
+                        "staging",
+                        "committed",
+                        "cleanup_pending",
+                        "publishing",
+                        "uncertain",
+                    )
                 ),
                 or_(
                     DatabricksPublication.recovery_expires_at.is_(None),

@@ -410,7 +410,9 @@ def deadline_store(tmp_path):
         engine.dispose()
 
 
-@pytest.mark.parametrize("kind", ["queued", "lease", "compute", "publication"])
+@pytest.mark.parametrize(
+    "kind", ["queued", "lease", "compute", "publication", "committed_publication"]
+)
 def test_durable_deadline_waits_for_retry_or_lease_expiry(
     deadline_store, monkeypatch, kind
 ) -> None:
@@ -455,7 +457,7 @@ def test_durable_deadline_waits_for_retry_or_lease_expiry(
                     target_key="target",
                     target_locator_json="{}",
                     write_mode="append",
-                    state="uncertain",
+                    state=("committed" if kind == "committed_publication" else "uncertain"),
                     recovery_expires_at=future,
                 )
             )
