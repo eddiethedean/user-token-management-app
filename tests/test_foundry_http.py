@@ -1126,3 +1126,51 @@ def test_foundry_health_and_extract_with_default_rid(foundry_sim, tmp_path) -> N
             run_id="abort-1",
         )
     )
+
+
+@pytest.mark.parametrize("file_format", ["csv", "parquet"], ids=["csv", "parquet"])
+def test_foundry_extract_accepts_existing_zero_row_files(
+    foundry_sim, tmp_path, file_format
+) -> None:
+    path = "notes.csv" if file_format == "csv" else "readiness.parquet"
+    if file_format == "csv":
+        foundry_sim.files[path] = b"value,label\n"
+    else:
+        empty = io.BytesIO()
+        pl.DataFrame(schema={"value": pl.Int64, "label": pl.String}).write_parquet(empty)
+        foundry_sim.files[path] = empty.getvalue()
+
+    connector = FoundryConnector(_settings(tmp_path))
+    credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
+    locator = FoundryDatasetFilesLocator(dataset_rid=DATASET, branch="master", file_paths=[path])
+
+    schema = connector.inspect_object(credentials, locator)
+    batches = list(connector.extract(credentials, locator, batch_rows=10, batch_bytes=10_000))
+
+    assert [column.name for column in schema.columns] == ["value", "label"]
+    assert batches == []
+
+
+def test_foundry_extract_still_rejects_datasets_without_supported_files(
+    monkeypatch, tmp_path
+) -> None:
+    connector = FoundryConnector(_settings(tmp_path))
+
+    class EmptyCatalog:
+        def resolve_branch(self, dataset_rid, branch):
+            return branch, []
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(connector, "_client", lambda _credentials: EmptyCatalog())
+    credentials = {"endpoint": "http://localhost:8765", "token": TOKEN, "dataset_rid": DATASET}
+    locator = FoundryDatasetFilesLocator(
+        dataset_rid=DATASET, branch="master", file_paths="all_supported"
+    )
+
+    with pytest.raises(ConnectorError) as failure:
+        list(connector.extract(credentials, locator, batch_rows=10, batch_bytes=10_000))
+
+    assert failure.value.code is TransferErrorCode.SOURCE_NOT_FOUND
+    assert "no CSV or Parquet files" in failure.value.summary

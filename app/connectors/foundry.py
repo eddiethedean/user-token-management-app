@@ -1292,8 +1292,11 @@ class FoundryConnector:
                         TransferErrorCode.SOURCE_NOT_FOUND,
                         "A selected dataset file is no longer available.",
                     )
+            if not paths:
+                raise ConnectorError(
+                    TransferErrorCode.SOURCE_NOT_FOUND, "The dataset has no CSV or Parquet files."
+                )
             sequence = 1
-            yielded = False
             with tempfile.TemporaryDirectory(prefix="foundry-extract-", dir=spool_root) as temp_dir:
                 extract_root = Path(temp_dir)
                 for path in paths:
@@ -1316,14 +1319,8 @@ class FoundryConnector:
                                     sequence_start=sequence,
                                 )
                             )
-                            if batches:
-                                yielded = True
                             yield from batches
                             sequence += len(batches)
-            if not yielded:
-                raise ConnectorError(
-                    TransferErrorCode.SOURCE_NOT_FOUND, "The dataset has no CSV or Parquet files."
-                )
         finally:
             client.close()
 
