@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from datetime import date, datetime
 from decimal import Decimal
@@ -12,10 +13,12 @@ from databricks.sdk.service import compute
 
 from app.config import Settings, get_settings
 from app.connectors.base import AbortResult, TransferBatch
+from app.connectors.csv_source import CsvSourceConnector
 from app.connectors.databricks import (
     DatabricksConnector,
     _parse_cursor,
     _parse_namespace,
+    _polars_dtype,
     _polars_type,
     _provider_error,
     _publication_target_marker,
@@ -25,6 +28,7 @@ from app.connectors.databricks import (
 )
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
+    CsvUploadLocator,
     DatabricksAppendPolicy,
     DatabricksCreatePolicy,
     DatabricksReplacePolicy,
@@ -36,6 +40,7 @@ from app.connectors.locators import (
 from app.connectors.postgres import PostgresConnector
 from app.connectors.postgres import connect as connect_postgres
 from app.domain.catalogs import ColumnSchema, ObjectSchema
+from app.services.csv_uploads import inspect_csv
 from tests.postgres_support import connector_settings
 
 HOST = "dbc-12345678.cloud.databricks.com"
@@ -1160,6 +1165,12 @@ def test_provider_flag_and_manual_or_unsafe_compute_states_block_sql(monkeypatch
 def test_scalar_type_and_metadata_helpers_cover_invalid_values() -> None:
     assert _polars_type("varchar(100)") == "String"
     assert _sql_type("Date") == "DATE"
+    assert _polars_dtype("Datetime(time_unit='us', time_zone=None)") == pl.Datetime("us")
+    assert _polars_dtype("Datetime(time_unit='us', time_zone='UTC')") == pl.Datetime(
+        "us", time_zone="UTC"
+    )
+    assert _sql_type("Datetime(time_unit='us', time_zone=None)") == "TIMESTAMP"
+    assert _sql_type("Datetime(time_unit='us', time_zone='UTC')") == "TIMESTAMP"
     assert _tag_marker("classification", "sensitive", []) is None
     with pytest.raises(ConnectorError) as invalid_decimal:
         _polars_type("decimal(2, 4)")
@@ -1170,6 +1181,45 @@ def test_scalar_type_and_metadata_helpers_cover_invalid_values() -> None:
     with pytest.raises(ConnectorError) as invalid_name:
         _quote("unsafe\nidentifier")
     assert invalid_name.value.code is TransferErrorCode.UNSUPPORTED_TYPE
+
+
+def test_csv_datetime_schema_creates_databricks_staging_table(monkeypatch) -> None:
+    content = b"occurred\n2026-10-22T12:30:45\n"
+    inspection = inspect_csv("timestamps.csv", content)
+    assert inspection.columns[0].inferred_type == "datetime"
+    upload_locator = CsvUploadLocator(
+        upload_id="11111111-1111-4111-8111-111111111111",
+        checksum_sha256="a" * 64,
+    )
+    schema = CsvSourceConnector().inspect_object(
+        {
+            "content": content,
+            "columns": json.dumps([column.name for column in inspection.columns]),
+            "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
+            "column_timezones": json.dumps(
+                [column.timezone_aware for column in inspection.columns]
+            ),
+        },
+        upload_locator,
+    )
+    assert schema.columns[0].data_type == "Datetime(time_unit='us', time_zone=None)"
+
+    harness = _SQLHarness(exists=False)
+    connector, credentials = _sql_connector(harness, monkeypatch)
+    credentials["_publication_event"] = lambda *_args, **_kwargs: None
+    connector.prepare_destination(
+        credentials,
+        _table_locator(),
+        schema,
+        DatabricksCreatePolicy(),
+        run_id="11111111-1111-4111-8111-111111111111",
+    )
+
+    statements = [statement for statement, _ in harness.statements]
+    assert any(
+        "CREATE TABLE `private`.`staging`" in statement and "`occurred` TIMESTAMP" in statement
+        for statement in statements
+    )
 
 
 def _prepare_two_column_load(monkeypatch, harness: _SQLHarness, policy=None):

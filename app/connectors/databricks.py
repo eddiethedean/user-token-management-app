@@ -96,6 +96,8 @@ _POLARS_TYPES: dict[str, Any] = {
     "Float64": pl.Float64,
     "Date": pl.Date,
     "Datetime(time_unit='us')": pl.Datetime("us"),
+    "Datetime(time_unit='us', time_zone=None)": pl.Datetime("us"),
+    "Datetime(time_unit='us', time_zone='UTC')": pl.Datetime("us", time_zone="UTC"),
     "Binary": pl.Binary,
 }
 
@@ -1384,6 +1386,8 @@ def _sql_type(data_type: str) -> str:
         "float64": "DOUBLE",
         "date": "DATE",
         "datetime(time_unit='us')": "TIMESTAMP",
+        "datetime(time_unit='us', time_zone=none)": "TIMESTAMP",
+        "datetime(time_unit='us', time_zone='utc')": "TIMESTAMP",
         "binary": "BINARY",
         # PostgreSQL inspection exposes native SQL names rather than Polars names.
         "text": "STRING",
