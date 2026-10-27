@@ -163,6 +163,28 @@ def test_csv_inference_keeps_mixed_naive_and_zoned_timestamps_as_text() -> None:
     assert inspection.columns[0].inferred_type == "text"
 
 
+@pytest.mark.parametrize("value", ["１２", "١٢.٣", "2026-W43-4"])
+def test_csv_profile_keeps_values_outside_extraction_grammar_as_text(value: str) -> None:
+    content = f"value,label\n{value},ok\n".encode()
+    inspection = inspect_csv("boundary.csv", content)
+
+    assert inspection.columns[0].inferred_type == "text"
+    credentials = {
+        "content": content,
+        "columns": json.dumps([column.name for column in inspection.columns]),
+        "column_types": json.dumps([column.inferred_type for column in inspection.columns]),
+    }
+    locator = CsvUploadLocator(
+        upload_id="11111111-1111-1111-1111-111111111111", checksum_sha256="f" * 64
+    )
+    batches = list(
+        CsvSourceConnector().extract(credentials, locator, batch_rows=100, batch_bytes=10_000)
+    )
+
+    assert batches[0].frame["value"].to_list() == [value]
+    assert batches[0].frame["value"].dtype == pl.String
+
+
 def test_csv_inference_uses_exact_decimal_for_integers_beyond_bigint() -> None:
     inspection = inspect_csv("wide.csv", b"amount,identifier\n9223372036854775808,0012\n")
     assert inspection.columns[0].inferred_type == "decimal"

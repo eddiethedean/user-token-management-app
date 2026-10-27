@@ -10,9 +10,16 @@ from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 
 MAX_CSV_DECIMAL_PRECISION = 38
-_INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
-_DECIMAL_PATTERN = re.compile(r"^[+-]?(?:(?:\d+\.\d*|\d*\.\d+)(?:[eE][+-]?\d+)?|\d+[eE][+-]?\d+)$")
-_PADDED_NUMBER_PATTERN = re.compile(r"^[+-]?0\d+(?:\.|[eE])")
+_INTEGER_PATTERN = re.compile(r"^[+-]?[0-9]+$")
+_DECIMAL_PATTERN = re.compile(
+    r"^[+-]?(?:(?:[0-9]+\.[0-9]*|[0-9]*\.[0-9]+)(?:[eE][+-]?[0-9]+)?|[0-9]+[eE][+-]?[0-9]+)$"
+)
+_PADDED_NUMBER_PATTERN = re.compile(r"^[+-]?0[0-9]+(?:\.|[eE])")
+_DATE_PATTERN = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+_DATETIME_PATTERN = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}"
+    r"(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})?$"
+)
 
 
 def is_numeric_text(value: str) -> bool:
@@ -133,6 +140,8 @@ def _value_type(value: str) -> str:
     lowered = value.casefold()
     if lowered in {"true", "false"}:
         return "boolean"
+    if not value.isascii():
+        return "text"
     integer_value = value.lstrip("+-")
     if _INTEGER_PATTERN.fullmatch(value) and not (
         len(integer_value) > 1 and integer_value.startswith("0")
@@ -146,20 +155,25 @@ def _value_type(value: str) -> str:
         if _PADDED_NUMBER_PATTERN.match(value):
             return "text"
         return "decimal"
-    try:
-        if "t" in lowered or " " in value:
+    if _DATETIME_PATTERN.fullmatch(value):
+        try:
             parsed_datetime = datetime.fromisoformat(value.replace("Z", "+00:00"))
             return "datetime_tz" if parsed_datetime.tzinfo is not None else "datetime"
-        date.fromisoformat(value)
-        return "date"
-    except ValueError:
-        if ":" not in value:
-            return "text"
-        try:
-            parsed_time = time.fromisoformat(value)
-            return "time" if parsed_time.tzinfo is None else "text"
         except ValueError:
             return "text"
+    if _DATE_PATTERN.fullmatch(value):
+        try:
+            date.fromisoformat(value)
+            return "date"
+        except ValueError:
+            return "text"
+    if ":" not in value:
+        return "text"
+    try:
+        parsed_time = time.fromisoformat(value)
+        return "time" if parsed_time.tzinfo is None else "text"
+    except ValueError:
+        return "text"
 
 
 def _merge_types(types: set[str]) -> str:
