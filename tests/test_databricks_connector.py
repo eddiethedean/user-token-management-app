@@ -714,7 +714,11 @@ def test_postgres_source_types_publish_to_databricks(postgres_credentials, polic
         if statement.startswith("INSERT INTO `private`.`staging`")
         for row in parameters
     ]
-    assert written_rows == [values]
+    assert len(written_rows) == 1
+    written_row = written_rows[0]
+    occurred = written_row[6]
+    assert isinstance(occurred, TimestampNTZParameter)
+    assert (*written_row[:6], occurred.value, *written_row[7:]) == values
     assert manifest.rows == 1
 
 
