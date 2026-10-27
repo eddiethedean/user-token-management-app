@@ -135,6 +135,20 @@ def test_preflight_feedback_explains_route_correction_before_enqueue() -> None:
     assert outcome.reference_id == "req-456"
 
 
+def test_dataset_creation_feedback_warns_when_connection_changes_mid_request() -> None:
+    outcome = preflight_failure(
+        reason=(
+            "The saved connection changed while the dataset was being created. The remote "
+            "dataset may exist, but it was not added to this account."
+        ),
+        operation="pipeline_dataset_create",
+        reference_id="dataset-generation-test",
+    )
+
+    assert "remote dataset may exist" in outcome.message.casefold()
+    assert "check foundry before retrying" in outcome.message.casefold()
+
+
 def test_safe_formatter_redacts_sensitive_message_and_emits_json() -> None:
     record = logging.LogRecord(
         "test",

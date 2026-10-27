@@ -4,6 +4,7 @@ import logging
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
+from datetime import datetime
 from hmac import compare_digest
 
 from fastapi import Request
@@ -57,6 +58,7 @@ __all__ = [
     "store_user_credentials_if_changed",
     "store_user_secret",
     "test_user_connection",
+    "decrypt_user_credentials_for_run_with_revision",
 ]
 
 _FIELD_MAX_BYTES = 8192
@@ -693,6 +695,27 @@ def decrypt_user_credentials_for_run(
     purpose: str = "run",
 ) -> dict[str, str]:
     """Return credentials at an authorized connector boundary; never expose them in a response."""
+    credentials, _, _ = decrypt_user_credentials_for_run_with_revision(
+        db,
+        settings,
+        user=user,
+        provider=provider,
+        request=request,
+        purpose=purpose,
+    )
+    return credentials
+
+
+def decrypt_user_credentials_for_run_with_revision(
+    db: Session,
+    settings: Settings,
+    *,
+    user: User,
+    provider: str,
+    request: Request | RequestMetadata | None = None,
+    purpose: str = "run",
+) -> tuple[dict[str, str], str, datetime]:
+    """Return credentials and the stored generation they were decrypted from."""
     specification = require_secret_provider(provider, settings)
     stored = db.scalar(
         select(UserSecret).where(
@@ -705,6 +728,7 @@ def decrypt_user_credentials_for_run(
         credentials = CredentialEnvelope.decrypt(settings, stored)
     except CredentialEnvelopeError as exc:
         raise SecretStorageError(str(exc)) from exc
+    secret_id = stored.id
     credential_revision = stored.updated_at
     if specification.name == "databricks":
         credentials["connection_generation"] = credential_revision.isoformat(
@@ -727,7 +751,7 @@ def decrypt_user_credentials_for_run(
         detail={"provider": specification.name, "purpose": purpose},
     )
     db.commit()
-    return credentials
+    return credentials, secret_id, credential_revision
 
 
 def _invalidate_databricks_compute_attempts(db: Session, user_id: str) -> None:
