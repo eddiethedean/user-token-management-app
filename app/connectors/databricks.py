@@ -26,6 +26,9 @@ from databricks import sql
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import NotFound
 from databricks.sdk.service.sql import QueryFilter, TimeRange
+from databricks.sql.parameters import (
+    TimestampNTZParameter,  # pyright: ignore[reportPrivateImportUsage]
+)
 
 from app.config import Settings
 from app.connectors.base import (
@@ -82,8 +85,11 @@ _SQL_TYPES: dict[str, str] = {
     "double": "Float64",
     "date": "Date",
     "binary": "Binary",
-    "timestamp": "Datetime(time_unit='us')",
-    "timestamp_ntz": "Datetime(time_unit='us')",
+    "timestamp": "Datetime(time_unit='us', time_zone='UTC')",
+    "timestamp_ltz": "Datetime(time_unit='us', time_zone='UTC')",
+    "timestamp_ntz": "Datetime(time_unit='us', time_zone=None)",
+    "timestamp without time zone": "Datetime(time_unit='us', time_zone=None)",
+    "timestamp with time zone": "Datetime(time_unit='us', time_zone='UTC')",
 }
 _POLARS_TYPES: dict[str, Any] = {
     "String": pl.String,
@@ -585,6 +591,11 @@ class DatabricksConnector:
             policy=write_policy,
             staging_name=staging,
             columns=tuple(column.name for column in schema.columns),
+            timestamp_ntz_columns=frozenset(
+                column.name
+                for column in schema.columns
+                if _sql_type(column.data_type) == "TIMESTAMP_NTZ"
+            ),
             rows=0,
             bytes=0,
             target_existed=target_existed,
@@ -618,7 +629,15 @@ class DatabricksConnector:
         columns = ", ".join(_quote(name) for name in state.columns)
         placeholders = ", ".join("?" for _ in state.columns)
         statement = f"INSERT INTO {state.staging_name} ({columns}) VALUES ({placeholders})"
-        rows = list(batch.frame.select(list(state.columns)).iter_rows())
+        rows = [
+            tuple(
+                TimestampNTZParameter(value)
+                if name in state.timestamp_ntz_columns and isinstance(value, datetime)
+                else value
+                for name, value in zip(state.columns, row, strict=True)
+            )
+            for row in batch.frame.select(list(state.columns)).iter_rows()
+        ]
         try:
             with self._sql_cursor(state.credentials) as cursor:
                 for offset in range(0, len(rows), _BATCH_INSERT_ROWS):
@@ -1051,6 +1070,7 @@ class DatabricksConnector:
                 "access_token": str(credentials["token"]),
                 "use_cloud_fetch": False,
                 "use_inline_params": False,
+                "session_configuration": {"TIMEZONE": "UTC"},
                 "_use_arrow_native_complex_types": False,
                 "user_agent_entry": "DataMover",
             }
@@ -1312,6 +1332,7 @@ class _LoadState:
     policy: WritePolicy
     staging_name: str
     columns: tuple[str, ...]
+    timestamp_ntz_columns: frozenset[str]
     rows: int
     bytes: int
     target_existed: bool = False
@@ -1385,8 +1406,8 @@ def _sql_type(data_type: str) -> str:
         "float32": "FLOAT",
         "float64": "DOUBLE",
         "date": "DATE",
-        "datetime(time_unit='us')": "TIMESTAMP",
-        "datetime(time_unit='us', time_zone=none)": "TIMESTAMP",
+        "datetime(time_unit='us')": "TIMESTAMP_NTZ",
+        "datetime(time_unit='us', time_zone=none)": "TIMESTAMP_NTZ",
         "datetime(time_unit='us', time_zone='utc')": "TIMESTAMP",
         "binary": "BINARY",
         # PostgreSQL inspection exposes native SQL names rather than Polars names.
@@ -1398,7 +1419,10 @@ def _sql_type(data_type: str) -> str:
         "bigint": "BIGINT",
         "real": "FLOAT",
         "double precision": "DOUBLE",
-        "timestamp without time zone": "TIMESTAMP",
+        "timestamp": "TIMESTAMP",
+        "timestamp_ltz": "TIMESTAMP",
+        "timestamp_ntz": "TIMESTAMP_NTZ",
+        "timestamp without time zone": "TIMESTAMP_NTZ",
         "timestamp with time zone": "TIMESTAMP",
         "bytea": "BINARY",
     }
