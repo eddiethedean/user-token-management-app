@@ -13,7 +13,7 @@ import psycopg
 import pytest
 from psycopg import sql
 
-from app.connectors.base import ColumnSchema, LoadSession, ObjectSchema, TransferBatch
+from app.connectors.base import AbortResult, ColumnSchema, LoadSession, ObjectSchema, TransferBatch
 from app.connectors.csv_source import CsvSourceConnector
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import (
@@ -442,6 +442,128 @@ def test_postgres_real_source_creates_real_destination(postgres_credentials) -> 
         postgres_credentials,
         "SELECT pg_typeof(score)::text, score FROM public.real_destination",
     ) == [("real", 1.25)]
+
+
+@pytest.mark.parametrize(
+    ("target_type", "value"),
+    [
+        ("REAL", 1_000_000_001),
+        ("DOUBLE PRECISION", 9_007_199_254_740_993),
+    ],
+)
+def test_postgres_rejects_integer_values_rounded_by_float_destinations(
+    postgres_credentials, target_type: str, value: int
+) -> None:
+    locator = postgres_table("public", "integer_float_target")
+    if target_type == "REAL":
+        _execute(
+            postgres_credentials,
+            "CREATE TABLE public.integer_float_target (value REAL)",
+        )
+    else:
+        _execute(
+            postgres_credentials,
+            "CREATE TABLE public.integer_float_target (value DOUBLE PRECISION)",
+        )
+    _execute(postgres_credentials, "INSERT INTO public.integer_float_target VALUES (7)")
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(ColumnSchema(name="value", data_type="Int64"),),
+    )
+    frame = pl.DataFrame({"value": [value]}, schema={"value": pl.Int64})
+    connector = PostgresConnector(connector_settings())
+    session = connector.prepare_destination(
+        postgres_credentials,
+        locator,
+        schema,
+        PostgresAppendPolicy(),
+        run_id="integer-float-loss",
+    )
+
+    with pytest.raises(
+        ConnectorError, match="cannot store every source integer exactly"
+    ) as excinfo:
+        connector.write_batch(
+            session,
+            TransferBatch(
+                frame=frame,
+                row_count=frame.height,
+                byte_count=int(frame.estimated_size()),
+                sequence=1,
+            ),
+        )
+
+    assert excinfo.value.code == TransferErrorCode.SCHEMA_DRIFT
+    assert "Destination column value" in excinfo.value.field_errors
+    assert connector.abort(session) == AbortResult.ROLLED_BACK
+    assert _fetchall(postgres_credentials, "SELECT value FROM public.integer_float_target") == [
+        (7.0,)
+    ]
+    assert (
+        _fetchall(
+            postgres_credentials,
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = %s",
+            (session.staging_name,),
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("target_type", "values"),
+    [
+        ("REAL", [2**24, 2**24 + 2, -(2**24 + 2), None]),
+        ("DOUBLE PRECISION", [2**53, 2**53 + 2, -(2**53 + 2), None]),
+    ],
+)
+def test_postgres_allows_exact_integer_values_in_float_destinations(
+    postgres_credentials, target_type: str, values: list[int | None]
+) -> None:
+    locator = postgres_table("public", "integer_float_exact_target")
+    if target_type == "REAL":
+        _execute(
+            postgres_credentials,
+            "CREATE TABLE public.integer_float_exact_target (value REAL)",
+        )
+    else:
+        _execute(
+            postgres_credentials,
+            "CREATE TABLE public.integer_float_exact_target (value DOUBLE PRECISION)",
+        )
+    schema = ObjectSchema(
+        locator=locator,
+        columns=(ColumnSchema(name="value", data_type="Int64", nullable=True),),
+    )
+    frame = pl.DataFrame({"value": values}, schema={"value": pl.Int64})
+    connector = PostgresConnector(connector_settings())
+    session = connector.prepare_destination(
+        postgres_credentials,
+        locator,
+        schema,
+        PostgresAppendPolicy(),
+        run_id="integer-float-exact",
+    )
+    connector.write_batch(
+        session,
+        TransferBatch(
+            frame=frame,
+            row_count=frame.height,
+            byte_count=int(frame.estimated_size()),
+            sequence=1,
+        ),
+    )
+    connector.finalize(session)
+
+    actual = [
+        row[0]
+        for row in _fetchall(
+            postgres_credentials, "SELECT value FROM public.integer_float_exact_target"
+        )
+    ]
+    assert [Decimal.from_float(value) if value is not None else None for value in actual] == [
+        Decimal(value) if value is not None else None for value in values
+    ]
 
 
 def test_postgres_rejects_timetz_into_existing_time(postgres_credentials) -> None:
