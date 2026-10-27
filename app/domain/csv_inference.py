@@ -24,6 +24,7 @@ _DATETIME_PATTERN = re.compile(
     r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}"
     r"(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}(?::?[0-9]{2})?)?$"
 )
+_TIME_PATTERN = re.compile(r"^[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?$")
 
 
 def is_numeric_text(value: str) -> bool:
@@ -169,7 +170,7 @@ def _value_type(value: str) -> str:
             return "date"
         except ValueError:
             return "text"
-    if ":" not in value:
+    if not _TIME_PATTERN.fullmatch(value):
         return "text"
     try:
         parsed_time = time.fromisoformat(value)

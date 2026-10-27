@@ -55,6 +55,20 @@ def test_foundry_csv_scan_parses_boolean_values(tmp_path: Path) -> None:
     }
 
 
+@pytest.mark.parametrize("value", ["T12:34:56", "12:34:56,123", "12:34.5"])
+def test_foundry_csv_scan_preserves_time_forms_outside_parser_grammar(
+    tmp_path: Path, value: str
+) -> None:
+    path = tmp_path / "times.csv"
+    path.write_text(f'value,label\n"{value}",ok\n', encoding="utf-8")
+
+    scan, profiles = _csv_file_scan(path)
+
+    assert profiles[0].inferred_type == "text"
+    assert scan.collect()["value"].to_list() == [value]
+    assert scan.collect_schema()["value"] == pl.String
+
+
 def test_foundry_csv_scan_parses_time_values(tmp_path: Path) -> None:
     path = tmp_path / "times.csv"
     path.write_text("id,shift_time\n1,12:34:56\n2,08:30:15.125\n3,\n", encoding="utf-8")
