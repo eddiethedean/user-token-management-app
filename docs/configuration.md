@@ -133,7 +133,10 @@ operations require them:
   a reserved compatibility setting; current connectors do not automatically retry requests.
 - `PIPELINE_CONNECTION_MAX_AGE_SECONDS` is also reserved and is not currently used to expire a
   **Connected** result. Retest a connection explicitly after credential or network changes.
-- Retention, source, run, and spool settings control cleanup and resource ceilings.
+- Retention, source, run, and spool settings control cleanup and resource ceilings. Run/event
+  retention preserves unreviewed reconciliation evidence and Databricks publication records with
+  unresolved publication, pending cleanup, or an active target fence. These holds can outlive the
+  configured retention days; see the [runtime runbook](runbooks/pipeline-worker.md#logs).
 - `LOG_FORMAT` defaults to `text`; set it to `json` when the deployment collects structured logs.
 - `SCHEDULED_EVENT_TIMEZONE` defaults to `America/New_York` and must be an installed IANA timezone
   name. Each FastAPI process logs `app.scheduled_event.ran` at local midnight without an HTTP

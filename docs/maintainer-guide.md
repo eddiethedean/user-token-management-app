@@ -185,6 +185,11 @@ history behavior.
 Keep routes thin and make domain rules testable without a browser or database where possible:
 
 - Use `SecretCatalog`, `CredentialValidator`, and `CredentialEnvelope` for credential policy.
+- Treat `UserSecret.updated_at` as the credential generation. Health/usage writes must preserve it
+  explicitly; connection results also use check IDs. Provider side effects such as dataset creation
+  capture the decrypted secret ID/revision and conditionally persist health and metadata together.
+  Keep the user-lock ordering used by credential replacement/deletion and the conditional update
+  needed by both PostgreSQL and SQLite. Cover replacement, deletion, and unchanged-generation overlap.
 - Use `PipelineCommands` and its `PipelineDependencies` when a route saves or enqueues a pipeline;
   keep capability and writer policy explicit at this boundary.
 - Use `PipelineRunStateMachine` for status, stage, lease, and terminal-run rules.

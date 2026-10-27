@@ -1,9 +1,10 @@
 # MSS protocol notes
 
-Status: frozen for the first real-transfer release
+Status: implementation notes reviewed against `dfb6cd7` on October 27, 2026
 
-Evidence: `docs/archive/transfer_code/mss_pg.py`, `docs/archive/transfer_code/pg_mss.py`, and
-operator-confirmed non-production checks
+Evidence: [`app/connectors/foundry.py`](../../app/connectors/foundry.py) and
+[`tests/test_foundry_http.py`](../../tests/test_foundry_http.py). Archived transfer scripts and
+operator checks remain historical context, not the current implementation contract.
 
 Secrets: none. Dataset RIDs, tokens, and operational hostnames from reference scripts are omitted.
 
@@ -44,6 +45,11 @@ the source; this is reported as a local manifest, not as a remote destination qu
 For CSV sources, the worker profiles every row before parsing values and keeps identifier strings
 and supported exact decimals in their detected types.
 
+Supported ISO time spellings are normalized for parsing without dropping nanosecond precision.
+Decimal columns with different batch/file scales are reconciled to a common exact type within
+Polars' 38-digit limit; incompatible schemas fail instead of rounding. Schema-bearing zero-row
+CSV/Parquet files are valid empty sources. A selection containing no supported files still fails.
+
 List files:
 
 ```
@@ -76,6 +82,11 @@ provider, selects it in the destination editor, and uses the default `master` br
 dataset. OAuth applications need the Foundry `api:datasets-write` scope in addition to folder
 permissions. A timeout or transport failure is treated as `publish_uncertain`, because Foundry may
 have created the dataset even when Data Mover did not receive the response.
+
+If the saved credential bundle changes or is deleted while the provider call is in flight,
+Data Mover does not register the returned dataset or overwrite current connection health. It
+reports `credentials_stale`; check Foundry for the created dataset before retrying. Health updates
+preserve the credential revision, so overlapping creations using unchanged credentials can succeed.
 
 Upload a named Snappy Parquet file:
 

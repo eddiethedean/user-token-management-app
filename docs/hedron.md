@@ -23,7 +23,7 @@ subsystems.
 | 0.56 security plane | Data Mover publishes the `hedron-security-1` control-plane profile, bounded request budgets, and deny-by-default egress posture while retaining ownership of CSRF and response headers. |
 | Security posture | `make hedron-security-check` produces a strict SARIF posture report for CI/security review. |
 | 1.0.0 presentation contract | The app's Data Mover recipe catalog uses Hedron's typed control/surface/data/status/content families, scoped auth/workspace defaults, and the built-in Folio theme's accessibility contract. |
-| 1.1 release train | Runtime is bounded to the tested compatible line: `hedron>=1.1.0,<2` and `hedron-posit>=1.0.10,<2`; native ProcessFlow presentation and updated shell controls are enabled. |
+| 1.1 release train | Runtime is bounded to the tested compatible line: `hedron>=1.1.1,<2` and `hedron-posit>=1.0.10,<2`; native ProcessFlow presentation and updated shell controls are enabled. |
 | 0.61 action lifecycle | Pipeline start, poll, cancel, retry, and reconciliation responses project Hedron `ActionState`/`ActionTrace` metadata with stable `OperationIdentity` values. |
 | 0.61 async regions | The live pipeline monitor uses the server-authored `AsyncRegion` to expose pending, success, error, cancelled, and conflict phases without application CSS or browser state. |
 | 0.61 busy controls | Pipeline run forms opt into Hedron's region busy lifecycle (`data-hedron-busy="region"`), which coordinates accessibility state and the global request indicator. |
@@ -60,7 +60,7 @@ subsystems.
 
 ## Hedron 1.1 status update
 
-Data Mover uses the Hedron 1.1 train (`hedron>=1.1.0,<2` and `hedron-posit>=1.0.10,<2`). The app deliberately keeps its existing
+Data Mover uses the Hedron 1.1 train (`hedron>=1.1.1,<2` and `hedron-posit>=1.0.10,<2`). The app deliberately keeps its existing
 application-owned CSRF/session and response-header middleware, but opts into the new shared
 security-plane composition metadata so Hedron diagnostics and future integrations see the same
 control-plane posture. The request budget is intentionally bounded to the app's 5 MiB upload
@@ -91,7 +91,7 @@ uses its own leased SQL worker and durable run/event tables, so adopting a secon
 would weaken cancellation and reconciliation guarantees. SSE job helpers are similarly deferred;
 the existing mount-aware HTMX polling is sufficient for the current deployment boundaries.
 
-Run `make hedron-security-check` after installing the 1.1.0 environment.
+Run `make hedron-security-check` after installing the supported 1.1 environment.
 
 The 1.0 HDJ parity surface is intentionally excluded. This application is Python-component-first;
 no production route enables template execution, dynamic dependencies, foreign namespaces, or

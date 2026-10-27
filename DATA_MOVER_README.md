@@ -112,8 +112,14 @@ Data Mover follows a least-privilege, user-scoped model:
   user's credential does not already have.
 - Saved credential values are encrypted and are not displayed again after entry.
 - Credential plaintext is limited to the signed-in owner's selected catalog/test request or the
-  provider bundles required while a claimed transfer is executing; it is never stored in pipeline
+  selected dataset/compute action, publication recovery, or provider bundles required while a
+  claimed transfer is executing; it is never stored in pipeline
   definitions, run snapshots, catalog caches, or browser responses.
+- Credential-generation checks prevent superseded connection checks and dataset creations from
+  overwriting replacement health. Remote dataset creation may already have succeeded when a
+  connection change makes its local result stale; check the provider before retrying.
+- Timestamp timezone mismatches and lossy implicit numeric conversions are rejected. Unresolved
+  Databricks publication/cleanup evidence is retained beyond ordinary run/event expiry.
 - Security-relevant account, administration, and transfer activity is recorded for audit and
   troubleshooting.
 - Demonstration connections are isolated from live provider access, and demonstration mode is not

@@ -43,6 +43,10 @@ See [SECURITY.md](SECURITY.md).
 - Admin user directory, invitations, approve/deny/disable, audit log
 - Asynchronous email delivery built into the web app
 - In-process pipeline execution, lease recovery, and retention cleanup
+- Preservation checks for timestamp timezone semantics, exact numeric transfers, and CSV parser parity
+
+The [documentation baseline](docs/README.md#current-documentation-baseline) records the October 27
+implementation review and links the current credential, data-integrity, and recovery contracts.
 
 ## Runtime model
 

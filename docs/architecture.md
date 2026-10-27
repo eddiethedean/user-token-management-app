@@ -60,6 +60,12 @@ requests, change connection readiness, or replace live provider authentication. 
 updates use the credential revision and check ID so stale checks cannot overwrite a replacement
 token's expiry. The optional entered date remains inside the encrypted credential bundle too.
 
+Foundry dataset creation captures the secret ID and revision with the decrypted bundle. Its final
+health update conditionally matches that generation and explicitly retains `updated_at`; dataset
+metadata and health commit together. Replacement/deletion wins by superseding the older result,
+while overlapping creates on unchanged credentials remain valid. The remote create itself cannot
+be rolled back, so a superseded response tells the owner to check Foundry before retrying.
+
 ## Sessions
 
 - Short-lived access JWT in an HTTP-only cookie; longer-lived refresh token with server-side session
@@ -112,6 +118,9 @@ create/append/replace. The demo launcher admits this adapter by default. Newly c
 all table mutations disappear with the backend generation; saved run records remain durable.
 The [live Databricks adapter](providers/databricks.md) has separate operator gates, owner-bound
 metadata reviews, durable compute readiness attempts, target fences, and publication recovery.
+Run/event retention keeps unresolved publication and cleanup records and their associated evidence,
+including confirmed commits with stage cleanup outstanding. A reconciliation review alone does not
+release the target fence or make those records eligible for expiry.
 
 The live monitor renders native Hedron endpoint cards and persisted stage/count facts. A small
 scoped decorative signal animates only during loading and survives HTMX refreshes through a
