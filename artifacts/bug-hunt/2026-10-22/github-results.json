@@ -1,0 +1,555 @@
+{
+  "commit": "4d6bbeefd5a6b25f39e4f33adc59fa39919f3671",
+  "date": "2026-10-22",
+  "new_issues": [
+    {
+      "key": "serial",
+      "title": "[BUG] PostgreSQL imports leave SERIAL sequences behind and break later inserts",
+      "severity": "High",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/154",
+      "number": 154
+    },
+    {
+      "key": "drift",
+      "title": "[BUG] Unchanged timestamp sources fail transfers with false schema drift",
+      "severity": "High",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/155",
+      "number": 155
+    },
+    {
+      "key": "databricks_timestamp",
+      "title": "[BUG] Databricks writer rejects timestamp schemas produced by the CSV connector",
+      "severity": "Medium",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/156",
+      "number": 156
+    },
+    {
+      "key": "csv_grammar",
+      "title": "[BUG] CSV profiling accepts numeric and date syntax that extraction cannot parse",
+      "severity": "Medium",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/157",
+      "number": 157
+    },
+    {
+      "key": "committed_cleanup",
+      "title": "[BUG] Crash after confirmed Databricks commit leaves staging outside automatic cleanup",
+      "severity": "Medium",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/158",
+      "number": 158
+    }
+  ],
+  "existing_issue": {
+    "number": 27,
+    "state": "closed",
+    "comment_id": 6349733736,
+    "url": "https://github.com/eddiethedean/user-token-management-app/issues/27#issuecomment-6349733736"
+  },
+  "reviewed": {
+    "open_issue_count": 0,
+    "closed_issue_count": 98,
+    "open_prs": [
+      {
+        "number": 153,
+        "title": "Correct Databricks PAT acceptance criteria",
+        "url": "https://github.com/eddiethedean/user-token-management-app/pull/153"
+      },
+      {
+        "number": 151,
+        "title": "Refresh project documentation status and cancellation guidance",
+        "url": "https://github.com/eddiethedean/user-token-management-app/pull/151"
+      }
+    ],
+    "closed_issues": [
+      {
+        "number": 128,
+        "title": "Data Mover: Record guardrail findings and decisions",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/128"
+      },
+      {
+        "number": 131,
+        "title": "Data Mover: Keep sensitive values out of guardrail logs",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/131"
+      },
+      {
+        "number": 130,
+        "title": "Data Mover: Show guardrail outcomes in run details",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/130"
+      },
+      {
+        "number": 104,
+        "title": "Data Mover: Sensitive Data Guardrails",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/104"
+      },
+      {
+        "number": 129,
+        "title": "Data Mover: Store guardrail findings and actions in run records",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/129"
+      },
+      {
+        "number": 124,
+        "title": "Data Mover: Apply guardrail actions before destination writes",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/124"
+      },
+      {
+        "number": 127,
+        "title": "Data Mover: Enforce guardrail actions across transfer batches",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/127"
+      },
+      {
+        "number": 126,
+        "title": "Data Mover: Remove selected columns from transfer data",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/126"
+      },
+      {
+        "number": 125,
+        "title": "Data Mover: Implement the approved hash transform",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/125"
+      },
+      {
+        "number": 120,
+        "title": "Data Mover: Choose actions for algorithm-detected columns",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/120"
+      },
+      {
+        "number": 123,
+        "title": "Data Mover: Require resolution for content findings",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/123"
+      },
+      {
+        "number": 122,
+        "title": "Data Mover: Save content guardrail actions",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/122"
+      },
+      {
+        "number": 121,
+        "title": "Data Mover: Add actions for content-detected columns",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/121"
+      },
+      {
+        "number": 116,
+        "title": "Data Mover: Detect untagged SSNs in source data",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/116"
+      },
+      {
+        "number": 119,
+        "title": "Data Mover: Return safe content detection findings",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/119"
+      },
+      {
+        "number": 118,
+        "title": "Data Mover: Scan source data before destination writes",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/118"
+      },
+      {
+        "number": 117,
+        "title": "Data Mover: Implement SSN content detection",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/117"
+      },
+      {
+        "number": 112,
+        "title": "Data Mover: Choose actions for metadata-tagged columns",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/112"
+      },
+      {
+        "number": 115,
+        "title": "Data Mover: Validate metadata guardrail actions",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/115"
+      },
+      {
+        "number": 114,
+        "title": "Data Mover: Save metadata guardrail actions",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/114"
+      },
+      {
+        "number": 113,
+        "title": "Data Mover: Add actions for metadata-tagged columns",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/113"
+      },
+      {
+        "number": 109,
+        "title": "Data Mover: Block tables marked sensitive",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/109"
+      },
+      {
+        "number": 111,
+        "title": "Data Mover: Explain table-level sensitivity blocks",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/111"
+      },
+      {
+        "number": 110,
+        "title": "Data Mover: Enforce table-level sensitivity blocks",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/110"
+      },
+      {
+        "number": 105,
+        "title": "Data Mover: Identify sensitive Foundry metadata",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/105"
+      },
+      {
+        "number": 108,
+        "title": "Data Mover: Show Foundry metadata findings in pipeline review",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/108"
+      },
+      {
+        "number": 107,
+        "title": "Data Mover: Read sensitivity markers from Foundry",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/107"
+      },
+      {
+        "number": 106,
+        "title": "Data Mover: Map Foundry sensitivity metadata",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/106"
+      },
+      {
+        "number": 139,
+        "title": "[BUG][CDO-4551 F8][P2] Source manifests lose original columns and types after guardrail projection",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/139"
+      },
+      {
+        "number": 138,
+        "title": "[BUG][CDO-4551 F7][P2] Run records mark guardrail actions applied before execution starts",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/138"
+      },
+      {
+        "number": 137,
+        "title": "[BUG][CDO-4551 F6][P2] Remove leaves selected columns in existing PostgreSQL destination schemas",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/137"
+      },
+      {
+        "number": 136,
+        "title": "[BUG][CDO-4551 F5][P1] Run submission rejects valid Remove routes by validating the original schema",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/136"
+      },
+      {
+        "number": 135,
+        "title": "[BUG][CDO-4551 F4][P1] Foundry table sensitivity checks ignore resource-marking pages after the first",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/135"
+      },
+      {
+        "number": 134,
+        "title": "[BUG][CDO-4551 F3][P1] Misplaced metadata refresh lets preview scans read marked Foundry tables",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/134"
+      },
+      {
+        "number": 133,
+        "title": "[BUG][CDO-4551 F2][P1] Unavailable Foundry sensitivity metadata is treated as a clean source",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/133"
+      },
+      {
+        "number": 132,
+        "title": "[BUG][CDO-4551 F1][P1] Blocked guardrail runs fail internally and lose their findings",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/132"
+      },
+      {
+        "number": 71,
+        "title": "[BUG] Feedback action labels are rendered as non-actionable badges",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/71"
+      },
+      {
+        "number": 77,
+        "title": "[BUG] Pipeline Run has no read-only preflight for predictable transfer failures",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/77"
+      },
+      {
+        "number": 63,
+        "title": "[BUG] Pipeline authoring errors bypass the shared feedback contract",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/63"
+      },
+      {
+        "number": 64,
+        "title": "[BUG] Structured diagnostic event names and outcomes are not enforced",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/64"
+      },
+      {
+        "number": 85,
+        "title": "[BUG] Pipeline runs bypass SQLite RETURNING compatibility and fail on older Workbench builds",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/85"
+      },
+      {
+        "number": 82,
+        "title": "[BUG] Concurrent catalog cache fills fail with a unique-constraint error",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/82"
+      },
+      {
+        "number": 84,
+        "title": "[BUG] One unsupported PostgreSQL table name breaks the entire schema catalog",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/84"
+      },
+      {
+        "number": 83,
+        "title": "[BUG] Saved routes silently hide every pipeline beyond the newest twelve",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/83"
+      },
+      {
+        "number": 66,
+        "title": "[BUG] Account-lockout feedback is unreachable from the login route",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/66"
+      },
+      {
+        "number": 65,
+        "title": "[BUG] HTMX rate-limit responses omit the retry wait duration",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/65"
+      },
+      {
+        "number": 61,
+        "title": "[BUG] LOG_FORMAT and LOG_LEVEL from .env are ignored",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/61"
+      },
+      {
+        "number": 72,
+        "title": "[BUG] Persistent request failures are not cleared after successful HTMX actions",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/72"
+      },
+      {
+        "number": 70,
+        "title": "[BUG] Unmeasured pipeline row counts are displayed as zero",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/70"
+      },
+      {
+        "number": 68,
+        "title": "[BUG] Confirmed destination rollback is lost on transfer exceptions",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/68"
+      },
+      {
+        "number": 69,
+        "title": "[BUG] Connection-test controls remain enabled during requests",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/69"
+      },
+      {
+        "number": 73,
+        "title": "[BUG] Connection readiness does not explicitly show live versus emulated validation",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/73"
+      },
+      {
+        "number": 81,
+        "title": "[BUG] Stale connection tests overwrite results for replacement credentials",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/81"
+      },
+      {
+        "number": 62,
+        "title": "[BUG] Connection-test diagnostics drop PostgreSQL SQLSTATE",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/62"
+      },
+      {
+        "number": 67,
+        "title": "[BUG] Missing connection configuration is misclassified during connection tests",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/67"
+      },
+      {
+        "number": 80,
+        "title": "[BUG] Password changes leave previously issued reset links usable",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/80"
+      },
+      {
+        "number": 76,
+        "title": "[BUG] Pipeline runs can report exact verification without reconciling destination writes",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/76"
+      },
+      {
+        "number": 75,
+        "title": "[BUG] New PostgreSQL destinations map BYTEA source columns to TEXT",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/75"
+      },
+      {
+        "number": 74,
+        "title": "[BUG] Foundry uploads can round integers when combining mixed-type batches",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/74"
+      },
+      {
+        "number": 78,
+        "title": "[BUG] CSV source parsing can round exact decimal values before transfer",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/78"
+      },
+      {
+        "number": 32,
+        "title": "[BUG] PostgreSQL upserts fail when the destination has a dm_row_number column",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/32"
+      },
+      {
+        "number": 31,
+        "title": "[BUG] PostgreSQL loads copy into generated columns and fail",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/31"
+      },
+      {
+        "number": 29,
+        "title": "[BUG] Parquet datetime columns become TEXT in new PostgreSQL destinations",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/29"
+      },
+      {
+        "number": 42,
+        "title": "[TEST-008] Run PostgreSQL-independent failure tests without server binaries",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/42"
+      },
+      {
+        "number": 37,
+        "title": "[TEST-003] Verify PostgreSQL values and real schema replacement",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/37"
+      },
+      {
+        "number": 41,
+        "title": "[TEST-007] Assert audit filter results, not just page markup",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/41"
+      },
+      {
+        "number": 40,
+        "title": "[TEST-006] Make batch-boundary tests detect lost or duplicated rows",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/40"
+      },
+      {
+        "number": 39,
+        "title": "[TEST-005] Verify catalog-cache isolation, expiry, and invalidation",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/39"
+      },
+      {
+        "number": 38,
+        "title": "[TEST-004] Test Foundry upload failures below the client boundary",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/38"
+      },
+      {
+        "number": 36,
+        "title": "[TEST-002] Verify Foundry transferred data, not only manifests",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/36"
+      },
+      {
+        "number": 35,
+        "title": "[TEST-001] Exercise the actual Foundry request contract",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/35"
+      },
+      {
+        "number": 30,
+        "title": "[BUG] A CSV file breaks MCS-COP destination catalog listing",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/30"
+      },
+      {
+        "number": 27,
+        "title": "[BUG] PostgreSQL transfers discard timestamptz semantics and shift instants",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/27"
+      },
+      {
+        "number": 25,
+        "title": "[BUG] PostgreSQL upserts silently discard rows with NULL unique keys",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/25"
+      },
+      {
+        "number": 20,
+        "title": "[BUG] Foundry destinations cannot finalize valid zero-row sources",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/20"
+      },
+      {
+        "number": 19,
+        "title": "[BUG] CSV files accepted as mixed text fail execution when text occurs after row 10000",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/19"
+      },
+      {
+        "number": 15,
+        "title": "[BUG] CSV transfers ignore the delimiter and normalized headers shown by upload inspection",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/15"
+      },
+      {
+        "number": 17,
+        "title": "[BUG] PostgreSQL extraction fails when the first 100 values are NULL",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/17"
+      },
+      {
+        "number": 44,
+        "title": "[BUG] PostgreSQL extraction does not explicitly enforce repeatable-read isolation",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/44"
+      },
+      {
+        "number": 43,
+        "title": "[BUG] Foundry compatibility retry is broader than the documented HTTP-400 rule",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/43"
+      },
+      {
+        "number": 28,
+        "title": "[BUG] Transfer failures expose source cell values in application logs",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/28"
+      },
+      {
+        "number": 26,
+        "title": "[BUG] Staging cleanup can drop unrelated PostgreSQL tables",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/26"
+      },
+      {
+        "number": 21,
+        "title": "[BUG] New PostgreSQL tables with uppercase names cannot be inspected by the same connector",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/21"
+      },
+      {
+        "number": 22,
+        "title": "[BUG] PostgreSQL credentials accept an invalid connection timeout and fail only when tested",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/22"
+      },
+      {
+        "number": 18,
+        "title": "[BUG] PostgreSQL unique-key inspection mixes in columns from another table’s constraint",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/18"
+      },
+      {
+        "number": 16,
+        "title": "[BUG] Upsert ignore fails on duplicate source keys before ON CONFLICT is reached",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/16"
+      },
+      {
+        "number": 13,
+        "title": "[BUG] PostgreSQL COPY stores Python byte-string representations instead of original bytes",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/13"
+      },
+      {
+        "number": 14,
+        "title": "[BUG] Cancellation during the final batch is ignored before destination commit",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/14"
+      },
+      {
+        "number": 12,
+        "title": "[BUG] PostgreSQL COPY silently turns literal backslash-N strings into SQL NULL",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/12"
+      },
+      {
+        "number": 9,
+        "title": "[BUG] Uncommitted batch events block the independent lease heartbeat during destination writes",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/9"
+      },
+      {
+        "number": 10,
+        "title": "[BUG] Queued transfers still execute after their owner account is disabled",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/10"
+      },
+      {
+        "number": 11,
+        "title": "[BUG] PostgreSQL destination creation silently converts exact decimals to floating point",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/11"
+      },
+      {
+        "number": 23,
+        "title": "[BUG] Non-ASCII CSRF form values raise TypeError and return HTTP 500",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/23"
+      },
+      {
+        "number": 8,
+        "title": "[BUG] Synchronous provider calls in async routes block the application event loop",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/8"
+      },
+      {
+        "number": 5,
+        "title": "[Hedron enhancement] Complete Button and LinkButton size and width styling",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/5"
+      },
+      {
+        "number": 4,
+        "title": "[Hedron enhancement] Allow safe attribute passthrough on typed Button and LinkButton",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/4"
+      },
+      {
+        "number": 6,
+        "title": "[Hedron enhancement] Add composable themed AppShell chrome slots",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/6"
+      },
+      {
+        "number": 7,
+        "title": "[Hedron enhancement] Add themed pipeline, connector-node, and run-status primitives",
+        "url": "https://github.com/eddiethedean/user-token-management-app/issues/7"
+      }
+    ]
+  }
+}
