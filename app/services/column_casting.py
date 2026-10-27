@@ -143,8 +143,10 @@ def _decimal_dtype(series: pl.Series) -> pl.Decimal:
             number = Decimal(int(value)) if isinstance(value, bool) else Decimal(str(value))
             if not number.is_finite():
                 raise ValueError
+            if not number:
+                continue
             value_scale = max(-int(number.as_tuple().exponent), 0)
-            value_integer_digits = max(number.adjusted() + 1, 0) if number else 0
+            value_integer_digits = max(number.adjusted() + 1, 0)
             scale = max(scale, value_scale)
             integer_digits = max(integer_digits, value_integer_digits)
     except (InvalidOperation, TypeError, ValueError) as exc:

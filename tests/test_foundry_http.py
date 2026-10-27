@@ -620,6 +620,52 @@ def test_foundry_writer_losslessly_unifies_decimal_scales_across_batches(
     assert uploaded["amount"].to_list() == [None, Decimal("1.20"), Decimal("1.23")]
 
 
+@pytest.mark.parametrize(
+    "first_value",
+    [None, "0." + "0" * 38],
+    ids=["null-only", "zero-only"],
+)
+def test_foundry_decimal_reconciliation_ignores_empty_integer_digits(
+    foundry_sim, tmp_path, first_value
+) -> None:
+    connector = FoundryConnector(_settings(tmp_path))
+    credentials = {"endpoint": foundry_sim.base_url, "token": TOKEN, "dataset_rid": DATASET}
+    locator = FoundryUploadLocator(
+        dataset_rid=DATASET, branch="master", file_name="decimal-boundary.snappy.parquet"
+    )
+    session = connector.prepare_destination(
+        credentials,
+        locator,
+        ObjectSchema(
+            locator=locator,
+            columns=(ColumnSchema(name="amount", data_type="Decimal"),),
+        ),
+        FoundryReplaceFilePolicy(),
+        run_id=f"decimal-boundary-{first_value}",
+    )
+    scale_38_value = "0." + "0" * 37 + "1"
+    source_batches = (
+        pl.DataFrame({"amount": [first_value]}),
+        pl.DataFrame({"amount": [scale_38_value]}),
+    )
+    for sequence, frame in enumerate(source_batches, start=1):
+        batch = TransferBatch(
+            frame=frame,
+            row_count=frame.height,
+            byte_count=int(frame.estimated_size()),
+            sequence=sequence,
+        )
+        connector.write_batch(session, cast_batch_columns(batch, {"amount": "decimal"}))
+
+    manifest = connector.finalize(session)
+    uploaded = pl.read_parquet(io.BytesIO(foundry_sim.files[locator.file_name]))
+
+    assert manifest.rows == 2
+    assert uploaded.schema["amount"] == pl.Decimal(precision=38, scale=38)
+    expected_first = None if first_value is None else Decimal("0E-38")
+    assert uploaded["amount"].to_list() == [expected_first, Decimal("1E-38")]
+
+
 def test_foundry_writer_rejects_decimal_shapes_beyond_supported_precision(
     foundry_sim, tmp_path
 ) -> None:
