@@ -6,7 +6,9 @@ import csv
 import io
 import json
 import logging
+import math
 import re
+import struct
 from collections.abc import Iterator, Mapping
 from uuid import uuid4
 
@@ -70,6 +72,16 @@ _POLARS_TO_PG = {
     pl.Duration: "INTERVAL",
     pl.Binary: "BYTEA",
 }
+_INTEGER_POLARS_TYPES = (
+    pl.Int8,
+    pl.Int16,
+    pl.Int32,
+    pl.Int64,
+    pl.UInt8,
+    pl.UInt16,
+    pl.UInt32,
+    pl.UInt64,
+)
 
 
 def _ident(value: str) -> str:
@@ -755,6 +767,7 @@ class PostgresConnector:
         staging_sequence = ""
         override_identity = False
         supplied_sequence_columns: list[str] = []
+        integer_float_targets: dict[str, str] = {}
         definitions = [
             sql.SQL("{} {}").format(
                 sql.Identifier(column.name),
@@ -865,6 +878,17 @@ class PostgresConnector:
                             sql.Identifier(locator.schema_name, locator.table), col_defs
                         )
                     )
+                    cursor.execute(
+                        "SELECT column_name, data_type FROM information_schema.columns "
+                        "WHERE table_schema = %s AND table_name = %s "
+                        "AND column_name = ANY(%s)",
+                        (locator.schema_name, locator.table, columns),
+                    )
+                    integer_float_targets = {
+                        str(column_name): float_type
+                        for column_name, data_type in cursor.fetchall()
+                        if (float_type := _postgres_float_type(str(data_type))) is not None
+                    }
                     if schema.removed_columns:
                         # LOCK without ONLY includes all current descendants and
                         # prevents concurrent index creation or partition changes.
@@ -953,6 +977,7 @@ class PostgresConnector:
                 "staging_sequence": staging_sequence,
                 "override_identity": "true" if override_identity else "",
                 "supplied_sequence_columns": json.dumps(supplied_sequence_columns),
+                "integer_float_targets": json.dumps(integer_float_targets),
             },
         )
 
@@ -966,6 +991,10 @@ class PostgresConnector:
         assert isinstance(locator, PostgresTableLocator)
         buffer = io.StringIO()
         frame: pl.DataFrame = batch.frame.select(list(load_session.columns))
+        _validate_integer_float_batch(
+            frame,
+            json.loads(load_session.metadata.get("integer_float_targets", "{}")),
+        )
         for row in frame.iter_rows():
             fields = []
             for value in row:
@@ -1391,6 +1420,59 @@ def _pg_type(data_type: str) -> str:
     if folded.startswith("time"):
         return "TIME"
     return "TEXT"
+
+
+def _postgres_float_type(data_type: str) -> str | None:
+    """Return the normalized PostgreSQL floating-point type when applicable."""
+
+    folded = data_type.casefold()
+    if folded in {"real", "float4"}:
+        return "real"
+    if folded in {"double precision", "float8"}:
+        return "double precision"
+    return None
+
+
+def _integer_is_exactly_representable(value: int, target_type: str) -> bool:
+    """Check whether a PostgreSQL float conversion preserves an integer value."""
+
+    try:
+        if target_type == "real":
+            converted = struct.unpack("!f", struct.pack("!f", value))[0]
+        else:
+            converted = float(value)
+    except (OverflowError, ValueError, struct.error):
+        return False
+    return math.isfinite(converted) and int(converted) == value
+
+
+def _validate_integer_float_batch(
+    frame: pl.DataFrame, target_types: Mapping[str, str]
+) -> None:
+    """Reject integer values that an existing float destination would round."""
+
+    for name, target_type in target_types.items():
+        if name not in frame.columns or frame.schema[name] not in _INTEGER_POLARS_TYPES:
+            continue
+        if target_type not in {"real", "double precision"}:
+            continue
+        if any(
+            value is not None and not _integer_is_exactly_representable(value, target_type)
+            for value in frame.get_column(name)
+        ):
+            float_name = "REAL" if target_type == "real" else "DOUBLE PRECISION"
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                f"Destination column '{name}' cannot store every source integer exactly as {float_name}.",
+                retryable=False,
+                field_errors={
+                    f"Destination column {name}": (
+                        "At least one source integer would be rounded. Choose an exact integer or "
+                        "numeric destination, or set an explicit column type override if the "
+                        "conversion is intentional."
+                    )
+                },
+            )
 
 
 def _validate_existing_decimal_columns(
