@@ -102,7 +102,8 @@ def create_foundry_dataset(
     # prevents a replacement from being associated with a dataset created by an
     # older credential generation.
     db.scalar(select(User.id).where(User.id == user.id).with_for_update())
-    claim = execute_dml(
+    completed_at = utcnow()
+    health_update = execute_dml(
         db,
         update(UserSecret)
         .where(
@@ -111,9 +112,14 @@ def create_foundry_dataset(
             UserSecret.provider == provider_id,
             UserSecret.updated_at == credential_revision,
         )
-        .values(updated_at=credential_revision),
+        .values(
+            updated_at=credential_revision,
+            validation_status="connected",
+            validated_at=completed_at,
+            validation_message=("Authenticated and authorized by a successful dataset creation."),
+        ),
     )
-    if not claim.rowcount:
+    if not health_update.rowcount:
         db.rollback()
         raise ConnectorError(
             TransferErrorCode.CREDENTIALS_STALE,
@@ -121,24 +127,6 @@ def create_foundry_dataset(
             "dataset may exist, but it was not added to this account. Check Foundry before retrying.",
             retryable=False,
         )
-    current_secret = db.scalar(
-        select(UserSecret)
-        .where(UserSecret.user_id == user.id, UserSecret.provider == provider_id)
-        .execution_options(populate_existing=True)
-    )
-    if (
-        current_secret is None
-        or current_secret.id != secret_id
-        or current_secret.updated_at != credential_revision
-    ):
-        db.rollback()
-        raise ConnectorError(
-            TransferErrorCode.CREDENTIALS_STALE,
-            "The saved connection changed while the dataset was being created. The remote "
-            "dataset may exist, but it was not added to this account. Check Foundry before retrying.",
-            retryable=False,
-        )
-    stored = current_secret
 
     existing = db.scalar(
         select(FoundryDataset).where(
@@ -158,9 +146,6 @@ def create_foundry_dataset(
     dataset.branch = created.branch or credentials.get("branch", "") or "master"
     if existing is None:
         db.add(dataset)
-    stored.validation_status = "connected"
-    stored.validated_at = utcnow()
-    stored.validation_message = "Authenticated and authorized by a successful dataset creation."
     record_event(
         db,
         "foundry_dataset.created",

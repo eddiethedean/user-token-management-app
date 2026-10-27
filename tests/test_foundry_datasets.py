@@ -135,3 +135,91 @@ def test_dataset_creation_discards_results_for_changed_credentials(
             assert current_secret.validation_status == "failed"
         else:
             assert current_secret is None
+
+
+def test_overlapping_dataset_creations_keep_the_credential_revision(
+    access_app, make_user, monkeypatch
+) -> None:
+    user = make_user("overlapping-datasets@example.gov")
+    settings = get_settings()
+    with SessionLocal() as db:
+        owner = db.get(User, user.id)
+        assert owner is not None
+        store_user_credentials(
+            db,
+            settings,
+            user=owner,
+            provider="mss",
+            credentials={"endpoint": "https://stable.demo.invalid", "token": "stable-token"},
+        )
+        original_revision = db.scalar(
+            select(UserSecret.updated_at).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == "mss",
+            )
+        )
+
+    calls = 0
+
+    class OverlappingProvisioner:
+        capabilities = SimpleNamespace(dataset_creation=True)
+
+        def create_dataset(
+            self, credentials, *, parent_folder_rid: str, name: str
+        ) -> ProvisionedDataset:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                with SessionLocal() as other:
+                    inner_owner = other.get(User, user.id)
+                    assert inner_owner is not None
+                    foundry_datasets.create_foundry_dataset(
+                        other,
+                        settings,
+                        user=inner_owner,
+                        provider="mss",
+                        parent_folder_rid=parent_folder_rid,
+                        name="Inner dataset",
+                        writer_policy=lambda _: True,
+                    )
+            return ProvisionedDataset(
+                dataset_rid=f"ri.foundry.main.dataset.{name.casefold().replace(' ', '-')}",
+                name=name,
+                parent_folder_rid=parent_folder_rid,
+            )
+
+    monkeypatch.setattr(
+        foundry_datasets,
+        "dataset_provisioner_for",
+        lambda _: OverlappingProvisioner(),
+    )
+    with SessionLocal() as db:
+        owner = db.get(User, user.id)
+        assert owner is not None
+        foundry_datasets.create_foundry_dataset(
+            db,
+            settings,
+            user=owner,
+            provider="mss",
+            parent_folder_rid="ri.compass.main.folder.synthetic",
+            name="Outer dataset",
+            writer_policy=lambda _: True,
+        )
+
+    with SessionLocal() as db:
+        final_revision = db.scalar(
+            select(UserSecret.updated_at).where(
+                UserSecret.user_id == user.id,
+                UserSecret.provider == "mss",
+            )
+        )
+        dataset_names = list(
+            db.scalars(
+                select(FoundryDataset.name)
+                .where(FoundryDataset.user_id == user.id)
+                .order_by(FoundryDataset.name)
+            )
+        )
+
+    assert final_revision == original_revision
+    assert dataset_names == ["Inner dataset", "Outer dataset"]
