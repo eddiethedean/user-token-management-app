@@ -55,18 +55,25 @@ def test_foundry_csv_scan_parses_boolean_values(tmp_path: Path) -> None:
     }
 
 
-@pytest.mark.parametrize("value", ["T12:34:56", "12:34:56,123", "12:34.5"])
-def test_foundry_csv_scan_preserves_time_forms_outside_parser_grammar(
-    tmp_path: Path, value: str
+@pytest.mark.parametrize(
+    ("value", "nanoseconds"),
+    [
+        ("T12:34:56", 45_296_000_000_000),
+        ("12:34:56,123", 45_296_123_000_000),
+        ("12:34.5", 45_240_500_000_000),
+    ],
+)
+def test_foundry_csv_scan_preserves_supported_time_forms(
+    tmp_path: Path, value: str, nanoseconds: int
 ) -> None:
     path = tmp_path / "times.csv"
     path.write_text(f'value,label\n"{value}",ok\n', encoding="utf-8")
 
     scan, profiles = _csv_file_scan(path)
 
-    assert profiles[0].inferred_type == "text"
-    assert scan.collect()["value"].to_list() == [value]
-    assert scan.collect_schema()["value"] == pl.String
+    assert profiles[0].inferred_type == "time"
+    assert scan.collect_schema()["value"] == pl.Time
+    assert scan.collect()["value"].cast(pl.Int64).to_list() == [nanoseconds]
 
 
 def test_foundry_csv_scan_parses_time_values(tmp_path: Path) -> None:

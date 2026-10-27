@@ -163,10 +163,7 @@ def test_csv_inference_keeps_mixed_naive_and_zoned_timestamps_as_text() -> None:
     assert inspection.columns[0].inferred_type == "text"
 
 
-@pytest.mark.parametrize(
-    "value",
-    ["１２", "١٢.٣", "2026-W43-4", "T12:34:56", "12:34:56,123", "12:34.5", " T12:34:56 "],
-)
+@pytest.mark.parametrize("value", ["１２", "١٢.٣", "2026-W43-4"])
 def test_csv_profile_keeps_values_outside_extraction_grammar_as_text(value: str) -> None:
     content = f'value,label\n"{value}",ok\n'.encode()
     inspection = inspect_csv("boundary.csv", content)
@@ -195,10 +192,14 @@ def test_csv_profile_keeps_values_outside_extraction_grammar_as_text(value: str)
         ("12:34", 45_240_000_000_000),
         ("23:59:59", 86_399_000_000_000),
         ("12:34:56.123456789", 45_296_123_456_789),
+        ("T12:34:56", 45_296_000_000_000),
+        ("12:34:56,123", 45_296_123_000_000),
+        ("12:34.5", 45_240_500_000_000),
+        (" T12:34:56 ", 45_296_000_000_000),
     ],
 )
 def test_csv_profile_and_extraction_preserve_supported_times(value: str, nanoseconds: int) -> None:
-    content = f"value\n{value}\n".encode()
+    content = f'value\n"{value}"\n'.encode()
     inspection = inspect_csv("time.csv", content)
 
     assert inspection.columns[0].inferred_type == "time"
