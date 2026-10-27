@@ -165,7 +165,7 @@ def test_csv_inference_keeps_mixed_naive_and_zoned_timestamps_as_text() -> None:
 
 @pytest.mark.parametrize("value", ["１２", "١٢.٣", "2026-W43-4"])
 def test_csv_profile_keeps_values_outside_extraction_grammar_as_text(value: str) -> None:
-    content = f"value,label\n{value},ok\n".encode()
+    content = f'value,label\n"{value}",ok\n'.encode()
     inspection = inspect_csv("boundary.csv", content)
 
     assert inspection.columns[0].inferred_type == "text"
@@ -183,6 +183,40 @@ def test_csv_profile_keeps_values_outside_extraction_grammar_as_text(value: str)
 
     assert batches[0].frame["value"].to_list() == [value]
     assert batches[0].frame["value"].dtype == pl.String
+
+
+@pytest.mark.parametrize(
+    ("value", "nanoseconds"),
+    [
+        ("00:00", 0),
+        ("12:34", 45_240_000_000_000),
+        ("23:59:59", 86_399_000_000_000),
+        ("12:34:56.123456789", 45_296_123_456_789),
+        ("T12:34:56", 45_296_000_000_000),
+        ("12:34:56,123", 45_296_123_000_000),
+        ("12:34.5", 45_240_500_000_000),
+        (" T12:34:56 ", 45_296_000_000_000),
+    ],
+)
+def test_csv_profile_and_extraction_preserve_supported_times(value: str, nanoseconds: int) -> None:
+    content = f'value\n"{value}"\n'.encode()
+    inspection = inspect_csv("time.csv", content)
+
+    assert inspection.columns[0].inferred_type == "time"
+    credentials = {
+        "content": content,
+        "columns": json.dumps(["value"]),
+        "column_types": json.dumps(["time"]),
+    }
+    locator = CsvUploadLocator(
+        upload_id="11111111-1111-1111-1111-111111111111", checksum_sha256="f" * 64
+    )
+    batches = list(
+        CsvSourceConnector().extract(credentials, locator, batch_rows=100, batch_bytes=10_000)
+    )
+
+    assert batches[0].frame["value"].dtype == pl.Time
+    assert batches[0].frame["value"].cast(pl.Int64).to_list() == [nanoseconds]
 
 
 @pytest.mark.parametrize(

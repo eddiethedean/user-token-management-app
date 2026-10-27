@@ -26,7 +26,7 @@ from app.connectors.base import (
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import CsvUploadLocator, Locator, WritePolicy
 from app.connectors.registry import register_connector
-from app.domain.csv_inference import CsvColumnProfile
+from app.domain.csv_inference import CsvColumnProfile, normalize_time_text
 
 
 def profiled_polars_type(column: CsvColumnProfile) -> pl.DataType | type[pl.DataType]:
@@ -254,6 +254,9 @@ def _normalize_profiled_cells(
         for index, inferred_type in typed_columns.items():
             if index < len(row):
                 value = row[index].strip()
+                if inferred_type == "time":
+                    row[index] = normalize_time_text(value)
+                    continue
                 row[index] = value.casefold() if inferred_type == "boolean" else value
         writer.writerow(row)
     return output.getvalue().encode("utf-8")

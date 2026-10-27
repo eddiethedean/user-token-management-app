@@ -24,6 +24,8 @@ _DATETIME_PATTERN = re.compile(
     r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}"
     r"(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}(?::?[0-9]{2})?)?$"
 )
+_MINUTE_FRACTION_TIME_PATTERN = re.compile(r"^[0-9]{2}:[0-9]{2}\.[0-9]+$")
+_MINUTES_ONLY_TIME_PATTERN = re.compile(r"^[0-9]{2}:[0-9]{2}$")
 
 
 def is_numeric_text(value: str) -> bool:
@@ -33,6 +35,19 @@ def is_numeric_text(value: str) -> bool:
         _UNICODE_INTEGER_PATTERN.fullmatch(value) is not None
         or _UNICODE_DECIMAL_PATTERN.fullmatch(value) is not None
     )
+
+
+def normalize_time_text(value: str) -> str:
+    """Normalize Python-supported CSV time spellings for Polars extraction."""
+
+    if len(value) > 1 and value[0] in "Tt" and value[1].isdigit():
+        value = value[1:]
+    value = value.replace(",", ".")
+    if _MINUTE_FRACTION_TIME_PATTERN.fullmatch(value):
+        return f"{value[:5]}:00.{value[6:]}"
+    if _MINUTES_ONLY_TIME_PATTERN.fullmatch(value):
+        return f"{value}:00"
+    return value
 
 
 @dataclass(frozen=True)
