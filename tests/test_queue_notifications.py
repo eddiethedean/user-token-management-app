@@ -410,7 +410,9 @@ def deadline_store(tmp_path):
         engine.dispose()
 
 
-@pytest.mark.parametrize("kind", ["queued", "lease", "compute", "publication"])
+@pytest.mark.parametrize(
+    "kind", ["queued", "lease", "compute", "publication", "committed_publication"]
+)
 def test_durable_deadline_waits_for_retry_or_lease_expiry(
     deadline_store, monkeypatch, kind
 ) -> None:
@@ -444,7 +446,7 @@ def test_durable_deadline_waits_for_retry_or_lease_expiry(
             db.commit()
         expected = 40
     else:
-        _run(sessions, status="loading", lease_expires_at=later)
+        _run(sessions, status="failed_needs_reconciliation")
         with sessions() as db:
             db.add(
                 DatabricksPublication(
@@ -455,12 +457,12 @@ def test_durable_deadline_waits_for_retry_or_lease_expiry(
                     target_key="target",
                     target_locator_json="{}",
                     write_mode="append",
-                    state="uncertain",
+                    state=("committed" if kind == "committed_publication" else "uncertain"),
                     recovery_expires_at=future,
                 )
             )
             db.commit()
-        expected = 40
+        expected = 20
     assert next_background_work_delay(_runtime(engine, sessions)) == expected
 
 

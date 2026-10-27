@@ -55,7 +55,14 @@ def next_background_work_delay(runtime: ExecutionRuntime) -> float | None:
         .join(PipelineRun, PipelineRun.id == DatabricksPublication.run_id)
         .where(
             DatabricksPublication.state.in_(
-                ("preparing", "staging", "cleanup_pending", "publishing", "uncertain")
+                (
+                    "preparing",
+                    "staging",
+                    "committed",
+                    "cleanup_pending",
+                    "publishing",
+                    "uncertain",
+                )
             )
         )
     )

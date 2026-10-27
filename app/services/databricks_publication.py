@@ -201,7 +201,14 @@ def process_pending_publication_recovery(
             .join(PipelineRun, PipelineRun.id == DatabricksPublication.run_id)
             .where(
                 DatabricksPublication.state.in_(
-                    ("preparing", "staging", "cleanup_pending", "publishing", "uncertain")
+                    (
+                        "preparing",
+                        "staging",
+                        "committed",
+                        "cleanup_pending",
+                        "publishing",
+                        "uncertain",
+                    )
                 ),
                 or_(
                     DatabricksPublication.recovery_expires_at.is_(None),
@@ -269,7 +276,9 @@ def process_pending_publication_recovery(
                     error_code="credentials_unavailable",
                     summary="The saved Databricks credentials are unavailable for staging recovery.",
                     delay_seconds=300,
-                    state=("cleanup_required" if record.confirmed_at is None else "uncertain"),
+                    state=(
+                        "cleanup_required" if record.confirmed_at is None else "cleanup_pending"
+                    ),
                 )
                 db.commit()
             return True
@@ -279,7 +288,7 @@ def process_pending_publication_recovery(
                 error_code="credentials_stale",
                 summary="The Databricks connection changed; confirm the current identity before recovery.",
                 delay_seconds=3600,
-                state=("cleanup_required" if record.confirmed_at is None else "uncertain"),
+                state=("cleanup_required" if record.confirmed_at is None else "cleanup_pending"),
             )
             db.commit()
             return True

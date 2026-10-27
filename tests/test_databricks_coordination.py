@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
@@ -34,7 +35,11 @@ from app.services.databricks_publication import (
     record_publication_event,
 )
 from app.services.pipeline_runs import claim_run, defer_run_for_databricks_compute
-from app.services.secrets import decrypt_user_credentials_for_run, store_user_credentials
+from app.services.secrets import (
+    SecretStorageError,
+    decrypt_user_credentials_for_run,
+    store_user_credentials,
+)
 
 
 def _credentials(generation: str = "revision-1") -> dict[str, str]:
@@ -924,6 +929,49 @@ def test_publication_recovery_cleans_unsubmitted_stage_and_confirms_exact_commit
     assert set(connector.cleaned) == {cleanup_run_id, committed_run_id}
 
 
+def test_publication_recovery_cleans_staging_after_confirmed_commit_crash(
+    access_app, make_user
+) -> None:
+    settings = _enabled_databricks_settings()
+    owner = make_user("dbx.recovery-committed@example.gov")
+    with SessionLocal() as db:
+        credentials = _saved_databricks_credentials(db, settings, owner)
+        run_id = _create_recovery_candidate(
+            db,
+            owner=owner,
+            generation=credentials["connection_generation"],
+            state="committed",
+        )
+        record = db.get(DatabricksPublication, run_id)
+        assert record is not None
+        record.confirmed_at = utcnow()
+        record.active_target_key = None
+        db.commit()
+
+    class CleanupOnlyConnector:
+        def __init__(self) -> None:
+            self.cleaned: list[str] = []
+
+        def cleanup_staging(self, _credentials, *, run_id: str) -> None:
+            self.cleaned.append(run_id)
+
+        def reconcile_publication(self, *_args, **_kwargs) -> str:
+            pytest.fail("a previously confirmed publication must not be reconciled or republished")
+
+    connector = CleanupOnlyConnector()
+    assert process_pending_publication_recovery(
+        settings=settings,
+        session_factory=lambda: SessionLocal(),
+        connector_resolver=lambda _provider: connector,
+    )
+    with SessionLocal() as db:
+        record = db.get(DatabricksPublication, run_id)
+        assert record is not None and record.state == "complete"
+        assert record.confirmed_at is not None
+        assert record.active_target_key is None
+    assert connector.cleaned == [run_id]
+
+
 def test_publication_recovery_keeps_unconfirmed_commit_fenced_and_retries(
     access_app, make_user
 ) -> None:
@@ -1168,6 +1216,42 @@ def _recover_publication(settings, connector) -> bool:
         session_factory=SessionLocal,
         connector_resolver=lambda _provider: connector,
     )
+
+
+def test_confirmed_cleanup_stays_cleanup_only_after_credentials_are_temporarily_unavailable(
+    access_app, make_user
+) -> None:
+    settings = _enabled_databricks_settings()
+    owner = make_user("dbx.confirmed-cleanup-credentials@example.gov")
+    with SessionLocal() as db:
+        credentials = _saved_databricks_credentials(db, settings, owner)
+        run_id = _create_recovery_candidate(
+            db, owner=owner, generation=credentials["connection_generation"], state="committed"
+        )
+        record = db.get(DatabricksPublication, run_id)
+        assert record is not None
+        record.confirmed_at = utcnow()
+        record.active_target_key = None
+        record.submitted_at = utcnow() - timedelta(days=31)
+        db.commit()
+
+    with patch(
+        "app.services.secrets.decrypt_user_credentials_for_run",
+        side_effect=SecretStorageError("temporary credential decryption failure"),
+    ):
+        assert _recover_publication(settings, _RecoveryProbe())
+    with SessionLocal() as db:
+        record = db.get(DatabricksPublication, run_id)
+        assert record is not None and record.state == "cleanup_pending"
+        assert record.confirmed_at is not None
+        assert record.active_target_key is None
+        record.recovery_expires_at = utcnow() - timedelta(seconds=1)
+        db.commit()
+
+    retry = _RecoveryProbe()
+    assert _recover_publication(settings, retry)
+    assert retry.cleaned == [run_id]
+    assert retry.reconciled == []
 
 
 @pytest.mark.parametrize("unexpected", [False, True], ids=["provider-error", "unexpected-error"])
