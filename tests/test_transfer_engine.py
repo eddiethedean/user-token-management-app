@@ -43,6 +43,21 @@ from app.services import transfer_engine
 from app.ui.routes.pipeline_runs import _project_guardrail_schema, _read_only_pipeline_preflight
 
 
+@pytest.mark.parametrize(
+    ("provider_type", "expected"),
+    [
+        ("timestamp without time zone", "timestamp"),
+        ("Datetime(time_unit='us', time_zone=None)", "timestamp"),
+        ("timestamp with time zone", "timestamptz"),
+        ("Datetime(time_unit='us', time_zone='UTC')", "timestamptz"),
+    ],
+)
+def test_normalized_source_type_matches_postgres_and_polars_timestamps(
+    provider_type: str, expected: str
+) -> None:
+    assert transfer_engine._normalized_source_type(provider_type) == expected
+
+
 def _settings(**values: object) -> Settings:
     values.setdefault("pipeline_spool_root", None)
     return cast(Settings, SimpleNamespace(**values))

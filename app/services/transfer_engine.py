@@ -278,6 +278,7 @@ def _normalized_source_type(data_type: object) -> str:
         "timestamp": "timestamp",
         "timestamp without time zone": "timestamp",
         "datetime(time_unit='us')": "timestamp",
+        "datetime(time_unit='us', time_zone=none)": "timestamp",
         "timestamp with time zone": "timestamptz",
         "datetime(time_unit='us', time_zone='utc')": "timestamptz",
         "interval": "string",
