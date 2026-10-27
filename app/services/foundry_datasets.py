@@ -6,16 +6,17 @@ import re
 from collections.abc import Callable
 
 from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.connectors.errors import ConnectorError, TransferErrorCode
 from app.connectors.locators import DATASET_RID_PATTERN
 from app.connectors.registry import capabilities_for, dataset_provisioner_for, writer_enabled
+from app.db_compat import execute_dml
 from app.models import FoundryDataset, User, UserSecret, new_id, utcnow
 from app.services.audit import record_event
-from app.services.secrets import decrypt_user_credentials_for_run
+from app.services.secrets import decrypt_user_credentials_for_run_with_revision
 
 FOLDER_RID_PATTERN = re.compile(r"^ri\.[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+\.folder\.[A-Za-z0-9._-]+$")
 DATASET_NAME_MAX_LENGTH = 160
@@ -70,7 +71,7 @@ def create_foundry_dataset(
 
     folder_rid = validate_parent_folder_rid(parent_folder_rid)
     normalized_name = normalize_dataset_name(name)
-    credentials = decrypt_user_credentials_for_run(
+    credentials, secret_id, credential_revision = decrypt_user_credentials_for_run_with_revision(
         db,
         settings,
         user=user,
@@ -96,6 +97,37 @@ def create_foundry_dataset(
             retryable=False,
         )
 
+    # Credential writes and deletes take this same stable lock before changing a
+    # provider row. Holding it through the final comparison and dataset commit
+    # prevents a replacement from being associated with a dataset created by an
+    # older credential generation.
+    db.scalar(select(User.id).where(User.id == user.id).with_for_update())
+    completed_at = utcnow()
+    health_update = execute_dml(
+        db,
+        update(UserSecret)
+        .where(
+            UserSecret.id == secret_id,
+            UserSecret.user_id == user.id,
+            UserSecret.provider == provider_id,
+            UserSecret.updated_at == credential_revision,
+        )
+        .values(
+            updated_at=credential_revision,
+            validation_status="connected",
+            validated_at=completed_at,
+            validation_message=("Authenticated and authorized by a successful dataset creation."),
+        ),
+    )
+    if not health_update.rowcount:
+        db.rollback()
+        raise ConnectorError(
+            TransferErrorCode.CREDENTIALS_STALE,
+            "The saved connection changed while the dataset was being created. The remote "
+            "dataset may exist, but it was not added to this account. Check Foundry before retrying.",
+            retryable=False,
+        )
+
     existing = db.scalar(
         select(FoundryDataset).where(
             FoundryDataset.user_id == user.id,
@@ -114,9 +146,6 @@ def create_foundry_dataset(
     dataset.branch = created.branch or credentials.get("branch", "") or "master"
     if existing is None:
         db.add(dataset)
-    stored.validation_status = "connected"
-    stored.validated_at = utcnow()
-    stored.validation_message = "Authenticated and authorized by a successful dataset creation."
     record_event(
         db,
         "foundry_dataset.created",

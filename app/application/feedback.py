@@ -571,7 +571,12 @@ def preflight_failure(
         selected_reason_code = "destination_permission_denied"
         action_label = "Review connection"
     elif operation == "pipeline_dataset_create":
-        if "valid foundry folder rid" in normalized:
+        if "saved connection changed while the dataset was being created" in normalized:
+            message = (
+                "The saved connection changed during dataset creation. The remote dataset may "
+                "exist, but it was not added to this account. Check Foundry before retrying."
+            )
+        elif "valid foundry folder rid" in normalized:
             message = "Enter a valid Foundry folder RID."
         else:
             message = "The destination dataset could not be created. Review the connection, parent folder, and dataset name."
