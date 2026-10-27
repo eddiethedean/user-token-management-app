@@ -273,20 +273,17 @@ def test_anyio_timeout_propagates_after_owned_worker_cleanup(tmp_path) -> None:
     def worker() -> None:
         entered.set()
         try:
-            release.wait(2)
+            release.wait(0.2)
         finally:
             cleaned.set()
 
     async def scenario() -> None:
-        timer = threading.Timer(0.05, release.set)
-        timer.start()
         try:
             with pytest.raises(TimeoutError):
                 with anyio.fail_after(0.01):
                     await runtime.run_owned_sync(worker)
         finally:
             release.set()
-            timer.join()
 
     anyio.run(scenario)
     assert entered.is_set()
