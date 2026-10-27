@@ -37,6 +37,12 @@
 - Cancelled and failed runs no longer present a misleading completion meter; destination impact
   remains visible from persisted run facts.
 
+## [271026.0] — 2026-10-27
+
+### Changed
+
+- Bumped the application version to `271026.0`.
+
 ## [221026.0] — 2026-10-22
 
 ### Changed

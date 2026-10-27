@@ -84,12 +84,12 @@ def test_login_page_document(access_app) -> None:
         assert response.body.count(f'src="/hedron-static/ext/{extension}.js"') == 1
     assert_html_contains(
         response,
-        'href="/app-assets/hedron-desktop.css?v=221026.0&amp;shell=7"',
+        'href="/app-assets/hedron-desktop.css?v=271026.0&amp;shell=7"',
     )
     assert "/assets/theme.css" not in response.body
     assert "/app-assets/data-mover-components.css" not in response.body
-    assert_html_contains(response, 'src="/assets/app.js?v=221026.0&amp;ui=7"')
-    assert response.body.count('src="/assets/app.js?v=221026.0&amp;ui=7"') == 1
+    assert_html_contains(response, 'src="/assets/app.js?v=271026.0&amp;ui=7"')
+    assert response.body.count('src="/assets/app.js?v=271026.0&amp;ui=7"') == 1
     assert_html_contains(response, 'data-hedron-theme="folio"')
     assert_html_contains(
         response,
@@ -109,7 +109,7 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, "Continue to workspace")
     assert_html_contains(response, "Test demo workspace")
     assert_html_contains(response, "Test environment · Transfers are simulated")
-    assert_html_contains(response, "Version 221026.0")
+    assert_html_contains(response, "Version 271026.0")
     assert_html_contains(response, "Demo mode")
     assert response.body.index('name="password"') < response.body.index("Forgot password?")
     assert "Sandbox" not in response.body
@@ -180,7 +180,7 @@ def test_live_production_shell_reports_effective_runtime_mode(color_mode) -> Non
         r'data-hedron-environment-banner="true"[^>]*data-hedron-tone="danger"',
         rendered,
     )
-    assert "Version 221026.0" in rendered
+    assert "Version 271026.0" in rendered
     assert "Demo" not in rendered
     assert "Sandbox" not in rendered
 

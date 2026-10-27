@@ -16,7 +16,7 @@ resolution-markers = [
 
 [[package]]
 name = "access-registry"
-version = "221026.0"
+version = "271026.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
