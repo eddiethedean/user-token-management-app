@@ -1640,6 +1640,45 @@ def _validate_destination_column_casts(
                 + ".",
                 retryable=False,
             )
+    timestamp_columns = tuple(
+        column
+        for column in cast_columns
+        if _pg_type(column.data_type) in {"TIMESTAMP", "TIMESTAMPTZ"}
+    )
+    if timestamp_columns:
+        cursor.execute(
+            """
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+              AND column_name = ANY(%s)
+            """,
+            (locator.schema_name, locator.table, [column.name for column in timestamp_columns]),
+        )
+        destination_timestamp_types = {
+            str(name): str(data_type).casefold()
+            for name, data_type in cursor.fetchall()
+            if str(data_type).casefold()
+            in {"timestamp with time zone", "timestamp without time zone"}
+        }
+        source_timestamp_types = {
+            column.name: _pg_type(column.data_type) for column in timestamp_columns
+        }
+        timezone_mismatches = [
+            name
+            for name, destination_type in destination_timestamp_types.items()
+            if (source_timestamp_types[name] == "TIMESTAMPTZ")
+            != (destination_type == "timestamp with time zone")
+        ]
+        if timezone_mismatches:
+            raise ConnectorError(
+                TransferErrorCode.SCHEMA_DRIFT,
+                "Source and destination timestamp columns must both preserve or both omit "
+                "time zone semantics: "
+                + ", ".join(timezone_mismatches)
+                + ". Choose an explicit conversion before transferring these columns.",
+                retryable=False,
+            )
     target = sql.Identifier(locator.schema_name, locator.table)
     columns = sql.SQL(", ").join(sql.Identifier(column.name) for column in cast_columns)
     values = sql.SQL(", ").join(
