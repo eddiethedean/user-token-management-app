@@ -14,20 +14,24 @@ _INTEGER_PATTERN = re.compile(r"^[+-]?[0-9]+$")
 _DECIMAL_PATTERN = re.compile(
     r"^[+-]?(?:(?:[0-9]+\.[0-9]*|[0-9]*\.[0-9]+)(?:[eE][+-]?[0-9]+)?|[0-9]+[eE][+-]?[0-9]+)$"
 )
+_UNICODE_INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
+_UNICODE_DECIMAL_PATTERN = re.compile(
+    r"^[+-]?(?:(?:\d+\.\d*|\d*\.\d+)(?:[eE][+-]?\d+)?|\d+[eE][+-]?\d+)$"
+)
 _PADDED_NUMBER_PATTERN = re.compile(r"^[+-]?0[0-9]+(?:\.|[eE])")
 _DATE_PATTERN = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 _DATETIME_PATTERN = re.compile(
-    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt ][0-9]{2}:[0-9]{2}:[0-9]{2}"
-    r"(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:[0-9]{2})?$"
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}"
+    r"(?::[0-9]{2}(?:\.[0-9]+)?)?(?:Z|[+-][0-9]{2}(?::?[0-9]{2})?)?$"
 )
 
 
 def is_numeric_text(value: str) -> bool:
-    """Match the integer and decimal syntax accepted by CSV profiling."""
+    """Recognize Unicode numeric spellings used by downstream value checks."""
 
     return (
-        _INTEGER_PATTERN.fullmatch(value) is not None
-        or _DECIMAL_PATTERN.fullmatch(value) is not None
+        _UNICODE_INTEGER_PATTERN.fullmatch(value) is not None
+        or _UNICODE_DECIMAL_PATTERN.fullmatch(value) is not None
     )
 
 
@@ -140,8 +144,6 @@ def _value_type(value: str) -> str:
     lowered = value.casefold()
     if lowered in {"true", "false"}:
         return "boolean"
-    if not value.isascii():
-        return "text"
     integer_value = value.lstrip("+-")
     if _INTEGER_PATTERN.fullmatch(value) and not (
         len(integer_value) > 1 and integer_value.startswith("0")
