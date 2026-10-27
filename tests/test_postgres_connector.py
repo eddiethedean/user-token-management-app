@@ -418,6 +418,50 @@ def test_postgres_preserves_timezone_aware_timestamps(postgres_credentials) -> N
     )
 
 
+@pytest.mark.parametrize("write_mode", ["append", "upsert"])
+@pytest.mark.parametrize("phase", ["preflight", "prepare"])
+def test_postgres_rejects_timezone_aware_source_into_existing_naive_timestamp(
+    postgres_credentials, write_mode: str, phase: str
+) -> None:
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.timezone_mismatch_source "
+        "(id INTEGER PRIMARY KEY, occurred TIMESTAMPTZ)",
+    )
+    _execute(
+        postgres_credentials,
+        "CREATE TABLE public.timezone_mismatch_target (id INTEGER PRIMARY KEY, occurred TIMESTAMP)",
+    )
+    connector = PostgresConnector(connector_settings())
+    source_schema = connector.inspect_object(
+        postgres_credentials, postgres_table("public", "timezone_mismatch_source")
+    )
+    policy = (
+        PostgresAppendPolicy()
+        if write_mode == "append"
+        else PostgresUpsertPolicy(conflict_columns=["id"], action="update")
+    )
+
+    with pytest.raises(ConnectorError, match="must both preserve or both omit time zone") as exc:
+        if phase == "preflight":
+            connector.preflight_destination(
+                postgres_credentials,
+                postgres_table("public", "timezone_mismatch_target"),
+                source_schema,
+                policy,
+            )
+        else:
+            connector.prepare_destination(
+                postgres_credentials,
+                postgres_table("public", "timezone_mismatch_target"),
+                source_schema,
+                policy,
+                run_id=f"timezone-mismatch-{write_mode}",
+            )
+
+    assert exc.value.code == TransferErrorCode.SCHEMA_DRIFT
+
+
 def test_postgres_real_source_creates_real_destination(postgres_credentials) -> None:
     _execute(postgres_credentials, "CREATE TABLE public.real_source (score REAL)")
     _execute(postgres_credentials, "INSERT INTO public.real_source VALUES (1.25)")
