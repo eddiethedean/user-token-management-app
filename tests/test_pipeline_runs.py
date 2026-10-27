@@ -1230,6 +1230,122 @@ def test_janitor_purges_expired_events_and_terminal_runs(access_app, tmp_path) -
     settings.pipeline_spool_root = original_spool
 
 
+@pytest.mark.parametrize(
+    ("publication_state", "run_status", "active_fence", "reviewed", "protected"),
+    [
+        (
+            "uncertain",
+            PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
+            True,
+            False,
+            True,
+        ),
+        (
+            "uncertain",
+            PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value,
+            True,
+            True,
+            True,
+        ),
+        ("cleanup_pending", PipelineRunStatus.SUCCEEDED.value, False, False, True),
+        ("complete", PipelineRunStatus.SUCCEEDED.value, False, False, False),
+        ("unchanged", PipelineRunStatus.SUCCEEDED.value, False, False, False),
+    ],
+)
+def test_janitor_retains_unresolved_databricks_publications(
+    access_app, make_user, publication_state, run_status, active_fence, reviewed, protected
+) -> None:
+    settings = get_settings()
+    original_events = settings.pipeline_event_retention_days
+    original_runs = settings.pipeline_run_retention_days
+    original_spool = settings.pipeline_spool_root
+    settings.pipeline_event_retention_days = 1
+    settings.pipeline_run_retention_days = 1
+    settings.pipeline_spool_root = ""
+    stale = utcnow() - timedelta(days=40)
+    owner = make_user("retention.audit@example.gov")
+    with SessionLocal() as db:
+        run = PipelineRun(
+            user_id=owner.id,
+            definition_snapshot_json="{}",
+            status=run_status,
+            stage=(
+                "reconcile"
+                if run_status == PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value
+                else "verify"
+            ),
+            finished_at=stale,
+            created_at=stale,
+            queued_at=stale,
+            started_at=stale,
+            next_event_sequence=1,
+            reconciliation_required=(
+                run_status == PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value
+            ),
+            data_impact=(
+                "uncertain"
+                if run_status == PipelineRunStatus.FAILED_NEEDS_RECONCILIATION.value
+                else "verified"
+                if run_status == PipelineRunStatus.SUCCEEDED.value
+                else "changed"
+            ),
+        )
+        db.add(run)
+        db.flush()
+        run_id = run.id
+        target_key = "b" * 64
+        db.add(
+            DatabricksPublication(
+                run_id=run_id,
+                user_id=owner.id,
+                workspace_id="a" * 64,
+                connection_generation="retention-test",
+                target_key=target_key,
+                active_target_key=target_key if active_fence else None,
+                target_locator_json="{}",
+                write_mode="databricks_append",
+                staging_name="private.staging.retention_test",
+                state=publication_state,
+                submission_id=run_id,
+                created_at=stale,
+                updated_at=stale,
+                submitted_at=stale if publication_state == "uncertain" else None,
+                confirmed_at=(
+                    stale if publication_state in {"cleanup_pending", "complete"} else None
+                ),
+            )
+        )
+        db.add(
+            PipelineRunEvent(
+                run_id=run_id,
+                sequence=1,
+                occurred_at=stale,
+                message="publication recovery evidence",
+            )
+        )
+        db.commit()
+        if reviewed:
+            record_reconciliation_review(db, user=owner, run_id=run_id)
+
+    with SessionLocal() as db:
+        counts = janitor(db, settings)
+        assert counts["runs"] == (0 if protected else 1)
+        assert counts["events"] == (0 if protected else 1)
+        assert (db.get(PipelineRun, run_id) is not None) is protected
+        assert (db.get(DatabricksPublication, run_id) is not None) is protected
+        old_event = db.scalar(
+            select(PipelineRunEvent).where(
+                PipelineRunEvent.run_id == run_id,
+                PipelineRunEvent.sequence == 1,
+            )
+        )
+        assert (old_event is not None) is protected
+
+    settings.pipeline_event_retention_days = original_events
+    settings.pipeline_run_retention_days = original_runs
+    settings.pipeline_spool_root = original_spool
+
+
 def test_process_one_is_idle_when_queue_is_empty(access_app) -> None:
     with SessionLocal() as db:
         assert process_one(db, get_settings()) is False
