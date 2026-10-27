@@ -143,6 +143,11 @@ def test_ssn_detection_restores_leading_zero_for_integral_numbers(value) -> None
     assert contains_supported_ssn(value)
 
 
+@pytest.mark.parametrize("value", ["１２３４５６７８.00", "١٢٣٤٥٦٧٨.00"])
+def test_ssn_detection_restores_leading_zero_for_unicode_numeric_text(value: str) -> None:
+    assert contains_supported_ssn(value)
+
+
 @pytest.mark.parametrize(
     "value",
     [
