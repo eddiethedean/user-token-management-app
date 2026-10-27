@@ -135,6 +135,7 @@ def _column_cast_fails(frame: pl.DataFrame, column: str, selected_type: str) -> 
 
 def _decimal_dtype(series: pl.Series) -> pl.Decimal:
     scale = 0
+    integer_digits = 0
     try:
         for value in series:
             if value is None:
@@ -142,20 +143,26 @@ def _decimal_dtype(series: pl.Series) -> pl.Decimal:
             number = Decimal(int(value)) if isinstance(value, bool) else Decimal(str(value))
             if not number.is_finite():
                 raise ValueError
-            scale = max(scale, max(-int(number.as_tuple().exponent), 0))
+            if not number:
+                continue
+            value_scale = max(-int(number.as_tuple().exponent), 0)
+            value_integer_digits = max(number.adjusted() + 1, 0)
+            scale = max(scale, value_scale)
+            integer_digits = max(integer_digits, value_integer_digits)
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise ConnectorError(
             TransferErrorCode.SCHEMA_DRIFT,
             f"Source column '{series.name}' contains values that cannot be cast to Decimal.",
             retryable=False,
         ) from exc
-    if scale > 38:
+    precision = max(1, integer_digits + scale)
+    if precision > 38:
         raise ConnectorError(
             TransferErrorCode.SCHEMA_DRIFT,
-            f"Source column '{series.name}' exceeds Polars' supported Decimal scale.",
+            f"Source column '{series.name}' exceeds Polars' supported Decimal precision.",
             retryable=False,
         )
-    return pl.Decimal(precision=38, scale=scale)
+    return pl.Decimal(precision=precision, scale=scale)
 
 
 def _same_numeric_value(before: object, after: object) -> bool:

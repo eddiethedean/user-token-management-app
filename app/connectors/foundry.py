@@ -9,6 +9,7 @@ import shutil
 import ssl
 import tempfile
 from collections.abc import Iterator, Mapping, Sequence
+from decimal import Decimal
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -82,6 +83,23 @@ def _lossless_common_dtype(data_types: list[PolarsDtype]) -> PolarsDtype | None:
     if all(data_type == data_types[0] for data_type in data_types):
         return data_types[0]
 
+    if all(isinstance(data_type, pl.Decimal) for data_type in data_types):
+        decimal_types = [data_type for data_type in data_types if isinstance(data_type, pl.Decimal)]
+        if any(
+            data_type.precision is None or data_type.scale is None for data_type in decimal_types
+        ):
+            return None
+        scale = max(data_type.scale for data_type in decimal_types if data_type.scale is not None)
+        integer_digits = max(
+            data_type.precision - data_type.scale
+            for data_type in decimal_types
+            if data_type.precision is not None and data_type.scale is not None
+        )
+        precision = max(1, integer_digits + scale)
+        if precision <= 38:
+            return pl.Decimal(precision=precision, scale=scale)
+        return None
+
     integer_ranges = [_integer_dtype_range(data_type) for data_type in data_types]
     if all(value_range is not None for value_range in integer_ranges):
         minimum = min(value_range[0] for value_range in integer_ranges if value_range is not None)
@@ -113,6 +131,7 @@ def _lossless_common_dtype(data_types: list[PolarsDtype]) -> PolarsDtype | None:
 
 def _lossless_common_schema(
     schemas: Sequence[Mapping[str, PolarsDtype]],
+    decimal_value_profiles: Mapping[str, tuple[int, int]] | None = None,
 ) -> dict[str, PolarsDtype] | None:
     if not schemas:
         return None
@@ -122,7 +141,16 @@ def _lossless_common_schema(
 
     common: dict[str, PolarsDtype] = {}
     for column in columns:
-        data_type = _lossless_common_dtype([schema[column] for schema in schemas])
+        column_types = [schema[column] for schema in schemas]
+        profile = (decimal_value_profiles or {}).get(column)
+        if profile is not None and all(
+            isinstance(data_type, pl.Decimal) for data_type in column_types
+        ):
+            scale, integer_digits = profile
+            precision = max(1, scale + integer_digits)
+            data_type = pl.Decimal(precision=precision, scale=scale) if precision <= 38 else None
+        else:
+            data_type = _lossless_common_dtype(column_types)
         if data_type is None:
             return None
         common[column] = data_type
@@ -131,6 +159,80 @@ def _lossless_common_schema(
 
 def _schema_casts(schema: Mapping[str, PolarsDtype]) -> list[pl.Expr]:
     return [pl.col(column).cast(data_type, strict=True) for column, data_type in schema.items()]
+
+
+def _decimal_value_profiles(frames: Sequence[pl.DataFrame]) -> dict[str, tuple[int, int]]:
+    profiles: dict[str, tuple[int, int]] = {}
+    for frame in frames:
+        for column, data_type in frame.schema.items():
+            if not isinstance(data_type, pl.Decimal):
+                continue
+            scale = 0
+            integer_digits = 0
+            series = frame[column]
+            for value in (series.min(), series.max()):
+                if value is None:
+                    continue
+                number = Decimal(str(value))
+                if not number:
+                    continue
+                scale = max(scale, max(-int(number.as_tuple().exponent), 0))
+                integer_digits = max(integer_digits, max(number.adjusted() + 1, 0))
+            previous_scale, previous_integer_digits = profiles.get(column, (0, 0))
+            profiles[column] = (
+                max(previous_scale, scale),
+                max(previous_integer_digits, integer_digits),
+            )
+    return profiles
+
+
+def _merge_decimal_value_profiles(
+    *profiles: Mapping[str, tuple[int, int]],
+) -> dict[str, tuple[int, int]]:
+    merged: dict[str, tuple[int, int]] = {}
+    for profile in profiles:
+        for column, (scale, integer_digits) in profile.items():
+            old_scale, old_integer_digits = merged.get(column, (0, 0))
+            merged[column] = (
+                max(old_scale, scale),
+                max(old_integer_digits, integer_digits),
+            )
+    return merged
+
+
+def _read_decimal_value_profiles(metadata: Mapping[str, str]) -> dict[str, tuple[int, int]]:
+    try:
+        raw_profiles = json.loads(metadata.get("decimal_value_profiles", "{}"))
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(raw_profiles, dict):
+        return {}
+    profiles: dict[str, tuple[int, int]] = {}
+    for column, profile in raw_profiles.items():
+        if not isinstance(column, str) or not isinstance(profile, dict):
+            continue
+        scale = profile.get("scale")
+        integer_digits = profile.get("integer_digits")
+        if (
+            type(scale) is int
+            and type(integer_digits) is int
+            and scale >= 0
+            and integer_digits >= 0
+        ):
+            profiles[column] = (scale, integer_digits)
+    return profiles
+
+
+def _store_decimal_value_profiles(
+    metadata: dict[str, str], profiles: Mapping[str, tuple[int, int]]
+) -> None:
+    metadata["decimal_value_profiles"] = json.dumps(
+        {
+            column: {"scale": scale, "integer_digits": integer_digits}
+            for column, (scale, integer_digits) in profiles.items()
+        },
+        separators=(",", ":"),
+    )
 
 
 def _polars_dtype(data_type: str):
@@ -1275,7 +1377,13 @@ class FoundryConnector:
                     retryable=False,
                 )
             selected_frame = frame.select(existing.columns)
-            common_schema = _lossless_common_schema([existing.schema, selected_frame.schema])
+            decimal_profiles = _merge_decimal_value_profiles(
+                _read_decimal_value_profiles(load_session.metadata),
+                _decimal_value_profiles([existing, selected_frame]),
+            )
+            common_schema = _lossless_common_schema(
+                [existing.schema, selected_frame.schema], decimal_profiles
+            )
             if common_schema is None:
                 raise ConnectorError(
                     TransferErrorCode.SCHEMA_DRIFT,
@@ -1303,6 +1411,7 @@ class FoundryConnector:
                     "The destination staging data exceeds the configured spool size limit.",
                     retryable=False,
                 )
+            _store_decimal_value_profiles(load_session.metadata, decimal_profiles)
         else:
             chunk_root = Path(load_session.metadata["chunk_root"])
             chunk_root.mkdir(parents=True, exist_ok=True)
@@ -1319,6 +1428,11 @@ class FoundryConnector:
                     "The destination staging data exceeds the configured spool size limit.",
                     retryable=False,
                 )
+            decimal_profiles = _merge_decimal_value_profiles(
+                _read_decimal_value_profiles(load_session.metadata),
+                _decimal_value_profiles([frame]),
+            )
+            _store_decimal_value_profiles(load_session.metadata, decimal_profiles)
         load_session.metadata["rows"] = str(
             int(load_session.metadata.get("rows", "0")) + batch.row_count
         )
@@ -1337,7 +1451,8 @@ class FoundryConnector:
                 if chunks:
                     scans = [pl.scan_parquet(chunk) for chunk in chunks]
                     common_schema = _lossless_common_schema(
-                        [scan.collect_schema() for scan in scans]
+                        [scan.collect_schema() for scan in scans],
+                        _read_decimal_value_profiles(load_session.metadata),
                     )
                     if common_schema is None:
                         raise ConnectorError(
