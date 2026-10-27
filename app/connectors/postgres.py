@@ -1446,9 +1446,7 @@ def _integer_is_exactly_representable(value: int, target_type: str) -> bool:
     return math.isfinite(converted) and int(converted) == value
 
 
-def _validate_integer_float_batch(
-    frame: pl.DataFrame, target_types: Mapping[str, str]
-) -> None:
+def _validate_integer_float_batch(frame: pl.DataFrame, target_types: Mapping[str, str]) -> None:
     """Reject integer values that an existing float destination would round."""
 
     for name, target_type in target_types.items():
