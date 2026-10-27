@@ -82,6 +82,23 @@ def _lossless_common_dtype(data_types: list[PolarsDtype]) -> PolarsDtype | None:
     if all(data_type == data_types[0] for data_type in data_types):
         return data_types[0]
 
+    if all(isinstance(data_type, pl.Decimal) for data_type in data_types):
+        decimal_types = [data_type for data_type in data_types if isinstance(data_type, pl.Decimal)]
+        if any(
+            data_type.precision is None or data_type.scale is None for data_type in decimal_types
+        ):
+            return None
+        scale = max(data_type.scale for data_type in decimal_types if data_type.scale is not None)
+        integer_digits = max(
+            data_type.precision - data_type.scale
+            for data_type in decimal_types
+            if data_type.precision is not None and data_type.scale is not None
+        )
+        precision = max(1, integer_digits + scale)
+        if precision <= 38:
+            return pl.Decimal(precision=precision, scale=scale)
+        return None
+
     integer_ranges = [_integer_dtype_range(data_type) for data_type in data_types]
     if all(value_range is not None for value_range in integer_ranges):
         minimum = min(value_range[0] for value_range in integer_ranges if value_range is not None)
