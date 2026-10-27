@@ -446,7 +446,7 @@ def test_durable_deadline_waits_for_retry_or_lease_expiry(
             db.commit()
         expected = 40
     else:
-        _run(sessions, status="loading", lease_expires_at=later)
+        _run(sessions, status="failed_needs_reconciliation")
         with sessions() as db:
             db.add(
                 DatabricksPublication(
@@ -462,7 +462,7 @@ def test_durable_deadline_waits_for_retry_or_lease_expiry(
                 )
             )
             db.commit()
-        expected = 40
+        expected = 20
     assert next_background_work_delay(_runtime(engine, sessions)) == expected
 
 
