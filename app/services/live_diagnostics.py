@@ -421,9 +421,7 @@ def reconcile_stale_diagnostic_runs(db: Session, *, user_id: str) -> None:
         )
     ).all()
     for run in runs:
-        queued_timed_out = (
-            run.status == "queued" and run.created_at <= now - QUEUED_RUN_TIMEOUT
-        )
+        queued_timed_out = run.status == "queued" and run.created_at <= now - QUEUED_RUN_TIMEOUT
         lease_expired = (
             run.status == "running"
             and run.lease_expires_at is not None
@@ -447,9 +445,7 @@ def reconcile_stale_diagnostic_runs(db: Session, *, user_id: str) -> None:
             LiveDiagnosticRun.checks_json == run.checks_json,
         ]
         if run.status == "queued":
-            condition.extend(
-                [LiveDiagnosticRun.created_at == run.created_at]
-            )
+            condition.extend([LiveDiagnosticRun.created_at == run.created_at])
         else:
             condition.extend(
                 [
@@ -467,7 +463,7 @@ def reconcile_stale_diagnostic_runs(db: Session, *, user_id: str) -> None:
                 worker_token=None,
                 lease_expires_at=None,
                 finished_at=now,
-            )
+            ),
         )
         if result.rowcount:
             db.commit()
@@ -507,9 +503,7 @@ def format_readiness_report(run: LiveDiagnosticRun) -> str:
     ]
     checks = diagnostic_checks_for_display(run)
     counts = _diagnostic_check_counts(checks)
-    result_counts = ", ".join(
-        f"{count} {name}" for name, count in counts.items() if count
-    )
+    result_counts = ", ".join(f"{count} {name}" for name, count in counts.items() if count)
     lines.insert(7, f"Results: {result_counts or 'no checks recorded'}")
     for item in checks:
         if not isinstance(item, dict):
@@ -598,7 +592,9 @@ def _normalize_legacy_checks(checks: list[object], run_status: str | None) -> li
         ):
             item = {
                 **item,
-                "status": "missing" if str(item.get("key", "")).endswith(".connection") else "blocked",
+                "status": "missing"
+                if str(item.get("key", "")).endswith(".connection")
+                else "blocked",
             }
         normalized.append(item)
     return normalized
@@ -621,7 +617,9 @@ def diagnostic_run_status(run: LiveDiagnosticRun) -> str:
         or item.get("code") in {"diagnostic_worker_failed", "diagnostic_not_run"}
         for item in items
     ):
-        if any(item.get("code") in {"diagnostic_worker_failed", "diagnostic_not_run"} for item in items):
+        if any(
+            item.get("code") in {"diagnostic_worker_failed", "diagnostic_not_run"} for item in items
+        ):
             return run.status
         if any(item.get("status") == "failed" for item in items):
             return run.status
@@ -681,7 +679,7 @@ def _claim_diagnostic_run(run_id: str) -> str | None:
                 started_at=now,
                 worker_token=worker_token,
                 lease_expires_at=now + timedelta(seconds=RUN_LEASE_SECONDS),
-            )
+            ),
         )
         db.commit()
         return worker_token if result.rowcount == 1 else None
@@ -694,11 +692,7 @@ class DiagnosticLeaseLost(RuntimeError):
 def _run_diagnostic_checks(run_id: str, settings: Settings, worker_token: str) -> None:
     with current_session_factory()() as db:
         run = db.get(LiveDiagnosticRun, run_id)
-        if (
-            run is None
-            or run.status != "running"
-            or run.worker_token != worker_token
-        ):
+        if run is None or run.status != "running" or run.worker_token != worker_token:
             return
         user = _active_administrator(db, run.user_id)
         if user is None:
@@ -776,17 +770,14 @@ def _run_diagnostic_checks(run_id: str, settings: Settings, worker_token: str) -
                 connection_status = (
                     "missing" if safe_code == "default_dataset_not_configured" else "failed"
                 )
-                _record_check(
-                    db, run, f"{provider}.connection", connection_status, safe_code
-                )
+                _record_check(db, run, f"{provider}.connection", connection_status, safe_code)
                 if provider == "databricks":
                     _record_check(
                         db, run, "databricks.compute", "blocked", "connection_check_failed"
                     )
                 catalog_status = (
                     "failed"
-                    if provider in {"mss", "mcscop"}
-                    and safe_code == "source_not_found"
+                    if provider in {"mss", "mcscop"} and safe_code == "source_not_found"
                     else "blocked"
                 )
                 _record_check(
@@ -1073,9 +1064,7 @@ def _check_spool(db: Session, run: LiveDiagnosticRun, settings: Settings) -> Non
 
     if result.get("cleanup_ok") is not True:
         if not _cleanup_spool_probe(settings.pipeline_spool_root, test_name):
-            _record_check(
-                db, run, "deployment.spool", "failed", "spool_cleanup_unconfirmed"
-            )
+            _record_check(db, run, "deployment.spool", "failed", "spool_cleanup_unconfirmed")
             return
         _record_check(db, run, "deployment.spool", "failed", "spool_unavailable")
         return
@@ -1304,7 +1293,7 @@ def _renew_diagnostic_lease(db: Session, run: LiveDiagnosticRun) -> None:
             LiveDiagnosticRun.worker_token == worker_token,
             LiveDiagnosticRun.lease_expires_at > now,
         )
-        .values(lease_expires_at=now + timedelta(seconds=RUN_LEASE_SECONDS))
+        .values(lease_expires_at=now + timedelta(seconds=RUN_LEASE_SECONDS)),
     )
     if result.rowcount != 1:
         db.rollback()
@@ -1355,7 +1344,7 @@ def _record_unexpected_failure(run_id: str, worker_token: str, error: Exception)
                     worker_token=None,
                     lease_expires_at=None,
                     finished_at=now,
-                )
+                ),
             )
             if result.rowcount != 1:
                 db.rollback()

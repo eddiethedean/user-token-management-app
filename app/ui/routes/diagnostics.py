@@ -392,10 +392,7 @@ def _control_version(run: LiveDiagnosticRun | None, selected_run_id: str | None)
 
 
 def _history_version(runs: list[LiveDiagnosticRun], selected_run_id: str | None) -> str:
-    state = [
-        (run.id, diagnostic_run_status(run), run.id == selected_run_id)
-        for run in runs
-    ]
+    state = [(run.id, diagnostic_run_status(run), run.id == selected_run_id) for run in runs]
     return hashlib.sha256(json.dumps(state, separators=(",", ":")).encode()).hexdigest()[:16]
 
 
@@ -443,9 +440,10 @@ def _run_overview(request: Request, run: LiveDiagnosticRun | None):
         )
     counts = diagnostic_check_counts(run.checks_json, run_status=run.status)
     result_status = diagnostic_run_status(run)
-    count_summary = " · ".join(
-        f"{count} {name}" for name, count in counts.items() if count
-    ) or "No checks recorded"
+    count_summary = (
+        " · ".join(f"{count} {name}" for name, count in counts.items() if count)
+        or "No checks recorded"
+    )
     announcement = _run_announcement(run)
     children: list[NodeLike] = [
         Inline(
@@ -586,7 +584,9 @@ def _run_checks(run: LiveDiagnosticRun | None):
                 if isinstance(details, dict):
                     current = details.get("current_revision", "unavailable")
                     expected = details.get("expected_revision", "unavailable")
-                    check_children.append(Text(f"Database revision: {current} · expected: {expected}"))
+                    check_children.append(
+                        Text(f"Database revision: {current} · expected: {expected}")
+                    )
             results.append(
                 html.div(
                     Stack(*check_children, gap="xs"),

@@ -709,9 +709,7 @@ class UserCatalog:
                     ):
                         raise DiagnosticCredentialsStale()
 
-                cast(dict[str, Any], credentials)["_authorization_check"] = (
-                    require_current_identity
-                )
+                cast(dict[str, Any], credentials)["_authorization_check"] = require_current_identity
 
             if provider_id == "databricks":
                 assert actual_identity is not None

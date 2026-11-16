@@ -149,11 +149,17 @@ def test_legacy_gap_status_is_displayed_separately_from_failures() -> None:
     displayed_checks = diagnostic_checks_for_display(legacy_missing_foundry)
 
     assert diagnostic_run_status(legacy_missing_foundry) == "completed_with_gaps"
-    assert diagnostic_check_counts(
-        legacy_missing_foundry.checks_json,
-        run_status=legacy_missing_foundry.status,
-    )["missing"] == 1
-    assert [check["status"] for check in displayed_checks] == ["missing", "blocked"]
+    assert (
+        diagnostic_check_counts(
+            legacy_missing_foundry.checks_json,
+            run_status=legacy_missing_foundry.status,
+        )["missing"]
+        == 1
+    )
+    assert displayed_checks == [
+        {"key": "mss.connection", "status": "missing", "code": "default_dataset_not_configured"},
+        {"key": "mss.catalog", "status": "blocked", "code": "default_dataset_not_configured"},
+    ]
     assert "Run status: completed_with_gaps" in format_readiness_report(legacy_missing_foundry)
 
 
@@ -337,7 +343,9 @@ def test_queued_diagnostic_fragment_renders_polling_root(client, monkeypatch) ->
     assert "succeeded" in terminal.text
 
 
-def test_stale_diagnostic_run_is_interrupted_with_partial_checks_preserved(client, monkeypatch) -> None:
+def test_stale_diagnostic_run_is_interrupted_with_partial_checks_preserved(
+    client, monkeypatch
+) -> None:
     async def keep_queued(_runtime, _run_id):
         return None
 
@@ -391,7 +399,9 @@ def test_stale_diagnostic_run_is_interrupted_with_partial_checks_preserved(clien
         assert json.loads(run.checks_json)[0]["status"] == "passed"
 
 
-def test_duplicate_start_reuses_active_run_and_history_keeps_active_control(client, monkeypatch) -> None:
+def test_duplicate_start_reuses_active_run_and_history_keeps_active_control(
+    client, monkeypatch
+) -> None:
     async def keep_queued(_runtime, _run_id):
         return None
 
@@ -439,9 +449,9 @@ def test_duplicate_start_reuses_active_run_and_history_keeps_active_control(clie
     assert active_fragment.status_code == 200, active_fragment.text
     assert 'id="diagnostic-history"' in active_fragment.text
     assert 'id="diagnostic-run-control"' in active_fragment.text
-    assert f"run_id={second_run_id}" in client.get(
-        f"/admin/diagnostics?run_id={second_run_id}"
-    ).text
+    assert (
+        f"run_id={second_run_id}" in client.get(f"/admin/diagnostics?run_id={second_run_id}").text
+    )
 
 
 def test_diagnostic_active_poll_returns_no_content_when_visible_state_is_unchanged(client) -> None:
