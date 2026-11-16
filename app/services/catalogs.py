@@ -5,14 +5,14 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from fastapi import Request
 from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.application.ports import CatalogCache, CredentialResolver
 from app.config import Settings, get_settings
@@ -59,6 +59,10 @@ from app.models import (
     new_id,
     utcnow,
 )
+from app.services.diagnostic_guards import (
+    DiagnosticAdministratorUnavailable,
+    DiagnosticCredentialsStale,
+)
 
 CREATE_TABLE_VALUE = "__new__"
 NEW_TABLE_VALUE_PREFIX = f"{CREATE_TABLE_VALUE}:"
@@ -103,6 +107,10 @@ class UserCatalog:
         row_counter_resolver: Callable[[str], RowCounter] | None = None,
         cache: CatalogCache | None = None,
         credential_resolver: CredentialResolver | None = None,
+        cache_enabled: bool = True,
+        allow_compute_start: bool = True,
+        require_administrator: bool = False,
+        expected_credential_identity: tuple[str, datetime] | None = None,
     ) -> None:
         self.db = db
         self.settings = settings
@@ -118,6 +126,10 @@ class UserCatalog:
         self.row_counter_resolver = row_counter_resolver or legacy_resolver or row_counter_for
         self.cache = cache
         self.credential_resolver = credential_resolver
+        self.cache_enabled = cache_enabled
+        self.allow_compute_start = allow_compute_start
+        self.require_administrator = require_administrator
+        self.expected_credential_identity = expected_credential_identity
         self._credentials: dict[str, dict[str, str]] = {}
 
     def list_namespaces(self, provider: str) -> list[RemoteNamespace]:
@@ -125,7 +137,9 @@ class UserCatalog:
         if cached is not None:
             items = [RemoteNamespace(**item) for item in cached.get("items", [])]
         else:
-            items = self.browser_resolver(provider).list_namespaces(self._credentials_for(provider))
+            credentials = self._credentials_for(provider)
+            self._check_diagnostic_authorization(credentials)
+            items = self.browser_resolver(provider).list_namespaces(credentials)
             self._write_cache(
                 provider,
                 "",
@@ -155,7 +169,13 @@ class UserCatalog:
             *items,
         ]
 
-    def list_objects(self, provider: str, namespace: str) -> CatalogPage:
+    def list_objects(
+        self,
+        provider: str,
+        namespace: str,
+        *,
+        diagnostic_probe: bool = False,
+    ) -> CatalogPage:
         cached = self._read_cache(provider, namespace)
         if cached is not None:
             return CatalogPage(
@@ -169,8 +189,9 @@ class UserCatalog:
                 "branch": self.branch_for_namespace(provider, namespace),
             }
         browser = self.browser_resolver(provider)
+        self._check_diagnostic_authorization(credentials)
         page = browser.list_objects(credentials, namespace)
-        if provider.casefold() == "databricks":
+        if provider.casefold() == "databricks" and not diagnostic_probe:
             items = list(page.items)
             cursor = page.cursor
             while cursor is not None:
@@ -193,6 +214,12 @@ class UserCatalog:
             },
         )
         return page
+
+    @staticmethod
+    def _check_diagnostic_authorization(credentials: Mapping[str, Any]) -> None:
+        authorization_check = credentials.get("_authorization_check")
+        if callable(authorization_check):
+            authorization_check()
 
     def inspect_object(self, provider: str, locator: Locator):
         locator = validate_locator(locator)
@@ -627,44 +654,73 @@ class UserCatalog:
                 provider=provider_id,
                 purpose="catalog",
             )
-            if provider_id == "databricks":
-                revision = self.db.scalar(
-                    select(UserSecret.updated_at).where(
+            actual_identity: tuple[str, datetime] | None = None
+            if self.expected_credential_identity is not None or provider_id == "databricks":
+                stored_identity = self.db.execute(
+                    select(UserSecret.id, UserSecret.updated_at).where(
                         UserSecret.user_id == self.user.id,
                         UserSecret.provider == provider_id,
                     )
-                )
-                if revision is None:
-                    raise ConnectorError(
-                        TransferErrorCode.CREDENTIALS_MISSING,
-                        "The Databricks connection is no longer available.",
-                        retryable=False,
-                    )
-                credentials["connection_generation"] = revision.isoformat(timespec="microseconds")
-                expected_generation = credentials["connection_generation"]
+                ).one_or_none()
+                if stored_identity is not None:
+                    actual_identity = (stored_identity.id, stored_identity.updated_at)
+                if stored_identity is None:
+                    if self.expected_credential_identity is not None:
+                        raise DiagnosticCredentialsStale()
+                    if provider_id == "databricks":
+                        raise ConnectorError(
+                            TransferErrorCode.CREDENTIALS_MISSING,
+                            "The Databricks connection is no longer available.",
+                            retryable=False,
+                        )
+                if (
+                    self.expected_credential_identity is not None
+                    and actual_identity != self.expected_credential_identity
+                ):
+                    raise DiagnosticCredentialsStale()
 
-                def require_current_generation() -> None:
-                    current_revision = self.db.scalar(
-                        select(UserSecret.updated_at).where(
+            if self.expected_credential_identity is not None or provider_id == "databricks":
+                pinned_identity = self.expected_credential_identity or actual_identity
+                assert pinned_identity is not None
+
+                def require_current_identity() -> None:
+                    if self.require_administrator:
+                        current_user = self.db.scalar(
+                            select(User)
+                            .options(selectinload(User.roles))
+                            .where(User.id == self.user.id)
+                            .execution_options(populate_existing=True)
+                        )
+                        if (
+                            current_user is None
+                            or not current_user.is_active
+                            or "administrator" not in current_user.role_names
+                        ):
+                            raise DiagnosticAdministratorUnavailable()
+                    current_identity = self.db.execute(
+                        select(UserSecret.id, UserSecret.updated_at).where(
                             UserSecret.user_id == self.user.id,
                             UserSecret.provider == provider_id,
                         )
-                    )
-                    current_generation = (
-                        current_revision.isoformat(timespec="microseconds")
-                        if current_revision is not None
-                        else ""
-                    )
-                    if current_generation != expected_generation:
-                        raise ConnectorError(
-                            TransferErrorCode.CREDENTIALS_STALE,
-                            "The Databricks connection changed during this operation. Reconnect and review the selection again.",
-                            retryable=False,
-                        )
+                    ).one_or_none()
+                    if (
+                        current_identity is None
+                        or (current_identity.id, current_identity.updated_at) != pinned_identity
+                    ):
+                        raise DiagnosticCredentialsStale()
 
                 cast(dict[str, Any], credentials)["_authorization_check"] = (
-                    require_current_generation
+                    require_current_identity
                 )
+
+            if provider_id == "databricks":
+                assert actual_identity is not None
+                pinned_identity = self.expected_credential_identity or actual_identity
+                credentials["connection_generation"] = pinned_identity[1].isoformat(
+                    timespec="microseconds"
+                )
+                if not self.allow_compute_start:
+                    credentials["startup_policy"] = "manual"
                 if credentials.get("startup_policy") == "allow_start":
 
                     def request_databricks_start(observed_state: str) -> dict[str, str]:
@@ -685,6 +741,8 @@ class UserCatalog:
         return self._credentials[provider_id]
 
     def _read_cache(self, provider: str, namespace: str) -> dict[str, Any] | None:
+        if not self.cache_enabled:
+            return None
         if self.cache is not None:
             return self.cache.get(provider, namespace)
         now = utcnow()
@@ -712,6 +770,8 @@ class UserCatalog:
         *,
         preserve_expiry: bool = False,
     ) -> None:
+        if not self.cache_enabled:
+            return
         if self.cache is not None:
             self.cache.put(provider, namespace, payload, preserve_expiry=preserve_expiry)
             return

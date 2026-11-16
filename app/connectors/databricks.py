@@ -1062,6 +1062,9 @@ class DatabricksConnector:
         query_tags: Mapping[str, str] | None = None,
     ) -> Any:
         self._require_sql_ready(credentials)
+        authorization_check = credentials.get("_authorization_check")
+        if callable(authorization_check):
+            authorization_check()
         workspace_url = str(credentials["workspace_url"])
         try:
             options: dict[str, Any] = {

@@ -1,23 +1,23 @@
 # Data Mover desktop screenshots
 
-Refreshed October 21, 2026 with application version `211026.0`, based on `9e518e3` and the
-current documentation working tree. These are actual Chromium captures of the Folio UI at
+Refreshed November 16, 2026 with application version `271026.0` to show the CSIO workspace
+identity. These are actual Chromium captures of the Folio UI at
 1440 × 1000, device scale 1. Full-page JPEGs include content below the viewport. The matching
 [capture manifest](capture-manifest.json) records the capture time, state, and SHA-256 for each file.
 
 ## Gallery
 
-The [token-expiry status capture](token-expiry-status.png) was added October 22, 2026, version
-`211026.1`, at 1280 × 720. It shows the current **Status** tab with user-supplied synthetic
-expiry dates: MSS on October 25 at 12:00 UTC and MCS-COP on October 20 at 12:00 UTC. The
-warnings are relative to the capture date. These are emulated health checks, not live token
-validation. Its separate [capture metadata](token-expiry-capture.json) records the image hash
-and fixture details; the October 21 gallery and manifest below retain their original captures.
+The [token-expiry status capture](token-expiry-status.png) was refreshed November 16, 2026,
+version `271026.0`. It shows the full **Status** page with synthetic, user-supplied expiry dates:
+MSS on November 21 at 12:00 UTC and MCS-COP on November 15 at 12:00 UTC. At capture time, one
+date was within seven days and the other had passed. These are emulated health checks, not live
+token validation. The [capture metadata](token-expiry-capture.json) records the image hash,
+dimensions, dates, and fixture details.
 
-To reproduce this focused view, start an isolated demo as described below, use the ordinary
-MSS and MCS-COP credential forms to re-enter their synthetic demo bundles with the optional
-UTC expiry dates above, then open **Status**. Choose dates relative to your capture day when
-checking the warning thresholds rather than reproducing these historical dates.
+To reproduce this view, start an isolated demo as described below and use the ordinary MSS and
+MCS-COP credential forms to enter synthetic demo bundles with one UTC expiry date within seven
+days and one in the past. Then open **Status**. The saved dates in this capture are examples and
+will become historical; choose dates relative to your capture day to reproduce the warning states.
 
 | Screen | Dark | Light |
 | --- | --- | --- |
@@ -29,6 +29,7 @@ checking the warning thresholds rather than reproducing these historical dates.
 | Saved routes | [View](saved-routes.jpg) | [View](saved-routes-light.jpg) |
 | Encrypted connection forms | [View](connection-credentials.jpg) | [View](connection-credentials-light.jpg) |
 | Four-provider connection status | [View](connections-status.jpg) | [View](connections-status-light.jpg) |
+| Administrator live diagnostics, ready to run | [View](live-diagnostics.jpg) | [View](live-diagnostics-light.jpg) |
 | Account | [View](account.jpg) | [View](account-light.jpg) |
 | Team | [View](team.jpg) | [View](team-light.jpg) |
 | Successful-transfer audit events | [View](audit-activity.jpg) | [View](audit-activity-light.jpg) |
@@ -107,7 +108,7 @@ DOCS_ANIMATION_PYTHON=/path/to/python-with-pillow \
 The optional environment variables `DOCS_BASE_URL`, `DOCS_EMAIL`, and `DOCS_PASSWORD` can point the
 script at a differently configured isolated demo. The base URL defaults to `http://127.0.0.1:8878`.
 Use a fresh database per complete capture so saved routes and audit records stay uncluttered.
-The script writes 22 JPEGs and their manifest; GIF-enabled runs also write two animations and
+The script writes 24 JPEGs and their manifest; GIF-enabled runs also write two animations and
 record their frame counts and observed states. Temporary animation frames are removed automatically.
 If loading was missed between polls, the animation capture fails rather than labeling a still image
 as a transfer recording; rerun it.

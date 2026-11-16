@@ -219,7 +219,25 @@ def desktop_default_styles() -> str:
   }
 }
 """
-    return f"{builtin_styles}\n{shell_geometry_tokens}\n{transfer_presentation}"
+    accessibility_presentation = """@layer components {
+  .data-mover-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+"""
+    return (
+        f"{builtin_styles}\n{shell_geometry_tokens}\n"
+        f"{transfer_presentation}\n{accessibility_presentation}"
+    )
 
 
 __all__ = ["desktop_default_styles"]

@@ -45,8 +45,9 @@ Data-movement revisions add owner-scoped saved pipelines (`0007`), connection ca
 health/runtime metadata (`0008`), owner-scoped CSV pipeline sources (`0009`), persisted connection
 readiness details (`0019`), explicit run-metric provenance (`0020`), and saved sensitive-data
 guardrail actions and run findings (`0021`). Revision `0021` also strips previously persisted schema
-examples from run manifests and Foundry schema-cache rows. The current head is
-`0027_queue_notifications`: `0022` adds durable Databricks compute/publication state, `0023` adds
+examples from run manifests and Foundry schema-cache rows. Revision `0028_live_diagnostic_runs`
+adds owner-scoped administrator diagnostic history. The current head is
+`0028_live_diagnostic_runs`: `0022` adds durable Databricks compute/publication state, `0023` adds
 run startup deferral, `0024`–`0025` add then remove email BCC storage, `0026` adds advisory token
 expiry, and `0027` installs PostgreSQL queue wakeup functions/triggers (a revision-only step on
 SQLite). No revision adds automatic provider token renewal.

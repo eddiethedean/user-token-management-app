@@ -3,7 +3,7 @@
 > Converted from the main slide text in the supplied images, with application claims revised to distinguish current capabilities from proposed future features and correct technical inaccuracies. The first two images show the same slide and are represented once here. The small text inside the application screenshots is not reliably legible in the supplied photographs and has not been transcribed.
 
 **Accelerate the SOF Decision Advantage**<br>
-USSOCOM CDAO
+USSOCOM CSIO
 
 ## Slide 1 — Cross-Platform Data Mobility Pipeline
 

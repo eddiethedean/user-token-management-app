@@ -34,7 +34,7 @@ from app.connectors.base import (
     bounded_frame_batches,
 )
 from app.connectors.csv_source import CsvSourceConnector
-from app.connectors.errors import ConnectorError, TransferErrorCode
+from app.connectors.errors import ConnectorError, DiagnosticConnectorError, TransferErrorCode
 from app.connectors.foundry import MAX_FOUNDRY_SCHEMA_PREVIEW_BYTES
 from app.connectors.locators import (
     FoundryDatasetFilesLocator,
@@ -797,6 +797,31 @@ class FakeFoundryConnector:
         return ConnectionHealth(
             status="connected",
             message=f"Emulated connection only · no network request · {detail}.",
+            latency_ms=0,
+            server_identity="Data Mover Foundry emulator",
+        )
+
+    def test_diagnostic_connection(self, credentials) -> ConnectionHealth:
+        connection_id = self._validate(credentials)
+        rid = str(credentials.get("dataset_rid") or "").strip()
+        if not rid:
+            raise DiagnosticConnectorError(
+                TransferErrorCode.SOURCE_NOT_FOUND,
+                "The saved Foundry connection has no default dataset.",
+                diagnostic_code="default_dataset_not_configured",
+                retryable=False,
+            )
+        branch = str(credentials.get("branch") or "master")
+        files = self._backend.foundry_files(self.capabilities.provider, connection_id, rid, branch)
+        if files is None:
+            raise ConnectorError(
+                TransferErrorCode.SOURCE_NOT_FOUND,
+                "The configured default dataset or branch could not be found.",
+                retryable=False,
+            )
+        return ConnectionHealth(
+            status="connected",
+            message=f"Emulated connection only · branch {branch} · {len(files)} files.",
             latency_ms=0,
             server_identity="Data Mover Foundry emulator",
         )

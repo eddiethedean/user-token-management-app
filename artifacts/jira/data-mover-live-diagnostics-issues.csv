@@ -1,0 +1,158 @@
+"date","type","issue_id","name","summary","linked_to","description","desired_expected_result","original_estimate"
+"2026-11-16","Epic","CDO-5030","Data Mover: Live deployment diagnostics on Posit Connect","Give Posit Connect administrators a way to check saved live connections, verify synthetic transfers, and share a sanitized support report.","","Add an Admin → Diagnostics page that runs inside Posit Connect using the initiating administrator's saved credentials. Provide read-only checks, a verified smoke transfer, and a full suite for supported routes and write modes. Use approved synthetic fixtures and scratch targets for writes. Persist progress, verification, and cleanup results so administrators can reopen a run and copy a report for developers.","An authorized administrator can run connection checks, a verified smoke transfer, and the configured full matrix using owned credentials and approved scratch targets. The suite survives restarts and avoids duplicate writes. Results distinguish readiness, verification, cleanup, and reconciliation. The support report excludes restricted fields and correlates to internal run evidence.",""
+"2026-11-16","Story","CDO-5031","Data Mover: Admin access and live connection checks","","CDO-5030","As an administrator, I want to check my saved connections from Posit Connect so I can distinguish deployment, credential, and provider problems.
+
+Rollout: 1 · Connection checks
+Dependencies: None","- Non-admins and other administrators cannot access a suite or invoke an action. Links work under a Connect mount prefix.
+- Spool checks use an isolated file and remove it. The export contains no credentials, database URL, or filesystem paths.
+- Configured, missing, disabled, authentication-failed, and compute-not-ready cases show distinct outcomes. Read-only checks perform no provider writes or compute starts.
+- The administrator can leave and reopen the page and inspect the result of each selected check.",""
+"2026-11-16","Task","LD-1-T01","Data Mover: Add the Diagnostics page and authorization","","CDO-5031","Add mounted navigation, admin and owner checks, CSRF protection, and a Connections link.
+
+Done when: Non-admins and other administrators cannot access a suite or invoke an action. Links work under a Connect mount prefix.","","2h 15m"
+"2026-11-16","Task","LD-1-T02","Data Mover: Check deployment readiness","","CDO-5031","Report build, schema revision, app database and private spool readiness using bounded checks.
+
+Done when: Spool checks use an isolated file and remove it. The export contains no credentials, database URL, or filesystem paths.","","2h 15m"
+"2026-11-16","Task","LD-1-T03","Data Mover: Run saved connection and catalog checks","","CDO-5031","Reuse owner-scoped connection tests and catalog services with fresh metadata where applicable. Distinguish Databricks management API access from SQL readiness.
+
+Done when: Configured, missing, disabled, authentication-failed, and compute-not-ready cases show distinct outcomes. Read-only checks perform no provider writes or compute starts.","","3h 15m"
+"2026-11-16","Task","LD-1-T04","Data Mover: Add connection check progress and history","","CDO-5031","Present individual check results and previous suite outcomes in the admin page using the persisted suite records.
+
+Done when: The administrator can leave and reopen the page and inspect the result of each selected check.","","2h 15m"
+"2026-11-16","Story","LD-2","Data Mover: Durable diagnostic execution","","CDO-5030","As an administrator, I want suites to survive refreshes and restarts so I can return to an accurate result and avoid duplicate transfers.
+
+Rollout: 1–2 · Connection and transfer checks
+Dependencies: None","- Migration preserves ordinary pipelines. Diagnostic definitions are identifiable and hidden from ordinary saved routes.
+- Multiple app processes enforce one active suite and one active diagnostic transfer per suite. Waiting for a child does not consume a transfer slot.
+- A duplicate request or crash at the enqueue boundary results in at most one child. Existing pipeline policy and worker leases apply.
+- An ambiguous publication retains evidence, keeps the affected target blocked, and never triggers an automatic duplicate write.
+- Cleanup and publication obligations remain visible and recoverable past the normal expiry date.",""
+"2026-11-16","Task","LD-2-T01","Data Mover: Define suites, checks, and scratch resource records","","LD-2","Add an Alembic migration and domain model for suite versions, scenario snapshots, outcomes, leases, child runs, and resource identity.
+
+Done when: Migration preserves ordinary pipelines. Diagnostic definitions are identifiable and hidden from ordinary saved routes.","","3h 15m"
+"2026-11-16","Task","LD-2-T02","Data Mover: Integrate suite execution with the app runtime","","LD-2","Implement lease-based claiming, bounded deadlines and work, and independent progress when a prerequisite blocks a branch.
+
+Done when: Multiple app processes enforce one active suite and one active diagnostic transfer per suite. Waiting for a child does not consume a transfer slot.","","4h 15m"
+"2026-11-16","Task","LD-2-T03","Data Mover: Queue diagnostic child runs through the normal pipeline","","LD-2","Use existing preflight and enqueue services, stable per-case idempotency tokens, and persisted child references.
+
+Done when: A duplicate request or crash at the enqueue boundary results in at most one child. Existing pipeline policy and worker leases apply.","","3h 45m"
+"2026-11-16","Task","LD-2-T04","Data Mover: Support cancellation and restart recovery","","LD-2","Stop dispatch on cancellation, forward child cancel through ordinary controls, and reconcile interrupted writes on restart.
+
+Done when: An ambiguous publication retains evidence, keeps the affected target blocked, and never triggers an automatic duplicate write.","","3h 45m"
+"2026-11-16","Task","LD-2-T05","Data Mover: Apply diagnostic retention and recovery holds","","LD-2","Expire ordinary diagnostic results after the support window and retain unresolved scratch and child-run evidence.
+
+Done when: Cleanup and publication obligations remain visible and recoverable past the normal expiry date.","","2h 15m"
+"2026-11-16","Story","LD-3","Data Mover: Approve and isolate scratch resources","","CDO-5030","As a deployment operator, I want writes confined to approved fixtures and scratch namespaces so diagnostics can run on live connections safely.
+
+Rollout: 2 · Verified smoke transfer
+Dependencies: LD-2","- A handcrafted request cannot use an arbitrary database schema, table, Foundry folder or dataset, or Databricks workspace.
+- Rotation, deletion, or role revocation prevents new affected work, requests safe cancellation of active work, and keeps unresolved resources recorded.
+- The server binds the accepted preview to its validated inputs and detects stale selections before dispatch.
+- Cleanup removes only tracked targets with confirmed identity. Uncertain and manual cleanup have explicit statuses and recovery instructions.",""
+"2026-11-16","Task","LD-3-T01","Data Mover: Configure approved connections, fixtures, and scratch namespaces","","LD-3","Bind operator-controlled mappings to expected endpoint and resource identities. Fail closed for write suites with missing mappings.
+
+Done when: A handcrafted request cannot use an arbitrary database schema, table, Foundry folder or dataset, or Databricks workspace.","","3h 15m"
+"2026-11-16","Task","LD-3-T02","Data Mover: Bind diagnostics to the initiating administrator and credential revisions","","LD-3","Recheck role, ownership, and secret slot revision at each credential resolution, including the worker, readback, and cleanup.
+
+Done when: Rotation, deletion, or role revocation prevents new affected work, requests safe cancellation of active work, and keeps unresolved resources recorded.","","4h 15m"
+"2026-11-16","Task","LD-3-T03","Data Mover: Allocate scenario targets and preview live side effects","","LD-3","Generate unique scenario resource names and show fixture reads, scratch writes, compute consent, and cleanup behavior before starting.
+
+Done when: The server binds the accepted preview to its validated inputs and detects stale selections before dispatch.","","2h 30m"
+"2026-11-16","Task","LD-3-T04","Data Mover: Track scratch ownership and reconcile cleanup","","LD-3","Persist resource intent before creation, capture stable remote identity where available, and verify the expected resource before deleting.
+
+Done when: Cleanup removes only tracked targets with confirmed identity. Uncertain and manual cleanup have explicit statuses and recovery instructions.","","3h 45m"
+"2026-11-16","Story","LD-4","Data Mover: Copy a sanitized support report","","CDO-5030","As an administrator, I want a plain text report to share with developers so they can diagnose failures without access to NIPR.
+
+Rollout: 1 · Connection checks
+Dependencies: CDO-5031, LD-2 (suite records)","- Reports distinguish failure, blocked prerequisites, unsupported scenarios, cancellation, and reconciliation. Demo results are labeled demo.
+- Copy and manual selection return the same output. Authorized users can follow internal child-run references from the page.
+- Injected sensitive values do not appear in the export and safe references still locate the corresponding in-deployment run.",""
+"2026-11-16","Task","LD-4-T01","Data Mover: Define the versioned support report and result vocabulary","","LD-4","Define exportable fields, fixed outcome messages, and app-generated support references. Record verification, destination impact, and cleanup separately.
+
+Done when: Reports distinguish failure, blocked prerequisites, unsupported scenarios, cancellation, and reconciliation. Demo results are labeled demo.","","2h 15m"
+"2026-11-16","Task","LD-4-T02","Data Mover: Render the report preview and copy action","","LD-4","Show a previewable text export with build, suite and fixture versions, scenario, timing, stage, stable codes, and safe counts or status values.
+
+Done when: Copy and manual selection return the same output. Authorized users can follow internal child-run references from the page.","","2h 15m"
+"2026-11-16","Task","LD-4-T03","Data Mover: Verify export allowlisting and support correlation","","LD-4","Cover secret-bearing exceptions, URLs, internal identifiers, raw data, headers, SQL, and unrecognized diagnostic fields.
+
+Done when: Injected sensitive values do not appear in the export and safe references still locate the corresponding in-deployment run.","","2h 30m"
+"2026-11-16","Story","LD-5","Data Mover: Run and verify the CSV to PostgreSQL smoke transfer","","CDO-5030","As an administrator, I want to run a small real transfer and verify the resulting rows so I can distinguish connection health from a working pipeline.
+
+Rollout: 2 · Verified smoke transfer
+Dependencies: CDO-5031, LD-2, LD-3, LD-4","- The scenario aborts before writing when fixture identity or schema differs from the approved manifest.
+- An administrator can start the scenario from the mounted UI. The child run records actual stage, impact, and terminal state.
+- Correct values pass. A mismatch fails, missing read permission records incomplete verification, and a cleanup failure does not erase transfer evidence.
+- The evidence distinguishes live operator observations from isolated recovery evidence and links to the relevant support references.",""
+"2026-11-16","Task","LD-5-T01","Data Mover: Build the versioned CSV and PostgreSQL fixtures","","LD-5","Define deterministic inputs, expected rows and schemas, expected target states, and fixture version checks.
+
+Done when: The scenario aborts before writing when fixture identity or schema differs from the approved manifest.","","2h 15m"
+"2026-11-16","Task","LD-5-T02","Data Mover: Run CSV to PostgreSQL using the normal pipeline","","LD-5","Build the scratch pipeline definition, queue it with existing preflight and worker services, and show progress and worker claim.
+
+Done when: An administrator can start the scenario from the mounted UI. The child run records actual stage, impact, and terminal state.","","2h 30m"
+"2026-11-16","Task","LD-5-T03","Data Mover: Compare PostgreSQL readback and clean up","","LD-5","Read back within fixed limits and compare typed values, counts, and schema in memory. Use the resource ledger for cleanup.
+
+Done when: Correct values pass. A mismatch fails, missing read permission records incomplete verification, and a cleanup failure does not erase transfer evidence.","","3h 15m"
+"2026-11-16","Task","LD-5-T04","Data Mover: Prove the smoke path and recovery on Connect","","LD-5","Run the fixture with operator-approved credentials and record sanitized evidence for start, reopen, cancel, and restart. Use isolated fault injection for an uncertain write.
+
+Done when: The evidence distinguishes live operator observations from isolated recovery evidence and links to the relevant support references.","","2h 30m"
+"2026-11-16","Story","LD-6","Data Mover: Expand route and write mode coverage","","CDO-5030","As an administrator, I want to exercise each available direction and write policy so I can isolate provider-specific incompatibilities.
+
+Rollout: 3 · Full coverage
+Dependencies: LD-5","- CSV has no destination cells. Same-provider cases use distinct objects. Disabled, missing, and unsupported combinations remain visible with reasons.
+- Each mode has a distinct expected destination state that detects wrong content, duplicates, or unchanged rows.
+- Replacement preserves a sibling fixture file. Creation follows existing writer and credential checks. Undeletable objects show manual cleanup.
+- Metadata, writer, and startup gates remain authoritative. Existing compute and publication paths supply readiness and reconciliation evidence.
+- A bad fixture, stale schema, missing permission, or disabled writer is localized to the affected scenarios before writes.",""
+"2026-11-16","Task","LD-6-T01","Data Mover: Generate the route and scenario matrix","","LD-6","Use registered source and writer capabilities and current gates. Plan CSV fan-out, remote sources to a reference sink, and the full directed route matrix.
+
+Done when: CSV has no destination cells. Same-provider cases use distinct objects. Disabled, missing, and unsupported combinations remain visible with reasons.","","2h 30m"
+"2026-11-16","Task","LD-6-T02","Data Mover: Cover PostgreSQL write modes","","LD-6","Seed scratch state for create, append, upsert update and ignore, compatible replace, and schema recreation.
+
+Done when: Each mode has a distinct expected destination state that detects wrong content, duplicates, or unchanged rows.","","3h 15m"
+"2026-11-16","Task","LD-6-T03","Data Mover: Cover MSS and MCS-COP scratch writes","","LD-6","Set up per-provider Foundry file replace, committed readback, and optional dataset creation in approved folders.
+
+Done when: Replacement preserves a sibling fixture file. Creation follows existing writer and credential checks. Undeletable objects show manual cleanup.","","4h 15m"
+"2026-11-16","Task","LD-6-T04","Data Mover: Cover Databricks Delta and compute scenarios","","LD-6","Exercise create, append, replace, approved staging, and optional consented startup on diagnostic compute.
+
+Done when: Metadata, writer, and startup gates remain authoritative. Existing compute and publication paths supply readiness and reconciliation evidence.","","4h 45m"
+"2026-11-16","Task","LD-6-T05","Data Mover: Package remote source fixtures and provider preflight","","LD-6","Provide setup and expected schema for each remote fixture and run source and destination preflight against its live identity.
+
+Done when: A bad fixture, stale schema, missing permission, or disabled writer is localized to the affected scenarios before writes.","","3h 15m"
+"2026-11-16","Story","LD-7","Data Mover: Verify data integrity and guardrail behavior","","CDO-5030","As an administrator, I want synthetic cases to prove data integrity and review behavior so a successful row count cannot hide a bad transfer.
+
+Rollout: 3 · Full coverage
+Dependencies: LD-5, LD-6","- Readback comparison detects rounding, timezone drift, invalid casts, and missing batches within provider-specific type contracts.
+- Expected empty input is distinguished from unsupported or missing files, and destination schema and rows match the scenario.
+- Expected blocks pass only with the right reason and unchanged destination. Allowed runs confirm the expected transformed output without reporting raw values.
+- The result proves whether the boundary was reached and captures the resulting destination impact and cleanup.",""
+"2026-11-16","Task","LD-7-T01","Data Mover: Exercise scalar types and batch boundaries","","LD-7","Cover CSV parsing, reviewed casts, exact integers and Decimals, naive and aware timestamps, nulls, and multiple batches.
+
+Done when: Readback comparison detects rounding, timezone drift, invalid casts, and missing batches within provider-specific type contracts.","","3h 15m"
+"2026-11-16","Task","LD-7-T02","Data Mover: Exercise schema-bearing empty sources","","LD-7","Run supported zero-row CSV and Foundry fixtures with known schemas.
+
+Done when: Expected empty input is distinguished from unsupported or missing files, and destination schema and rows match the scenario.","","1h 15m"
+"2026-11-16","Task","LD-7-T03","Data Mover: Exercise sensitivity review, Hash, and Remove","","LD-7","Use approved synthetic marked fixtures and existing reviews. Cover expected blocks and separate Hash and Remove cases.
+
+Done when: Expected blocks pass only with the right reason and unchanged destination. Allowed runs confirm the expected transformed output without reporting raw values.","","4h 15m"
+"2026-11-16","Task","LD-7-T04","Data Mover: Exercise opt-in live cancellation","","LD-7","Use an observable safe cancellation boundary with a diagnostic scratch target.
+
+Done when: The result proves whether the boundary was reached and captures the resulting destination impact and cleanup.","","2h 15m"
+"2026-11-16","Story","LD-8","Data Mover: Verify release behavior and document operations","","CDO-5030","As a maintainer, I want repeatable local coverage and live Connect evidence so I can tell which deployment paths are proven.
+
+Rollout: 1–3 · Release acceptance
+Dependencies: CDO-5031, LD-2–LD-7, by release phase","- CI uses synthetic credentials and fixtures and catches unsafe target and report regressions.
+- Acceptance evidence confirms no duplicate publish and retention of outstanding obligations.
+- An operator can configure the feature, interpret a blocked case, and match a support reference to internal evidence.
+- Each live claim links to an operator-run report. Local emulator results and unavailable provider scenarios remain distinguishable.",""
+"2026-11-16","Task","LD-8-T01","Data Mover: Add CI coverage for admission, isolation, and export","","LD-8","Cover role and owner access, mounted routes, stale credentials, scratch escape attempts, and untrusted report fields.
+
+Done when: CI uses synthetic credentials and fixtures and catches unsafe target and report regressions.","","3h 15m"
+"2026-11-16","Task","LD-8-T02","Data Mover: Add controlled failure and concurrency coverage","","LD-8","Exercise duplicate submissions, recovery across restarts, missing publication acknowledgements, concurrent leases, and failed cleanup with local or isolated infrastructure.
+
+Done when: Acceptance evidence confirms no duplicate publish and retention of outstanding obligations.","","3h 45m"
+"2026-11-16","Task","LD-8-T03","Data Mover: Write the Connect operator and support runbook","","LD-8","Document scratch setup, minimal permissions, fixture installation, gates, cancellation, cleanup, reconciliation, and safe report sharing.
+
+Done when: An operator can configure the feature, interpret a blocked case, and match a support reference to internal evidence.","","2h 15m"
+"2026-11-16","Task","LD-8-T04","Data Mover: Record phased Connect acceptance evidence","","LD-8","Run read-only checks and the configured full coverage matrix with approved fixtures, recording supported, blocked, and untested scenarios.
+
+Done when: Each live claim links to an operator-run report. Local emulator results and unavailable provider scenarios remain distinguishable.","","3h 15m"

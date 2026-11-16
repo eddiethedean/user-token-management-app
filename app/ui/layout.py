@@ -337,6 +337,7 @@ def side_nav_children(request: Request, auth: AuthContext) -> list[NodeLike]:
             NavGroup(
                 "Administration",
                 link("/admin/users", "Team", icon="team"),
+                link("/admin/diagnostics", "Diagnostics", icon="activity"),
                 link("/admin/audit", "Audit log", icon="activity"),
                 class_="data-mover-nav-group",
             )
@@ -444,17 +445,17 @@ def app_shell(
         aria={"label": f"{settings.app_name} account"},
         class_="data-mover-brand",
     )
-    cdao_identity = Inline(
+    csio_identity = Inline(
         html.span(
             Image(
-                asset_src(request, "/assets/brand/cdao-mark.png?v=1"),
-                alt="Chief Digital and Artificial Intelligence Office",
+                asset_src(request, "/assets/brand/csio-mark.png?v=1"),
+                alt="CSIO",
                 width=18,
                 height=26,
             ),
-            class_="data-mover-cdao-mark",
+            class_="data-mover-csio-mark",
         ),
-        Text("CDAO", as_="strong", role="caption", effect="subtle"),
+        Text("CSIO", as_="strong", role="caption", effect="subtle"),
         gap="xs",
     )
     runtime = runtime_presentation(settings)
@@ -489,7 +490,7 @@ def app_shell(
                                 ),
                             ),
                             panel_id="main-content",
-                            brand=Container(Inline(brand, cdao_identity, gap="lg"), padding="sm"),
+                            brand=Container(Inline(brand, csio_identity, gap="lg"), padding="sm"),
                             account=(
                                 Inline(
                                     transfer_mode_badge,
@@ -556,7 +557,7 @@ def app_shell(
                     ActionGroup(
                         brand,
                         Inline(
-                            cdao_identity,
+                            csio_identity,
                             environment_badge if auth_presentation != "login" else None,
                             transfer_mode_badge,
                             gap="sm",

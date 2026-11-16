@@ -173,7 +173,7 @@ notes that not-found responses can also mean the token lacks dataset or branch a
 
 ![Actual Data Mover credential screen with MSS and MCS-COP forms in the top row](../screenshots/connection-credentials.jpg)
 
-*October 21, 2026 offline-demo capture, version `211026.0`, with synthetic credentials.
+*November 16, 2026 offline-demo capture, version `271026.0`, with synthetic credentials.
 See the [capture gallery and manifest](../screenshots/README.md). This shows the form layout,
 not a live Foundry authentication test.*
 

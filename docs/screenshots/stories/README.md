@@ -1,7 +1,7 @@
 # Guardrail story screenshot evidence
 
-Refreshed October 21, 2026 against the current desktop UI based on `9e518e3`.
-Application version: `211026.0`. Exact capture time, visible panel text, selected
+Refreshed November 16, 2026 against the current desktop UI from the working tree.
+Application version: `271026.0`. Exact capture time, visible panel text, selected
 controls, viewport, and image SHA-256 hashes are in [capture-manifest.json](capture-manifest.json).
 The broader [desktop gallery](../README.md) includes both Folio color modes and Databricks demo views.
 

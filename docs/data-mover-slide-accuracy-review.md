@@ -19,7 +19,7 @@ The availability line reads “In Development” with “NIPR & SIPR”; its low
 
 | Text or claim | Assessment |
 |---|---|
-| Title, USSOCOM CDAO branding, and “Accelerate the SOF Decision Advantage” | Faithfully transcribed. The slogan expresses intent; it is not a measured outcome. |
+| Title, USSOCOM CSIO branding, and “Accelerate the SOF Decision Advantage” | Faithfully transcribed. The slogan expresses intent; it is not a measured outcome. |
 | “DART” | The slides use this name; the repository calls the application Data Mover. Define DART and explain its relationship to Data Mover before using both names. |
 | “Access, Refine, and Transport Data in a Secure Environment” | Access and transfer workflows exist, including explicit column type casts. General data refinement and governed validation are not established by this heading; the broader validation/transformation design is future work. |
 | “Omnidirectional,” “bi-directional,” and “multi-directional” mobility | Supported for configured routes among PostgreSQL, MSS, and MCS-COP. These are separate source-to-destination transfer runs; they do not establish an automatic bidirectional synchronization service. “Any” must be limited to supported providers, compatible objects, enabled writers, and the user's permissions. |
@@ -47,7 +47,7 @@ Each integration-table row was checked independently:
 
 | Slide row | Current evidence and correction needed |
 |---|---|
-| War Data Platform (WDP / Advana), Source & Destination, Confirmed | No current adapter here; Advana is explicitly outside current scope. The official CDAO site uses the WDP name, but that does not validate this app's integration or establish WDP/Advana as interchangeable endpoint names. Confirm the intended platform and retain “Confirmed” only with evidence for both directions. [CDAO leadership](https://www.ai.mil/Leadership/). |
+| War Data Platform (WDP / Advana), Source & Destination, Confirmed | No current adapter here; Advana is explicitly outside current scope. The official CSIO site uses the WDP name, but that does not validate this app's integration or establish WDP/Advana as interchangeable endpoint names. Confirm the intended platform and retain “Confirmed” only with evidence for both directions. [CSIO leadership](https://www.ai.mil/Leadership/). |
 | SOCOM On-Premise PostgreSQL, Source & Destination, Confirmed | Generic PostgreSQL reads and writes are implemented. Access to a specific SOCOM deployment still requires a dated operational validation. |
 | Maven Smart Systems (MSS), Source & Destination, Confirmed | MSS reads and writes are implemented. The official product name is **Maven Smart System**, singular; the plural is a slide wording error. Operational confirmation still requires evidence. [Official contract announcement](https://www.war.gov/News/Contracts/Contract/Article/4194643/contracts-for-may-21-2025/). |
 | MCS-COP, Source & Destination, Confirmed | Reads and writes are implemented; a successful operational demonstration is a separate claim. |

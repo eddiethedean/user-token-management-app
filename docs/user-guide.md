@@ -164,8 +164,9 @@ uses a password and has no API-token expiry display.
 
 ![Actual demo connection status with approaching and passed expiry warnings](screenshots/token-expiry-status.png)
 
-*October 22, 2026 capture with synthetic credentials and user-supplied dates. The health checks
-are emulated; the warnings illustrate saved dates and do not verify real token validity.*
+*November 16, 2026 capture with synthetic credentials and user-supplied dates. At capture, the
+MSS date was within seven days and the MCS-COP date had passed. Health checks are emulated; the
+warnings illustrate saved dates and do not verify real token validity.*
 
 ## Build a pipeline
 

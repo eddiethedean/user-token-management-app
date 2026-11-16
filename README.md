@@ -70,14 +70,14 @@ configured providers.
 
 ## Screenshots
 
-Captured October 21, 2026 from the current Folio desktop UI in an isolated local demo. All four
+Captured November 16, 2026 from the current Folio desktop UI in an isolated local demo. All four
 connections use synthetic credentials and local emulators; no remote endpoints were contacted.
 The [screenshot gallery](docs/screenshots/README.md) includes matching light and dark views,
-focused transfer panels, and capture/reproduction details.
+focused transfer panels, live diagnostics, and capture/reproduction details.
 
 ### Sign in
 
-![Dark Data Mover sign-in screen with Data Mover and CDAO branding, demo notice, and account access form](docs/screenshots/login.jpg)
+![Dark Data Mover sign-in screen with Data Mover and CSIO branding, demo notice, and account access form](docs/screenshots/login.jpg)
 
 The sign-in screen introduces the transfer workspace, identifies the demo environment, and keeps
 account access and recovery actions together. [Light-mode view](docs/screenshots/login-light.jpg).
@@ -103,7 +103,7 @@ lifecycle in both modes.
 
 ![Dark Pipeline route setup with expanded desktop navigation and PostgreSQL-to-Databricks selectors](docs/screenshots/navigation-expanded.jpg)
 
-The desktop navigation gives access to Pipeline, Connections, Account, Team, and Audit log.
+The desktop navigation gives access to Pipeline, Connections, Account, Team, Diagnostics, and Audit log.
 Hedron owns its collapse behavior. Pipeline tabs separate route setup, live monitoring, and saved
 routes; the schema tab previews the target before a transfer creates or changes it.
 
@@ -121,6 +121,14 @@ replace. Live Databricks transfers require explicit metadata visibility verifica
 permissions, startup consent, and runtime checks still apply. The demo is not evidence of live
 workspace acceptance. CSV is source-only.
 [Light-mode status](docs/screenshots/connections-status-light.jpg).
+
+### Live diagnostics
+
+![Administrator live diagnostics page before any checks have been run](docs/screenshots/live-diagnostics.jpg)
+
+Administrators can run a deployment-scoped readiness report from the app. The screenshot is the
+isolated demo setup screen before checks start; it does not show a live provider test.
+[Light-mode view](docs/screenshots/live-diagnostics-light.jpg).
 
 ### Audit activity
 

@@ -290,7 +290,7 @@ def test_app_login_page_under_session_mount(workbench_stack) -> None:
     assert (
         'src="/s/docker-session/p/8000/assets/brand/data-mover-mark-dark.png?v=1"' in response.text
     )
-    assert 'src="/s/docker-session/p/8000/assets/brand/cdao-mark.png?v=1"' in response.text
+    assert 'src="/s/docker-session/p/8000/assets/brand/csio-mark.png?v=1"' in response.text
     assert "/s/docker-session/p/8000/hedron-static/" in response.text
     cookie = response.headers.get("set-cookie", "")
     assert "Path=/s/docker-session/p/8000" in cookie
@@ -317,7 +317,7 @@ def test_app_mounted_assets_include_brand_images(workbench_stack) -> None:
         "data-mover-mark.png",
         "data-mover-mark-light.png",
         "data-mover-mark-dark.png",
-        "cdao-mark.png",
+        "csio-mark.png",
     ):
         image = httpx2.get(
             f"{workbench_stack['app']}/s/docker-session/p/8000/assets/brand/{asset_name}?v=1",

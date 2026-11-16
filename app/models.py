@@ -17,6 +17,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -189,6 +190,38 @@ class AuditEvent(Base):
 
     actor: Mapped[User | None] = relationship(foreign_keys=[actor_user_id])
     target: Mapped[User | None] = relationship(foreign_keys=[target_user_id])
+
+
+class LiveDiagnosticRun(Base):
+    """Owner-scoped history for an administrator's live connection checks."""
+
+    __tablename__ = "live_diagnostic_runs"
+    __table_args__ = (
+        Index("ix_live_diagnostic_runs_owner_created", "user_id", "created_at"),
+        Index(
+            "uq_live_diagnostic_runs_one_active_per_user",
+            "user_id",
+            unique=True,
+            sqlite_where=text("status IN ('queued', 'running')"),
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    app_version: Mapped[str] = mapped_column(String(32), default="")
+    status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
+    worker_token: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    mode: Mapped[str] = mapped_column(String(16), default="live")
+    checks_json: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped[User] = relationship()
 
 
 class EmailOutbox(Base):

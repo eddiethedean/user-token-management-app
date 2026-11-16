@@ -214,6 +214,95 @@ document.addEventListener("htmx:afterSettle", () => {
   syncPipelineEditor();
 });
 
+document.addEventListener("submit", (event) => {
+  const form = event.target.closest?.('form[data-diagnostic-run-form="true"]');
+  const button = form?.querySelector("[data-diagnostic-run-submit]");
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  button.textContent = "Starting connection checks…";
+});
+
+let announcedDiagnosticMessage = null;
+function syncDiagnosticAnnouncement(overview, { announceInitial = false } = {}) {
+  if (!overview) return;
+  const message = overview.dataset.announcement || "";
+  const announcement = document.getElementById("diagnostic-announcement");
+  if (!announcement || !message) return;
+  if (announcedDiagnosticMessage === message) return;
+  announcedDiagnosticMessage = message;
+  if (announceInitial || overview.dataset.status !== "queued") {
+    if (announcement.textContent !== message) announcement.textContent = message;
+  }
+}
+
+function initializeDiagnosticAnnouncements() {
+  syncDiagnosticAnnouncement(document.getElementById("diagnostic-run"), {
+    announceInitial: true,
+  });
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initializeDiagnosticAnnouncements, { once: true });
+} else {
+  initializeDiagnosticAnnouncements();
+}
+
+document.addEventListener("htmx:afterSettle", () => {
+  syncDiagnosticAnnouncement(document.getElementById("diagnostic-run"));
+});
+
+let diagnosticControlHadFocus = false;
+document.addEventListener("htmx:beforeRequest", (event) => {
+  if (event.detail.elt?.id !== "diagnostic-run-control") return;
+  diagnosticControlHadFocus = event.detail.elt.contains(document.activeElement);
+});
+
+document.addEventListener("htmx:afterRequest", (event) => {
+  if (event.detail.elt?.id === "diagnostic-run-control" && event.detail.xhr.status === 204) {
+    diagnosticControlHadFocus = false;
+  }
+});
+
+document.addEventListener("htmx:afterSettle", (event) => {
+  if (
+    event.detail.elt?.id !== "diagnostic-run-control" ||
+    !diagnosticControlHadFocus
+  ) return;
+  diagnosticControlHadFocus = false;
+  const control = document.getElementById("diagnostic-run-control");
+  requestAnimationFrame(() => {
+    const enabledButton = control?.querySelector(
+      "[data-diagnostic-run-submit]:not(:disabled)",
+    );
+    if (enabledButton) enabledButton.focus();
+    else control?.querySelector("a")?.focus();
+  });
+});
+
+document.addEventListener("click", async (event) => {
+  const button = event.target.closest?.('[data-diagnostic-copy="true"]');
+  if (!button) return;
+  const report = button.dataset.report || "";
+  const announcement = document.getElementById("diagnostic-announcement");
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error("Clipboard access unavailable");
+    await navigator.clipboard.writeText(report);
+    button.textContent = "Report copied";
+    if (announcement) announcement.textContent = "Readiness report copied to the clipboard.";
+  } catch {
+    const container = document.getElementById("diagnostic-report-fallback-container");
+    const textarea = document.getElementById("diagnostic-report-fallback");
+    if (!container || !textarea) return;
+    textarea.value = report;
+    container.hidden = false;
+    textarea.focus();
+    textarea.select();
+    if (announcement) {
+      announcement.textContent = "Clipboard access is unavailable. The report text is selected below for manual copying.";
+    }
+  }
+});
+
 document.addEventListener("htmx:oobAfterSwap", () => {
   syncNewDestinationName();
   syncPipelineEditor();

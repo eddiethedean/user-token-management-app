@@ -49,7 +49,7 @@ The preview scan helps the owner make a decision. The worker performs its own fu
 - Saved Hash/Remove choices remain active for columns still present in the source, even if the latest scan or metadata refresh no longer flags them. Destination preflight projects those same saved policies; the worker performs the full content scan.
 - Decisions preserve exact inspected column names, including surrounding spaces. Blank names, names over 256 characters, and ASCII control characters are unsupported. New CSV uploads reject control characters in headers with instructions to rename and re-upload; generated content-scan findings with unsupported names return safe HTTP 422 preview feedback.
 - Run review stores detector, source, column or table, count, action, outcome, scan totals, and blocked reason as applicable. It excludes matched values.
-- Screenshots on these pages were refreshed on October 6, 2026 using a fresh, isolated demo workspace. Foundry markers are supplied by the local emulator's inspection and refresh paths; CSV contents are synthetic. The [capture guide](../screenshots/stories/README.md) records fixtures, reproduction commands, and each image's scope. Automated verification is mapped in the [acceptance audit](../plans/open-guardrail-issue-acceptance.md).
+- Screenshots on these pages were refreshed on November 16, 2026 using a fresh, isolated demo workspace. Foundry markers are supplied by the local emulator's inspection and refresh paths; CSV contents are synthetic. The [capture guide](../screenshots/stories/README.md) records fixtures, reproduction commands, and each image's scope. Automated verification is mapped in the [acceptance audit](../plans/open-guardrail-issue-acceptance.md).
 
 ## Screenshots
 

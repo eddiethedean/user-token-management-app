@@ -34,7 +34,7 @@ from app.connectors.base import (
     map_http_status,
 )
 from app.connectors.csv_source import profiled_polars_type
-from app.connectors.errors import ConnectorError, TransferErrorCode
+from app.connectors.errors import ConnectorError, DiagnosticConnectorError, TransferErrorCode
 from app.connectors.locators import (
     FoundryDatasetFilesLocator,
     FoundryUploadLocator,
@@ -1089,19 +1089,54 @@ class FoundryConnector:
                     message="Provide a default dataset RID to verify Foundry access.",
                     latency_ms=0,
                 )
-            branch, files = client.resolve_branch(rid)
-            api_version = client.dataset_files_api_version
-            api_label = f" · Files API v{api_version}" if api_version is not None else ""
-            message = f"Authenticated · branch {branch} · {len(files)} files{api_label}"
-            return ConnectionHealth(status="connected", message=message, latency_ms=1)
-        except ConnectorError as exc:
-            if exc.code == TransferErrorCode.SOURCE_NOT_FOUND:
+            try:
+                branch, files = client.resolve_branch(rid)
+            except ConnectorError as exc:
+                if exc.code != TransferErrorCode.SOURCE_NOT_FOUND:
+                    raise
                 return ConnectionHealth(
                     status="connected",
                     message="Authenticated. Default dataset was not found.",
                     latency_ms=1,
                 )
-            raise
+            api_version = client.dataset_files_api_version
+            api_label = f" · Files API v{api_version}" if api_version is not None else ""
+            message = f"Authenticated · branch {branch} · {len(files)} files{api_label}"
+            return ConnectionHealth(status="connected", message=message, latency_ms=1)
+        finally:
+            client.close()
+
+    def test_diagnostic_connection(self, credentials) -> ConnectionHealth:
+        """Check one exact default dataset page for the administrator diagnostic run."""
+        client = self._client(credentials)
+        try:
+            rid = client.default_rid.strip()
+            if not rid:
+                raise DiagnosticConnectorError(
+                    TransferErrorCode.SOURCE_NOT_FOUND,
+                    "The saved Foundry connection has no default dataset.",
+                    diagnostic_code="default_dataset_not_configured",
+                    retryable=False,
+                )
+            branch = client.default_branch
+            payload = client.list_files(rid, branch)
+            if (
+                not isinstance(payload, dict)
+                or "data" not in payload
+                or not isinstance(payload["data"], list)
+            ):
+                raise ConnectorError(
+                    TransferErrorCode.PROVIDER_UNAVAILABLE,
+                    "Foundry returned an invalid file listing.",
+                )
+            files = payload["data"]
+            api_version = client.dataset_files_api_version
+            api_label = f" · Files API v{api_version}" if api_version is not None else ""
+            return ConnectionHealth(
+                status="connected",
+                message=f"Authenticated · branch {branch} · {len(files)} files{api_label}",
+                latency_ms=1,
+            )
         finally:
             client.close()
 

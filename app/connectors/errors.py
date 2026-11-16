@@ -65,3 +65,18 @@ class ConnectorError(Exception):
 
     def __str__(self) -> str:
         return self.summary
+
+
+class DiagnosticConnectorError(ConnectorError):
+    """A provider error with a safe, diagnostic-only report code."""
+
+    def __init__(
+        self,
+        code: TransferErrorCode,
+        summary: str,
+        *,
+        diagnostic_code: str,
+        retryable: bool | None = None,
+    ) -> None:
+        super().__init__(code, summary, retryable=retryable)
+        self.diagnostic_code = diagnostic_code

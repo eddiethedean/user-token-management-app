@@ -163,6 +163,8 @@ async function main() {
       await page.goto(`${base}/admin/audit?event_type=pipeline.run.completed&outcome=success`);
       await page.locator('#audit-results-region').waitFor();
       await capture(`audit-activity${suffix}.jpg`, `${mode}; filtered successful pipeline completion audit`);
+      await page.goto(`${base}/admin/diagnostics`);
+      await capture(`live-diagnostics${suffix}.jpg`, `${mode}; administrator diagnostics page ready; no checks started`);
     }
     if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`);
     fs.writeFileSync(path.join(output, 'capture-manifest.json'), JSON.stringify({

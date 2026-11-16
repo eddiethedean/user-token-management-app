@@ -2,7 +2,7 @@
 
 Editable yellow-banded poison dart frog artwork reconstructed from the flat logo-system preview. All four source SVGs contain actual vector paths, with no embedded PNGs, scripts, fonts, external images, or network dependencies. The earlier glossy concept is not the vector master.
 
-This is an additive asset kit. The existing Data Mover/CDAO assets and application UI are unchanged.
+This is an additive asset kit. The existing Data Mover/CSIO assets and application UI are unchanged.
 
 ## Source assets
 

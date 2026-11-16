@@ -165,7 +165,7 @@ one before selecting a schema and table in Pipeline.
 
 ![Actual Data Mover credential screen, with the PostgreSQL form below the Foundry cards](../screenshots/connection-credentials.jpg)
 
-*October 21, 2026 offline-demo capture, version `211026.0`, with synthetic credentials.
+*November 16, 2026 offline-demo capture, version `271026.0`, with synthetic credentials.
 See the [capture gallery and manifest](../screenshots/README.md). This is a form-layout reference,
 not evidence of a live PostgreSQL login.*
 

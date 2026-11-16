@@ -100,8 +100,8 @@ def test_login_page_document(access_app) -> None:
     assert_html_contains(response, 'src="/assets/brand/data-mover-mark-dark.png?v=1"')
     assert_html_contains(response, 'class="hedron-brand data-mover-brand"')
     assert_html_contains(response, 'width="36"')
-    assert_html_contains(response, 'src="/assets/brand/cdao-mark.png?v=1"')
-    assert_html_contains(response, "Chief Digital and Artificial Intelligence Office")
+    assert_html_contains(response, 'src="/assets/brand/csio-mark.png?v=1"')
+    assert_html_contains(response, "CSIO")
     assert_html_contains(response, 'data-hedron-max-width="lg"')
     assert_html_contains(response, "data-mover-login-illustration")
     assert_html_contains(response, "From source to destination. One controlled workflow.")
@@ -299,7 +299,7 @@ def test_brand_images_are_valid_png_responses(client) -> None:
         "/assets/brand/data-mover-mark.png?v=1",
         "/assets/brand/data-mover-mark-light.png?v=1",
         "/assets/brand/data-mover-mark-dark.png?v=1",
-        "/assets/brand/cdao-mark.png?v=1",
+        "/assets/brand/csio-mark.png?v=1",
     ):
         response = client.get(asset_path)
         assert response.status_code == 200
@@ -907,6 +907,7 @@ def test_authenticated_shell_has_main_panel_and_toast_host(page) -> None:
     assert_html_contains(profile, 'data-hedron-icon="data-mover-account"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-team"')
     assert_html_contains(profile, 'data-hedron-icon="data-mover-activity"')
+    assert_html_contains(profile, "Diagnostics")
     assert "01 · Pipeline" not in profile.body
     assert "02 · Connections" not in profile.body
     assert "03 · Account" not in profile.body
@@ -941,9 +942,9 @@ def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
         route for route in get_registry().routes() if route.module.startswith("app.ui.routes")
     ]
     assert Counter(route.kind for route in routes) == {
-        "page": 12,
-        "action": 30,
-        "view": 4,
+        "page": 14,
+        "action": 31,
+        "view": 6,
     }
     assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)
     assert all("csrf" in route.htmx_inference for route in routes if route.kind == "action")

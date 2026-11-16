@@ -29,6 +29,31 @@ SIDE_NAV = FragmentRegion(
     selector="#side-nav",
     description="Account side navigation",
 )
+DIAGNOSTIC_RUN = FragmentRegion(
+    id="diagnostic-run",
+    selector="#diagnostic-run",
+    description="Live connection diagnostic overview",
+)
+DIAGNOSTIC_HISTORY = FragmentRegion(
+    id="diagnostic-history",
+    selector="#diagnostic-history",
+    description="Recent live connection diagnostic runs",
+)
+DIAGNOSTIC_CHECKS = FragmentRegion(
+    id="diagnostic-checks",
+    selector="#diagnostic-checks",
+    description="Live connection diagnostic check results",
+)
+DIAGNOSTIC_CONTROL = FragmentRegion(
+    id="diagnostic-run-control",
+    selector="#diagnostic-run-control",
+    description="Start or running state of live connection diagnostics",
+)
+DIAGNOSTIC_ANNOUNCEMENT = FragmentRegion(
+    id="diagnostic-announcement",
+    selector="#diagnostic-announcement",
+    description="Live status announcements for diagnostic runs",
+)
 DIALOG_HOST = FragmentRegion(
     id="dialog-host",
     selector="#dialog-host",

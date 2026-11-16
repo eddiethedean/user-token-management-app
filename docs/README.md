@@ -17,6 +17,7 @@ the work you need to do, then use the maintainer guide for the detailed rules.
 | Change authentication or secrets | [Authentication modes](auth-modes.md) | [Security gate](../SECURITY.md), [Configuration reference](configuration.md) |
 | Change the database schema | [Migration guide](../migrations/README.md) | [Deployment guide](deploy.md), [Troubleshooting](troubleshooting.md) |
 | Operate or recover transfers | [Pipeline runbook](runbooks/pipeline-worker.md) | [Data pipeline lifecycle](data-pipelines.md), [Troubleshooting](troubleshooting.md) |
+| Check data connections from Posit Connect | [Live diagnostics epic](stories/live-deployment-diagnostics-epic.md) | [Admin connection checks](stories/live-deployment-diagnostics-admin-access-and-live-connection-checks.md), [implementation plan](plans/live-deployment-diagnostics.md) |
 | Understand the Hedron integration | [Hedron guide](hedron.md) | [Stability contract](api/STABILITY.md), [Upgrade guide](guides/upgrade.md) |
 | Review the current desktop UI | [Screenshot gallery](screenshots/README.md) | [User guide](user-guide.md), [Guardrail screenshots](screenshots/stories/README.md) |
 | Review roadmap or release history | [Plans index](plans/README.md) | [Release index](releases/README.md), [Changelog](../CHANGELOG.md) |
@@ -84,9 +85,9 @@ are documented in the [maintainer guide](maintainer-guide.md#testing-and-ci).
 
 ## Current UI and provider baseline
 
-The October 21, 2026 documentation refresh covers the four-provider offline demo, the native
-Hedron transfer panel, loading-only packet motion, light/dark desktop views, and stable built-in
-Delta demo identities across restarts. Databricks connections and compute controls default to
+The November 16, 2026 screenshot refresh covers the CSIO-branded desktop shell, administrator
+live-diagnostics page, four-provider offline demo, native Hedron transfer panel, loading-only packet
+motion, and light/dark desktop views. Databricks connections and compute controls default to
 enabled; live transfers require explicit metadata visibility verification. See the
 [operator guide](providers/databricks.md). Historical release and QA evidence keeps
 its original dates and test results.
@@ -107,7 +108,7 @@ The latest implementation contracts are documented with their owning evidence:
 | Exact integer/Decimal and timestamp semantics | [PostgreSQL](providers/postgres.md), [Databricks](providers/databricks.md#writer-behavior-and-recovery) | `app/connectors/postgres.py`, `app/connectors/databricks.py`, their connector tests |
 | CSV time normalization, exact multi-batch Decimals, and empty Foundry files | [CSV guide](user-guide.md#upload-and-inspect-a-csv), [Foundry read contract](providers/mss.md#read-contract) | `app/domain/csv_inference.py`, `app/connectors/csv_source.py`, `app/connectors/foundry.py`, connector/runtime tests |
 | Recovery evidence retained beyond ordinary expiry | [Runtime runbook](runbooks/pipeline-worker.md#logs) | `app/services/pipeline_runs.py::janitor`, `tests/test_pipeline_runs.py` |
-| Schema head and upgrade | [Migration guide](../migrations/README.md) | Revisions through `0027_queue_notifications`, `tests/test_schema_defaults.py` |
+| Schema head and upgrade | [Migration guide](../migrations/README.md) | Revisions through `0028_live_diagnostic_runs`, `tests/test_schema_defaults.py` |
 
 Documentation validation uses `make docs-check` and the existing documentation/deployment-guidance
 tests. Security references have individual review dates in [SECURITY.md](../SECURITY.md#evidence-and-claim-discipline).

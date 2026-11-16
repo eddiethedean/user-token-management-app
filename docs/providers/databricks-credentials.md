@@ -193,7 +193,7 @@ compute may incur charges; Data Mover does not stop it. See [startup behavior](d
 
 ![Actual Data Mover Connections credential screen, with the Databricks form at the bottom](../screenshots/connection-credentials.jpg)
 
-*Existing October 21, 2026 offline-demo capture, version `211026.0`; synthetic credentials only.
+*November 16, 2026 offline-demo capture, version `271026.0`; synthetic credentials only.
 See the [capture gallery and manifest](../screenshots/README.md) for provenance. This shows the
 form layout, not evidence of a live Databricks connection.*
 

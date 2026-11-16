@@ -1079,6 +1079,108 @@ def test_foundry_health_without_rid_is_untested(foundry_sim, tmp_path) -> None:
     assert namespaces == []
 
 
+def test_foundry_connection_test_preserves_not_found_health_behavior(tmp_path, monkeypatch) -> None:
+    class MissingDatasetClient:
+        default_rid = DATASET
+
+        def resolve_branch(self, dataset_rid):
+            assert dataset_rid == DATASET
+            raise ConnectorError(
+                TransferErrorCode.SOURCE_NOT_FOUND,
+                "synthetic missing dataset",
+                retryable=False,
+            )
+
+        def close(self):
+            pass
+
+    connector = FoundryConnector(_settings(tmp_path))
+    client = MissingDatasetClient()
+    monkeypatch.setattr(connector, "_client", lambda _credentials: client)
+
+    health = connector.test_connection({"endpoint": "https://foundry.example", "token": TOKEN})
+
+    assert health.status == "connected"
+    assert health.message == "Authenticated. Default dataset was not found."
+
+
+def test_foundry_diagnostic_connection_checks_only_the_saved_default_page(
+    tmp_path, monkeypatch
+) -> None:
+    class DatasetClient:
+        default_rid = DATASET
+        default_branch = "release"
+        dataset_files_api_version = 2
+
+        def __init__(self):
+            self.calls = []
+
+        def list_files(self, dataset_rid, branch):
+            self.calls.append((dataset_rid, branch))
+            return {"data": [{"path": "notes.csv"}], "nextPageToken": "page-2"}
+
+        def close(self):
+            pass
+
+    connector = FoundryConnector(_settings(tmp_path))
+    client = DatasetClient()
+    monkeypatch.setattr(connector, "_client", lambda _credentials: client)
+
+    health = connector.test_diagnostic_connection(
+        {"endpoint": "https://foundry.example", "token": TOKEN}
+    )
+
+    assert health.status == "connected"
+    assert client.calls == [(DATASET, "release")]
+
+
+@pytest.mark.parametrize("payload", [None, {}, {"data": None}, {"data": {}}])
+def test_foundry_diagnostic_rejects_missing_or_invalid_file_lists(
+    tmp_path, monkeypatch, payload
+) -> None:
+    class InvalidListingClient:
+        default_rid = DATASET
+        default_branch = "release"
+
+        def list_files(self, _dataset_rid, _branch):
+            return payload
+
+        def close(self):
+            pass
+
+    connector = FoundryConnector(_settings(tmp_path))
+    monkeypatch.setattr(connector, "_client", lambda _credentials: InvalidListingClient())
+
+    with pytest.raises(ConnectorError) as error:
+        connector.test_diagnostic_connection(
+            {"endpoint": "https://foundry.example", "token": TOKEN}
+        )
+
+    assert error.value.code == TransferErrorCode.PROVIDER_UNAVAILABLE
+
+
+def test_foundry_diagnostic_accepts_an_explicit_empty_file_list(tmp_path, monkeypatch) -> None:
+    class EmptyListingClient:
+        default_rid = DATASET
+        default_branch = "release"
+        dataset_files_api_version = 2
+
+        def list_files(self, _dataset_rid, _branch):
+            return {"data": []}
+
+        def close(self):
+            pass
+
+    connector = FoundryConnector(_settings(tmp_path))
+    monkeypatch.setattr(connector, "_client", lambda _credentials: EmptyListingClient())
+
+    health = connector.test_diagnostic_connection(
+        {"endpoint": "https://foundry.example", "token": TOKEN}
+    )
+
+    assert health.status == "connected"
+
+
 def test_foundry_inspects_one_small_file_and_limits_large_previews(foundry_sim, tmp_path) -> None:
     foundry_sim.files["notes.csv"] = b"event_id,service_date\n1,2026-09-23\n2,2026-09-24\n"
     connector = MssConnector(_settings(tmp_path))

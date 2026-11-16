@@ -22,6 +22,7 @@ from app.ui.layout import (
 from app.ui.params import DarkModeForm, NextForm, ThemeNameForm
 from app.ui.routes.admin import register_admin_routes
 from app.ui.routes.auth import register_auth_routes
+from app.ui.routes.diagnostics import register_diagnostics_routes
 from app.ui.routes.pipeline import register_pipeline_routes
 from app.ui.routes.profile import register_profile_routes
 from app.ui.routes.security import register_security_routes
@@ -97,4 +98,5 @@ def register_routes(
     register_profile_routes(app)
     register_security_routes(app, fragment_router)
     register_admin_routes(app, fragment_router)
+    register_diagnostics_routes(app, fragment_router)
     app.include_router(fragment_router)

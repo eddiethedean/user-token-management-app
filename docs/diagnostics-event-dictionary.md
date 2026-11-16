@@ -25,6 +25,7 @@ placeholder values.
 | `security.rate_limited` | ERROR | `event`, `outcome`, `error_code`, `reference_id`, `operation`, `retryable`, `retry_after_seconds`, `limit_dimension` | `user_id` | No |
 | `connection.test.completed` | INFO | `event`, `outcome`, `reference_id`, `provider`, `operation`, `duration_ms` | `user_id` | No |
 | `connection.test.failed` | ERROR | `event`, `outcome`, `error_code`, `reference_id`, `provider`, `operation`, `retryable`, `duration_ms` | `http_status`, `provider_correlation_id`, `sqlstate`, `exception_type`, `traceback`, `user_id` | Unexpected traces are redacted |
+| `diagnostic.check.failed` | ERROR | `event`, `outcome`, `reference_id`, `run_id`, `user_id`, `provider`, `operation`, `stage`, `error_code`, `exception_type` | None | No |
 | `connection.save.failed` | ERROR | `event`, `outcome`, `error_code`, `reference_id`, `provider`, `operation`, `exception_type` | `user_id` | No |
 | `connection.save_test.failed` | ERROR | `event`, `outcome`, `error_code`, `reference_id`, `provider`, `operation`, `exception_type` | `user_id` | No |
 | `pipeline.preflight.rejected` | ERROR | `event`, `outcome`, `error_code`, `reference_id`, `operation`, `reason_code` | None | No |

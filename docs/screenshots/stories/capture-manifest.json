@@ -1,6 +1,6 @@
 {
-  "capturedAt": "2026-10-21T19:02:22.279Z",
-  "appVersion": "211026.0",
+  "capturedAt": "2026-11-16T19:58:19.016Z",
+  "appVersion": "271026.0",
   "mode": "isolated synthetic demo, APP_ENV=test",
   "viewport": {
     "width": 1440,
@@ -116,9 +116,9 @@
     {
       "filename": "CDO-4575-run-audit.jpg",
       "state": "Audit event summary with filters, completed event, success badge, and collapsed detail control",
-      "text": "Event type\nOutcome\nApply filters\nClear\nWHEN\tEVENT\tOUTCOME\tSOURCE\tDETAIL\nOct 21\n19:02\tpipeline.run.completed\tsuccess\t—\t\nView details",
+      "text": "Event type\nOutcome\nApply filters\nClear\nWHEN\tEVENT\tOUTCOME\tSOURCE\tDETAIL\nNov 16\n19:58\tpipeline.run.completed\tsuccess\t—\t\nView details",
       "controls": [],
-      "sha256": "a8426f3e6fdf28e5e494d80d443dc4f580c68f20509a8cfe79ceec8a1cddd05f"
+      "sha256": "6dcb71d870338bdfd76f7afa4eae73df3dc818b2760a501666604ad1b90a9e2b"
     }
   ]
 }
