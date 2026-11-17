@@ -156,9 +156,10 @@ def test_idle_supervisor_stops_reading_queues_and_wakes_for_other_connection(
         )
     else:
         _run(sessions, "startup")
-    waiting = threading.Event()
+    idle_observed = threading.Event()
     processed = threading.Event()
     reads: list[str] = []
+    idle_read_counts: list[int] = []
     original_wait = QueueListener.wait
 
     def observe_reads(conn, cursor, statement, parameters, context, executemany):
@@ -166,9 +167,17 @@ def test_idle_supervisor_stops_reading_queues_and_wakes_for_other_connection(
             reads.append(statement)
 
     def wait(listener, timeout):
-        if timeout > 30:  # No work: only the hourly janitor deadline remains.
-            waiting.set()
-        return original_wait(listener, timeout)
+        if timeout <= 30 or idle_observed.is_set():
+            return original_wait(listener, timeout)
+        # Use two quiet socket waits to measure reads after startup notifications drain.
+        changed = original_wait(listener, 0.05)
+        if changed:
+            idle_read_counts.clear()
+        else:
+            idle_read_counts.append(len(reads))
+            if len(idle_read_counts) == 2:
+                idle_observed.set()
+        return changed
 
     def process(current_runtime):
         with sessions() as db:
@@ -207,11 +216,8 @@ def test_idle_supervisor_stops_reading_queues_and_wakes_for_other_connection(
     async def scenario() -> None:
         task = asyncio.create_task(pipeline_tasks.run_background_runtime(runtime=runtime))
         try:
-            assert await asyncio.to_thread(waiting.wait, 3)
-            await asyncio.sleep(0.1)  # Drain the startup completion notification.
-            before = len(reads)
-            await asyncio.sleep(1.2)  # Cross the listener's local shutdown/socket check.
-            assert len(reads) == before
+            assert await asyncio.to_thread(idle_observed.wait, 5)
+            assert idle_read_counts[0] == idle_read_counts[1]
             assert next_background_work_delay(runtime) is None
             _run(sessions, "external")
             assert await asyncio.to_thread(processed.wait, 3)

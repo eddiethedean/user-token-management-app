@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import json
-import os
 from datetime import time
 from decimal import Decimal
 from pathlib import Path
@@ -30,7 +29,12 @@ from app.connectors.locators import (
 )
 from app.connectors.mcscop import McscopConnector
 from app.connectors.mss import MssConnector
-from app.connectors.registry import load_builtin_connectors, writer_enabled
+from app.connectors.registry import (
+    ConnectorRegistry,
+    load_builtin_connectors,
+    registry_context,
+    writer_enabled,
+)
 from app.services.column_casting import cast_batch_columns
 from app.ui.routes.pipeline import _destination_object_entries
 from tests.simulators.foundry import FOUNDRY_DATASET, FOUNDRY_TOKEN, FoundrySimulator
@@ -848,28 +852,34 @@ def test_foundry_writer_uploads_to_locator_branch(foundry_sim, tmp_path) -> None
     assert foundry_sim.last_upload_branch == "release"
 
 
-def test_real_foundry_writers_are_denied_until_flags_are_set(monkeypatch) -> None:
-    load_builtin_connectors(demo=False)
-    monkeypatch.setattr(
-        "app.config.get_settings",
-        lambda: type(
-            "S",
-            (),
-            {
-                "is_demo_mode": False,
-                "pipeline_enable_postgres_writer": True,
-                "pipeline_enable_mss_writer": False,
-                "pipeline_enable_mcscop_writer": False,
-            },
-        )(),
+@pytest.mark.parametrize(("mss_enabled", "mcscop_enabled"), [(False, True), (True, False)])
+def test_real_foundry_writer_flags_are_independent(tmp_path, mss_enabled, mcscop_enabled) -> None:
+    settings = Settings(
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        app_env="test",
+        data_mover_mode="real",
+        database_url=f"sqlite:///{tmp_path / 'app.db'}",
+        public_base_url="https://data-mover.example",
+        jwt_secret="foundry-test-jwt-secret-at-least-32-bytes",
+        session_pepper="foundry-test-session-pepper-at-least-32-bytes",
+        csrf_secret="foundry-test-csrf-secret-at-least-32-bytes",
+        api_token_encryption_keys={"test-v1": "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="},
+        api_token_active_key_id="test-v1",
+        cookie_secure=True,
+        pipeline_spool_root=str(tmp_path),
+        pipeline_allowed_https_hosts="foundry.example",
+        pipeline_enable_postgres_writer=True,
+        pipeline_enable_mss_writer=mss_enabled,
+        pipeline_enable_mcscop_writer=mcscop_enabled,
     )
-    assert writer_enabled("postgres") is True
-    assert writer_enabled("mss") is False
-    assert writer_enabled("mcscop") is False
-    assert MssConnector.capabilities.source is True
-    assert MssConnector.capabilities.destination is True
-    assert McscopConnector.capabilities.source is True
-    assert McscopConnector.capabilities.destination is True
+    registry = load_builtin_connectors(demo=False, registry=ConnectorRegistry(settings))
+    with registry_context(registry, settings):
+        assert writer_enabled("postgres") is True
+        assert writer_enabled("mss") is mss_enabled
+        assert writer_enabled("mcscop") is mcscop_enabled
+    for provider in ("mss", "mcscop"):
+        capabilities = registry.capabilities_for(provider)
+        assert capabilities.source and capabilities.destination
 
 
 def test_all_remote_writers_are_enabled_by_default() -> None:
@@ -878,13 +888,6 @@ def test_all_remote_writers_are_enabled_by_default() -> None:
     assert settings.pipeline_enable_postgres_writer is True
     assert settings.pipeline_enable_mss_writer is True
     assert settings.pipeline_enable_mcscop_writer is True
-
-
-@pytest.mark.live_foundry
-def test_live_foundry_opt_in_is_skipped_without_flag() -> None:
-    if os.environ.get("DATA_MOVER_LIVE_FOUNDRY") != "1":
-        pytest.skip("Live Foundry tests require DATA_MOVER_LIVE_FOUNDRY=1")
-    pytest.fail("Live Foundry credentials were not provided to this environment.")
 
 
 def test_upload_timeout_is_publish_uncertain(foundry_sim, tmp_path, monkeypatch) -> None:
@@ -904,14 +907,12 @@ def test_upload_timeout_is_publish_uncertain(foundry_sim, tmp_path, monkeypatch)
     pl.DataFrame({"event_id": [1]}).write_parquet(session.staging_name, compression="snappy")
 
     def boom(*_args, **_kwargs):
-        from app.connectors.errors import ConnectorError
-
         raise ConnectorError(TransferErrorCode.CONNECTION_TIMEOUT, "timed out")
 
     monkeypatch.setattr("app.connectors.foundry.FoundryClient.upload_file", boom)
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(ConnectorError) as excinfo:
         connector.finalize(session)
-    assert getattr(excinfo.value, "code", None) == TransferErrorCode.PUBLISH_UNCERTAIN
+    assert excinfo.value.code == TransferErrorCode.PUBLISH_UNCERTAIN
 
 
 def test_upload_does_not_retry_non_400_client_errors(tmp_path) -> None:

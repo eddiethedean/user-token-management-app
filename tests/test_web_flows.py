@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import json
+from contextlib import closing
+from urllib.parse import urljoin
+from uuid import uuid4
+
+import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.database import SessionLocal
-from app.models import AuditEvent, User, UserSecret, UserStatus
+from app.models import AuditEvent, Role, User, UserSecret, UserStatus
 from tests.helpers import (
     ADMIN_EMAIL,
+    ADMIN_PASSWORD,
     MSS_TOKEN,
     USER_PASSWORD,
     as_adapter,
+    assert_redirect_path,
     csrf_from,
+    login_csrf_from,
     web_login,
 )
 
@@ -98,6 +108,145 @@ def test_admin_invite_toggle_filter_and_self_protection(client, make_user) -> No
     filtered = client.get("/admin/users", params={"q": "managed.user", "status": "disabled"})
     assert filtered.status_code == 200
     assert "managed.user@example.gov" in filtered.text
+
+
+def test_admin_promotes_a_user_and_records_the_change(client, make_user) -> None:
+    target = make_user("managed.promotion@example.gov")
+    with SessionLocal() as db:
+        account = db.get(User, target.id)
+        assert account is not None
+        account.roles.append(Role(name="reviewer"))
+        db.commit()
+
+    web_login(client)
+    listing = client.get("/admin/users?q=managed.promotion&status=active")
+    action = f"/admin/users/{target.id}/promote"
+    assert f'data-promotion-action="{action}"' in listing.text
+    form = {
+        "csrf_token": csrf_from(listing.text),
+        "q": "  managed.promotion ",
+        "status": "active",
+        "page": "50",
+        "role": "administrator, arbitrary-role",
+        "account_status": "disabled",
+    }
+    response = client.post(action, data=form, headers={"X-Request-ID": "promotion-audit"})
+    assert response.status_code == 303
+    query = {"q": ["managed.promotion"], "status": ["active"], "page": ["1"]}
+    assert_redirect_path(response, "/admin/users", query={**query, "notice": ["role-updated"]})
+    updated = client.get(response.headers["location"])
+    assert "The account is now an administrator. They must sign in again." in updated.text
+    assert "Administrator, reviewer, user" in updated.text
+    assert f'data-promotion-action="{action}"' not in updated.text
+
+    duplicate = client.post(action, data=form)
+    assert duplicate.status_code == 303
+    assert_redirect_path(
+        duplicate, "/admin/users", query={**query, "notice": ["already-administrator"]}
+    )
+    assert (
+        "This account is already an administrator."
+        in client.get(duplicate.headers["location"]).text
+    )
+    with SessionLocal() as db:
+        actor = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        account = db.get(User, target.id)
+        assert actor is not None and account is not None
+        assert account.role_names == ["administrator", "reviewer", "user"]
+        assert account.security_version == target.security_version + 1
+        assert account.status == target.status
+        assert account.full_name == target.full_name
+        assert account.password_hash == target.password_hash
+        event = db.scalars(
+            select(AuditEvent).where(AuditEvent.event_type == "admin.user.roles_changed")
+        ).one()
+        assert (event.actor_user_id, event.target_user_id) == (actor.id, target.id)
+        assert event.source_ip == "127.0.0.1"
+        assert event.request_id == "promotion-audit"
+        detail = json.loads(event.detail)
+        assert detail["before_roles"] == ["reviewer", "user"]
+        assert detail["after_roles"] == ["administrator", "reviewer", "user"]
+    for audit in (
+        client.get("/admin/audit?event_type=admin.user.roles_changed"),
+        client.get(
+            "/admin/audit/results?event_type=admin.user.roles_changed",
+            headers={"HX-Request": "true", "HX-Target": "#audit-results-region"},
+        ),
+    ):
+        assert audit.status_code == 200
+        details = audit.text.split("<details", 1)[1].split("</details>", 1)[0]
+        assert "<dt>Granted by</dt>" in details and ADMIN_EMAIL in details
+        assert "<dt>Promoted account</dt>" in details and target.email in details
+        assert actor.id in details and target.id in details
+        assert "before_roles" in details and "after_roles" in details
+
+
+def test_promotion_audit_keeps_target_id_when_account_is_unavailable(client) -> None:
+    web_login(client)
+    target_id = str(uuid4())
+    with SessionLocal() as db:
+        actor = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert actor is not None
+        db.add(
+            AuditEvent(
+                event_type="admin.user.roles_changed",
+                actor_user_id=actor.id,
+                detail=json.dumps({"target_user_id": target_id}),
+            )
+        )
+        db.commit()
+
+    audit = client.get("/admin/audit?event_type=admin.user.roles_changed")
+    assert audit.status_code == 200
+    details = audit.text.split("<details", 1)[1].split("</details>", 1)[0]
+    assert "<dt>Granted by</dt>" in details and ADMIN_EMAIL in details
+    assert "<dt>Promoted account</dt>" in details and "Account unavailable" in details
+    assert target_id in details
+
+
+@pytest.mark.parametrize("mount", ["/s/session/p/8878", "/proxy/8878"])
+def test_admin_promotion_urls_resolve_through_workbench_mounts(
+    access_app, make_user, monkeypatch, mount
+):
+    target = make_user("mounted.promotion@example.gov")
+    monkeypatch.setattr(access_app.state, "hedron_workbench_active", True, raising=False)
+    monkeypatch.delenv("RS_SERVER_URL", raising=False)
+    monkeypatch.delenv("UVICORN_ROOT_PATH", raising=False)
+    with closing(
+        TestClient(
+            access_app,
+            base_url="http://workbench.test",
+            root_path=mount,
+            follow_redirects=False,
+            client=("127.0.0.1", 50000),
+        )
+    ) as mounted:
+        login = mounted.get(mount + "/login")
+        signed_in = mounted.post(
+            mount + "/login",
+            data={
+                "email": ADMIN_EMAIL,
+                "password": ADMIN_PASSWORD,
+                "preauth_csrf_token": login_csrf_from(login.text),
+                "next": "/admin/users",
+            },
+        )
+        assert signed_in.status_code == 303
+        path = mount + "/admin/users"
+        page = mounted.get(path)
+        assert page.status_code == 200
+        action = f"{path}/{target.id}/promote"
+        assert f'data-promotion-action="{action}"' in page.text
+        response = mounted.post(
+            action, data={"csrf_token": csrf_from(page.text), "q": target.email}
+        )
+        assert response.status_code == 303
+        location = response.headers["location"]
+        assert not location.startswith("/")
+        destination = urljoin(str(response.request.url), location)
+        assert destination.startswith(f"http://workbench.test{path}?")
+        result = mounted.get(destination)
+        assert result.status_code == 200 and "The account is now an administrator" in result.text
 
 
 def test_admin_audit_page(client) -> None:

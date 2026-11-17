@@ -17,8 +17,9 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_HELPER = ROOT / "docker" / "workbench-compose.sh"
-APP_CONTAINER = "access-registry-workbench-app-1"
-WORKBENCH_CONTAINER = "access-registry-workbench-workbench-1"
+COMPOSE_PROJECT = os.environ.get("COMPOSE_PROJECT_NAME") or "access-registry-workbench"
+APP_CONTAINER = f"{COMPOSE_PROJECT}-app-1"
+WORKBENCH_CONTAINER = f"{COMPOSE_PROJECT}-workbench-1"
 
 DEFAULT_WORKBENCH = "http://127.0.0.1:8787"
 DEFAULT_APP = "http://127.0.0.1:8000"

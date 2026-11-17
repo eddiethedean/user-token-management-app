@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import jwt
 import pytest
-from fastapi import Request
+from fastapi import HTTPException, Request
 from hedron_posit import browser_mount_from_request, local_href
 
 from app.config import Settings
@@ -172,9 +172,9 @@ def test_preauth_csrf_is_signed_bound_and_short_lived() -> None:
 
 
 def test_session_csrf_rejects_non_ascii_without_raising_type_error() -> None:
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(HTTPException) as excinfo:
         assert_csrf("é", "a" * 32)
-    assert getattr(excinfo.value, "status_code", None) == 403
+    assert excinfo.value.status_code == 403
 
 
 def test_jwt_round_trip_and_required_claims() -> None:

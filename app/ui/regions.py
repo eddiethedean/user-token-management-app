@@ -264,6 +264,11 @@ USER_DIRECTORY_BODY = FragmentRegion(
     selector="#user-directory-body",
     description="Administrator user directory table body",
 )
+PROMOTION_DIALOG_FEEDBACK = FragmentRegion(
+    id="promotion-dialog-feedback",
+    selector="#promotion-dialog-feedback",
+    description="Administrator promotion confirmation feedback",
+)
 AUDIT_RESULTS = FragmentRegion(
     id="audit-results-region",
     selector="#audit-results-region",

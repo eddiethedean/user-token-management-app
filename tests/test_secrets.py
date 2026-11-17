@@ -63,6 +63,11 @@ def test_secret_slots_render_and_htmx_never_reveals_token(client, htmx, make_use
     assert MSS_TOKEN not in saved.text
     assert "ciphertext" not in saved.text
     assert saved.text.count('id="connection-status-list"') == 1
+    stored_mss = select(UserSecret.id).where(
+        UserSecret.user_id == user.id, UserSecret.provider == "mss"
+    )
+    with SessionLocal() as db:
+        assert db.scalar(stored_mss) is not None
 
     deleted = htmx.post(
         "/security/secrets/mss/delete",
@@ -71,7 +76,10 @@ def test_secret_slots_render_and_htmx_never_reveals_token(client, htmx, make_use
     )
     assert_fragment_body(as_adapter(deleted), contains="secret-slot-mss")
     assert MSS_TOKEN not in deleted.text
-    assert "Configured" not in deleted.text or "Not configured" in deleted.text
+    assert ">Not configured<" in deleted.text
+    assert ">Configured<" not in deleted.text
+    with SessionLocal() as db:
+        assert db.scalar(stored_mss) is None
 
 
 def test_postgres_credentials_are_saved_tested_and_available_at_run_boundary(

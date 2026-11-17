@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -55,18 +55,23 @@ from app.ui.interactions import (
     htmx_redirect,
     interaction_response,
     ok_fragment,
+    request_feedback,
     request_feedback_oob,
 )
 from app.ui.layout import alert_box, app_shell
 from app.ui.partials import request_error
 from app.ui.routes import register_routes
 from app.ui.security_policy import access_registry_security_policy
-from app.ui.urls import htmx_redirect_path, redirect_path
+from app.ui.urls import USER_PROMOTION_PATH, htmx_redirect_path, redirect_path
 
 settings = get_settings()
 configure_logging(level=settings.log_level, log_format=settings.log_format)
 log = logging.getLogger(__name__)
 REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._:-]{1,64}\Z")
+_PROMOTION_OUTCOME_UNKNOWN = (
+    "Refresh the Team directory to check whether the account was promoted. "
+    "If the problem continues, share the reference with your administrator."
+)
 
 
 def _safe_request_id(value: str) -> str:
@@ -671,6 +676,49 @@ async def security_and_session_middleware(request: Request, call_next):
 app.add_middleware(RuntimeOwnershipMiddleware)
 
 
+def _is_promotion_request(request: Request) -> bool:
+    return (
+        request.method == "POST"
+        and getattr(request.scope.get("route"), "path", None) == USER_PROMOTION_PATH
+    )
+
+
+async def _htmx_error_response(
+    request: Request,
+    *,
+    message: str,
+    title: str,
+    reference_id: str,
+    status_code: int,
+    headers: Mapping[str, str] | None = None,
+) -> Response:
+    if _is_promotion_request(request):
+        # Put focusable feedback in the primary swap. An out-of-band update to
+        # the same host would otherwise be overwritten by the primary content.
+        content = request_feedback(message, title=title, reference_id=reference_id)
+        oob = ()
+    else:
+        content = html.div(
+            request_error(message),
+            html.p(f"Reference: {reference_id}", role="caption") if reference_id else None,
+        )
+        oob = (request_feedback_oob(message, title=title, reference_id=reference_id),)
+    return await interaction_response(
+        request,
+        ok_fragment(
+            content,
+            oob=oob,
+            status_code=status_code,
+            headers=headers,
+            retarget="#hedron-toast",
+            reswap="innerHTML",
+            policy=ERROR_RESPONSE_POLICY,
+        ),
+        authenticated=bool(getattr(request.state, "hedron_authenticated", False)),
+        allow_undeclared_targets=True,
+    )
+
+
 @app.exception_handler(HTTPException)
 async def friendly_http_errors(request: Request, exc: HTTPException):
     active_settings = getattr(request.state, "settings", None) or getattr(
@@ -679,9 +727,12 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
     is_htmx = is_htmx_request(request)
     accepts_html = "text/html" in request.headers.get("accept", "")
     if exc.status_code == status.HTTP_401_UNAUTHORIZED and (accepts_html or is_htmx):
-        next_path = get_route_path(request.scope)
-        if request.url.query:
-            next_path += f"?{request.url.query}"
+        if _is_promotion_request(request):
+            next_path = "/admin/users"
+        else:
+            next_path = get_route_path(request.scope)
+            if request.url.query:
+                next_path += f"?{request.url.query}"
         login_path = f"/login?{urlencode({'next': next_path})}"
         if is_htmx:
             response = await interaction_response(
@@ -704,7 +755,7 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
     outcome = None
     if exc.status_code >= 500:
         outcome = request_failure(reference_id=reference_id)
-        detail = outcome.message
+        detail = _PROMOTION_OUTCOME_UNKNOWN if _is_promotion_request(request) else outcome.message
     if is_htmx:
         feedback_title = (
             "Too many requests"
@@ -713,28 +764,13 @@ async def friendly_http_errors(request: Request, exc: HTTPException):
         )
         if outcome is not None:
             feedback_title = outcome.title
-        return await interaction_response(
+        return await _htmx_error_response(
             request,
-            ok_fragment(
-                html.div(
-                    request_error(detail),
-                    html.p(f"Reference: {reference_id}", role="caption") if reference_id else None,
-                ),
-                oob=(
-                    request_feedback_oob(
-                        detail,
-                        title=feedback_title,
-                        reference_id=reference_id,
-                    ),
-                ),
-                status_code=exc.status_code,
-                headers=exc.headers,
-                retarget="#hedron-toast",
-                reswap="innerHTML",
-                policy=ERROR_RESPONSE_POLICY,
-            ),
-            authenticated=bool(getattr(request.state, "hedron_authenticated", False)),
-            allow_undeclared_targets=True,
+            message=detail,
+            title=feedback_title,
+            reference_id=reference_id,
+            status_code=exc.status_code,
+            headers=exc.headers,
         )
     if exc.status_code == status.HTTP_429_TOO_MANY_REQUESTS and accepts_html:
         page = app_shell(
@@ -802,27 +838,12 @@ async def friendly_validation_errors(request: Request, exc: RequestValidationErr
         )
     message = "Check the submitted values and try again."
     if is_htmx_request(request):
-        return await interaction_response(
+        return await _htmx_error_response(
             request,
-            ok_fragment(
-                html.div(
-                    request_error(message),
-                    html.p(f"Reference: {reference_id}", role="caption") if reference_id else None,
-                ),
-                oob=(
-                    request_feedback_oob(
-                        message,
-                        title="Check the submitted values",
-                        reference_id=reference_id,
-                    ),
-                ),
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                retarget="#hedron-toast",
-                reswap="innerHTML",
-                policy=ERROR_RESPONSE_POLICY,
-            ),
-            authenticated=bool(getattr(request.state, "hedron_authenticated", False)),
-            allow_undeclared_targets=True,
+            message=message,
+            title="Check the submitted values",
+            reference_id=reference_id,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
     page = app_shell(
         surface_card(
@@ -874,39 +895,25 @@ async def friendly_unexpected_errors(request: Request, exc: Exception):
         traceback=safe_exception_traceback((type(exc), exc, exc.__traceback__)),
     )
     outcome = request_failure(reference_id=reference_id)
+    message = _PROMOTION_OUTCOME_UNKNOWN if _is_promotion_request(request) else outcome.message
     active_settings = getattr(request.state, "settings", None) or getattr(
         request.app.state, "settings", settings
     )
     accepts_html = "text/html" in request.headers.get("accept", "")
     if is_htmx_request(request):
-        response = await interaction_response(
+        response = await _htmx_error_response(
             request,
-            ok_fragment(
-                html.div(
-                    request_error(outcome.message),
-                    html.p(f"Reference: {reference_id}", role="caption"),
-                ),
-                oob=(
-                    request_feedback_oob(
-                        outcome.message,
-                        title=outcome.title,
-                        reference_id=reference_id,
-                    ),
-                ),
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                retarget="#hedron-toast",
-                reswap="innerHTML",
-                policy=ERROR_RESPONSE_POLICY,
-            ),
-            authenticated=bool(getattr(request.state, "hedron_authenticated", False)),
-            allow_undeclared_targets=True,
+            message=message,
+            title=outcome.title,
+            reference_id=reference_id,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
     elif accepts_html:
         response = render_component_response(
             app_shell(
                 surface_card(
                     Heading(outcome.title, level=1),
-                    alert_box(outcome.message),
+                    alert_box(message),
                     html.p(f"Reference: {reference_id}", role="caption"),
                     recipe="data-mover-auth-panel",
                     class_="auth-card",
@@ -923,7 +930,7 @@ async def friendly_unexpected_errors(request: Request, exc: Exception):
     else:
         response = JSONResponse(
             {
-                "detail": outcome.message,
+                "detail": message,
                 "reference_id": reference_id,
             },
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

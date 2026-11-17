@@ -98,8 +98,7 @@ Provider and pipeline features span several contracts. When adding or changing a
    enqueue/cancel/poll, and both source and destination usage.
 7. Foundry and Advana HTTP contracts are mocked with [Semblance](https://pypi.org/project/semblance/)
    under `tests/simulators/` (sanitized fixtures in `tests/fixtures/providers/`). Do not call live
-   hosts from default tests. Opt-in live Foundry tests use `pytest -m live_foundry` with
-   `DATA_MOVER_LIVE_FOUNDRY=1`.
+   hosts from default tests.
 8. PostgreSQL connector tests use [testing.postgresql](https://pypi.org/project/testing.postgresql/)
    and skip when `initdb`/`postgres` are not on PATH. CI installs the server packages.
 9. MongoDB contract tests use [pytest-mongo](https://pypi.org/project/pytest-mongo/) and skip when

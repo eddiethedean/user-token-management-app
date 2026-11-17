@@ -9,12 +9,13 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.database import SessionLocal, sqlite_worker_lock
-from app.models import Role, User, UserStatus, utcnow
+from app.models import User, UserStatus, utcnow
 from app.schema import assert_schema_current, current_revision, head_revision, upgrade_schema
 from app.security.email import normalize_email
 from app.security.passwords import PasswordPolicyError, PasswordService, validate_password
 from app.server import run_server
 from app.services.auth import ensure_default_roles, revoke_all_sessions
+from app.services.auth_common import lock_administrator_role
 from app.services.demo import seed_demo_connections
 from app.services.mailer import deliver_pending, retry_failed
 
@@ -25,7 +26,6 @@ def create_admin(email: str, password: str | None = None) -> int:
     with SessionLocal() as db:
         ensure_default_roles(db)
         canonical, original = normalize_email(email, settings)
-        existing = db.scalar(select(User).where(User.email == canonical))
         validated = None
         if settings.authentication_mode == "local_password":
             if password is None:
@@ -43,11 +43,11 @@ def create_admin(email: str, password: str | None = None) -> int:
             except PasswordPolicyError as exc:
                 print(str(exc), file=sys.stderr)
                 return 2
-        role = db.scalar(select(Role).where(Role.name == "administrator"))
+        password_hash = PasswordService(settings).hash(validated) if validated is not None else None
+        role = lock_administrator_role(db)
+        existing = db.scalar(select(User).where(User.email == canonical))
         if existing:
-            existing.password_hash = (
-                PasswordService(settings).hash(validated) if validated is not None else None
-            )
+            existing.password_hash = password_hash
             existing.password_changed_at = utcnow() if validated is not None else None
             existing.email_verified_at = existing.email_verified_at or utcnow()
             existing.status = UserStatus.ACTIVE.value
@@ -64,9 +64,7 @@ def create_admin(email: str, password: str | None = None) -> int:
                 email_original=original,
                 email_verified_at=utcnow(),
                 status=UserStatus.ACTIVE.value,
-                password_hash=(
-                    PasswordService(settings).hash(validated) if validated is not None else None
-                ),
+                password_hash=password_hash,
                 password_changed_at=utcnow() if validated is not None else None,
                 roles=[role] if role else [],
             )

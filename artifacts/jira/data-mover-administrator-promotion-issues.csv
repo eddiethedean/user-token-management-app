@@ -1,0 +1,135 @@
+﻿"date","type","issue_id","summary","linked_to","description","acceptance_criteria","hrs"
+"2026-11-17","Epic","AP-EPIC","Data Mover: Promote existing users to administrator","","Enable administrators to promote eligible existing users from Team, with confirmation, transactional role assignment, session invalidation, and audit evidence. Scope is promotion only. Demotion, custom roles, bulk changes, and email delivery are excluded.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Local planning IDs are not assigned tracker keys.
+Estimate basis: 12 tasks totaling 72 person-hours (9 person-days at 8 hours/day). Sum Task hrs only. Epic and story hrs are blank to avoid double-counting. Estimates assume engineers familiar with FastAPI, SQLAlchemy, Hedron, HTMX, and this repository. Task hours include implementation, focused verification, and normal review fixes. Dedicated acceptance tasks cover additional cross-layer, database concurrency, and browser evidence. Contingency, production deployment, and external approval waiting are excluded. Re-estimate if the existing authentication or locking contracts require broader changes.","- AP-1 meets every story acceptance criterion with recorded evidence.
+- Promotions preserve prior memberships and account fields, invalidate target sessions, and produce one durable audit event.
+- PostgreSQL/SQLite concurrency and visible accessible dialog errors satisfy the revised plan.",""
+"2026-11-17","Story","AP-1","As an administrator, promote an existing user from Team","AP-EPIC","As an administrator, I want to promote an eligible existing user from Team so that they can manage users, invitations, and application-wide audit records after signing in again.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: None
+Estimate: 72 person-hours across child tasks. Sum Task hrs only. This row adds no effort.","- Only an active administrator with valid CSRF can promote an active verified account. Local-password targets require a password hash, while trusted-header targets do not.
+- Make administrator opens a confirmation naming the account and explaining the permissions and required fresh sign-in. Cancellation submits nothing.
+- The transaction preserves all memberships and account fields, adds administrator once, increments the target security version once, revokes target sessions, and records admin.user.roles_changed with before/after roles and request metadata.
+- Duplicate/already-administrator requests cause no additional audit, revocation, or version increment. Invalid and stale requests leave data unchanged.
+- Old target browser, bearer, and refresh credentials fail after commit. Fresh sign-in grants administrator access in local-password and trusted-header modes. Actor sessions survive.
+- PostgreSQL NO KEY UPDATE locks and real SQLite write serialization pass deterministic refresh/audit, session-issuance, duplicate-promotion, and disable-race tests without partial mutations.
+- Expected failures appear and receive focus inside the open dialog. Global failures expose focused feedback, expired sessions redirect, and network failures display outcome uncertainty without automatic retry.
+- HTMX and ordinary forms preserve search, filter, pagination, and mounted URLs. Keyboard and narrow-screen behavior work, and prior administration flows remain compatible.
+- The user guide and named acceptance evidence are updated and applicable repository checks pass.",""
+"2026-11-17","Task","AP-1-T01","Data Mover: Implement promotion eligibility and idempotency","AP-1","Add the focused user-role service and typed changed/unchanged outcomes. Require an active administrator and an active verified target. Require a password hash only in local-password mode. Fix the assigned role to administrator and preserve existing memberships and account fields. Include focused policy and duplicate-request tests.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: None
+Estimate: 6 person-hours including this task's implementation, focused verification, and normal review fixes.","- Pending, disabled, unverified, and local-password accounts without a password are rejected.
+- Existing administrators, including a direct self-request, produce an unchanged result without another version increment, revocation, or role-change event.
+- Other role memberships and profile, status, verification, lockout, and credential fields are preserved.","6"
+"2026-11-17","Task","AP-1-T02","Data Mover: Serialize promotion on PostgreSQL and SQLite","AP-1","Keep the administrator-role-first lock order. Lock actor and target rows in user-ID order using PostgreSQL FOR NO KEY UPDATE and reload their memberships. Recheck actor eligibility under those locks. Acquire a real SQLite write lock before authoritative rechecks. Map lock and snapshot conflicts after rollback. Include SQL-generation and focused persistence tests.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: AP-1-T01
+Estimate: 8 person-hours including this task's implementation, focused verification, and normal review fixes.","- Generated PostgreSQL user-lock SQL uses FOR NO KEY UPDATE and never upgrades to FOR UPDATE while waiting for session rows.
+- SQLite uses a real write rather than relying on SELECT FOR UPDATE.
+- Fresh actor and target state determine the result, and conflicts leave no partial changes.","8"
+"2026-11-17","Task","AP-1-T03","Data Mover: Commit role assignment with session revocation and audit","AP-1","Add the administrator membership, increment the target security version once, revoke target sessions, and record admin.user.roles_changed with sorted before_roles and after_roles in one transaction. Reuse actor, target, request, and source metadata. Include transaction rollback and membership-preservation tests.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: AP-1-T01, AP-1-T02
+Estimate: 6 person-hours including this task's implementation, focused verification, and normal review fixes.","- A new database session sees one administrator membership, one version increment, and one role-change event.
+- Injected audit or pre-commit persistence failures roll back membership, version, and revocation together.
+- The acting administrator retains their sessions when promoting another account.","6"
+"2026-11-17","Task","AP-1-T04","Data Mover: Add the protected promotion route and feedback contract","AP-1","Add POST /admin/users/{user_id}/promote with AdminAuth, RequireCsrf, and UUID validation. Map changed, unchanged, ineligible, missing, unavailable, and conflict outcomes. Register the promotion dialog feedback region and HTMX error policy. Preserve listing fields and mounted URLs. Include focused response-mapping tests.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: AP-1-T03
+Estimate: 6 person-hours including this task's implementation, focused verification, and normal review fixes.","- Successful HTMX responses update the directory body, match count, and toast. Ordinary forms redirect with role-updated or already-administrator notices.
+- Expected errors retain their HTTP status and retarget the declared in-dialog feedback region.
+- The endpoint cannot assign arbitrary roles or change account status through forged fields.","6"
+"2026-11-17","Task","AP-1-T05","Data Mover: Build the Team promotion action and shared dialog","AP-1","Add Make administrator only for eligible accounts. Create one shared native Hedron confirmation dialog with account identity, privilege and sign-in copy, cancel/confirm controls, CSRF and listing fields, and a fixed promotion-dialog-feedback region. Include component rendering and eligibility tests.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: AP-1-T01, AP-1-T04
+Estimate: 6 person-hours including this task's implementation, focused verification, and normal review fixes.","- Active verified users can open the dialog, while ineligible and existing administrator rows have no promotion action.
+- Local-password eligibility accounts for a missing password hash, and trusted-header users do not require one.
+- The dialog includes accessible labels and a focusable live error summary without duplicate element IDs.","6"
+"2026-11-17","Task","AP-1-T06","Data Mover: Handle dialog selection, errors, retry, and focus","AP-1","Initialize the selected account and server-rendered mounted form URL on each opening. Clear stale feedback, prevent duplicate submissions, focus expected in-dialog errors, and enable retries only when appropriate. Close the modal and focus page feedback for global failures. Retain expired-session redirects and render network outcome-unknown guidance without automatic retries. Restore focus after success. Include focused interaction checks.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: AP-1-T04, AP-1-T05
+Estimate: 8 person-hours including this task's implementation, focused verification, and normal review fixes.","- Expected 409 and 503 messages remain visible inside the open dialog and receive focus.
+- Global/dependency failures expose focused page feedback, and expired sessions follow the existing login redirect.
+- Network failures require a directory refresh before retrying, and reopening another account clears old feedback and uses the correct action.
+- Cancel submits nothing, pending requests cannot double-submit, and successful promotion returns focus to the row or directory heading.","8"
+"2026-11-17","Task","AP-1-T07","Data Mover: Verify authorization and session invalidation end to end","AP-1","Add cross-layer security coverage beyond the focused service tests. Exercise anonymous and standard-user requests, forged fields, missing/invalid CSRF, stale actor authorization, malformed/missing targets, and existing administrator requests. Check browser, bearer, and refresh-token invalidation plus fresh local-password and trusted-header sign-in.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: AP-1-T03, AP-1-T04
+Estimate: 6 person-hours including this task's implementation, focused verification, and normal review fixes.","- Unauthorized and invalid requests cause no membership, session, version, or role-change audit mutation.
+- The target old access and refresh tokens fail after promotion, and fresh sign-in grants Team and Audit log access in both authentication modes.
+- Actor sessions survive and repeated valid promotions leave the original event and version count unchanged.","6"
+"2026-11-17","Task","AP-1-T08","Data Mover: Verify PostgreSQL refresh and promotion races","AP-1","Add deterministic tests using independent PostgreSQL sessions and barriers. Pause refresh after locking a session, acquire promotion user locks, and resume refresh through audit insertion while promotion revokes sessions. Exercise both target and actor refresh, the reverse order, concurrent session creation, duplicate promotions, and disable races.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: AP-1-T02, AP-1-T03
+Estimate: 8 person-hours including this task's implementation, focused verification, and normal review fixes.","- Overlapping promotion and target/actor refresh audit writes finish without deadlocks. Actor sessions survive and target tokens are unusable after promotion commits.
+- A target refresh that loses to promotion is rejected, and an old-version concurrent login cannot publish a valid session afterward.
+- Concurrent promotions produce one membership, event, and version increment. Promotion never reactivates a disabled account, and a stale disabled actor is rejected.","8"
+"2026-11-17","Task","AP-1-T09","Data Mover: Verify file-backed SQLite concurrency and rollback","AP-1","Exercise independent connections to a file-backed SQLite database. Cover competing promotions, session creation/refresh, disable and stale-actor interleavings, and lock/snapshot failure rollback. Confirm behavior beyond single-connection service tests.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: AP-1-T02, AP-1-T03
+Estimate: 4 person-hours including this task's implementation, focused verification, and normal review fixes.","- Concurrent success or a safe retryable conflict leaves exactly one committed membership, event, and version increment.
+- Target sessions cannot authenticate after a committed promotion and actor sessions remain valid.
+- Lock failures preserve prior data and return retry guidance. Disable and actor rechecks use current committed state.","4"
+"2026-11-17","Task","AP-1-T10","Data Mover: Verify HTMX, ordinary forms, and mounted navigation","AP-1","Extend web-flow, interaction, and region-boundary coverage for promotion and unchanged outcomes, error retargets, ordinary POST notices, normalized pagination, and mounted Workbench paths. Check compatibility with existing invitation, registration approval, and status actions.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: AP-1-T04, AP-1-T05, AP-1-T06
+Estimate: 4 person-hours including this task's implementation, focused verification, and normal review fixes.","- Search, status filter, and page survive promotion, and refreshed fragments contain only the declared targets.
+- Ordinary POST redirects show the correct notice and all action/redirect URLs honor the mount prefix.
+- Existing invitation, approval, enable/disable, and directory filtering tests continue to pass.","4"
+"2026-11-17","Task","AP-1-T11","Data Mover: Browser-test dialog accessibility and failure recovery","AP-1","Verify the complete browser flow by keyboard and at narrow widths. Inject 409, 503, global/dependency failures, expired sessions, and network failures. Test duplicate clicks, cancellation, focus restoration, and switching accounts in the shared dialog. Record named automated or reproducible manual evidence.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: AP-1-T06, AP-1-T10
+Estimate: 6 person-hours including this task's implementation, focused verification, and normal review fixes.","- Errors are visible above the modal backdrop, announced appropriately, and receive keyboard focus. Cancel remains usable.
+- Only retryable outcomes permit another submission. Lost responses show uncertainty guidance and never trigger automatic promotion retries.
+- Successful promotion updates the role and action, restores focus, and the shared dialog has no stale account URL or feedback.
+- Narrow-screen controls remain legible and operable.","6"
+"2026-11-17","Task","AP-1-T12","Data Mover: Document promotion and complete release checks","AP-1","Update the user guide with Team promotion, eligibility, session termination, and required sign-in. Record implementation and acceptance evidence in the plan. Run applicable lint, format, type, documentation, Hedron, registration, and UI-boundary checks. Resolve integration issues found during final verification without repeating earlier test implementation.
+
+Owner role: Engineering
+Status: Proposed / not started
+Implementation plan: ../../docs/plans/administrator-promotion.md
+Depends on: AP-1-T07, AP-1-T08, AP-1-T09, AP-1-T10, AP-1-T11
+Estimate: 4 person-hours including this task's implementation, focused verification, and normal review fixes.","- User documentation matches the released workflow and identifies promotion-only scope.
+- Named security, database concurrency, browser, and mounted-path evidence satisfies the story criteria.
+- Required applicable checks pass or an unresolved release-blocking failure is explicitly recorded. No deployment or external publication is performed by this task.","4"

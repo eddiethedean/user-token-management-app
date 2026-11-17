@@ -17,7 +17,10 @@ from urllib.parse import urljoin, urlsplit
 import httpx2
 import pytest
 
+from app import APP_VERSION
+from app.ui.layout import UI_SHELL_STYLES_VERSION
 from tests.workbench_docker_support import (
+    COMPOSE_PROJECT,
     DEFAULT_USER_PASSWORD,
     app_exec,
     app_login,
@@ -40,7 +43,7 @@ from tests.workbench_docker_support import (
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_HELPER = ROOT / "docker" / "workbench-compose.sh"
 ENV_FILE = ROOT / ".env"
-HOME_VOLUME = "access-registry-workbench_workbench-home"
+HOME_VOLUME = f"{COMPOSE_PROJECT}_workbench-home"
 
 
 def _load_dotenv_key() -> str:
@@ -284,8 +287,8 @@ def test_app_login_page_under_session_mount(workbench_stack) -> None:
     assert response.status_code == 200
     assert "Sign in" in response.text
     assert (
-        'href="/s/docker-session/p/8000/app-assets/hedron-desktop.css?v=171126.0&amp;shell=4"'
-        in response.text
+        f'href="/s/docker-session/p/8000/app-assets/hedron-desktop.css'
+        f'?v={APP_VERSION}&amp;shell={UI_SHELL_STYLES_VERSION}"' in response.text
     )
     assert (
         'src="/s/docker-session/p/8000/assets/brand/data-mover-mark-dark.png?v=1"' in response.text

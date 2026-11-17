@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
 
+import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app import dependencies as auth_dependencies
 from app.config import get_settings
 from app.database import SessionLocal
 from app.models import (
@@ -18,8 +22,9 @@ from app.models import (
     User,
     utcnow,
 )
-from app.security.cookies import SESSION_CSRF_COOKIE
+from app.security.cookies import ACCESS_COOKIE, REFRESH_COOKIE, SESSION_CSRF_COOKIE
 from app.security.tokens import hash_token
+from app.services.user_roles import PromotionResult, promote_user
 from tests.helpers import (
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
@@ -777,6 +782,133 @@ def test_htmx_unauthenticated_redirect_is_root_local_when_workbench_is_active(
     assert response.headers.get("HX-Redirect") == "/login?next=%2Fprofile"
 
 
+def test_promotion_requires_current_admin_session_and_csrf(client, make_user) -> None:
+    member = make_user("promotion.unauthorized@example.gov")
+    other = make_user("promotion.other@example.gov")
+    target = f"/admin/users/{other.id}/promote"
+    htmx = {"HX-Request": "true", "HX-Target": "#user-directory-body"}
+    expired = client.post(target, data={"csrf_token": "expired"}, headers=htmx)
+    assert expired.status_code == 200
+    assert expired.headers["HX-Redirect"] == "/login?next=%2Fadmin%2Fusers"
+    ordinary = client.post(target, headers={"Accept": "text/html"})
+    assert ordinary.status_code == 303
+    assert ordinary.headers["location"] == "/login?next=%2Fadmin%2Fusers"
+
+    web_login(client, member.email, USER_PASSWORD)
+    csrf = csrf_from(client.get("/profile").text)
+    for user_id in (member.id, other.id):
+        forbidden = client.post(
+            f"/admin/users/{user_id}/promote",
+            data={"csrf_token": csrf, "roles": "administrator", "actor_id": other.id},
+        )
+        assert forbidden.status_code == 403
+
+    client.cookies.clear()
+    web_login(client)
+    for form in ({}, {"csrf_token": "not-the-session-csrf"}):
+        denied = client.post(target, data=form, headers=htmx)
+        assert denied.status_code == 403
+        assert denied.headers["HX-Retarget"] == "#hedron-toast"
+    with SessionLocal() as db:
+        for original in (member, other):
+            current = db.get(User, original.id)
+            assert current is not None and current.role_names == ["user"]
+            assert current.security_version == original.security_version
+        assert (
+            db.scalar(select(AuditEvent).where(AuditEvent.event_type == "admin.user.roles_changed"))
+            is None
+        )
+
+
+@pytest.mark.parametrize("mode", ["local_password", "trusted_header"])
+def test_promotion_ends_old_sessions_and_fresh_sign_in_grants_access(
+    client, access_app, make_user, monkeypatch, mode
+) -> None:
+    target = make_user("promotion.sessions@example.gov")
+    settings = get_settings()
+    monkeypatch.setattr(settings, "authentication_mode", mode)
+    if mode == "trusted_header":
+        with SessionLocal() as db:
+            account = db.get(User, target.id)
+            assert account is not None
+            account.password_hash = None
+            db.commit()
+
+    def sign_in(browser, email, password) -> None:
+        if mode == "local_password":
+            web_login(browser, email, password)
+        else:
+            signed_in = browser.post(
+                "/login/federated",
+                data={"preauth_csrf_token": login_csrf_from(browser.get("/login").text)},
+                headers={settings.trusted_identity_header: email},
+            )
+            assert signed_in.status_code == 303, signed_in.text
+
+    with closing(
+        TestClient(access_app, follow_redirects=False, client=("127.0.0.1", 50001))
+    ) as member:
+        sign_in(member, target.email, USER_PASSWORD)
+        access = member.cookies[ACCESS_COOKIE]
+        refresh = member.cookies[REFRESH_COOKIE]
+        assert member.get("/admin/users").status_code == 403
+        sign_in(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+        directory = client.get("/admin/users")
+        path = f"/admin/users/{target.id}/promote"
+        assert f'data-promotion-action="{path}"' in directory.text
+        promoted = client.post(path, data={"csrf_token": csrf_from(directory.text)})
+        assert promoted.status_code == 303
+        assert client.get("/admin/users").status_code == 200
+
+        assert member.get("/profile").status_code == 401
+        assert (
+            member.get("/admin/audit", headers={"Authorization": f"Bearer {access}"}).status_code
+            == 401
+        )
+        assert (
+            member.get("/profile", headers={"Cookie": f"{REFRESH_COOKIE}={refresh}"}).status_code
+            == 401
+        )
+        member.cookies.clear()
+        sign_in(member, target.email, USER_PASSWORD)
+        assert member.get("/admin/users").status_code == 200
+        assert member.get("/admin/audit").status_code == 200
+
+
+def test_old_request_cannot_gain_admin_access_between_authentication_and_role_check(
+    client, make_user, monkeypatch
+) -> None:
+    target = make_user("promotion.auth.boundary@example.gov")
+    web_login(client, target.email, USER_PASSWORD)
+    access = client.cookies[ACCESS_COOKIE]
+    with SessionLocal() as db:
+        actor_id = db.scalar(select(User.id).where(User.email == ADMIN_EMAIL))
+    assert actor_id is not None
+
+    promoted = False
+
+    def promote_after_credential_acceptance(event: str, **_fields):
+        nonlocal promoted
+        if event != "auth.access.accepted":
+            return
+        with SessionLocal() as writer:
+            assert (
+                promote_user(
+                    writer,
+                    actor_id=actor_id,
+                    target_id=target.id,
+                    authentication_mode="local_password",
+                )
+                is PromotionResult.PROMOTED
+            )
+        promoted = True
+
+    monkeypatch.setattr(auth_dependencies, "dev_trace", promote_after_credential_acceptance)
+    delayed = client.get("/admin/audit", headers={"Authorization": f"Bearer {access}"})
+    assert promoted
+    assert delayed.status_code == 401
+
+
 def test_password_change_and_reset_validation_edges(client) -> None:
     web_login(client)
     csrf = csrf_from(client.get("/profile").text)
@@ -894,37 +1026,24 @@ def test_register_and_forgot_require_preauth_csrf(client) -> None:
     assert missing_forgot.status_code == 403
 
 
-def test_login_mount_prefixes_forms_and_assets(client) -> None:
-    response = client.get(
-        "/login",
-        headers={"RStudio-Connect-App-Base-URL": "https://connect.example.gov/content/abc"},
-    )
-    # Without a trusted proxy peer the Connect header is ignored; cookies still use root.
-    assert 'action="/login"' in response.text or 'action="https://' not in response.text
+@pytest.mark.parametrize(
+    ("mount", "headers"),
+    [
+        pytest.param(
+            "",
+            {"RStudio-Connect-App-Base-URL": "https://connect.example.gov/content/abc"},
+            id="untrusted-connect-header",
+        ),
+        pytest.param("/content/abc", {}, id="asgi-mount"),
+    ],
+)
+def test_login_mount_prefixes_forms_and_assets(access_app, mount, headers) -> None:
+    with closing(TestClient(access_app, root_path=mount, client=("192.0.2.10", 50000))) as browser:
+        response = browser.get(f"{mount}/login", headers=headers, follow_redirects=False)
 
-    from starlette.requests import Request
-
-    from app.ui.urls import form_action, mounted_path
-
-    mounted = Request(
-        {
-            "type": "http",
-            "asgi": {"version": "3.0"},
-            "http_version": "1.1",
-            "method": "GET",
-            "scheme": "http",
-            "path": "/login",
-            "raw_path": b"/login",
-            "query_string": b"",
-            "headers": [],
-            "client": ("127.0.0.1", 0),
-            "server": ("test", 80),
-            "root_path": "/content/abc",
-        }
-    )
-    assert mounted_path(mounted, "/login") == "/content/abc/login"
-    assert mounted_path(mounted, "/") == "/content/abc"
-    assert str(form_action(mounted, "login")).endswith("/content/abc/login")
+    assert response.status_code == 200
+    assert f'action="{mount}/login"' in response.text
+    assert f'src="{mount}/assets/app.js?' in response.text
 
 
 def test_workbench_redirects_are_relative_for_both_entry_points() -> None:

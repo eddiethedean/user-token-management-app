@@ -17,6 +17,7 @@ the work you need to do, then use the maintainer guide for the detailed rules.
 | Change authentication or secrets | [Authentication modes](auth-modes.md) | [Security gate](../SECURITY.md), [Configuration reference](configuration.md) |
 | Change the database schema | [Migration guide](../migrations/README.md) | [Deployment guide](deploy.md), [Troubleshooting](troubleshooting.md) |
 | Operate or recover transfers | [Pipeline runbook](runbooks/pipeline-worker.md) | [Data pipeline lifecycle](data-pipelines.md), [Troubleshooting](troubleshooting.md) |
+| Promote an existing user to administrator | [Administrator promotion epic](stories/administrator-promotion-epic.md) | [Promotion story](stories/administrator-promotion-promote-existing-user.md), [user guide](user-guide.md#make-an-existing-user-an-administrator) |
 | Check data connections from Posit Connect | [Live diagnostics epic](stories/live-deployment-diagnostics-epic.md) | [Admin connection checks](stories/live-deployment-diagnostics-admin-access-and-live-connection-checks.md), [implementation plan](plans/live-deployment-diagnostics.md) |
 | Understand the Hedron integration | [Hedron guide](hedron.md) | [Stability contract](api/STABILITY.md), [Upgrade guide](guides/upgrade.md) |
 | Review the current desktop UI | [Screenshot gallery](screenshots/README.md) | [User guide](user-guide.md), [Guardrail screenshots](screenshots/stories/README.md) |

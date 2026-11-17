@@ -29,12 +29,17 @@ from hedron import (
 from hedron_core import HtmlAttrValue, NodeLike
 
 from app.models import Invitation, Role, User, UserStatus
+from app.services.auth_common import ADMINISTRATOR_ROLE
+from app.services.user_roles import is_promotion_eligible
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.design_system import apply_data_recipe
 from app.ui.forms import csrf_hidden, hidden_field, submit_button
 from app.ui.layout import INDICATOR, alert_box
 from app.ui.partials.shared import _filter_base_path, hedron_pagination
-from app.ui.urls import form_action, hx_attrs
+from app.ui.regions import PROMOTION_DIALOG_FEEDBACK, USER_DIRECTORY_BODY
+from app.ui.urls import USER_PROMOTION_PATH, form_action, hx_attrs
+
+PROMOTION_DIALOG_ID = "administrator-promotion"
 
 
 def user_match_count(total: int, *, oob: bool = False) -> NodeLike:
@@ -45,11 +50,68 @@ def user_match_count(total: int, *, oob: bool = False) -> NodeLike:
     return html.span(Badge(f"{total} matching {noun}", tone="info"), **attrs)
 
 
+def promotion_feedback(message: str, *, code: str, retryable: bool) -> NodeLike:
+    return html.div(
+        alert_box(message),
+        tabindex=-1,
+        data={"promotion-error": code, "promotion-retryable": "true" if retryable else "false"},
+    )
+
+
+def _promotion_dialog(*, csrf_token: str, query: str, status_filter: str, page: int) -> Dialog:
+    fragment_attrs: dict[str, Any] = {
+        "hx-target": USER_DIRECTORY_BODY.selector,
+        "hx-swap": "outerHTML",
+        "hx-indicator": INDICATOR,
+        "hx-request": '{"timeout":45000}',
+    }
+    return Dialog(
+        "Make administrator",
+        Stack(
+            html.p(
+                "Make ", html.strong(data={"promotion-account-label": "true"}), " an administrator?"
+            ),
+            html.p(
+                "This account will be able to manage users, invitations, and the application-wide "
+                "audit log. Their current sessions will end, and they must sign in again."
+            ),
+            html.div(id=PROMOTION_DIALOG_FEEDBACK.id),
+            Form(
+                csrf_hidden(csrf_token),
+                hidden_field("q", query),
+                hidden_field("status", status_filter),
+                hidden_field("page", str(page)),
+                ActionGroup(
+                    Button(
+                        "Cancel",
+                        type="button",
+                        variant="secondary",
+                        attrs={"data-promotion-cancel": "true"},
+                    ),
+                    Button(
+                        "Make administrator",
+                        type="submit",
+                        disabled=True,
+                        attrs={"data-promotion-confirm": "true"},
+                    ),
+                    align="end",
+                ),
+                method="post",
+                data={"promotion-form": "true"},
+                **fragment_attrs,
+            ),
+            gap="sm",
+        ),
+        id=PROMOTION_DIALOG_ID,
+    )
+
+
 def user_table(
     request: Request,
     users: list[User],
     *,
     csrf_token: str,
+    authentication_mode: str,
     query: str,
     status_filter: str,
     page: int,
@@ -60,8 +122,32 @@ def user_table(
     """Directory with native table actions and independently composed dialogs."""
     rows: list[list[NodeLike]] = []
     dialogs: list[NodeLike] = []
+    has_promotion = False
     for user in users:
         actions: list[NodeLike] = []
+        roles = user.role_names
+        can_promote = ADMINISTRATOR_ROLE not in roles and is_promotion_eligible(
+            user, authentication_mode
+        )
+        if can_promote:
+            has_promotion = True
+            actions.append(
+                Button(
+                    "Make administrator",
+                    type="button",
+                    variant="secondary",
+                    size="sm",
+                    attrs={
+                        "aria-controls": PROMOTION_DIALOG_ID,
+                        "aria-haspopup": "dialog",
+                        "data-promotion-user-id": user.id,
+                        "data-promotion-user-label": user.email_original,
+                        "data-promotion-action": str(
+                            form_action(request, USER_PROMOTION_PATH.format(user_id=user.id))
+                        ),
+                    },
+                )
+            )
         if user.status == UserStatus.PENDING.value:
             for action, label in (("approve", "Approve"), ("deny", "Deny")):
                 actions.append(
@@ -134,14 +220,18 @@ def user_table(
                 actions.append(toggle_form)
         rows.append(
             [
-                Stack(
-                    Text(user.email_original, role="label", overflow="truncate"),
-                    Text(
-                        user.full_name or "Name not provided",
-                        role="caption",
-                        overflow="truncate",
+                html.div(
+                    Stack(
+                        Text(user.email_original, role="label", overflow="truncate"),
+                        Text(
+                            user.full_name or "Name not provided",
+                            role="caption",
+                            overflow="truncate",
+                        ),
+                        gap="xs",
                     ),
-                    gap="xs",
+                    id=f"directory-account-{user.id}",
+                    tabindex=-1,
                 ),
                 Badge(
                     user.status,
@@ -153,11 +243,12 @@ def user_table(
                         else "neutral"
                     ),
                 ),
-                ", ".join(user.role_names) or "user",
+                ", ".join("Administrator" if role == ADMINISTRATOR_ROLE else role for role in roles)
+                or "user",
                 ActionGroup(
                     *actions,
                     gap="xs",
-                    collapse="never",
+                    collapse="sm" if can_promote else "never",
                 ),
             ]
         )
@@ -200,6 +291,12 @@ def user_table(
                 description="Adjust the search or status filter to broaden the directory.",
             ),
         )
+    if has_promotion:
+        dialogs.append(
+            _promotion_dialog(
+                csrf_token=csrf_token, query=query, status_filter=status_filter, page=page
+            )
+        )
     return Stack(
         table,
         *dialogs,
@@ -220,6 +317,7 @@ def user_directory(
     users: list[User],
     *,
     csrf_token: str,
+    authentication_mode: str,
     query: str,
     status_filter: str,
     page: int,
@@ -278,6 +376,7 @@ def user_directory(
             request,
             users,
             csrf_token=csrf_token,
+            authentication_mode=authentication_mode,
             query=query,
             status_filter=status_filter,
             page=page,

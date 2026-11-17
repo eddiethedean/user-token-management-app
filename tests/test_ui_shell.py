@@ -88,8 +88,8 @@ def test_login_page_document(access_app) -> None:
     )
     assert "/assets/theme.css" not in response.body
     assert "/app-assets/data-mover-components.css" not in response.body
-    assert_html_contains(response, 'src="/assets/app.js?v=171126.0&amp;ui=7"')
-    assert response.body.count('src="/assets/app.js?v=171126.0&amp;ui=7"') == 1
+    assert_html_contains(response, 'src="/assets/app.js?v=171126.0&amp;ui=9"')
+    assert response.body.count('src="/assets/app.js?v=171126.0&amp;ui=9"') == 1
     assert_html_contains(response, 'data-hedron-theme="folio"')
     assert_html_contains(
         response,
@@ -705,6 +705,7 @@ def test_user_directory_fragment_render() -> None:
             _request(),
             [],
             csrf_token="admin-csrf",
+            authentication_mode="local_password",
             query="",
             status_filter="",
             page=1,
@@ -724,6 +725,8 @@ def test_user_directory_groups_account_identity_in_one_column(status) -> None:
         email_original="ada@example.gov",
         full_name="Ada Lovelace",
         status=status,
+        is_active=status == "active",
+        email_verified_at=None,
         role_names=["user"],
     )
     html = render_html(
@@ -731,6 +734,7 @@ def test_user_directory_groups_account_identity_in_one_column(status) -> None:
             _request(),
             [user],  # pyright: ignore[reportArgumentType]
             csrf_token="admin-csrf",
+            authentication_mode="local_password",
             query="",
             status_filter="",
             page=1,
@@ -943,11 +947,13 @@ def test_complete_browser_surface_is_registered_with_hedron(access_app) -> None:
     ]
     assert Counter(route.kind for route in routes) == {
         "page": 14,
-        "action": 31,
+        "action": 32,
         "view": 6,
     }
     assert all(route.operation_id.startswith(f"hedron_{route.kind}_") for route in routes)
     assert all("csrf" in route.htmx_inference for route in routes if route.kind == "action")
+    promotion = next(route for route in routes if route.path == "/admin/users/{user_id}/promote")
+    assert "promotion-dialog-feedback" in str(promotion.htmx_inference["fragment_regions"])
 
 
 def test_every_unsafe_ui_route_declares_an_application_csrf_boundary(access_app) -> None:

@@ -4,7 +4,7 @@ import json
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.application.ports import RequestMetadata
 from app.config import get_settings
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from fastapi import Request
 
 AUDIT_PAGE_SIZE = 50
+ADMIN_USER_ROLES_CHANGED = "admin.user.roles_changed"
 
 
 def client_ip(request: Request | RequestMetadata | None) -> str:
@@ -74,7 +75,10 @@ def list_audit_events(
 ) -> tuple[list[AuditEvent], int, int, str, str]:
     """Return a page of audit events matching optional type/outcome filters."""
     page = max(1, page)
-    statement = select(AuditEvent)
+    statement = select(AuditEvent).options(
+        joinedload(AuditEvent.actor).load_only(User.email_original),
+        joinedload(AuditEvent.target).load_only(User.email_original),
+    )
     count_statement = select(func.count()).select_from(AuditEvent)
     conditions = []
     et = event_type.strip()[:100]

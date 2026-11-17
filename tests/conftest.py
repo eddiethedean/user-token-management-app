@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import os
+from contextlib import ExitStack
+from pathlib import Path
+from shutil import copyfile
 
 import pytest
 from fastapi.testclient import TestClient
 from pytest_mongo import factories
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import select
 
 from tests.mongo_support import mongod_executable, mongodb_available, use_external_mongo
 
@@ -16,93 +18,92 @@ mongodb_from_proc = factories.mongodb("mongo_proc")
 mongodb_from_noproc = factories.mongodb("mongo_noproc")
 
 
-def _rebind_database() -> None:
-    """Point the process-wide engine/SessionLocal at the current DATABASE_URL."""
-    from app import database as dbmod
-    from app.config import get_settings
+def pytest_configure(config: pytest.Config) -> None:
+    """Keep the workspace dotenv out of app settings, including collection-time imports."""
+    from app.config import Settings, get_settings
 
+    patch = pytest.MonkeyPatch()
+    patch.setitem(Settings.model_config, "env_file", None)
     get_settings.cache_clear()
-    settings = get_settings()
-    dbmod.engine.dispose()
-    new_engine = create_engine(
-        settings.database_url,
-        **dbmod._engine_options(settings.database_url, settings),
-    )
-    if new_engine.dialect.name == "sqlite":
+    config.add_cleanup(get_settings.cache_clear)
+    config.add_cleanup(patch.undo)
 
-        @event.listens_for(new_engine, "connect")
-        def _enable_sqlite_foreign_keys(dbapi_connection, _) -> None:
-            cursor = dbapi_connection.cursor()
-            try:
-                cursor.execute("PRAGMA foreign_keys=ON")
-            finally:
-                cursor.close()
 
-    dbmod.engine = new_engine
-    dbmod.SessionLocal.configure(bind=new_engine)
+@pytest.fixture(scope="session")
+def sqlite_database_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Migrate an empty SQLite database once per pytest worker."""
+    from app.schema import upgrade_schema
+
+    path = tmp_path_factory.mktemp("sqlite-template") / "schema.db"
+    upgrade_schema(database_url=f"sqlite:///{path}")
+    return path
 
 
 @pytest.fixture()
-def access_app(tmp_path, monkeypatch):
+def access_app(tmp_path, sqlite_database_template):
     """Boot a fresh app against an isolated SQLite database."""
-    db_path = tmp_path / "test.db"
-    monkeypatch.setenv("APP_ENV", "test")
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
-    monkeypatch.setenv("PUBLIC_BASE_URL", "http://testserver")
-    monkeypatch.setenv("JWT_SECRET", "test-jwt-secret-at-least-32-bytes-long!!")
-    monkeypatch.setenv("SESSION_PEPPER", "test-session-pepper-at-least-32-bytes!!")
-    monkeypatch.setenv("CSRF_SECRET", "test-csrf-secret-at-least-32-bytes-long!")
-    monkeypatch.setenv(
-        "API_TOKEN_ENCRYPTION_KEYS",
-        '{"development-v1":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}',
-    )
-    monkeypatch.setenv("API_TOKEN_ACTIVE_KEY_ID", "development-v1")
-    monkeypatch.setenv("ALLOWED_EMAIL_DOMAINS", "example.gov")
-    monkeypatch.setenv("AUTHENTICATION_MODE", "local_password")
-    monkeypatch.setenv("COOKIE_SECURE", "false")
-    monkeypatch.delenv("POSIT_PRODUCT", raising=False)
-    monkeypatch.setenv("EMAIL_BACKEND", "console")
-    monkeypatch.setenv("PASSWORD_HASH_SCHEME", "pbkdf2_sha256")
-    monkeypatch.setenv("PBKDF2_ITERATIONS", "100000")
-    monkeypatch.setenv("DATA_MOVER_MODE", "demo")
-    monkeypatch.setenv("TRUSTED_PROXY_IPS", "127.0.0.1")
-
-    _rebind_database()
-    from app.schema import upgrade_schema
-
-    upgrade_schema()
-    from app.config import get_settings as _get_settings
-    from app.connectors.registry import load_builtin_connectors
-
-    load_builtin_connectors(demo=_get_settings().is_demo_mode)
-
+    from app import database as dbmod
     from app.cli import create_admin
-    from app.main import app
-
-    os.environ["ADMIN_BOOTSTRAP_PASSWORD"] = "Tr0pic-Maple!River92"
-    assert create_admin("admin@example.gov", password="Tr0pic-Maple!River92") == 0
-
-    from app.connectors.registry import current_registry
-    from app.database import stable_session_factory
-    from app.infrastructure.runtime import ExecutionRuntime
-
-    # Direct fixture clients use an explicit isolated runtime generation. Production
-    # app lifespans still replace it with their accepting/draining generation.
-    app.state.runtime_lifecycle = "fixture"
-    app.state.execution = ExecutionRuntime(
-        _get_settings(), stable_session_factory(), current_registry()
-    )
-    app.state.settings = _get_settings()
-    app.state.ready = True
-
-    yield app
-
-    app.state.execution.begin_shutdown()
-    app.state.ready = False
-    app.state.runtime_lifecycle = "closed"
     from app.config import get_settings
+    from app.connectors import registry as registry_module
+    from app.infrastructure.runtime import ExecutionRuntime
+    from tests.helpers import ADMIN_EMAIL, ADMIN_PASSWORD
 
-    get_settings.cache_clear()
+    db_path = tmp_path / "test.db"
+    copyfile(sqlite_database_template, db_path)
+    with ExitStack() as cleanup:
+        cleanup.callback(get_settings.cache_clear)
+        patch = cleanup.enter_context(pytest.MonkeyPatch.context())
+        patch.setenv("APP_ENV", "test")
+        patch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+        patch.setenv("PUBLIC_BASE_URL", "http://testserver")
+        patch.setenv("JWT_SECRET", "test-jwt-secret-at-least-32-bytes-long!!")
+        patch.setenv("SESSION_PEPPER", "test-session-pepper-at-least-32-bytes!!")
+        patch.setenv("CSRF_SECRET", "test-csrf-secret-at-least-32-bytes-long!")
+        patch.setenv(
+            "API_TOKEN_ENCRYPTION_KEYS",
+            '{"development-v1":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}',
+        )
+        patch.setenv("API_TOKEN_ACTIVE_KEY_ID", "development-v1")
+        patch.setenv("ALLOWED_EMAIL_DOMAINS", "example.gov")
+        patch.setenv("AUTHENTICATION_MODE", "local_password")
+        patch.setenv("COOKIE_SECURE", "false")
+        patch.delenv("POSIT_PRODUCT", raising=False)
+        patch.setenv("DIRECTORY_LOOKUP_URL", "")
+        patch.setenv("DIRECTORY_LOOKUP_REQUIRED", "false")
+        patch.setenv("EMAIL_BACKEND", "console")
+        patch.setenv("EMAIL_REDACT_SENT_BODIES", "false")
+        patch.setenv("PASSWORD_HASH_SCHEME", "pbkdf2_sha256")
+        patch.setenv("PBKDF2_ITERATIONS", "100000")
+        patch.setenv("DATA_MOVER_MODE", "demo")
+        patch.setenv("TRUSTED_PROXY_IPS", "127.0.0.1")
+
+        get_settings.cache_clear()
+        settings = get_settings()
+        database = dbmod.create_runtime(settings)
+        cleanup.callback(database.dispose)
+        # The CLI and some fixtures still use the compatibility sessionmaker.
+        patch.setattr(dbmod, "engine", database.engine)
+        patch.setitem(dbmod.SessionLocal.kw, "bind", database.engine)
+
+        registry = registry_module.ConnectorRegistry()
+        patch.setattr(registry_module, "_DEFAULT_REGISTRY", registry)
+        registry_module.load_builtin_connectors(demo=True, registry=registry, settings=settings)
+
+        from app.main import app
+
+        assert create_admin(ADMIN_EMAIL, password=ADMIN_PASSWORD) == 0
+
+        patch.setattr(app.state, "runtime_lifecycle", "fixture")
+        patch.setattr(
+            app.state, "execution", ExecutionRuntime(settings, database.sessions, registry)
+        )
+        patch.setattr(app.state, "settings", settings)
+        patch.setattr(app.state, "ready", True)
+        try:
+            yield app
+        finally:
+            app.state.execution.begin_shutdown()
 
 
 @pytest.fixture()

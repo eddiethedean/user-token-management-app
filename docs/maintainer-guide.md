@@ -386,15 +386,13 @@ Additional opt-in suites:
 pytest -m postgres
 # Requires a reachable MongoDB service; CI supplies one on localhost:27017.
 PYTEST_MONGO_NOPROC=1 pytest -m mongodb
-# Requires an approved live Foundry environment and credentials.
-DATA_MOVER_LIVE_FOUNDRY=1 pytest -m live_foundry
 # Requires PWB_LICENSE and Docker.
 make workbench-up
 make workbench-test
 make workbench-down
 ```
 
-The default test command excludes live Foundry and Workbench Docker tests. PostgreSQL and MongoDB
+The default test command excludes Workbench Docker tests. PostgreSQL and MongoDB
 tests skip when their local binaries/services are unavailable, but a detected binary may still fail
 if the host forbids temporary database processes or shared memory. In that case, use CI or a
 permitted PostgreSQL/MongoDB environment. Do not weaken the coverage gate or disable security tests

@@ -27,12 +27,14 @@ from hedron import (
     StateView,
     Table,
     TableColumn,
+    Text,
     TextInput,
     html,
 )
 from hedron_core import HtmlAttrValue, NodeLike
 
 from app.models import AuditEvent
+from app.services.audit import ADMIN_USER_ROLES_CHANGED
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.design_system import apply_data_recipe
 from app.ui.forms import submit_button
@@ -59,6 +61,27 @@ def _audit_event_detail(event: AuditEvent) -> str:
         detail.setdefault("actor_user_id", actor_user_id)
         detail.setdefault("target_user_id", target_user_id)
     return json.dumps(detail, separators=(",", ":"), sort_keys=True)
+
+
+def _audit_event_disclosure(event: AuditEvent) -> NodeLike:
+    detail = _audit_event_detail(event)
+    content: NodeLike = html.code(detail)
+    if event.event_type == ADMIN_USER_ROLES_CHANGED:
+        actor_email = event.actor.email_original if event.actor else "Account unavailable"
+        target_email = event.target.email_original if event.target else "Account unavailable"
+        content = Stack(
+            html.dl(
+                html.dt("Granted by"),
+                html.dd(Text(actor_email, overflow="wrap")),
+                html.dt("Promoted account"),
+                html.dd(Text(target_email, overflow="wrap")),
+            ),
+            content,
+            gap="sm",
+        )
+    elif detail == "{}":
+        return "No additional details"
+    return Expander("View details", content, open=False, enhance="native")
 
 
 def _audit_results_path(
@@ -287,7 +310,6 @@ def audit_results_body(
     if events:
         rows: list[list[NodeLike]] = []
         for event in events:
-            detail = _audit_event_detail(event)
             rows.append(
                 [
                     html.time(
@@ -308,16 +330,7 @@ def audit_results_body(
                         ),
                     ),
                     event.source_ip or "—",
-                    (
-                        Expander(
-                            "View details",
-                            html.code(detail),
-                            open=False,
-                            enhance="native",
-                        )
-                        if detail != "{}"
-                        else "No additional details"
-                    ),
+                    _audit_event_disclosure(event),
                 ]
             )
         results = apply_data_recipe(

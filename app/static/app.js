@@ -95,6 +95,184 @@ document.addEventListener("htmx:sendError", (event) => {
   restoreColorMode(event.detail.elt.closest(colorModeFormSelector));
 });
 
+const promotionFormSelector = "form[data-promotion-form]";
+const promotionFeedbackId = "promotion-dialog-feedback";
+const promotionUnknown = "Refresh the Team directory to check whether the account was promoted.";
+const blockedPromotions = new WeakMap();
+const directoryRequests = new WeakMap();
+let directoryRevision = 0;
+let pendingPromotion = null;
+
+function promotionAlert(message) {
+  const alert = document.createElement("div");
+  alert.className = "hedron-alert hedron-alert-danger";
+  alert.setAttribute("role", "alert");
+  alert.tabIndex = -1;
+  alert.textContent = message;
+  return alert;
+}
+
+function promotionPageFeedback(message, feedback) {
+  if (!feedback) {
+    feedback = promotionAlert(message);
+    feedback.id = "request-feedback";
+    const stale = document.getElementById("request-feedback");
+    if (stale) stale.replaceWith(feedback);
+    else document.getElementById("hedron-toast")?.append(feedback);
+  }
+  feedback.tabIndex = -1;
+  feedback.focus();
+}
+
+function finishPromotionError(request, { summary, close = false, retryable = false, pageFeedback }) {
+  pendingPromotion = null;
+  const { form, accountId } = request;
+  if (!form.isConnected) return;
+  const dialog = form.closest("dialog");
+  const confirm = form.querySelector("[data-promotion-confirm]");
+  confirm.disabled = !retryable;
+  if (!retryable) {
+    const saved = summary.cloneNode(true);
+    saved.removeAttribute("id");
+    blockedPromotions.get(form).set(accountId, saved);
+  }
+  if (dialog.open && !close) {
+    dialog.querySelector(`#${promotionFeedbackId}`).replaceChildren(summary);
+    summary.focus();
+  } else {
+    if (dialog.open) dialog.close();
+    promotionPageFeedback(summary.textContent, pageFeedback);
+  }
+}
+
+document.addEventListener("click", (event) => {
+  const cancel = event.target.closest?.("[data-promotion-cancel]");
+  if (cancel) {
+    cancel.closest("dialog").close();
+    return;
+  }
+  const opener = event.target.closest?.("[data-promotion-action]");
+  if (!opener) return;
+  const dialog = document.getElementById(opener.getAttribute("aria-controls"));
+  const form = dialog?.querySelector(promotionFormSelector);
+  if (!form || dialog.open || pendingPromotion?.form === form) return;
+
+  const { promotionAction, promotionUserId, promotionUserLabel } = opener.dataset;
+  if (new URL(promotionAction, location.href).origin !== location.origin) return;
+  // Earlier search, pagination, or action responses belong to the previous
+  // directory view. Swapping them would remove this dialog and abort its POST.
+  directoryRevision += 1;
+  form.setAttribute("action", promotionAction);
+  if (window.htmx) {
+    form.setAttribute("hx-post", promotionAction);
+    window.htmx.process(form);
+  }
+  form.dataset.promotionUserId = promotionUserId;
+  dialog.querySelector("[data-promotion-account-label]").textContent = promotionUserLabel;
+  if (!blockedPromotions.has(form)) blockedPromotions.set(form, new Map());
+  const savedFeedback = blockedPromotions.get(form).get(promotionUserId);
+  const feedback = dialog.querySelector(`#${promotionFeedbackId}`);
+  feedback.replaceChildren(...(savedFeedback ? [savedFeedback.cloneNode(true)] : []));
+  form.querySelector("[data-promotion-confirm]").disabled = Boolean(savedFeedback);
+  opener.focus();
+  dialog.showModal();
+  form.querySelector("[data-promotion-cancel]").focus();
+});
+
+document.addEventListener("submit", (event) => {
+  const form = event.target;
+  if (!form.matches?.(promotionFormSelector)) return;
+  const confirm = form.querySelector("[data-promotion-confirm]");
+  if (!form.dataset.promotionUserId || confirm.disabled || pendingPromotion?.form === form) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  } else if (!window.htmx) {
+    confirm.disabled = true;
+  }
+}, true);
+
+document.addEventListener("htmx:beforeRequest", (event) => {
+  const { elt: form, xhr, target } = event.detail;
+  if (!form.matches?.(promotionFormSelector)) {
+    const directory = target?.closest("#user-directory");
+    if (directory) {
+      if (
+        directory.contains(pendingPromotion?.form ?? null) ||
+        directory.querySelector("#administrator-promotion[open]")
+      ) {
+        event.preventDefault();
+      } else {
+        directoryRequests.set(xhr, directoryRevision);
+      }
+    }
+    return;
+  }
+  const confirm = form.querySelector("[data-promotion-confirm]");
+  if (confirm.disabled || pendingPromotion?.form === form) {
+    event.preventDefault();
+    return;
+  }
+  const request = { form, xhr, accountId: form.dataset.promotionUserId };
+  pendingPromotion = request;
+  confirm.disabled = true;
+  form.closest("dialog").querySelector(`#${promotionFeedbackId}`).replaceChildren();
+  const transportFailed = () => {
+    if (pendingPromotion === request) {
+      finishPromotionError(request, { summary: promotionAlert(promotionUnknown) });
+    }
+  };
+  for (const name of ["error", "timeout", "abort"]) {
+    xhr.addEventListener(name, transportFailed, { once: true });
+  }
+});
+
+document.addEventListener("htmx:beforeSwap", (event) => {
+  const { target, xhr, shouldSwap } = event.detail;
+  const revision = directoryRequests.get(xhr);
+  if (revision !== undefined && revision !== directoryRevision && target?.closest("#user-directory")) {
+    event.preventDefault();
+    return;
+  }
+  const request = pendingPromotion;
+  if (!request || xhr !== request.xhr) return;
+  const directoryResponse = xhr.status === 200 && target?.id === "user-directory-body" &&
+    xhr.getResponseHeader("HX-Reswap") === "outerHTML";
+  if (shouldSwap && (directoryResponse || [promotionFeedbackId, "hedron-toast"].includes(target?.id))) return;
+
+  // A proxy or an admission error can return a response without the app's fragment headers.
+  event.detail.shouldSwap = false;
+  const reference = xhr.getResponseHeader("X-Support-Reference");
+  const message = reference ? `${promotionUnknown} Reference: ${reference}.` : promotionUnknown;
+  finishPromotionError(request, { summary: promotionAlert(message), close: true });
+});
+
+document.addEventListener("htmx:afterSettle", (event) => {
+  const request = pendingPromotion;
+  if (!request || event.detail.xhr !== request.xhr) return;
+  if (event.target.id === "user-directory-body" && request.xhr.status === 200) {
+    pendingPromotion = null;
+    const account = document.getElementById(`directory-account-${request.accountId}`);
+    const destination = account ?? document.querySelector("#main-panel h1");
+    if (destination) {
+      destination.tabIndex = -1;
+      destination.focus();
+    }
+  } else if (event.target.id === promotionFeedbackId) {
+    const summary = event.target.querySelector("[data-promotion-error]");
+    finishPromotionError(request, {
+      summary: summary ?? promotionAlert(promotionUnknown),
+      retryable: summary?.dataset.promotionRetryable === "true",
+    });
+  } else if (event.target.id === "hedron-toast") {
+    const pageFeedback = event.target.querySelector(":scope > #request-feedback");
+    finishPromotionError(request, {
+      summary: pageFeedback ?? promotionAlert(promotionUnknown),
+      close: true,
+      pageFeedback,
+    });
+  }
+});
+
 function markPipelineDirty(event) {
   const form = event.target.closest?.("#pipeline-form");
   if (!form || !event.target.matches("input, select, textarea")) return;

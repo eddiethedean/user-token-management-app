@@ -73,6 +73,7 @@ APP_REGIONS: tuple[FragmentRegion, ...] = (
     region_defs.INVITATION_PANEL,
     region_defs.USER_DIRECTORY,
     region_defs.USER_DIRECTORY_BODY,
+    region_defs.PROMOTION_DIALOG_FEEDBACK,
     region_defs.USER_MATCH_COUNT,
     region_defs.AUDIT_RESULTS,
     region_defs.AUDIT_RESULTS_LAZY_BODY,
@@ -114,6 +115,21 @@ def toast_oob(
     )
 
 
+def request_feedback(
+    message: str,
+    *,
+    title: str = "Request could not be completed.",
+    reference_id: str = "",
+) -> NodeLike:
+    return html.div(
+        Alert(message or "The request could not be completed.", title=title, tone="danger"),
+        html.p(f"Reference: {reference_id}", role="caption") if reference_id else None,
+        id="request-feedback",
+        role="region",
+        aria={"label": "Request feedback"},
+    )
+
+
 def request_feedback_oob(
     message: str,
     *,
@@ -121,15 +137,8 @@ def request_feedback_oob(
     reference_id: str = "",
 ) -> OobUpdate:
     """Persist a request failure in the page-level feedback region."""
-
     return OobUpdate(
-        content=html.div(
-            Alert(message or "The request could not be completed.", title=title, tone="danger"),
-            html.p(f"Reference: {reference_id}", role="caption") if reference_id else None,
-            id="request-feedback",
-            role="region",
-            aria={"label": "Request feedback"},
-        ),
+        content=request_feedback(message, title=title, reference_id=reference_id),
         element_id="hedron-toast",
         swap="innerHTML",
     )

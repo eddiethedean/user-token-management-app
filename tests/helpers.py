@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from hedron.testing import AdapterResponse, AppScenario
 from sqlalchemy import select
@@ -56,10 +56,12 @@ def as_adapter(response) -> AdapterResponse:
 
 
 def assert_redirect_path(response, path: str, *, query: dict[str, list[str]] | None = None) -> None:
-    """Assert a redirect's parsed destination instead of matching a URL substring."""
+    """Resolve the redirect as a browser would and verify the app-local destination."""
     location = response.headers.get("location")
     assert location, f"expected redirect location, got headers={dict(response.headers)}"
-    parsed = urlparse(location)
+    origin = urlparse(str(response.request.url))
+    parsed = urlparse(urljoin(origin.geturl(), location))
+    assert (parsed.scheme, parsed.netloc) == (origin.scheme, origin.netloc), location
     assert parsed.path == path, f"expected redirect path {path!r}, got {location!r}"
     if query is not None:
         assert parse_qs(parsed.query, keep_blank_values=True) == query

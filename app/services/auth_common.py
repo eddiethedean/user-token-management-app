@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.db_compat import insert_for
+from app.db_compat import dialect_name, insert_for
 from app.models import RefreshSession, Role, User
+
+ADMINISTRATOR_ROLE = "administrator"
 
 
 class AuthenticationError(ValueError):
@@ -39,12 +41,13 @@ class SessionTokens:
     access_expires_in: int
     refresh_token: str
     session: RefreshSession
+    security_version: int
 
 
 def ensure_default_roles(db: Session) -> None:
     defaults = {
         "user": "Standard account holder",
-        "administrator": "Can manage users, invitations, roles, and audit records",
+        ADMINISTRATOR_ROLE: "Can manage users, invitations, roles, and audit records",
     }
     for name, description in defaults.items():
         values = {"name": name, "description": description}
@@ -60,9 +63,26 @@ def _lock_role(db: Session, name: str) -> Role | None:
     return db.scalar(select(Role).where(Role.name == name).with_for_update())
 
 
+def lock_administrator_role(db: Session) -> Role | None:
+    """Acquire the write lock shared by administrator account mutations."""
+    if dialect_name(db) == "sqlite":
+        # SQLite ignores FOR UPDATE. Take its write lock before reading account state.
+        db.execute(
+            update(Role)
+            .where(Role.name == ADMINISTRATOR_ROLE)
+            .values(name=Role.name)
+            .execution_options(synchronize_session=False)
+        )
+    return _lock_role(db, ADMINISTRATOR_ROLE)
+
+
 def lock_administrator_action(db: Session, actor: User) -> bool:
     """Serialize administrator-account mutations and revalidate the acting administrator."""
-    administrator = db.scalar(select(Role).where(Role.name == "administrator").with_for_update())
-    db.refresh(actor)
-    db.expire(actor, ["roles"])
-    return bool(administrator and actor.is_active and administrator in actor.roles)
+    administrator = lock_administrator_role(db)
+    if administrator is None:
+        return False
+    current_actor = db.get(User, actor.id, populate_existing=True)
+    if current_actor is None or not current_actor.is_active:
+        return False
+    db.expire(current_actor, ["roles"])
+    return administrator in current_actor.roles

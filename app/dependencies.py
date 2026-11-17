@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings  # noqa: F401
 from app.database import get_db
 from app.dev_trace import dev_trace
-from app.models import RefreshSession, User, utcnow
+from app.models import RefreshSession, Role, User, UserStatus, utcnow
 from app.security.cookies import (
     ACCESS_COOKIE,
     REFRESH_COOKIE,
@@ -24,7 +24,7 @@ from app.security.cookies import (
 from app.security.csrf import assert_csrf
 from app.security.tokens import AccessTokenError, decode_access_token, hash_token
 from app.services.auth import SessionTokens, TokenFlowError, rotate_session
-from app.services.auth_common import RefreshOverlapRetry
+from app.services.auth_common import ADMINISTRATOR_ROLE, RefreshOverlapRetry
 
 DbSession = Annotated[Session, Depends(get_db)]
 
@@ -49,6 +49,7 @@ SettingsDep = Annotated[Settings, Depends(request_settings)]
 class AuthContext:
     user: User
     session: RefreshSession
+    security_version: int
     via_bearer: bool = False
 
 
@@ -115,7 +116,12 @@ def get_optional_auth(
                     candidate_index=index,
                     candidate_count=len(access_tokens),
                 )
-                return AuthContext(user=user, session=session, via_bearer=bool(bearer))
+                return AuthContext(
+                    user=user,
+                    session=session,
+                    security_version=user.security_version,
+                    via_bearer=bool(bearer),
+                )
         except AccessTokenError:
             continue
     if bearer:
@@ -164,27 +170,54 @@ def get_optional_auth(
         candidate_index=selected_refresh_index,
         candidate_count=len(refresh_values),
     )
-    return AuthContext(user=rotated.session.user, session=rotated.session)
+    return AuthContext(
+        user=rotated.session.user,
+        session=rotated.session,
+        security_version=rotated.security_version,
+    )
 
 
 OptionalAuth = Annotated[AuthContext | None, Depends(get_optional_auth)]
 
 
+def _authentication_required() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 def require_auth(context: OptionalAuth) -> AuthContext:
-    if not context:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    if context is None:
+        raise _authentication_required()
     return context
 
 
 Auth = Annotated[AuthContext, Depends(require_auth)]
 
 
-def require_admin(context: Auth) -> AuthContext:
-    if "administrator" not in context.user.role_names:
+def require_admin(context: Auth, db: DbSession) -> AuthContext:
+    # Read the role and session together. A promotion must not elevate a request
+    # whose old session was accepted just before the role was granted.
+    now = utcnow()
+    is_administrator = db.scalar(
+        select(User.roles.any(Role.name == ADMINISTRATOR_ROLE))
+        .select_from(User)
+        .join(RefreshSession, RefreshSession.user_id == User.id)
+        .where(
+            User.id == context.user.id,
+            User.status == UserStatus.ACTIVE.value,
+            User.security_version == context.security_version,
+            RefreshSession.id == context.session.id,
+            RefreshSession.revoked_at.is_(None),
+            RefreshSession.idle_expires_at > now,
+            RefreshSession.absolute_expires_at > now,
+        )
+    )
+    if is_administrator is None:
+        raise _authentication_required()
+    if not is_administrator:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Administrator required")
     return context
 

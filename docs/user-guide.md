@@ -427,6 +427,20 @@ Set `PIPELINE_ENABLE_DATABRICKS=false` before `make demo` to omit this connectio
 - Administrators can use **Audit log** to review application-wide events, including connection,
   CSV, pipeline, authentication, and account-management changes.
 
+### Make an existing user an administrator
+
+Open **Team**, find the account in the directory, and select **Make administrator**. Check the
+email address in the confirmation dialog, then confirm. The account must be active and have a
+verified email address. Accounts that use local password sign-in also need a password set.
+
+The account keeps its existing roles and gains the **Administrator** role. Promotion ends the
+user's current sessions. They can use **Team** and **Audit log** after they sign in again. To
+review who granted the role and which roles changed, filter **Audit log** for
+`admin.user.roles_changed`.
+
+If you lose the response after confirming, refresh **Team** and check the account's **Roles**
+before trying again.
+
 ### Sign out and sessions
 
 Use the account identity link in the upper-right corner to open **Account**, or use the adjacent

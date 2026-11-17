@@ -10,6 +10,9 @@ from urllib.parse import parse_qsl, urlsplit
 from fastapi import Request
 from hedron import SafeUrl, UrlPurpose
 from hedron_posit import browser_mount_from_request, local_href
+from starlette._utils import get_route_path
+
+USER_PROMOTION_PATH = "/admin/users/{user_id}/promote"
 
 
 def _abs_path(path: str) -> str:
@@ -65,7 +68,7 @@ def redirect_path(request: Request, path: str) -> str:
 
     parsed = urlsplit(path)
     target = _abs_path(parsed.path).rstrip("/") or "/"
-    current = str(request.scope.get("path") or "/").split("?", 1)[0]
+    current = get_route_path(request.scope)
     current = current.rstrip("/") or "/"
     start = posixpath.dirname(current.lstrip("/")) or "."
     relative = posixpath.relpath(target.lstrip("/") or ".", start=start)

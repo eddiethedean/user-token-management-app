@@ -195,6 +195,13 @@ def authenticate_trusted_identity(
     return user
 
 
+def _issue_session_tokens(
+    user: User, session: RefreshSession, refresh_token: str, settings: Settings
+) -> SessionTokens:
+    access_token, expires_in = create_access_token(user, session.id, settings)
+    return SessionTokens(access_token, expires_in, refresh_token, session, user.security_version)
+
+
 def create_session(
     db: Session,
     settings: Settings,
@@ -249,10 +256,10 @@ def create_session(
     )
     db.add(session)
     db.flush()
-    access_token, expires_in = create_access_token(user, session.id, settings)
+    tokens = _issue_session_tokens(user, session, raw_refresh, settings)
     record_event(db, "auth.session.created", request=request, actor=user, target=user)
     db.commit()
-    return SessionTokens(access_token, expires_in, raw_refresh, session)
+    return tokens
 
 
 def rotate_session(
@@ -312,7 +319,7 @@ def rotate_session(
                     )
                     db.commit()
                     raise RefreshOverlapRetry("Session refresh proof is missing.")
-                access_token, expires_in = create_access_token(session.user, session.id, settings)
+                tokens = _issue_session_tokens(session.user, session, replacement, settings)
                 record_event(
                     db,
                     "auth.session.refresh_duplicate",
@@ -321,7 +328,7 @@ def rotate_session(
                     target=session.user,
                 )
                 db.commit()
-                return SessionTokens(access_token, expires_in, replacement, session)
+                return tokens
             session.revoked_at = session.revoked_at or retry_now
             record_event(
                 db,
@@ -349,12 +356,12 @@ def rotate_session(
             consumed_at=utcnow(),
         )
     )
-    access_token, expires_in = create_access_token(session.user, session.id, settings)
+    tokens = _issue_session_tokens(session.user, session, replacement, settings)
     record_event(
         db, "auth.session.refreshed", request=request, actor=session.user, target=session.user
     )
     db.commit()
-    return SessionTokens(access_token, expires_in, replacement, session)
+    return tokens
 
 
 def revoke_session(

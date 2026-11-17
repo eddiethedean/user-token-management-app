@@ -25,6 +25,7 @@ record the released code-to-copy-to-log and operator lookup contracts.
 
 | Plan items | Artifact | State |
 |---|---|---|
+| Administrator promotion | [Epic](../stories/administrator-promotion-epic.md), [story](../stories/administrator-promotion-promote-existing-user.md), [implementation and acceptance evidence](administrator-promotion.md), and [issue CSV](../../artifacts/jira/data-mover-administrator-promotion-issues.csv) | Implemented and verified locally on PostgreSQL, SQLite, and Chromium |
 | Pipeline scheduling | [Research and proposed design](pipeline-scheduling-research.md), [epic and nine stories](../stories/pipeline-scheduling-epic.md), and [issue CSV](../../artifacts/jira/data-mover-pipeline-scheduling-issues.csv) | Proposed October 22, 2026; PostgreSQL-backed dispatch with APScheduler 3.x recurrence calculations; implementation and sizing pending |
 | HED-1 | [HTMX Framework 0.16 release pack](hedron-0.16-release-pack.md) | Release-ready checklist; publishing is an external action |
 | HED-2 | [ADE migration one-pager](ade-migration-one-pager.md) and [learning path](ade-learning-path.md) | Ready for internal review |

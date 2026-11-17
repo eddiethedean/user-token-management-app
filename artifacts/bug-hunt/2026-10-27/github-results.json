@@ -1,0 +1,103 @@
+{
+  "reviewed_commit": "2dd38ef00ed3984663a0896e662989a97e7242e0",
+  "created": [
+    {
+      "kind": "new",
+      "number": 165,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/165",
+      "title": "[BUG] Run retention deletes unresolved Databricks publication records and target fences",
+      "severity": "High",
+      "state": "open",
+      "labels": [
+        "bug",
+        "priority: high"
+      ],
+      "body_verified": true
+    },
+    {
+      "kind": "new",
+      "number": 167,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/167",
+      "title": "[BUG] Foundry Decimal casts fail when valid values span batches with different scales",
+      "severity": "Medium",
+      "state": "open",
+      "labels": [
+        "bug",
+        "priority: medium"
+      ],
+      "body_verified": true
+    },
+    {
+      "kind": "new",
+      "number": 164,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/164",
+      "title": "[BUG] Existing PostgreSQL float destinations silently round integer source values",
+      "severity": "High",
+      "state": "open",
+      "labels": [
+        "bug",
+        "priority: high"
+      ],
+      "body_verified": true
+    },
+    {
+      "kind": "new",
+      "number": 168,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/168",
+      "title": "[BUG] Foundry sources report existing zero-row CSV and Parquet files as missing",
+      "severity": "Medium",
+      "state": "open",
+      "labels": [
+        "bug",
+        "priority: medium"
+      ],
+      "body_verified": true
+    },
+    {
+      "kind": "new",
+      "number": 166,
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/166",
+      "title": "[BUG] Databricks conflates TIMESTAMP_NTZ with TIMESTAMP and misses semantic schema changes",
+      "severity": "High",
+      "state": "open",
+      "labels": [
+        "bug",
+        "priority: high"
+      ],
+      "body_verified": true
+    }
+  ],
+  "updated": [
+    {
+      "kind": "existing",
+      "number": 157,
+      "severity": "Medium",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/157#issuecomment-6445434488",
+      "comment_verified": true
+    },
+    {
+      "kind": "existing",
+      "number": 27,
+      "severity": "High",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/27#issuecomment-6445433324",
+      "comment_verified": true
+    },
+    {
+      "kind": "existing",
+      "number": 81,
+      "severity": "Medium",
+      "url": "https://github.com/eddiethedean/user-token-management-app/issues/81#issuecomment-6445435640",
+      "comment_verified": true
+    }
+  ],
+  "counts": {
+    "confirmed": 8,
+    "new": 5,
+    "existing": 3,
+    "critical": 0,
+    "high": 4,
+    "medium": 4,
+    "low": 0,
+    "pending": 0
+  }
+}

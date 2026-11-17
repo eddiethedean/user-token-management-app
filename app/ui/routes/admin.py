@@ -10,11 +10,13 @@ from hedron import Grid, GridItem, Hedron, HedronRouter, InteractionResult, Stac
 from hedron.htmx import is_htmx_request
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
+from app.application.ports import RequestMetadata
 from app.dependencies import AdminAuth, DbSession, RequireCsrf, SettingsDep
 from app.models import Invitation, Role, User, UserStatus
-from app.services.audit import AUDIT_PAGE_SIZE, list_audit_events, record_event
+from app.services.audit import AUDIT_PAGE_SIZE, client_ip, list_audit_events, record_event
 from app.services.auth import (
     approve_self_registration,
     create_invitation,
@@ -26,10 +28,12 @@ from app.services.auth import (
 from app.services.directory import (
     ADMIN_PAGE_SIZE,
     DirectoryUnavailableError,
+    UserListingValues,
     user_listing_values,
     validate_directory_email,
 )
 from app.services.mailer import schedule_email_delivery
+from app.services.user_roles import PromotionError, PromotionRejected, PromotionResult, promote_user
 from app.ui import partials as ui
 from app.ui.design_system import DataMoverPageHeader as PageHeader
 from app.ui.design_system import surface_card
@@ -57,6 +61,7 @@ from app.ui.params import (
     UserIdPath,
 )
 from app.ui.partials.admin_audit import audit_refresh_oob
+from app.ui.partials.admin_users import promotion_feedback
 from app.ui.regions import (
     AUDIT_MATCH_COUNT,
     AUDIT_REFRESH,
@@ -65,6 +70,7 @@ from app.ui.regions import (
     AUDIT_RESULTS_LAZY_BODY,
     INVITATION_PANEL,
     MAIN_PANEL,
+    PROMOTION_DIALOG_FEEDBACK,
     REQUEST_FEEDBACK,
     SIDE_NAV,
     TOAST_HOST,
@@ -72,16 +78,80 @@ from app.ui.regions import (
     USER_DIRECTORY_BODY,
     USER_MATCH_COUNT,
 )
-from app.ui.urls import mounted_path, redirect_path
+from app.ui.urls import USER_PROMOTION_PATH, redirect_path
+
+_USER_NOTICES = {
+    "status-updated": "The account status was updated.",
+    "registration-approved": "The registration was approved.",
+    "registration-denied": "The registration was denied.",
+    "role-updated": "The account is now an administrator. They must sign in again.",
+    "already-administrator": "This account is already an administrator.",
+}
+_PROMOTION_ERRORS = {
+    PromotionError.FORBIDDEN: (status.HTTP_403_FORBIDDEN, "Administrator required"),
+    PromotionError.NOT_FOUND: (
+        status.HTTP_404_NOT_FOUND,
+        "User not found. Refresh the directory to see current accounts.",
+    ),
+    PromotionError.INELIGIBLE: (
+        status.HTTP_409_CONFLICT,
+        "This account must be active, have a verified email, and have a password when using "
+        "local sign-in. Refresh the directory before trying again.",
+    ),
+    PromotionError.ROLE_UNAVAILABLE: (
+        status.HTTP_503_SERVICE_UNAVAILABLE,
+        "Administrator promotion is temporarily unavailable. Refresh the directory before trying again.",
+    ),
+    PromotionError.WRITE_CONFLICT: (
+        status.HTTP_409_CONFLICT,
+        "Another account update is in progress. Wait a moment and try again.",
+    ),
+}
 
 
-def user_listing_path(
-    request: Request, *, query: str = "", status_filter: str = "", page: int = 1, notice: str = ""
-) -> str:
-    parameters = [("q", query), ("status", status_filter), ("page", str(max(1, page)))]
-    if notice:
-        parameters.append(("notice", notice))
-    return mounted_path(request, "/admin/users?" + urlencode(parameters))
+def _user_table(
+    request: Request, listing: UserListingValues, csrf_token: str, authentication_mode: str
+):
+    return ui.user_table(
+        request,
+        listing["users"],
+        csrf_token=csrf_token,
+        authentication_mode=authentication_mode,
+        query=listing["user_query"],
+        status_filter=listing["status_filter"],
+        page=listing["current_page"],
+        page_count=listing["page_count"],
+        total_users=listing["total_users"],
+        page_size=ADMIN_PAGE_SIZE,
+    )
+
+
+async def _user_mutation_response(
+    request: Request,
+    listing: UserListingValues,
+    *,
+    csrf_token: str,
+    authentication_mode: str,
+    notice: str,
+) -> Response:
+    query = urlencode(
+        {
+            "q": listing["user_query"],
+            "status": listing["status_filter"],
+            "page": listing["current_page"],
+            "notice": notice,
+        }
+    )
+    return await mutation_response(
+        request,
+        redirect=redirect_path(request, f"/admin/users?{query}"),
+        fragment=ok_fragment(
+            _user_table(request, listing, csrf_token, authentication_mode),
+            oob=(user_match_count_oob(listing["total_users"]),),
+            toast=_USER_NOTICES[notice],
+            reswap="outerHTML",
+        ),
+    )
 
 
 def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
@@ -108,23 +178,19 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
         notice: NoticeQuery = "",
     ) -> Response:
         request.state.hedron_authenticated = True
-        user_notices = {
-            "status-updated": "The account status was updated.",
-            "registration-approved": "The registration was approved.",
-            "registration-denied": "The registration was denied.",
-        }
         invitation_notices = {
             "invitation-queued": "The invitation was queued for delivery.",
             "invitation-revoked": "The invitation was revoked.",
         }
         listing = user_listing_values(
-            db, query=q, status_filter=status, page=page, user_success=user_notices.get(notice, "")
+            db, query=q, status_filter=status, page=page, user_success=_USER_NOTICES.get(notice, "")
         )
         csrf = auth.session.csrf_token
         directory = ui.user_directory(
             request,
             listing["users"],
             csrf_token=csrf,
+            authentication_mode=settings.authentication_mode,
             query=listing["user_query"],
             status_filter=listing["status_filter"],
             page=listing["current_page"],
@@ -136,17 +202,7 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
         if is_filter_fragment(request, "#user-directory", "#user-directory-body"):
             target = hx_target(request)
             if target == "#user-directory-body":
-                body = ui.user_table(
-                    request,
-                    listing["users"],
-                    csrf_token=csrf,
-                    query=listing["user_query"],
-                    status_filter=listing["status_filter"],
-                    page=listing["current_page"],
-                    page_count=listing["page_count"],
-                    total_users=listing["total_users"],
-                    page_size=ADMIN_PAGE_SIZE,
-                )
+                body = _user_table(request, listing, csrf, settings.authentication_mode)
                 return await interaction_response(
                     request,
                     ok_fragment(
@@ -299,11 +355,10 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Administrator required"
             )
-        user = db.get(User, user_id)
+        user = db.get(User, user_id, populate_existing=True)
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         notice = "status-updated"
-        toast = "The account status was updated."
         if action == "toggle":
             if user.id == auth.user.id:
                 raise HTTPException(
@@ -355,7 +410,6 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                     status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
                 ) from exc
             notice = "registration-approved"
-            toast = "The registration was approved."
         elif action == "deny":
             try:
                 deny_self_registration(
@@ -368,29 +422,78 @@ def register_admin_routes(app: Hedron, fragment_router: HedronRouter) -> None:
                     status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
                 ) from exc
             notice = "registration-denied"
-            toast = "The registration was denied."
         listing = user_listing_values(db, query=q, status_filter=status_filter, page=page)
-        return await mutation_response(
+        return await _user_mutation_response(
             request,
-            redirect=user_listing_path(
-                request, query=q, status_filter=status_filter, page=page, notice=notice
-            ),
-            fragment=ok_fragment(
-                ui.user_table(
-                    request,
-                    listing["users"],
-                    csrf_token=auth.session.csrf_token,
-                    query=listing["user_query"],
-                    status_filter=listing["status_filter"],
-                    page=listing["current_page"],
-                    page_count=listing["page_count"],
-                    total_users=listing["total_users"],
-                    page_size=ADMIN_PAGE_SIZE,
+            listing,
+            csrf_token=auth.session.csrf_token,
+            authentication_mode=settings.authentication_mode,
+            notice=notice,
+        )
+
+    @app.action(
+        USER_PROMOTION_PATH,
+        fragment_regions=(
+            USER_DIRECTORY_BODY,
+            USER_MATCH_COUNT,
+            PROMOTION_DIALOG_FEEDBACK,
+            TOAST_HOST,
+            REQUEST_FEEDBACK,
+        ),
+        include_in_schema=False,
+    )
+    async def promote_user_submit(
+        user_id: UserIdPath,
+        request: Request,
+        auth: AdminAuth,
+        db: DbSession,
+        settings: SettingsDep,
+        _csrf: RequireCsrf,
+        q: ListingQueryForm = "",
+        status: ListingStatusForm = "",
+        page: ListingPageForm = 1,
+    ) -> Response:
+        request.state.hedron_authenticated = True
+        csrf = auth.session.csrf_token
+        try:
+            result = await run_in_threadpool(
+                promote_user,
+                db,
+                actor_id=auth.user.id,
+                target_id=user_id,
+                authentication_mode=settings.authentication_mode,
+                request=RequestMetadata(
+                    request_id=getattr(request.state, "request_id", ""),
+                    source_ip=client_ip(request),
                 ),
-                oob=(user_match_count_oob(listing["total_users"]),),
-                toast=toast,
-                reswap="outerHTML",
-            ),
+            )
+        except PromotionRejected as exc:
+            response_status, message = _PROMOTION_ERRORS[exc.code]
+            if not is_htmx_request(request) or exc.code is PromotionError.FORBIDDEN:
+                raise HTTPException(status_code=response_status, detail=message) from exc
+            return await interaction_response(
+                request,
+                ok_fragment(
+                    promotion_feedback(
+                        message,
+                        code=exc.code.value,
+                        retryable=exc.code is PromotionError.WRITE_CONFLICT,
+                    ),
+                    status_code=response_status,
+                    retarget=PROMOTION_DIALOG_FEEDBACK.selector,
+                    reswap="innerHTML",
+                ),
+            )
+
+        listing = user_listing_values(db, query=q, status_filter=status, page=page)
+        return await _user_mutation_response(
+            request,
+            listing,
+            csrf_token=csrf,
+            authentication_mode=settings.authentication_mode,
+            notice="role-updated"
+            if result is PromotionResult.PROMOTED
+            else "already-administrator",
         )
 
     @app.action(

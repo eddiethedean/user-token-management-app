@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from typing import cast
 from urllib.parse import parse_qs, urlsplit
 
+import pytest
 from fastapi.testclient import TestClient
 from hedron.testing import (
     AppScenario,
@@ -34,7 +35,7 @@ from starlette.requests import Request
 
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import RefreshSession
+from app.models import RefreshSession, User
 from app.security.tokens import decode_access_token
 from app.ui import partials as ui
 from app.ui.interactions import APP_REGIONS, toast_oob
@@ -441,6 +442,156 @@ def test_admin_invite_and_toggle_toasts(htmx, make_user) -> None:
     assert_html_contains(toggle_adapter, "hedron-toast")
     assert_html_contains(toggle_adapter, "account status was updated")
     assert_html_contains(toggle_adapter, "hedron-dialog")
+
+
+def test_promotion_htmx_keeps_filter_and_page_and_replaces_only_directory_body(
+    htmx, make_user, monkeypatch
+) -> None:
+    from app.services import directory as directory_service
+    from app.ui.routes import admin as admin_routes
+
+    target = make_user("promotion.list.older@example.gov")
+    newer = make_user("promotion.list.newer@example.gov")
+    monkeypatch.setattr(directory_service, "ADMIN_PAGE_SIZE", 1)
+    monkeypatch.setattr(admin_routes, "ADMIN_PAGE_SIZE", 1)
+    htmx_login(htmx, next_path="/admin/users")
+    query = {"q": "promotion.list", "status": "active", "page": "2"}
+    headers = {"HX-Target": "#user-directory-body", "Accept": "text/html"}
+    before = htmx.get("/admin/users", params=query, headers=headers)
+    action = f"/admin/users/{target.id}/promote"
+    assert f'data-promotion-action="{action}"' in before.text
+    assert before.text.count('id="administrator-promotion"') == 1
+    assert before.text.count('id="promotion-dialog-feedback"') == 1
+    assert 'name="page" value="2"' in before.text
+
+    form = {"csrf_token": csrf_from(before.text), **query}
+    response = htmx.post(action, data=form, headers=headers)
+    assert response.status_code == 200
+    assert response.headers["HX-Reswap"] == "outerHTML"
+    assert_fragment_body(as_adapter(response), contains="user-directory-body")
+    assert_ui_targets_subset_of_regions(response.text, APP_REGIONS)
+    assert 'id="invitation-panel"' not in response.text
+    assert 'id="user-match-count"' in response.text and "2 matching accounts" in response.text
+    assert target.email in response.text and "Administrator, user" in response.text
+    assert newer.email not in response.text
+    assert 'name="q" value="promotion.list"' in response.text
+    assert 'name="status" value="active"' in response.text
+    assert 'name="page" value="2"' in response.text
+    assert f'data-promotion-action="{action}"' not in response.text
+    assert "They must sign in again" in response.text
+
+    duplicate = htmx.post(action, data=form, headers=headers)
+    assert duplicate.status_code == 200
+    assert "This account is already an administrator." in duplicate.text
+
+
+def test_promotion_checks_eligibility_in_filters_and_at_submission(htmx, make_user) -> None:
+    eligible = make_user("promotion.eligible@example.gov")
+    pending = make_user("promotion.pending@example.gov", status="pending")
+    disabled = make_user("promotion.disabled@example.gov", status="disabled")
+    unverified = make_user("promotion.unverified@example.gov", verified=False)
+    no_password = make_user("promotion.no-password@example.gov")
+    administrator = make_user("promotion.administrator@example.gov", roles=("administrator",))
+    with SessionLocal() as db:
+        account = db.get(User, no_password.id)
+        assert account is not None
+        account.password_hash = None
+        db.commit()
+    htmx_login(htmx, next_path="/admin/users")
+
+    listing = htmx.get("/admin/users?q=promotion", headers={"HX-Target": "#user-directory"})
+    assert listing.status_code == 200
+    assert listing.text.count("data-promotion-action=") == 1
+    assert f'data-promotion-user-id="{eligible.id}"' in listing.text
+    assert administrator.email in listing.text
+    csrf = csrf_from(listing.text)
+    # Disable the eligible account after the administrator has seen the action.
+    with SessionLocal() as db:
+        stale = db.get(User, eligible.id)
+        assert stale is not None
+        stale.status = "disabled"
+        db.commit()
+
+    headers = {"HX-Target": "#user-directory-body", "Accept": "text/html"}
+    for user in (eligible, pending, disabled, unverified, no_password):
+        rejected = htmx.post(
+            f"/admin/users/{user.id}/promote", data={"csrf_token": csrf}, headers=headers
+        )
+        assert rejected.status_code == 409
+        assert rejected.headers["HX-Retarget"] == "#promotion-dialog-feedback"
+        assert rejected.headers["HX-Reswap"] == "innerHTML"
+        assert 'data-promotion-error="target_ineligible"' in rejected.text
+        assert 'data-promotion-retryable="false"' in rejected.text
+    not_found = htmx.post(
+        "/admin/users/00000000-0000-0000-0000-000000000000/promote",
+        data={"csrf_token": csrf},
+        headers=headers,
+    )
+    assert not_found.status_code == 404
+    assert not_found.headers["HX-Retarget"] == "#promotion-dialog-feedback"
+    invalid = htmx.post(
+        "/admin/users/not-a-uuid/promote", data={"csrf_token": csrf}, headers=headers
+    )
+    assert invalid.status_code == 422
+    assert invalid.headers["HX-Retarget"] == "#hedron-toast"
+
+
+@pytest.mark.parametrize(
+    ("error_code", "status_code", "retryable"),
+    [("administrator_role_unavailable", 503, "false"), ("write_conflict", 409, "true")],
+)
+def test_promotion_htmx_renders_typed_dialog_errors(
+    htmx, make_user, monkeypatch, error_code, status_code, retryable
+) -> None:
+    from app.services.user_roles import PromotionError, PromotionRejected
+    from app.ui.routes import admin as admin_routes
+
+    target = make_user("promotion.errors@example.gov")
+    htmx_login(htmx, next_path="/admin/users")
+    csrf = csrf_from(htmx.get("/admin/users").text)
+
+    def reject(*_args, **_kwargs):
+        raise PromotionRejected(PromotionError(error_code))
+
+    monkeypatch.setattr(admin_routes, "promote_user", reject)
+    response = htmx.post(
+        f"/admin/users/{target.id}/promote",
+        data={"csrf_token": csrf},
+        headers={"HX-Target": "#user-directory-body", "Accept": "text/html"},
+    )
+    assert response.status_code == status_code
+    assert response.headers["HX-Retarget"] == "#promotion-dialog-feedback"
+    assert response.headers["HX-Reswap"] == "innerHTML"
+    assert f'data-promotion-error="{error_code}"' in response.text
+    assert f'data-promotion-retryable="{retryable}"' in response.text
+    assert 'role="alert"' in response.text and 'tabindex="-1"' in response.text
+    assert 'id="user-directory-body"' not in response.text
+
+
+def test_promotion_unexpected_failure_preserves_reference_and_refresh_guidance(
+    htmx, make_user, monkeypatch
+) -> None:
+    from app.ui.routes import admin as admin_routes
+
+    target = make_user("promotion.unexpected@example.gov")
+    htmx_login(htmx, next_path="/admin/users")
+    csrf = csrf_from(htmx.get("/admin/users").text)
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("private database failure")
+
+    monkeypatch.setattr(admin_routes, "promote_user", fail)
+    response = htmx.post(
+        f"/admin/users/{target.id}/promote",
+        data={"csrf_token": csrf},
+        headers={"HX-Target": "#user-directory-body", "Accept": "text/html"},
+    )
+    assert response.status_code == 500
+    assert response.headers["HX-Retarget"] == "#hedron-toast"
+    assert response.headers["X-Support-Reference"] in response.text
+    assert "Refresh the Team directory to check whether the account was promoted" in response.text
+    assert 'id="request-feedback"' in response.text
+    assert "private database failure" not in response.text
 
 
 def test_admin_directory_and_audit_filter_fragments(htmx, make_user) -> None:

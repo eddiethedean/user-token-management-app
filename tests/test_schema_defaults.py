@@ -5,10 +5,11 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import cast
 
+import pytest
 from alembic import command
 from sqlalchemy import create_engine, inspect, text
 
-from app.schema import alembic_config
+from app.schema import alembic_config, assert_schema_current, current_revision, head_revision
 
 
 def test_alembic_revision_ids_fit_version_table_limit() -> None:
@@ -23,6 +24,25 @@ def test_alembic_revision_ids_fit_version_table_limit() -> None:
         )
         assert match is not None, migration
         assert len(match.group(1)) <= 32, migration
+
+
+def test_schema_check_rejects_empty_and_outdated_databases(tmp_path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'startup.db'}"
+    config = alembic_config(database_url)
+    engine = create_engine(database_url)
+    try:
+        with pytest.raises(RuntimeError, match="no Alembic revision"):
+            assert_schema_current(engine)
+
+        command.upgrade(config, "0001_initial_schema")
+        with pytest.raises(RuntimeError, match="schema is at 0001_initial_schema"):
+            assert_schema_current(engine)
+
+        command.upgrade(config, "head")
+        assert_schema_current(engine)
+        assert current_revision(engine) == head_revision()
+    finally:
+        engine.dispose()
 
 
 def test_token_expiry_migration_preserves_credentials_and_defaults_to_unknown(tmp_path) -> None:
