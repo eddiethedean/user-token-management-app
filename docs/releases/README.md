@@ -8,7 +8,8 @@ Published status requires separate tag/package and release-approval evidence.
 | Release note | Status | Scope |
 |---|---|---|
 | [Unreleased changes](../../CHANGELOG.md#unreleased) | Current working-tree additions | Credential-generation guards, timestamp/numeric/CSV integrity, recovery retention, queue wakeups, token expiry, and the four-provider desktop demo |
-| [Data Mover 271026.0](../../CHANGELOG.md#2710260--2026-10-27) | Current repository release | Version bump |
+| [Data Mover 171126.0](../../CHANGELOG.md#1711260--2026-11-17) | Current repository release | Version bump |
+| [Data Mover 271026.0](../../CHANGELOG.md#2710260--2026-10-27) | Historical repository release | Version bump |
 | [Data Mover 221026.0](../../CHANGELOG.md#2210260--2026-10-22) | Historical repository release | Version bump |
 | [Data Mover 211026.1](../../CHANGELOG.md#2110261--2026-10-21) | Historical repository release | Version bump |
 | [Data Mover 211026.0](../../CHANGELOG.md#2110260--2026-10-21) | Historical repository release | Version bump |

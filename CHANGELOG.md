@@ -1,5 +1,11 @@
 # Changelog
 
+## [171126.0] — 2026-11-17
+
+### Changed
+
+- Bumped the application version to `171126.0`.
+
 ## [Unreleased]
 
 ### Added
