@@ -179,7 +179,11 @@ while each connector owns its namespace and object discovery. Real catalog reque
 owner's connected credential only for that request and persist only credential-free locator/metadata payloads in an owner-scoped
 cache for `PIPELINE_CATALOG_TTL_SECONDS`; credential replacement or deletion invalidates that
 provider's rows. The UI receives a composed catalog factory; it does not construct SQLAlchemy cache
-or credential adapters. Route compatibility is derived from registered source/destination capabilities:
+or credential adapters. Databricks catalog access preserves the revision returned with the decrypted
+bundle and rejects it if the saved connection has since changed. The guard never relabels an old
+token with a replacement connection's revision.
+
+Route compatibility is derived from registered source/destination capabilities:
 MSS, MCS-COP, and PostgreSQL are source- and destination-capable; CSV is source-only.
 Connections status, Pipeline selectors, persistence, enqueue, and transfer execution enforce
 capabilities, route safety, and writer flags independently; hiding an option in the browser is not

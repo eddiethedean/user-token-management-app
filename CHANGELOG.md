@@ -29,6 +29,10 @@
 
 ### Fixed
 
+- Reject Databricks catalog credentials if their decrypted revision differs from the current
+  connection, preserving stale-credential and compute-start consent checks during replacement.
+- Renew diagnostic run leases during slow provider checks from an independent database session
+  so completed checks retain their results beyond the initial five-minute lease.
 - Bound Foundry dataset creation results to the credential ID/revision used for the request.
   Replacement or deletion cannot overwrite current health or register an old connection's dataset;
   overlapping creates preserve the revision and can both complete with unchanged credentials.

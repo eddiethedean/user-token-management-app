@@ -16,6 +16,92 @@ from app.services.secrets import store_user_credentials
 from tests.helpers import ADMIN_EMAIL, ADMIN_PASSWORD, csrf_from, login_csrf_from, web_login
 
 
+def test_slow_provider_check_keeps_diagnostic_lease_alive(
+    access_app,
+    demo_connections,
+    monkeypatch,
+) -> None:
+    import threading
+
+    from app.config import get_settings
+    from app.services import live_diagnostics as diagnostics
+
+    settings = get_settings()
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert user is not None
+        user_id = user.id
+        run_id = diagnostics.create_diagnostic_run(db, user=user, settings=settings).id
+
+    now = utcnow()
+    elapsed = [0]
+    renewed = threading.Event()
+    original_heartbeat = diagnostics._heartbeat_diagnostic_lease
+    original_check = diagnostics._test_diagnostic_connection
+    monkeypatch.setattr(diagnostics, "utcnow", lambda: now + timedelta(seconds=elapsed[0]))
+    monkeypatch.setattr(diagnostics, "RUN_HEARTBEAT_SECONDS", 0.01)
+
+    def heartbeat(sessions, run_id, worker_token):
+        before = elapsed[0]
+        result = original_heartbeat(sessions, run_id, worker_token)
+        if result and before == 299:
+            renewed.set()
+        return result
+
+    def slow_check(*args, **kwargs):
+        result = original_check(*args, **kwargs)
+        if elapsed[0] == 0:
+            elapsed[0] = 299
+            assert renewed.wait(5), "The diagnostic lease was not renewed during provider I/O"
+            elapsed[0] = 301
+            with SessionLocal() as db:
+                diagnostics.reconcile_stale_diagnostic_runs(db, user_id=user_id)
+                run = db.get(LiveDiagnosticRun, run_id)
+                assert run is not None and run.status == "running"
+        return result
+
+    monkeypatch.setattr(diagnostics, "_heartbeat_diagnostic_lease", heartbeat)
+    monkeypatch.setattr(diagnostics, "_test_diagnostic_connection", slow_check)
+    diagnostics._execute_diagnostic_checks(run_id, settings)
+
+    with SessionLocal() as db:
+        run = db.get(LiveDiagnosticRun, run_id)
+        assert run is not None
+        assert run.status == "completed_with_gaps"  # No spool directory in the test environment.
+        assert all(
+            item["status"] not in {"pending", "running"} for item in json.loads(run.checks_json)
+        )
+    assert not any(t.name == f"diagnostic-lease-{run_id[:8]}" for t in threading.enumerate())
+
+
+@pytest.mark.parametrize("lost", ["expired", "replaced", "finished"])
+def test_diagnostic_heartbeat_cannot_revive_lost_ownership(access_app, lost) -> None:
+    from app.config import get_settings
+    from app.services import live_diagnostics as diagnostics
+
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == ADMIN_EMAIL))
+        assert user is not None
+        run_id = diagnostics.create_diagnostic_run(db, user=user, settings=get_settings()).id
+    token = diagnostics._claim_diagnostic_run(run_id)
+    assert token is not None
+    with SessionLocal() as db:
+        run = db.get(LiveDiagnosticRun, run_id)
+        assert run is not None
+        if lost == "expired":
+            run.lease_expires_at = utcnow() - timedelta(seconds=1)
+        elif lost == "replaced":
+            run.worker_token = "another-worker"
+        else:
+            run.status = "succeeded"
+        db.commit()
+        deadline = run.lease_expires_at
+    assert not diagnostics._heartbeat_diagnostic_lease(SessionLocal, run_id, token)
+    with SessionLocal() as db:
+        run = db.get(LiveDiagnosticRun, run_id)
+        assert run is not None and run.lease_expires_at == deadline
+
+
 def test_admin_can_run_and_reopen_owner_scoped_diagnostics(client, make_user) -> None:
     web_login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
     page = client.get("/admin/diagnostics")
@@ -676,14 +762,6 @@ def test_diagnostic_catalog_credentials_disable_databricks_startup(client) -> No
             admin,
             cache_enabled=False,
             allow_compute_start=False,
-            credential_resolver=lambda **_kwargs: {
-                "workspace_url": "https://databricks.demo.invalid",
-                "token": "synthetic-diagnostics-token",
-                "compute_kind": "warehouse",
-                "compute_id": "diagnostics-warehouse",
-                "http_path": "sql/1.0/warehouses/diagnostics-warehouse",
-                "startup_policy": "allow_start",
-            },
         )
 
         credentials = catalog._credentials_for("databricks")

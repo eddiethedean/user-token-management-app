@@ -36,6 +36,10 @@ provider does not look like an authentication failure.
 Each result includes a status and a short explanation. When a check needs developer help, the
 report includes a support reference that can be matched to application diagnostics.
 
+While checks run, an independent database session renews the five-minute diagnostic lease every
+100 seconds. A slow provider check can finish without losing its result to lease expiry. Expired
+or superseded workers cannot renew ownership, and heartbeat work stops before the run task exits.
+
 ## Safety and limits
 
 - Checks use the signed-in administrator's saved connections and run from the Posit Connect

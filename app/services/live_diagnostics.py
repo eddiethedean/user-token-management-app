@@ -7,8 +7,10 @@ import logging
 import re
 import subprocess
 import sys
+import threading
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
@@ -51,6 +53,7 @@ CATALOG_LABELS = {
 }
 HISTORY_LIMIT = 20
 RUN_LEASE_SECONDS = 300
+RUN_HEARTBEAT_SECONDS = RUN_LEASE_SECONDS / 3
 QUEUED_RUN_TIMEOUT = timedelta(minutes=5)
 _REPORT_LABELS = {
     "deployment.database": "Application database",
@@ -655,12 +658,59 @@ def _execute_diagnostic_checks(run_id: str, settings: Settings) -> None:
     worker_token = _claim_diagnostic_run(run_id)
     if worker_token is None:
         return
+    with _diagnostic_heartbeat(run_id, worker_token):
+        try:
+            _run_diagnostic_checks(run_id, settings, worker_token)
+        except DiagnosticLeaseLost:
+            return
+        except Exception as exc:
+            _record_unexpected_failure(run_id, worker_token, exc)
+
+
+def _heartbeat_diagnostic_lease(
+    sessions: Callable[[], Session], run_id: str, worker_token: str
+) -> bool:
+    with sessions() as db:
+        now = utcnow()
+        result = execute_dml(
+            db,
+            update(LiveDiagnosticRun)
+            .where(
+                LiveDiagnosticRun.id == run_id,
+                LiveDiagnosticRun.status == "running",
+                LiveDiagnosticRun.worker_token == worker_token,
+                LiveDiagnosticRun.lease_expires_at > now,
+            )
+            .values(lease_expires_at=now + timedelta(seconds=RUN_LEASE_SECONDS)),
+        )
+        db.commit()
+        return result.rowcount == 1
+
+
+@contextmanager
+def _diagnostic_heartbeat(run_id: str, worker_token: str) -> Iterator[None]:
+    # Capture the admitted runtime's factory before crossing the thread boundary.
+    sessions = current_session_factory()
+    stopped = threading.Event()
+
+    def renew() -> None:
+        while not stopped.wait(RUN_HEARTBEAT_SECONDS):
+            try:
+                if not _heartbeat_diagnostic_lease(sessions, run_id, worker_token):
+                    return
+            except Exception as exc:
+                log.error(
+                    "Diagnostic lease heartbeat failed for %s: %s", run_id, type(exc).__name__
+                )
+                return
+
+    thread = threading.Thread(target=renew, name=f"diagnostic-lease-{run_id[:8]}", daemon=True)
+    thread.start()
     try:
-        _run_diagnostic_checks(run_id, settings, worker_token)
-    except DiagnosticLeaseLost:
-        return
-    except Exception as exc:
-        _record_unexpected_failure(run_id, worker_token, exc)
+        yield
+    finally:
+        stopped.set()
+        thread.join()
 
 
 def _claim_diagnostic_run(run_id: str) -> str | None:

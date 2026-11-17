@@ -678,6 +678,13 @@ class UserCatalog:
                     and actual_identity != self.expected_credential_identity
                 ):
                     raise DiagnosticCredentialsStale()
+                if provider_id == "databricks" and actual_identity is not None:
+                    # The resolver returns the generation decrypted with the bundle.
+                    # Never relabel an older token with a subsequently saved revision.
+                    if credentials.get("connection_generation") != actual_identity[1].isoformat(
+                        timespec="microseconds"
+                    ):
+                        raise DiagnosticCredentialsStale()
 
             if self.expected_credential_identity is not None or provider_id == "databricks":
                 pinned_identity = self.expected_credential_identity or actual_identity
@@ -712,11 +719,6 @@ class UserCatalog:
                 cast(dict[str, Any], credentials)["_authorization_check"] = require_current_identity
 
             if provider_id == "databricks":
-                assert actual_identity is not None
-                pinned_identity = self.expected_credential_identity or actual_identity
-                credentials["connection_generation"] = pinned_identity[1].isoformat(
-                    timespec="microseconds"
-                )
                 if not self.allow_compute_start:
                     credentials["startup_policy"] = "manual"
                 if credentials.get("startup_policy") == "allow_start":

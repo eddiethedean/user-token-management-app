@@ -23,6 +23,52 @@ from app.services import catalogs, secrets
 from app.services.secrets import delete_user_secret, store_user_credentials
 
 
+def test_databricks_catalog_rejects_replacement_during_credential_resolution(
+    access_app,
+    demo_connections,
+) -> None:
+    from app.config import get_settings
+    from app.services.demo import DEMO_CONNECTION_CREDENTIALS
+
+    settings = get_settings()
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == "admin@example.gov"))
+        assert user is not None
+
+        def resolve(**_kwargs):
+            bundle = secrets.decrypt_user_credentials_for_run(
+                db, settings, user=user, provider="databricks"
+            )
+            with SessionLocal() as replacement_db:
+                owner = replacement_db.get(User, user.id)
+                assert owner is not None
+                store_user_credentials(
+                    replacement_db,
+                    settings,
+                    user=owner,
+                    provider="databricks",
+                    credentials={
+                        **DEMO_CONNECTION_CREDENTIALS["databricks"],
+                        "token": "replacement-demo-token",
+                    },
+                )
+            return bundle
+
+        browser = Mock()
+        catalog = catalogs.UserCatalog(
+            db,
+            settings,
+            user,
+            cache_enabled=False,
+            credential_resolver=resolve,
+            browser_resolver=lambda _provider: browser,
+        )
+        with pytest.raises(ConnectorError) as error:
+            catalog.list_namespaces("databricks")
+        assert error.value.code == TransferErrorCode.CREDENTIALS_STALE
+        browser.list_namespaces.assert_not_called()
+
+
 def test_real_catalog_decrypts_owner_credentials_for_connector(monkeypatch) -> None:
     db = Mock()
     db.scalar.side_effect = [None, None]
