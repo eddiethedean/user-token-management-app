@@ -94,12 +94,15 @@ def access_app(tmp_path, sqlite_database_template):
 
         assert create_admin(ADMIN_EMAIL, password=ADMIN_PASSWORD) == 0
 
-        patch.setattr(app.state, "runtime_lifecycle", "fixture")
+        patch.setattr(app.state, "runtime_lifecycle", "fixture", raising=False)
         patch.setattr(
-            app.state, "execution", ExecutionRuntime(settings, database.sessions, registry)
+            app.state,
+            "execution",
+            ExecutionRuntime(settings, database.sessions, registry),
+            raising=False,
         )
-        patch.setattr(app.state, "settings", settings)
-        patch.setattr(app.state, "ready", True)
+        patch.setattr(app.state, "settings", settings, raising=False)
+        patch.setattr(app.state, "ready", True, raising=False)
         try:
             yield app
         finally:
